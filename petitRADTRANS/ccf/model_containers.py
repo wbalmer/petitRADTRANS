@@ -12,13 +12,14 @@ from scipy.ndimage import gaussian_filter1d
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.ccf.pipeline import simple_pipeline
-from petitRADTRANS.ccf.utils import calculate_uncertainty, module_dir, dict2hdf5, hdf52dict
+from petitRADTRANS.ccf.utils import calculate_uncertainty, module_dir, dict2hdf5, hdf52dict, fill_object
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_global, guillot_metallic_temperature_profile
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval import RetrievalConfig
-from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
+from petitRADTRANS.retrieval.util import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
+    delta_prior
 
 # from petitRADTRANS.config import petitradtrans_config
 
@@ -1212,40 +1213,86 @@ class RetrievalParameter:
         'delta'
     ]
 
-    def __init__(self, name, prior_boundaries, prior_type='uniform'):
-        if not hasattr(prior_boundaries, '__iter__'):
+    def __init__(self, name, prior_parameters, prior_type='uniform'):
+        if not hasattr(prior_parameters, '__iter__'):
             raise ValueError(
-                f"'prior_boundaries' must be an iterable of size 2, but is of type '{type(prior_boundaries)}'"
+                f"'prior_parameters' must be an iterable of size 2, but is of type '{type(prior_parameters)}'"
             )
-        elif np.size(prior_boundaries) < 2:
+        elif np.size(prior_parameters) < 2:
             raise ValueError(
-                f"'prior_boundaries' must be of size 2, but is of size '{np.size(prior_boundaries)}'"
+                f"'prior_parameters' must be of size 2, but is of size '{np.size(prior_parameters)}'"
             )
-        elif prior_boundaries[0] > prior_boundaries[1]:
+        elif prior_parameters[0] > prior_parameters[1] and (prior_type == 'log' or prior_type == 'uniform'):
             raise ValueError(
-                f"lower prior boundaries ({prior_boundaries[0]}) "
-                f"must be lower than upper prior boundaries ({prior_boundaries[1]})"
+                f"lower prior boundaries ({prior_parameters[0]}) "
+                f"must be lower than upper prior boundaries ({prior_parameters[1]})"
             )
 
-        if prior_type not in RetrievalParameter.available_priors:
+        self.name = name
+        self.prior_parameters = prior_parameters
+        self.prior_type = prior_type
+
+        if self.prior_type == 'log':
+            def prior(x):
+                return log_prior(
+                    cube=x,
+                    lx1=self.prior_parameters[0],
+                    lx2=self.prior_parameters[1]
+                )
+        elif self.prior_type == 'uniform':
+            def prior(x):
+                return uniform_prior(
+                    cube=x,
+                    x1=self.prior_parameters[0],
+                    x2=self.prior_parameters[1]
+                )
+        elif self.prior_type == 'gaussian':
+            def prior(x):
+                return gaussian_prior(
+                    cube=x,
+                    mu=self.prior_parameters[0],
+                    sigma=self.prior_parameters[1]
+                )
+        elif self.prior_type == 'log_gaussian':
+            def prior(x):
+                return log_gaussian_prior(
+                    cube=x,
+                    mu=self.prior_parameters[0],
+                    sigma=self.prior_parameters[1]
+                )
+        elif self.prior_type == 'delta':
+            def prior(x):
+                return delta_prior(
+                    cube=x,  # actually useless
+                    x1=self.prior_parameters[0],
+                    x2=self.prior_parameters[1]  # actually useless
+                )
+        else:
             raise ValueError(
                 f"prior type '{prior_type}' not implemented "
                 f"(available prior types: {'|'.join(RetrievalParameter.available_priors)})"
             )
 
-        self.name = name
-        self.prior_boundaries = prior_boundaries
-        self.prior_type = prior_type
+        self.prior_function = prior
 
     @classmethod
     def from_dict(cls, dictionary):
-        return cls(
-            name=0 # TODO!!!
-        )
+        new_retrieval_parameters = []
+
+        for key, parameters in dictionary.items():
+            new_retrieval_parameters.append(
+                cls(
+                    name=key,
+                    prior_parameters=parameters['prior_parameters'],
+                    prior_type=parameters['prior_type']
+                )
+            )
+
+        return new_retrieval_parameters
 
     def put_into_dict(self, dictionary):
         dictionary[self.name] = {
-            'prior_boundaries': self.prior_boundaries,
+            'prior_boundaries': self.prior_parameters,
             'prior_type': self.prior_type
         }
 
@@ -1342,9 +1389,26 @@ class BaseSpectralModel:
             else:
                 planet_max_radial_orbital_velocity = kwargs['planet_max_radial_orbital_velocity']
         else:
-            planet_max_radial_orbital_velocity = calculate_max_radial_orbital_velocity_function(
-                **kwargs
-            )
+            if 'is_orbiting' in kwargs:
+                if kwargs['is_orbiting']:
+                    planet_max_radial_orbital_velocity = calculate_max_radial_orbital_velocity_function(
+                        **kwargs
+                    )
+                else:
+                    planet_max_radial_orbital_velocity = 0.0
+            else:  # assuming that the planet is orbiting
+                try:
+                    planet_max_radial_orbital_velocity = calculate_max_radial_orbital_velocity_function(
+                        **kwargs
+                    )
+                except TypeError as msg:
+                    raise TypeError(
+                        str(msg) + '\n'
+                        + f"This error was raised because the modelled object was assumed to be orbiting "
+                          f"and some related model parameters were missing.\n"
+                          f"If the modelled object is not orbiting, add key 'is_orbiting' to the model parameters "
+                          f"and set its value to False"
+                    )
 
         kwargs['planet_max_radial_orbital_velocity'] = planet_max_radial_orbital_velocity
 
@@ -1353,8 +1417,17 @@ class BaseSpectralModel:
                 orbital_longitudes = np.rad2deg(2 * np.pi * kwargs['orbital_phases'])
             else:
                 orbital_longitudes = np.zeros(1)
-        else:
+        elif 'orbital_longitudes' in kwargs:
             orbital_longitudes = kwargs['orbital_longitudes']
+        else:
+            if 'is_orbiting' in kwargs:
+                if kwargs['is_orbiting']:
+                    warnings.warn(f"Modelled object is orbiting but no orbital position information were provided, "
+                                  f"assumed an orbital longitude of 0; "
+                                  f"add key 'orbital_longitudes' or 'orbital_phases' to model parameters "
+                                  f"to dismiss this warning")
+
+            orbital_longitudes = np.zeros(1)
 
         kwargs['orbital_longitudes'] = orbital_longitudes
 
@@ -1504,8 +1577,8 @@ class BaseSpectralModel:
 
     @staticmethod
     def calculate_spectral_radiosity_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios,
-                                              planet_surface_gravity, mean_molar_mass, star_effective_temperature,
-                                              star_spectral_radiosities, cloud_pressure=None, **kwargs):
+                                              planet_surface_gravity, mean_molar_mass, star_spectral_radiosities=None,
+                                              star_effective_temperature=None, cloud_pressure=None, **kwargs):
         """Wrapper of Radtrans.calc_flux that output wavelengths in um and spectral radiosity in erg.s-1.cm-2.sr-1/cm.
         # TODO move to Radtrans or outside of object
         Args:
@@ -1523,6 +1596,11 @@ class BaseSpectralModel:
         """
         # Calculate the spectrum
         # TODO units in native calc_flux units for more performances?
+        if star_spectral_radiosities is not None:
+            star_spectral_radiosities = BaseSpectralModel.radiosity_erg_cm2radiosity_erg_hz(
+                star_spectral_radiosities, nc.c / radtrans.freq  # Hz to cm
+            )
+
         radtrans.calc_flux(
             temp=temperatures,
             abunds=mass_mixing_ratios,
@@ -1530,9 +1608,7 @@ class BaseSpectralModel:
             mmw=mean_molar_mass,
             Tstar=star_effective_temperature,
             Pcloud=cloud_pressure,
-            stellar_intensity=BaseSpectralModel.radiosity_erg_cm2radiosity_erg_hz(
-                star_spectral_radiosities, nc.c / radtrans.freq  # Hz to cm
-            )
+            stellar_intensity=star_spectral_radiosities
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
         )
 
@@ -1703,6 +1779,10 @@ class BaseSpectralModel:
                     input_spectrum=spectrum,
                     **self.model_parameters
                 )
+
+                if spectrum.dtype == 'O':
+                    spectrum = np.moveaxis(spectrum, 0, 1)
+
             elif np.ndim(wavelengths) == 2:
                 spectrum_tmp = []
                 wavelengths_tmp = None
@@ -1717,7 +1797,7 @@ class BaseSpectralModel:
 
                 spectrum = np.array(spectrum_tmp)
 
-                if np.ndim(spectrum) == 3:
+                if np.ndim(spectrum) == 3 or spectrum.dtype == 'O':
                     spectrum = np.moveaxis(spectrum, 0, 1)
                 elif np.ndim(spectrum) > 3:
                     raise ValueError(f"spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
@@ -1751,7 +1831,18 @@ class BaseSpectralModel:
             relative_velocities = self.model_parameters['relative_velocities']
 
         # Re-bin requirement is an interval half a bin larger then re-binning interval
-        wavelengths_flat = np.array(output_wavelengths).flatten()
+        if hasattr(output_wavelengths, 'dtype'):
+            if output_wavelengths.dtype != 'O':
+                wavelengths_flat = output_wavelengths.flatten()
+            else:
+                wavelengths_flat = np.concatenate(output_wavelengths)
+        else:
+            wavelengths_flat = np.concatenate(output_wavelengths)
+
+        if np.ndim(wavelengths_flat) > 1:
+            print('!')
+            wavelengths_flat = np.concatenate(wavelengths_flat)
+
         rebin_required_interval = [
             wavelengths_flat[0]
             - (wavelengths_flat[1] - wavelengths_flat[0]) / 2,
@@ -2007,15 +2098,17 @@ class BaseSpectralModel:
 
         return radtrans
 
-    def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties,
-                       retrieved_parameters, parameters=None, retrieval_name='retrieval',
+    def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties, retrieval_directory,
+                       retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
+                       mode='emission', update_parameters=False, deformation_matrix=None, noise_matrix=None,
+                       scale=False, shift=False, convolve=False, rebin=False, reduce=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
-                       write_out_spec_sample=False):
+                       write_out_spec_sample=False, **kwargs):
         if pressures is None:
             pressures = copy.copy(self.pressures)
 
-        if parameters is None:
-            parameters = copy.deepcopy(self.model_parameters)
+        if model_parameters is None:
+            model_parameters = copy.deepcopy(self.model_parameters)
 
         run_definition_simple = RetrievalConfig(
             retrieval_name=retrieval_name,
@@ -2027,38 +2120,108 @@ class BaseSpectralModel:
             write_out_spec_sample=write_out_spec_sample  # TODO unused parameter?
         )
 
+        # Retrieved parameters
+        if isinstance(retrieved_parameters, dict):
+            retrieved_parameters = RetrievalParameter.from_dict(retrieved_parameters)
+
+        for parameter in retrieved_parameters:
+            if not hasattr(parameter, 'prior_function'):
+                raise AttributeError(
+                    f"'{type(parameter)}' object has no attribute 'prior_function': "
+                    f"usage of dictionary or a '{type(RetrievalParameter)}' instance is recommended"
+                )
+
+            run_definition_simple.add_parameter(
+                name=parameter.name,
+                free=True,
+                value=None,
+                transform_prior_cube_coordinate=parameter.prior_function
+            )
+
         # Fixed parameters
-        for parameter in parameters:
-            if parameter not in retrieved_parameters:
+        retrieved_parameters_names = [retrieved_parameter.name for retrieved_parameter in retrieved_parameters]
+
+        for parameter in model_parameters:
+            if parameter not in retrieved_parameters_names:
                 run_definition_simple.add_parameter(
                     name=parameter,
                     free=False,
-                    value=parameters[parameter],
+                    value=model_parameters[parameter],
                     transform_prior_cube_coordinate=None
                 )
 
-        # Retrieved parameters
-        for parameter in retrieved_parameters:
-            if not hasattr(parameter, 'prior_type'):
-                if isinstance(parameter, dict):
-                    if 'prior_type' not in parameter:
-                        raise AttributeError(
-                            f"'{type(parameter)}' object has no attribute 'prior_type': "
-                            f"usage of dictionary or a '{type(RetrievalParameter)}' instance is recommended"
-                        )
-                    else:
-                        pass # TODO!!!!
-
-
-            if parameter.prior_type:
-                pass
-
-            run_definition_simple.add_parameter(
-                name=parameter,
-                free=True,
-                value=None,
-                transform_prior_cube_coordinate=lambda x: 0
+        # Remove masked values if necessary
+        if hasattr(data, 'mask'):
+            data, data_uncertainties, data_mask = BaseSpectralModel.remove_mask(
+                data=data,
+                data_uncertainties=data_uncertainties
             )
+        else:
+            data_mask = fill_object(copy.deepcopy(data), False)
+
+        # Set model generating function
+        def model_generating_function(prt_object, parameters, pt_plot_mode=None, AMR=False):
+            # Convert from Parameter object to dictionary
+            p = copy.deepcopy(parameters)  # copy to avoid over-writing
+
+            for key, value in p.items():
+                if hasattr(value, 'value'):
+                    p[key] = p[key].value
+
+            # Put retrieved species into imposed mass mixing ratio
+            imposed_mass_mixing_ratios = {}
+
+            for species in prt_object.line_species:
+                if species in p:
+                    if species == 'CO_36':
+                        imposed_mass_mixing_ratios[species] = 10 ** p[species] \
+                                                              * np.ones(prt_object.press.shape)
+                    else:
+                        spec = species.split('_R_')[
+                            0]  # deal with the naming scheme for binned down opacities (see below)
+                        # spec = spec.split('_', 1)[0]
+                        imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
+                            * np.ones(prt_object.press.shape)
+
+                    del p[species]
+
+            p['imposed_mass_mixing_ratios'] = imposed_mass_mixing_ratios
+            # parameters['relative_velocities'] = None  # reset relative velocity so it can be calculated
+
+            return self.get_spectrum_model(
+                radtrans=prt_object,
+                mode=mode,
+                parameters=p,
+                update_parameters=update_parameters,
+                deformation_matrix=deformation_matrix,
+                noise_matrix=noise_matrix,
+                scale=scale,
+                shift=shift,
+                convolve=convolve,
+                rebin=rebin,
+                reduce=reduce
+            )
+
+        # Set Data object
+        run_definition_simple.add_data(
+            name='test',
+            path=None,
+            model_generating_function=model_generating_function,
+            opacity_mode='lbl',
+            pRT_object=radtrans,
+            wlen=data_wavelengths,
+            flux=data,
+            flux_error=data_uncertainties,
+            mask=data_mask
+        )
+
+        retrieval = Retrieval(
+            run_definition_simple,
+            output_dir=retrieval_directory,
+            **kwargs
+        )
+
+        return retrieval
 
     @classmethod
     def load(cls, filename):
@@ -2127,30 +2290,105 @@ class BaseSpectralModel:
 
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths, **kwargs):
-        if np.ndim(output_wavelengths) <= 1:
+        if np.ndim(output_wavelengths) <= 1 and isinstance(output_wavelengths, np.ndarray):
             return output_wavelengths, fr.rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths)
-        elif np.ndim(output_wavelengths) == 2:
-            spectra = []
-            lengths = []
-
-            for wavelengths in output_wavelengths:
-                spectra.append(fr.rebin_spectrum(input_wavelengths, input_spectrum, wavelengths))
-                lengths.append(spectra[-1].size)
-
-            if np.all(np.array(lengths) == lengths[0]):
-                spectra = np.array(spectra)
-            else:
-                spectra = np.array(spectra, dtype=object)
-
-            return output_wavelengths, spectra
         else:
-            raise ValueError(f"parameter 'output_wavelengths' must have at most 2 dimensions, "
-                             f"but has {np.ndim(output_wavelengths)}")
+            if (np.ndim(output_wavelengths) == 2 and isinstance(output_wavelengths, np.ndarray)) \
+                    or hasattr(output_wavelengths, '__iter__'):
+                spectra = []
+                lengths = []
+
+                for wavelengths in output_wavelengths:
+                    spectra.append(fr.rebin_spectrum(input_wavelengths, input_spectrum, wavelengths))
+                    lengths.append(spectra[-1].size)
+
+                if np.all(np.array(lengths) == lengths[0]):
+                    spectra = np.array(spectra)
+                else:
+                    spectra = np.array(spectra, dtype=object)
+
+                return output_wavelengths, spectra
+            else:
+                raise ValueError(f"parameter 'output_wavelengths' must have at most 2 dimensions, "
+                                 f"but has {np.ndim(output_wavelengths)}")
+
+    @staticmethod
+    def remove_mask(data, data_uncertainties):
+        print('Taking care of mask...')
+        data_ = []
+        error_ = []
+        mask_ = copy.copy(data.mask)
+        lengths = []
+
+        for i in range(data.shape[0]):
+            data_.append([])
+            error_.append([])
+
+            for j in range(data.shape[1]):
+                data_[i].append(np.array(
+                    data[i, j, ~mask_[i, j, :]]
+                ))
+                error_[i].append(np.array(data_uncertainties[i, j, ~mask_[i, j, :]]))
+                lengths.append(data_[i][j].size)
+
+        # Handle jagged arrays
+        if np.all(np.asarray(lengths) == lengths[0]):
+            data_ = np.asarray(data_)
+            error_ = np.asarray(error_)
+        else:
+            print("Array is jagged, generating object array...")
+            data_ = np.asarray(data_, dtype=object)
+            error_ = np.asarray(error_, dtype=object)
+
+        return data_, error_, mask_
+
+    @staticmethod
+    def run_retrieval(retrieval: Retrieval, n_live_points=100, resume=False, sampling_efficiency=0.8,
+                      const_efficiency_mode=False, log_z_convergence=0.5, n_iter_before_update=50, max_iter=0,
+                      save=True, filename='retrieval_parameters', rank=None, **kwargs):
+        if save:
+            parameter_dict = {}#copy.deepcopy(retrieval.__dict__)
+
+            for arg_name, arg_value in kwargs.items():
+                parameter_dict[arg_name] = arg_value
+
+            for argument, value in locals().items():
+                if argument in parameter_dict and argument != 'self' and argument != 'kwargs':
+                    del parameter_dict[argument]
+
+            if rank is None or rank == 0:
+                BaseSpectralModel.save_parameters(
+                    file=os.path.join(retrieval.output_dir, filename + '.h5'),
+                    n_live_points=n_live_points,
+                    const_efficiency_mode=const_efficiency_mode,
+                    log_z_convergence=log_z_convergence,
+                    n_iter_before_update=n_iter_before_update,
+                    max_iter=max_iter,
+                    **parameter_dict
+                )
+
+        retrieval.run(
+            sampling_efficiency=sampling_efficiency,
+            const_efficiency_mode=const_efficiency_mode,
+            n_live_points=n_live_points,
+            log_z_convergence=log_z_convergence,
+            n_iter_before_update=n_iter_before_update,
+            max_iter=max_iter,
+            resume=resume,
+            **kwargs
+        )
 
     def save(self, file):
+        self.save_parameters(
+            file=file,
+            **self.__dict__
+        )
+
+    @staticmethod
+    def save_parameters(file, **kwargs):
         with h5py.File(file, 'w') as f:
             dict2hdf5(
-                dictionary=self.__dict__,
+                dictionary=kwargs,  # TODO units as attributes of dataset
                 hdf5_file=f
             )
             f.create_dataset(
@@ -3954,8 +4192,7 @@ class SpectralModel2(BaseSpectralModel):
 
         if 'uncertainties' in kwargs:  # ensure that spectrum and uncertainties share the same mask
             if hasattr(kwargs['uncertainties'], 'mask'):
-                spectrum.mask = np.zeros(spectrum.shape, dtype=bool)
-                spectrum.mask[:] = copy.deepcopy(kwargs['uncertainties'].mask)
+                spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
 
         reduced_data, reduction_matrix, reduced_data_uncertainties = \
             pipeline(spectrum=spectrum, full=True, **kwargs)

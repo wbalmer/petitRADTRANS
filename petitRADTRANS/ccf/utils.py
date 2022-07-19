@@ -7,20 +7,6 @@ import numpy as np
 module_dir = os.path.dirname(__file__)  # TODO find a cleaner way to do this?
 
 
-def bytes2str(obj):
-    if hasattr(obj, '__iter__') and not isinstance(obj, bytes):
-        new_obj = []
-
-        for o in obj:
-            new_obj.append(bytes2str(o))
-
-        return np.array(new_obj)
-    elif isinstance(obj, bytes):
-        return str(obj, 'utf-8')
-    else:
-        return obj
-
-
 def class_init_args2class_args(string):
     arguments = string.split(',')
     out_string = ''
@@ -45,6 +31,20 @@ def class_init_args2dict(string):
     return out_string
 
 
+def dataset2obj(obj):
+    if hasattr(obj, '__iter__') and not isinstance(obj, bytes):
+        new_obj = []
+
+        for o in obj:
+            new_obj.append(dataset2obj(o))
+
+        return np.array(new_obj)
+    elif isinstance(obj, bytes):
+        return str(obj, 'utf-8')
+    else:
+        return obj
+
+
 def dict2hdf5(dictionary, hdf5_file, group='/'):
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
@@ -53,6 +53,11 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
         else:
             if dictionary[key] is None:
                 data = 'None'
+            elif hasattr(dictionary[key], 'dtype'):
+                if dictionary[key].dtype == 'O':
+                    data = flatten_object(dictionary[key])
+                else:
+                    data = dictionary[key]
             else:
                 data = dictionary[key]
 
@@ -62,12 +67,33 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
             )
 
 
+def fill_object(array, value):
+    if array.dtype == 'O':
+        for i, dim in enumerate(array):
+            array[i] = fill_object(dim, value)
+    elif array.dtype == type(value):
+        array[:] = value
+    else:
+        array = np.ones(array.shape, dtype=type(value)) * value
+
+    return array
+
+
+def flatten_object(array):
+    if array.dtype == 'O':
+        array = flatten_object(np.concatenate(array))
+    else:
+        array = np.concatenate(array)
+
+    return array
+
+
 def hdf52dict(hdf5_file):
     dictionary = {}
 
     for key in hdf5_file:
         if isinstance(hdf5_file[key], h5py.Dataset):
-            dictionary[key] = bytes2str(hdf5_file[key][()])
+            dictionary[key] = dataset2obj(hdf5_file[key][()])
         elif isinstance(hdf5_file[key], h5py.Group):
             dictionary[key] = hdf52dict(hdf5_file[key])
         else:
