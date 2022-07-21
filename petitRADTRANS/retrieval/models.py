@@ -84,6 +84,10 @@ def emission_model_diseq(pRT_object,
     pglobal_check(pRT_object.press/1e6,
                     parameters['pressure_simple'].value,
                     parameters['pressure_scaling'].value)
+    if AMR:
+        p_use = PGLOBAL
+    else:
+        p_use = pRT_object.press/1e6
 
     #for key, val in parameters.items():
     #    print(key,val.value)
@@ -93,13 +97,11 @@ def emission_model_diseq(pRT_object,
     T2 = T3*(1.0-parameters['T2'].value)
     T1 = T2*(1.0-parameters['T1'].value)
     delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
+    Kzz_use = (10.0**parameters['log_kzz'].value ) * np.ones_like(p_use)
 
     # Make the P-T profile
     temp_arr = np.array([T1,T2,T3])
-    if AMR:
-        p_use = PGLOBAL
-    else:
-        p_use = pRT_object.press/1e6
+
     temperatures = PT_ret_model(temp_arr, \
                             delta,
                             parameters['alpha'].value,
@@ -152,7 +154,6 @@ def emission_model_diseq(pRT_object,
     sigma_lnorm = None
     b_hans = None
     distribution = "lognormal"
-    Kzz_use = (10.0**parameters['log_kzz'].value ) * np.ones_like(p_use)
 
     if "sigma_lnorm" in parameters.keys():
         sigma_lnorm = parameters['sigma_lnorm'].value
