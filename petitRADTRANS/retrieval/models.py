@@ -118,7 +118,6 @@ def emission_model_diseq(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
-    Kzz_use = (10.0**parameters['log_kzz'].value ) * np.ones_like(p_use)
 
     # Only include the high resolution pressure array near the cloud base.
     pressures = p_use
@@ -153,6 +152,8 @@ def emission_model_diseq(pRT_object,
     sigma_lnorm = None
     b_hans = None
     distribution = "lognormal"
+    Kzz_use = (10.0**parameters['log_kzz'].value ) * np.ones_like(p_use)
+
     if "sigma_lnorm" in parameters.keys():
         sigma_lnorm = parameters['sigma_lnorm'].value
     elif "b_hans" in parameters.keys():
@@ -164,7 +165,7 @@ def emission_model_diseq(pRT_object,
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         try:
-            print(cname)
+            #print(cname)
             fseds[cloud] = parameters['fsed_'+cname].value
         except:
             fseds[cloud] = parameters['fsed'].value
@@ -449,7 +450,6 @@ def guillot_free_emission(pRT_object, \
     # the total mass fraction is < 1.0
     # We assume vertically constant abundances
     abundances = {}
-    msum = 0.0
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
                                                   pRT_object.line_species,
@@ -636,7 +636,7 @@ def guillot_eqchem_transmission(pRT_object, \
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
 
-    return wlen_model, spectrum_model*1e6
+    return wlen_model, spectrum_model
 
 def guillot_patchy_eqchem_transmission(pRT_object, \
                                     parameters, \
@@ -759,7 +759,7 @@ def guillot_patchy_eqchem_transmission(pRT_object, \
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
-    return wlen_model, spectrum_model*1e6
+    return wlen_model, spectrum_model
 
 def guillot_eqchem_emission(pRT_object, \
                             parameters, \
@@ -832,10 +832,6 @@ def guillot_eqchem_emission(pRT_object, \
     # If in evaluation mode, and PTs are supposed to be plotted
     if PT_plot_mode:
         return p_use, temperatures
-
-    # Make the abundance profile
-    COs = parameters['C/O'].value * np.ones_like(p_use)
-    FeHs = parameters['Fe/H'].value * np.ones_like(p_use)
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
@@ -1087,7 +1083,7 @@ def isothermal_free_transmission(pRT_object, \
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
-    return wlen_model, spectrum_model*1e6
+    return wlen_model, spectrum_model
 
 def guillot_free_transmission(pRT_object, \
                                 parameters, \
@@ -1127,6 +1123,11 @@ def guillot_free_transmission(pRT_object, \
     except ImportError:
         print("Could not import poor_mans_nonequ_chemistry. Exiting.")
         sys.exit(2)
+    # Make the P-T profile
+    if AMR:
+        p_use = PGLOBAL
+    else:
+        p_use = pRT_object.press/1e6
 
     # Calculate the spectrum
     gravity = -np.inf
@@ -1143,9 +1144,8 @@ def guillot_free_transmission(pRT_object, \
     else:
         print("Pick two of log_g, R_pl and mass priors!")
         sys.exit(5)
-    # Make the P-T profile
-    pressures = pRT_object.press/1e6
-    temperatures = nc.guillot_global(pressures, \
+
+    temperatures = nc.guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
                                     parameters['gamma'].value, \
                                     gravity, \
@@ -1153,27 +1153,30 @@ def guillot_free_transmission(pRT_object, \
                                     parameters['T_equ'].value)
     if PT_plot_mode:
         return pressures, temperatures
-    abundances = {}
-    msum = 0.0
-    for species in pRT_object.line_species:
-        spec = species.split('_R_')[0]
-        abundances[species] = 10**parameters[spec].value * np.ones_like(pressures)
-        msum += 10**parameters[spec].value
-    if msum > 0.1:
-        return None, None
-    abundances['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
-    abundances['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
+    abundances, MMW, small_index, Pbases = get_abundances(p_use,
+                                                  temperatures,
+                                                  pRT_object.line_species,
+                                                  pRT_object.cloud_species,
+                                                  parameters,
+                                                  AMR =AMR)
 
-    #MMW = abundances_interp['MMW']
-    MMW = calc_MMW(abundances)
+    if abundances is None:
+        return None, None
+    if AMR:
+        temperatures = temperatures[small_index]
+        pressures = PGLOBAL[small_index]
+        MMW = MMW[small_index]
+        #Kzz_use = Kzz_use[small_index]
+        pRT_object.press = pressures * 1e6
+    else:
+        pressures = pRT_object.press/1e6
 
     # Calculate the spectrum
-    pcloud = 100.0
+    pcloud = None
     if 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
     elif 'log_Pcloud' in parameters.keys():
         pcloud = 10**parameters['log_Pcloud'].value
-
 
     if pcloud is not None:
         # P0_bar is important for low gravity transmission
@@ -1186,6 +1189,19 @@ def guillot_free_transmission(pRT_object, \
                                R_pl=R_pl, \
                                P0_bar=0.01,
                                Pcloud = pcloud)
+    elif "sigma_lnorm" in parameters.keys():
+        radii = {}
+        for cloud in pRT_object.cloud_species:
+            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+        # Calculate the spectrum
+        pRT_object.calc_transm(temperatures, \
+                                abundances, \
+                                gravity, \
+                                MMW, \
+                                R_pl=R_pl, \
+                                P0_bar=0.01,
+                                sigma_lnorm = parameters['sigma_lnorm'].value,
+                                radius = radii)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
@@ -1196,7 +1212,7 @@ def guillot_free_transmission(pRT_object, \
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
-    return wlen_model, spectrum_model * 1e6
+    return wlen_model, spectrum_model
 ##################
 # Helper Functions
 ##################
@@ -1533,7 +1549,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         msum = 0.0
         for species in line_species:
             abund = 10**parameters[species.split("_R_")[0]].value
-            abundances_interp[species] = abund * np.ones_like(pressures)
+            abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
             msum += abund
         # Whatever's left is H2 and
         abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
@@ -1547,14 +1563,11 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     else:
         # Equilibrium chemistry
         # Make the abundance profile
-        COs = parameters['C/O'].value * np.ones_like(pressures)
-        FeHs = parameters['Fe/H'].value * np.ones_like(pressures)
-
         pquench_C = None
         if 'log_pquench' in parameters.keys():
             pquench_C = 10**parameters['log_pquench'].value
-        abundances_interp = pm.interpol_abundances(COs, \
-                                                FeHs, \
+        abundances_interp = pm.interpol_abundances(parameters['C/O'].value * np.ones_like(pressures), \
+                                                parameters['Fe/H'].value * np.ones_like(pressures), \
                                                 temperatures, \
                                                 pressures,
                                                 Pquench_carbon = pquench_C)
@@ -1567,7 +1580,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         cname = cloud.split('_')[0]
         # Free cloud bases
         if 'Pbase_'+cname in parameters.keys():
-            Pbases[cname] = parameters['Pbase_'+cname].value
+            Pbases[cname] = 10**parameters['log_Pbase_'+cname].value
         # Equilibrium locations
         elif 'Fe/H' in parameters.keys():
             Pbases[cname] = fc.simple_cdf(cname,pressures, temperatures,
@@ -1612,7 +1625,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             if 'FeH' in species:
                 abundances[species] = abundances_interp[species.split('_')[0]] / 2.
                 abunds_change_rainout = cp.copy(abundances[species])
-                index_ro = pressures < Pbases['Fe(c)']
+                index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
                 abunds_change_rainout[index_ro] = 0.
                 abundances[species] = abunds_change_rainout[small_index]
             abundances[species] = abundances_interp[species.split('_')[0]][small_index]

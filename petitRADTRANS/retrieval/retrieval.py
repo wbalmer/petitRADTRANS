@@ -1497,3 +1497,15 @@ class Retrieval:
                              plot_best_fit = plot_best_fit,
                              **kwargs)
         return fig
+
+    def plot_data():
+        fig, ax = plt.subplots()
+        for name, dd in self.rd.data.items():
+            if dd.photometry:
+                print(name, dd.flux_error)
+                wlen = np.mean(dd.width_photometry)
+            else:
+                wlen = dd.wlen
+            ax.errorbar(wlen, dd.flux, yerr = dd.flux_error, label = name, marker = 'o')
+        ax.legend()
+        plt.savefig(self.output_dir +"evaluate_" + RunDefinition.retrieval_name + "/Data_" + RunDefinition.retrieval_name + ".pdf")

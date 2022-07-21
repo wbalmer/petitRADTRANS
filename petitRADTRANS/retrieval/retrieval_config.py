@@ -368,11 +368,11 @@ class RetrievalConfig:
 
         if PBase_lim is not None or fixed_base is not None:
             if fixed_base is None:
-                self.parameters['Pbase_'+cname] =Parameter('Pbase_'+cname,True,\
+                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,True,\
                                                             transform_prior_cube_coordinate = \
                                                             lambda x : PBase_lim[0] + PBase_lim[1]*x)
             else:
-                self.parameters['Pbase_'+cname] =Parameter('Pbase_'+cname,False,\
+                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,False,\
                                                                value = fixed_base)
 
     def add_data(self, name, path,
