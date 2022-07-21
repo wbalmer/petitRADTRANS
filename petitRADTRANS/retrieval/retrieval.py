@@ -1498,7 +1498,7 @@ class Retrieval:
                              **kwargs)
         return fig
 
-    def plot_data():
+    def plot_data(self):
         fig, ax = plt.subplots()
         for name, dd in self.rd.data.items():
             if dd.photometry:
