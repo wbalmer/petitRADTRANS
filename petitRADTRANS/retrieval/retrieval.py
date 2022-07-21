@@ -570,11 +570,11 @@ class Retrieval:
                                                     self.PT_plot_mode,
                                                     AMR = self.rd.AMR)
                     # Sanity checks on outputs
-                    #print(spectrum_model)
                     if spectrum_model is None:
                         return -1e98
                     if np.isnan(spectrum_model).any():
                         return -1e98
+                    #print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting)

@@ -13,6 +13,16 @@ import os,glob
 import sys,pdb
 from scipy import interpolate
 import h5py
+"""
+np.seterr(all='warn')
+import warnings
+warnings.filterwarnings('error')
+warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
+warnings.filterwarnings("ignore", message="numpy.ndarray size changed, may indicate binary incompatibility. Expected 88, got 80")
+warnings.filterwarnings("ignore", message="can't resolve package from __spec__ or __package__, falling back on __name__ and __path__")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 88 from PyObject")"""
 #from typing import Tuple, Array
 
 class Radtrans(_read_opacities.ReadOpacities):
@@ -722,7 +732,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                                     self.cloud_aniso)
         else:
             fseds = np.zeros(len(self.cloud_species))
-            for i,cloud in enumerate(self.cloud_species):
+            for i_spec, cloud in enumerate(self.cloud_species):
                 try:
                     #print('fsed '+self.cloud_species[i_spec], fsed[self.cloud_species[i_spec]])
                     fseds[i_spec] = fsed[cloud.split('_')[0]]
@@ -1822,8 +1832,10 @@ def py_calc_cloud_opas(
     the atmosphere to get the total optical depth, scattering and anisotropic fraction.
 
     author: Francois Rozet
-"""
+    """
 
+
+    #try:
     N = (  # (M, N)
         3.0
         * cloud_mass_fracs
@@ -1831,12 +1843,19 @@ def py_calc_cloud_opas(
         / (4.0 * np.pi * rho_p * (r_g ** 3))
         * np.exp(-4.5 * np.log(sigma_n) ** 2)
     )
-
+    #except Warning:
+    #    print("Divide by zero error")
+    #    print("X_i",np.min(cloud_mass_fracs), np.max(cloud_mass_fracs))
+    #    print("rho",np.min(rho), np.max(rho))
+    #    print("rho_p",np.min(rho_p), np.max(rho_p))
+    #    print("r_g",np.min(r_g), np.max(r_g))
+    #    print("sigma",sigma_n)
+    diff = np.log(cloud_radii[:,None,None]) - np.log(r_g)
     dndr = (  # (P, M, N)
         N
         / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
         * np.exp(
-            -np.log(cloud_radii[:, None, None] / r_g) ** 2
+            -diff ** 2
             / (2.0 * np.log(sigma_n) ** 2)
         )
     )
