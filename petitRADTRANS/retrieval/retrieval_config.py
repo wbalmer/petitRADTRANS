@@ -216,13 +216,17 @@ class RetrievalConfig:
         for f in files: print(f)
         return files
 
-    def set_line_species(self,linelist,eq=False,abund_lim=(-6.0,6.0)):
+    def set_line_species(self,linelist,eq=False,abund_lim=(-6.0,-0.5)):
         """
         Set RadTrans.line_species
 
         This function adds a list of species to the pRT object that will define the line
         opacities of the model. The values in the list are strings, with the names matching
         the pRT opacity names, which vary between the c-k line opacities and the line-by-line opacities.
+
+        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
+        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
         Args:
             linelist : List(str)
@@ -234,9 +238,8 @@ class RetrievalConfig:
                 individually.
             abund_lim : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied for
-                each species in linelist. The range of the prior goes from abund_lim[0]
-                to abund_lim[0] + abund_lim[1]. The abundance limits must be given in
-                log10 units of the mass fraction.
+                each species in linelist. The range of the prior goes from abund_lim[0] to abund_lim[1].
+                The abundance limits must be given in log10 units of the mass fraction.
         """
 
         self.line_species = linelist
@@ -244,7 +247,7 @@ class RetrievalConfig:
             for spec in self.line_species:
                 self.parameters[spec] = Parameter(spec,True,\
                                     transform_prior_cube_coordinate = \
-                                    lambda x : abund_lim[0]+abund_lim[1]*x)
+                                    lambda x : abund_lim[0]+(abund_lim[1]-abund_lim[0])*x)
     def set_rayleigh_species(self,linelist):
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
@@ -267,10 +270,14 @@ class RetrievalConfig:
 
         self.continuum_opacities = linelist
 
-    def add_line_species(self,species,eq=False,abund_lim=(-7.0,7.0), fixed_abund = None):
+    def add_line_species(self,species,eq=False,abund_lim=(-7.0,0.0), fixed_abund = None):
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line opacities.
+
+        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
+        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
         Args:
             species : str
@@ -280,7 +287,7 @@ class RetrievalConfig:
                 species will be added to the retrieval. Otherwise (dis)equilibrium chemistry will be used.
             abund_lim : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
-                The range of the prior goes from abund_lim[0] to abund_lim[0] + abund_lim[1].
+                The range of the prior goes from abund_lim[0] to abund_lim[1]
                 The abundance limits must be given in log10 units of the mass fraction.
             fixed_abund : float
                 The log-mass fraction abundance of the species. Currently only supports vertically constant
@@ -296,7 +303,7 @@ class RetrievalConfig:
             else:
                 self.parameters[species] = Parameter(species,True,\
                                         transform_prior_cube_coordinate = \
-                                        lambda x : abund_lim[0] + abund_lim[1]*x)
+                                        lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
 
     def remove_species_lines(self,species,free=False):
         """
@@ -316,7 +323,7 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species,None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,4.5), PBase_lim = None, fixed_abund = None,fixed_base=None):
+    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), PBase_lim = None, fixed_abund = None,fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -325,6 +332,11 @@ class RetrievalConfig:
         If eq is false, two parameters are added, the cloud abundnace and the cloud base pressure.
         The limits set the prior ranges, both on a log scale.
 
+        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
+        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
+        Similarly for PBase_lim.
+
         Args:
             species : str
                 Name of the pRT cloud species, including the cloud shape tag.
@@ -332,10 +344,10 @@ class RetrievalConfig:
                 Does the retrieval model use an equilibrium cloud model. This restricts the available species!
             abund_lim : tuple(float,float)
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
-                range would be (-3,0). If eq is false, this sets the the range on the actual cloud abundance,
-                with a typical range being (-5,7). Note that the upper limit is set from abund_lim[0] + abund_lim[1].
+                range would be (-3,1). If eq is false, this sets the the range on the actual cloud abundance,
+                with a typical range being (-5,0).
             PBase_lim : tuple(float,float)
-                Only used if not using an equilibrium model. Sets the limits on teh log of the cloud base pressure.
+                Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
                 Obsolete.
             fixed_abund : Optional(float)
                 A vertically constant log mass fraction abundance for the cloud species. If set, this will not be
@@ -356,12 +368,12 @@ class RetrievalConfig:
         if eq:
             self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
                                                 transform_prior_cube_coordinate = \
-                                                lambda x : abund_lim[0] + abund_lim[1]*x)
+                                                lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
         else:
             if fixed_abund is None:
                 self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,True,\
                                             transform_prior_cube_coordinate = \
-                                            lambda x : abund_lim[0] + abund_lim[1]*x)
+                                            lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
             else:
                 self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,False,\
                                 value = fixed_abund)
@@ -370,7 +382,7 @@ class RetrievalConfig:
             if fixed_base is None:
                 self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,True,\
                                                             transform_prior_cube_coordinate = \
-                                                            lambda x : PBase_lim[0] + PBase_lim[1]*x)
+                                                            lambda x : PBase_lim[0] + (PBase_lim[1]-PBase_lim[0])*x)
             else:
                 self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,False,\
                                                                value = fixed_base)

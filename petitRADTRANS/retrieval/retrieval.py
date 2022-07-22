@@ -363,7 +363,7 @@ class Retrieval:
                     if value.corner_transform is not None:
                         low = value.corner_transform(low)
                         high = value.corner_transform(high)
-                    summary.write(f"    {key} = {low:3f}), {high:3f}\n")
+                    summary.write(f"    {key} = {low:3f}, {high:3f}\n")
             summary.write('\n')
             summary.write("Data\n")
             for name,dd in self.data.items():
