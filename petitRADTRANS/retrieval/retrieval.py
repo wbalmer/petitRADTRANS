@@ -353,7 +353,7 @@ class Retrieval:
                 if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                     continue
                 if not value.is_free_parameter:
-                    summary.write("    " + key + " = " + str(round(value.value,3)) + '\n')
+                    summary.write(f"    {key} = {value.value:.3f}\n")
             summary.write('\n')
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
             for key,value in self.parameters.items():
@@ -363,30 +363,30 @@ class Retrieval:
                     if value.corner_transform is not None:
                         low = value.corner_transform(low)
                         high = value.corner_transform(high)
-                    summary.write("    " +key + " = " + str(round(low,3)) + ", " +\
-                                  str(round(high,3)) + '\n')
+                    summary.write(f"    {key} = {low:3f}), {high:3f}\n")
             summary.write('\n')
             summary.write("Data\n")
             for name,dd in self.data.items():
                 summary.write(name+'\n')
                 summary.write("    " + dd.path_to_observations + '\n')
                 if dd.model_generating_function is not None:
-                    summary.write("    Model Function = " + dd.model_generating_function.__name__+ '\n')
+                    summary.write(f"    Model Function = {dd.model_generating_function.__name__}\n")
                 if dd.scale:
-                    summary.write("    scale factor = " + str(round(dd.scale_factor,2))+ '\n')
+                    summary.write(f"    scale factor = {dd.scale_factor:.2f}\n")
                 if dd.data_resolution is not None:
-                    summary.write("    data resolution = " + str(int(dd.data_resolution))+ '\n')
+                    summary.write(f"    data resolution = {dd.data_resolution}\n")
                 if dd.model_resolution is not None:
-                    summary.write("    model resolution = " + str(int(dd.model_resolution))+ '\n')
+                    summary.write(f"    model resolution = {dd.model_resolution}\n")
                 if dd.photometry:
-                    summary.write("    photometric width = " + str(round(dd.photometry_range[0],4)) + \
-                                  "--" + str(round(dd.photometry_range[1],4)) + " um"+ '\n')
+                    summary.write(f"    photometric width = {dd.photometry_range[0]:.4f}" + \
+                                  f"--{dd.photometry_range[1]:.4f} um\n")
                     summary.write("    Photometric transform function = " + \
                                   dd.photometric_transformation_function.__name__+ '\n')
             summary.write('\n')
+
             if stats is not None:
                 summary.write("Multinest Outputs\n")
-                summary.write('  marginal likelihood:\n')
+                summary.write('  marginal evidence:\n')
                 summary.write('    log Z = %.1f +- %.1f\n' % \
                              (stats['global evidence']/np.log(10), stats['global evidence error']/np.log(10)))
                 summary.write('    ln Z = %.1f +- %.1f\n' % (stats['global evidence'], \
@@ -419,6 +419,7 @@ class Retrieval:
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
+                summary.write(f"$\chi^{2} = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                         continue
@@ -427,8 +428,7 @@ class Retrieval:
                         out = self.parameters[key].corner_transform(out)
                     if out is None:
                         continue
-                    fmt = '%.3f' % out
-                    summary.write("    " +key + " = " + fmt + '\n')
+                    summary.write(f"    {key} = {out:.3f}\n")
 
     def setup_data(self,scaling=10,width = 3):
         """

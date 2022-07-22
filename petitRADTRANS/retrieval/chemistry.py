@@ -1,14 +1,17 @@
-import copy as cp
+import os
 os.environ["OMP_NUM_THREADS"] = "1"
+import copy as cp
 import numpy as np
 from petitRADTRANS import poor_mans_nonequ_chem as pm
+from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR = False):
     """
     This function takes in the C/O ratio, metallicity, and quench pressures and uses them
     to compute the gas phase and equilibrium condensate abundances from an interpolated table.
-    Clouds are currently hard coded into the function.
+    This function assumes a hydrogen-helium dominated atmosphere, and enforces <10% trace gas
+    abundance by mass.
 
     Args:
         pressures : numpy.ndarray

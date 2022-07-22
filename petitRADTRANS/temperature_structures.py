@@ -1,12 +1,13 @@
-import copy as cp
+import os
 os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
+import copy as cp
+
 from scipy.interpolate import interp1d,CubicSpline
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 
 ### Global Guillot P-T formula with kappa/grav replaced by delta
 def guillot_global_ret(P,delta,gamma,T_int,T_equ):
-
     delta = np.abs(delta)
     gamma = np.abs(gamma)
     T_int = np.abs(T_int)
@@ -48,27 +49,30 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     '''
     Self-luminous retrieval P-T model.
 
-    Arsg:
+    Args:
         T3 : np.array([t1, t2, t3])
             temperature points to be added on top
             radiative Eddington structure (above tau = 0.1).
             Use spline interpolation, t1 < t2 < t3 < tconnect as prior.
-        delta :
+        delta : float
             proportionality factor in tau = delta * press_cgs**alpha
-        alpha:
+        alpha : float
             power law index in tau = delta * press_cgs**alpha
             For the tau model: use proximity to kappa_rosseland photosphere
             as prior.
-        tint:
+        tint : float
             internal temperature of the Eddington model
-        press:
+        press : np.ndarray
             input pressure profile in bar
-        conv:
+        conv : bool
             enforce convective adiabat yes/no
-        CO:
+        CO : float
             C/O for the nabla_ad interpolation
-        FeH:
+        FeH : float
             metallicity for the nabla_ad interpolation
+    Returns:
+        Tret : np.ndarray
+            The temperature as a function of atmospheric pressure.
     '''
     # Go grom bar to cgs
     press_cgs = press*1e6
