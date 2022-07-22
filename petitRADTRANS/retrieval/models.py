@@ -309,6 +309,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                         sigma_lnorm = sigma_lnorm,
                         b_hans = b_hans,
                         dist = distribution)
+
     # Getting the model into correct units (W/m2/micron)
     wlen_model = nc.c/pRT_object.freq/1e-4
     wlen = nc.c/pRT_object.freq
@@ -412,7 +413,6 @@ def guillot_free_emission(pRT_object, \
     # and calculate the third if necessary
     gravity, R_pl =  compute_gravity(parameters)
 
-
     # We're using a guillot profile
     temperatures = nc.guillot_global(p_use, \
                                 10**parameters['log_kappa_IR'].value,
@@ -444,6 +444,21 @@ def guillot_free_emission(pRT_object, \
         pRT_object.press = pressures * 1e6
     else:
         pressures = pRT_object.press/1e6
+
+    # Now that we have the pressure array, we can set up the
+    # cloud abundance profile
+    for cloud in pRT_object.cloud_species:
+        cname = cloud.split('_')[0]
+        abundances[cname] = np.zeros_like(pRT_object.press)
+        try:
+            abundances[cname][pressures < Pbases[cname]] = 10**parameters['log_X_cb_'+cname].value *\
+                        ((pressures[pressures <= Pbases[cname]]/Pbases[cname])**parameters['fsed'].value)
+        except:
+            print(cname)
+            print(f"{Pbases[cname]}")
+            print(f"{10**parameters['log_X_cb_'+cname].value}")
+            print(f"{(pressures[pressures <= Pbases[cname]]/Pbases[cname])**parameters['fsed'].value}\n")
+            return None,None
 
     # If in evaluation mode, and PTs are supposed to be plotted
     if PT_plot_mode:

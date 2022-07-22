@@ -417,7 +417,7 @@ end subroutine planck_f
 !!$ Subroutine to calculate the transmission spectrum
 
 subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
-     w_gauss,scat,continuum_opa_scat,var_grav,transm,freq_len,struc_len,g_len,N_species)
+     w_gauss,scat,continuum_opa_scat,var_grav,transm,radius,freq_len,struc_len,g_len,N_species)
 
   use constants_block
   implicit none
@@ -433,10 +433,10 @@ subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
   LOGICAL, intent(in)                         :: scat !, contribution
   LOGICAL, intent(in)                         :: var_grav
 
-  DOUBLE PRECISION, intent(out)               :: transm(freq_len) !, contr_tr(struc_len,freq_len)
+  DOUBLE PRECISION, intent(out)               :: transm(freq_len), radius(struc_len) !, contr_tr(struc_len,freq_len)
 
   ! Internal
-  DOUBLE PRECISION                            :: P0_cgs, rho(struc_len), radius(struc_len), &
+  DOUBLE PRECISION                            :: P0_cgs, rho(struc_len), &
         total_kappa(g_len,freq_len,N_species,struc_len)
   INTEGER                                     :: i_str, i_freq, i_g, i_spec, j_str
   LOGICAL                                     :: rad_neg
@@ -500,10 +500,11 @@ subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
         if (j_str > 1) then
            s_1 = s_2
         end if
-        s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
+        s_2 = sqrt(max(radius(j_str+1)**2d0-radius(i_str)**2d0,0d0))
         t_graze(:,:,:,i_str) = t_graze(:,:,:,i_str)+alpha_t2(:,:,:,j_str)*(s_1-s_2)
      end do
   end do
+  ! TODO: move if (scat) into upper loop? Otherwise s1 and s2 appear to be calculated twice, uncecessarily.
   if (scat) then
      do i_str = 2, struc_len
         s_1 = sqrt(radius(1)**2d0-radius(i_str)**2d0)
@@ -511,7 +512,7 @@ subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
            if (j_str > 1) then
               s_1 = s_2
            end if
-           s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
+           s_2 = sqrt(max(radius(j_str+1)**2d0-radius(i_str)**2d0,0d0))
            t_graze_scat(:,i_str) = t_graze_scat(:,i_str)+alpha_t2_scat(:,j_str)*(s_1-s_2)
         end do
      end do
@@ -622,7 +623,7 @@ subroutine calc_radius(struc_len,press,gravity,rho,P0_cgs, &
                 (press(i_str+1)-press(i_str))/R_pl**2d0
         end if
      end do
-     R0 = 1d0/R_pl-R0
+     R0 = 1d0/R_pl -R0
      radius = radius + R0
      radius = 1d0/radius
 
@@ -983,7 +984,7 @@ end subroutine add_rayleigh
 !!$ Subroutine to calculate the contribution function of the transmission spectrum
 
 subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl, &
-     w_gauss,transm_in,scat,continuum_opa_scat,var_grav,contr_tr,freq_len,struc_len,g_len,N_species)
+     w_gauss,transm_in,scat,continuum_opa_scat,var_grav,contr_tr,radius,freq_len,struc_len,g_len,N_species)
 
   use constants_block
   implicit none
@@ -999,10 +1000,10 @@ subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl
   LOGICAL, intent(in)                         :: scat
   DOUBLE PRECISION, intent(in)                :: transm_in(freq_len)
   LOGICAL, intent(in)                         :: var_grav
-  DOUBLE PRECISION, intent(out)               :: contr_tr(struc_len,freq_len)
+  DOUBLE PRECISION, intent(out)               :: contr_tr(struc_len,freq_len), radius(struc_len)
 
   ! Internal
-  DOUBLE PRECISION                            :: P0_cgs, rho(struc_len), radius(struc_len)
+  DOUBLE PRECISION                            :: P0_cgs, rho(struc_len)
   INTEGER                                     :: i_str, i_freq,  i_spec, j_str, i_leave_str
   DOUBLE PRECISION                            :: alpha_t2(g_len,freq_len,N_species,struc_len-1)
   DOUBLE PRECISION                            :: t_graze(g_len,freq_len,N_species,struc_len), s_1, s_2, &
@@ -1046,7 +1047,7 @@ subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl
            if (j_str > 1) then
               s_1 = s_2
            end if
-           s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
+           s_2 = sqrt(max(radius(j_str+1)**2d0-radius(i_str)**2d0,0d0))
            t_graze(:,:,:,i_str) = t_graze(:,:,:,i_str)+alpha_t2(:,:,:,j_str)*(s_1-s_2)
         end do
      end do
@@ -1057,7 +1058,7 @@ subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl
               if (j_str > 1) then
                  s_1 = s_2
               end if
-              s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
+              s_2 = sqrt(max(radius(j_str+1)**2d0-radius(i_str)**2d0,0d0))
               t_graze_scat(:,i_str) = t_graze_scat(:,i_str)+alpha_t2_scat(:,j_str)*(s_1-s_2)
            end do
         end do
@@ -1097,9 +1098,6 @@ subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl
      ! Get radius
      transm = transm+radius(struc_len)**2d0
      contr_tr(i_leave_str,:) = transm_in - transm
-
-     write(*,*) i_leave_str
-
   end do
 
   do i_freq = 1, freq_len
@@ -2318,7 +2316,7 @@ subroutine feautrier_rad_trans(border_freqs, &
    DOUBLE PRECISION                :: flux_old(freq_len_p_1-1), conv_val
   ! tridag variables
   DOUBLE PRECISION                :: a(struc_len),b(struc_len),c(struc_len),r(struc_len), &
-       planck(struc_len)
+       planck(struc_len), plancks(struc_len, freq_len_p_1-1)
   DOUBLE PRECISION                :: f1,f2,f3, deriv1, deriv2, I_plus, I_minus
 
   ! quantities for P-T structure iteration
@@ -2389,6 +2387,12 @@ subroutine feautrier_rad_trans(border_freqs, &
    end do
   end do
 
+  do i = 1, freq_len_p_1-1
+
+       call planck_f_lr(struc_len,temp(1:struc_len),border_freqs(i),border_freqs(i+1),r)
+       plancks(:, i) = r
+
+  end do
 
   do i_iter_scat = 1, iter_scat
 
@@ -2409,8 +2413,11 @@ subroutine feautrier_rad_trans(border_freqs, &
 
        r = 0
 
-       call planck_f_lr(struc_len,temp(1:struc_len),border_freqs(i),border_freqs(i+1),r)
-       planck = r
+       ! TODO: only needs to be calculated once, not for every scattering iteration: fix!
+       !call planck_f_lr(struc_len,temp(1:struc_len),border_freqs(i),border_freqs(i+1),r)
+       !planck = r
+       r = plancks(:, i)
+       planck = plancks(:, i)
 
        do l = 1, N_g
 

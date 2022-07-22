@@ -2,7 +2,7 @@ import sys
 import os
 import numpy as np
 import logging
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import gaussian_filter
 import petitRADTRANS.nat_cst as nc
 from .rebin_give_width import rebin_give_width
 
@@ -30,12 +30,12 @@ class Data:
         model_resolution : float
             Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
             This will generate a new c-k table using exo-k. The default (and maximum)
-            correlated k resolution in pRT is :math:`\lambda/\Delta \lambda > 1000` (R=500).
+            correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
             Lowering the resolution will speed up the computation.
             If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
             will sample the the high-resolution opacities at the specified resolution.
             This may be desired in the case where medium-resolution spectra are
-            required with a :math:`\lambda/\Delta \lambda > 1000`, but much smaller than
+            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
             :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
             may make sense to carry out the calculations with lbl_opacity_sampling = 10e5,
             for example, and then rebinning to the final desired resolution:
@@ -164,8 +164,12 @@ class Data:
                 else:
                     self.loadtxt(path_to_observations)
 
-                self.wlen_range_pRT = [0.95 * self.wlen[0], \
+                if wlen_range_micron is not None:
+                    self.wlen_range_pRT = wlen_range_micron
+                else:
+                    self.wlen_range_pRT = [0.95 * self.wlen[0], \
                                     1.05 * self.wlen[-1]]
+
                 if wlen_bins is not None:
                     self.wlen_bins = wlen_bins
                 else:
@@ -214,14 +218,17 @@ class Data:
             obs= np.genfromtxt(path)
 
         # Warnings and errors
-        if obs.shape[1] != 3:
+        if obs.shape[1] < 3:
             logging.error("Failed to properly load data in " + path + "!!!")
             sys.exit(6)
+        elif obs.shape[1] > 3:
+            logging.warning(" File " + path + " has more than three columns. Retrieval package assumes that"+ \
+                          " the first three have this meaning: wavelength, flux, flux error")
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
         self.wlen = obs[:,0]
         self.flux = obs[:,1]
-        self.flux_error = obs[:,-1]
+        self.flux_error = obs[:,2]
 
     def loadfits(self,path):
         """
@@ -343,8 +350,10 @@ class Data:
         if self.covariance is not None:
             #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
             logL += -1*np.dot(diff, np.dot(self.inv_cov, diff))/2.
+            logL += -0.5 * np.log(np.linalg.det(2 * np.pi * self.covariance))
         else:
             logL += -1*np.sum( (diff / f_err)**2. ) / 2.
+            logL += -0.5*np.sum(np.log(2*np.pi*f_err**2.))
         if plotting:
             if not self.photometry:
                 plt.clf()
@@ -370,7 +379,7 @@ class Data:
             input_flux : numpy.ndarray
                 The flux as computed by the model
             instrument_res : float
-                :math:`\lambda/\Delta \lambda`, the width of the gaussian kernel to convolve with the model spectrum.
+                :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
 
         Returns:
             flux_LSF

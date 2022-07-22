@@ -119,13 +119,13 @@ class Retrieval:
         # Path to input opacities
         self.path = os.environ.get("pRT_input_data_path")
         if self.path is None:
-            print('Path to input data not specified!')
-            print('Please set pRT_input_data_path variable in .bashrc/.bash_profile or specify path via')
-            print('    import os')
-            print('    os.environ["pRT_input_data_path"] = "absolute/path/of/the/folder/input_data"')
-            print('before creating a Radtrans object or loading the nat_cst module.')
-            logging.error("pRT_input_data_path not set")
-            sys.exit(1)
+            raise OSError(f"Path to input data not specified!\n"
+                          f"Please set pRT_input_data_path variable in .bashrc / .bash_profile or specify path via\n"
+                          f">>> import os"
+                          f">>> os.environ['pRT_input_data_path'] = 'absolute/path/of/the/folder/input_data'\n"
+                          f"before creating a Radtrans object or loading the nat_cst module.\n"
+                          f"(this will become unnecessary in a future update)"
+                          )
         if not self.path.endswith("/"):
             self.path += "/"
         # Setup Directories
@@ -609,6 +609,10 @@ class Retrieval:
                     if dede.scale:
                         dd.scale_factor = self.parameters[de_name + "_scale_factor"].value
                     if dede.external_pRT_reference == name:
+                        if spectrum_model is None:
+                            return -1e99
+                        if np.isnan(spectrum_model).any():
+                            return -1e99
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
                                         self.plotting)
@@ -954,7 +958,7 @@ class Retrieval:
         return params
 
     def sample_teff(self,sample_dict,param_dict,ret_names = None,nsample = None,resolution=40):
-        """
+        r"""
         This function samples the outputs of a retrieval and computes Teff
         for each sample. For each sample, a model is computed at low resolution,
         and integrated to find the total radiant emittance, which is converted into

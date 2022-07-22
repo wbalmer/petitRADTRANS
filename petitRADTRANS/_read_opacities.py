@@ -1,15 +1,17 @@
 from __future__ import division, print_function
 
-from . import fort_input as fi
-from . import nat_cst as nc
-from . import pyth_input as pyi
-
-import numpy as np
-import glob, h5py
 import copy as cp
+import glob
+
+import h5py
+import numpy as np
+
+from petitRADTRANS import fort_input as fi
+from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import pyth_input as pyi
+
 
 class ReadOpacities:
-
     def read_line_opacities(self, index, arr_min, arr_max):
         # Reads in the line opacities for spectral calculation
 
@@ -164,7 +166,11 @@ class ReadOpacities:
                                                                    self.line_species[i_spec], \
                                                                    local_freq_len)
                     else:
-                        local_freq_len_full = self.freq_len_full
+                        if self.lbl_opacity_sampling is None:
+                            local_freq_len_full = self.freq_len
+                        else:
+                            local_freq_len_full = self.freq_len * self.lbl_opacity_sampling
+
                         local_g_len = self.g_len
 
                     self.line_grid_kappas_custom_PT[self.line_species[i_spec]] = \
@@ -207,9 +213,10 @@ class ReadOpacities:
                         self.line_grid_kappas_custom_PT[self.line_species[i_spec]] = retVal
 
                     # Down-sample opacities in lbl mode if requested
-                    if (self.mode == 'lbl') and (self.lbl_opacity_sampling != None):
+                    if self.mode == 'lbl' and self.lbl_opacity_sampling is not None:
                         self.line_grid_kappas_custom_PT[self.line_species[i_spec]] = \
-                            self.line_grid_kappas_custom_PT[self.line_species[i_spec]][:,::self.lbl_opacity_sampling,:]
+                            self.line_grid_kappas_custom_PT[
+                                self.line_species[i_spec]][:, ::self.lbl_opacity_sampling, :]
 
                 # Read in the Exomol k-table by Katy Chubb if requested by the user
                 else:
