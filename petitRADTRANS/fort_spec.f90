@@ -478,7 +478,7 @@ subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
      end if
   end do
   if (rad_neg) then
-     write(*,*) 'pRT: negative radius corretion applied!'
+     write(*,*) 'pRT: negative radius correction applied!'
   end if
 
   ! Calc. mean free paths across grazing distances

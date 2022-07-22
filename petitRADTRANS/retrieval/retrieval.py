@@ -835,24 +835,20 @@ class Retrieval:
             MMW : numpy.ndarray
                 The mean molecular weight at each pressure level in the atmosphere.
         """
-        if not self.best_fit_params:
-            self.get_best_fit_params(sample,parameters_read)
-        from petitRADTRANS.retrieval.models import get_abundances
+        from petitRADTRANS.retrieval.chemistry import get_abundances
+        parameters = self.build_param_dict(sample,parameters_read)
+
+        self.PT_plot_mode = True
+        pressures, temps = self.log_likelihood(sample, 0, 0)
+        self.PT_plot_mode = False
+
         name = self.rd.plot_kwargs["take_PTs_from"]
-        if self.rd.AMR:
-            abundances, MMW, _, _ = get_abundances(self.rd.amr_pressure,
-                                                self.data[name].pRT_object.temp,
-                                                self.data[name].pRT_object.line_species,
-                                                self.data[name].pRT_object.cloud_species,
-                                                self.best_fit_params,
-                                                AMR=False)
-        else:
-            abundances, MMW, _, _ = get_abundances(self.rd.p_global,
-                                        self.data[name].pRT_object.temp,
-                                        self.data[name].pRT_object.line_species,
-                                        self.data[name].pRT_object.cloud_species,
-                                        self.best_fit_params,
-                                        AMR=False)
+        abundances, MMW, _, _ = get_abundances(pressures,
+                                            temps,
+                                            self.data[name].pRT_object.line_species,
+                                            self.data[name].pRT_object.cloud_species,
+                                            parameters,
+                                            AMR=self.rd.AMR)
         return abundances, MMW
 
     def get_evidence(self, ret_name = ""):
@@ -1098,6 +1094,7 @@ class Retrieval:
         self.plot_PT(sample_dict,parameters_read)
         self.plot_corner(sample_dict,parameter_dict,parameters_read)
         self.plot_contribution(samples_use,parameters_read)
+        self.plot_abundances(samples_use,parameters_read)
         print("Done!")
         return
 
@@ -1675,7 +1672,7 @@ class Retrieval:
                                                                         contribution = True)
 
         self.PT_plot_mode = True
-        pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
+        pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         self.PT_plot_mode = False
 
         pressure_weights = np.diff(np.log10(pressures))
@@ -1698,3 +1695,27 @@ class Retrieval:
         plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
         return bf_contribution
+
+    def plot_abundances(self,samples_use,parameters_read, species_to_plot = None):
+        print("Plotting Abundances profiles")
+        # Get best-fit index
+        logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
+        self.PT_plot_mode = True
+        pressures, temps = self.log_likelihood(samples_use[best_fit_index , :-1], 0, 0)
+        self.PT_plot_mode = False
+        abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1],parameters_read)
+        # Compute spectrum for each chem case
+        fig,ax = plt.subplots(figsize = (12,7))
+        if species_to_plot is None:
+            species_to_plot = self.rd.line_species
+        for spec in species_to_plot:
+            ax.plot(ab_de[spec],pressures,label=spec.split('_')[0])
+
+        ax.set_xlabel("Mass Fraction Abundance")
+        ax.set_ylabel("Pressure [bar]")
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.invert_yaxis()
+        ax.set_xlim(1e-7,3)
+        ax.legend()
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_abundance_profiles.pdf')

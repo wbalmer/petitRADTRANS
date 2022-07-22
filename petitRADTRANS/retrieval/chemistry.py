@@ -2,6 +2,7 @@ import copy as cp
 os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from petitRADTRANS import poor_mans_nonequ_chem as pm
+from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR = False):
     """
@@ -35,6 +36,39 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             A dictionary of the cloud base pressures, either computed from equilibrium
             condensation or set by the user.
     """
+    # Free Chemistry
+    abundances_interp = {}
+    if "C/O" in parameters.keys():
+        # Equilibrium chemistry
+        # Make the abundance profile
+        pquench_C = None
+        if 'log_pquench' in parameters.keys():
+            pquench_C = 10**parameters['log_pquench'].value
+        abundances_interp = pm.interpol_abundances(parameters['C/O'].value * np.ones_like(pressures), \
+                                                parameters['Fe/H'].value * np.ones_like(pressures), \
+                                                temperatures, \
+                                                pressures,
+                                                Pquench_carbon = pquench_C)
+        MMW = abundances_interp['MMW']
+
+    # Free chemistry abundances
+    msum = 0.0
+    for species in line_species:
+        if species.split("_R_")[0] in parameters.keys():
+            # Cannot mix free and equilibrium chemistry. Maybe something to add?
+            abund = 10**parameters[species.split("_R_")[0]].value
+            abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
+            msum += abund
+    if not "C/O" in parameters.keys():
+        # Whatever's left is H2 and
+        abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
+        abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
+
+        # Imposing strict limit on msum to ensure H2 dominated composition
+        if msum > 0.1:
+            #print(f"Abundance sum > 1.0, msum={msum}")
+            return None,None,None,None
+        MMW = calc_MMW(abundances_interp)
 
     # Prior check all input params
     clouds = {}
@@ -48,38 +82,6 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         else:
             # Free cloud abundance
             clouds[cname] = 10**parameters['log_X_cb_'+cloud.split("_")[0]].value
-
-    # Free Chemistry
-    abundances_interp = {}
-    if line_species[0].split("_R_")[0] in parameters.keys():
-        # Cannot mix free and equilibrium chemistry. Maybe something to add?
-        msum = 0.0
-        for species in line_species:
-            abund = 10**parameters[species.split("_R_")[0]].value
-            abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
-            msum += abund
-        # Whatever's left is H2 and
-        abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
-        abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
-
-        # Imposing strict limit on msum to ensure H2 dominated composition
-        if msum > 0.1:
-            #print(f"Abundance sum > 1.0, msum={msum}")
-            return None,None,None,None
-        MMW = calc_MMW(abundances_interp)
-    else:
-        # Equilibrium chemistry
-        # Make the abundance profile
-        pquench_C = None
-        if 'log_pquench' in parameters.keys():
-            pquench_C = 10**parameters['log_pquench'].value
-        abundances_interp = pm.interpol_abundances(parameters['C/O'].value * np.ones_like(pressures), \
-                                                parameters['Fe/H'].value * np.ones_like(pressures), \
-                                                temperatures, \
-                                                pressures,
-                                                Pquench_carbon = pquench_C)
-        # Magic factor for FeH abundances
-        MMW = abundances_interp['MMW']
 
     # Get the cloud locations
     Pbases = {}
@@ -107,49 +109,32 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     else :
         #TODO: Test
         press_use = pressures
-        small_index = np.linspace(press_use[0],press_use[-1],press_use.shape[0],dtype = int)
+        small_index = np.linspace(0,press_use.shape[0],press_use.shape[0], dtype = int)
 
     fseds = {}
     abundances = {}
     for cloud in cp.copy(cloud_species):
         cname = cloud.split('_')[0]
         # Set up fseds per-cloud
-        try:
+        if 'fsed_'+cname in parameters.keys():
             fseds[cname] = parameters['fsed_'+cname].value
-        except:
+        else:
             fseds[cname] = parameters['fsed'].value
         abundances[cname] = np.zeros_like(temperatures)
         abundances[cname][pressures < Pbases[cname]] = \
                         clouds[cname] *\
                         (pressures[pressures <= Pbases[cname]]/\
                         Pbases[cname])**fseds[cname]
-        # Use correct array length if using AMR
-        if AMR:
-            abundances[cname] = abundances[cname][small_index]
+        abundances[cname] = abundances[cname][small_index]
 
-    if AMR:
-        for species in line_species:
-            if 'FeH' in species:
-                abundances[species] = abundances_interp[species.split('_')[0]] / 2.
-                abunds_change_rainout = cp.copy(abundances[species])
-                index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
-                abunds_change_rainout[index_ro] = 0.
-                abundances[species] = abunds_change_rainout[small_index]
-            abundances[species] = abundances_interp[species.split('_')[0]][small_index]
-        abundances['H2'] = abundances_interp['H2'][small_index]
-        abundances['He'] = abundances_interp['He'][small_index]
-
-    else:
-        for species in line_species:
-            if 'FeH' in species:
-                abundances[species] = abundances_interp[species.split('_')[0]] / 2.
-                if "Fe(c)_cd" in cloud_species:
-                    abunds_change_rainout = cp.copy(abundances[species])
-                    index_ro = pressures < Pbases['Fe(c)']
-                    abunds_change_rainout[index_ro] = 0.
-                    abundances[species] = abunds_change_rainout[small_index]
-            abundances[species] = abundances_interp[species.split('_')[0]]
-        abundances['H2'] = abundances_interp['H2']
-        abundances['He'] = abundances_interp['He']
-
+    for species in line_species:
+        if 'FeH' in species:
+            abundances[species] = abundances_interp[species.split('_')[0]] / 2.
+            abunds_change_rainout = cp.copy(abundances[species])
+            index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
+            abunds_change_rainout[index_ro] = 0.
+            abundances[species] = abunds_change_rainout[small_index]
+        abundances[species] = abundances_interp[species.split('_')[0]][small_index]
+    abundances['H2'] = abundances_interp['H2'][small_index]
+    abundances['He'] = abundances_interp['He'][small_index]
     return abundances, MMW, small_index, Pbases
