@@ -738,7 +738,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                                        self.cloud_specs_scat_opa,
                                        self.cloud_aniso)
             else:
-                cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT = \
+                cloud_abs_opa_tot,cloud_scat_opa_tot,cloud_red_fac_aniso_tot = \
                 fs.calc_hansen_opas(rho,
                                     self.rho_cloud_particles,
                                     self.cloud_mass_fracs,
@@ -763,7 +763,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                                        self.temp, mmw, fseds,
                                        self.cloud_mass_fracs,
                                        sigma_lnorm, Kzz)
-                cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT = \
+                cloud_abs_opa_tot,cloud_scat_opa_tot,cloud_red_fac_aniso_tot = \
                     py_calc_cloud_opas(rho,
                                        self.rho_cloud_particles, \
                                        self.cloud_mass_fracs, \
@@ -781,7 +781,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                                               fseds,
                                               b_hans,
                                               Kzz)
-                cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT = \
+                cloud_abs_opa_tot,cloud_scat_opa_tot,cloud_red_fac_aniso_tot = \
                 fs.calc_hansen_opas(rho,
                                     self.rho_cloud_particles,
                                     self.cloud_mass_fracs,

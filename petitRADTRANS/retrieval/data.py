@@ -159,7 +159,9 @@ class Data:
         # Read in data
         if path_to_observations is not None:
             if not photometry:
-                if path_to_observations.endswith('.fits'):
+                if path_to_observations.endswith("_x1d.fits"):
+                    self.load_jwst(path_to_observations)
+                elif path_to_observations.endswith('.fits'):
                     self.loadfits(path_to_observations)
                 else:
                     self.loadtxt(path_to_observations)
@@ -229,6 +231,24 @@ class Data:
         self.wlen = obs[:,0]
         self.flux = obs[:,1]
         self.flux_error = obs[:,2]
+
+    def load_jwst(self,path):
+        """
+        Load in an x1d fits file as produced by the STSci JWST pipeline.
+        Expects units of Jy for the flux and micron for the wavelength.
+
+        Args:
+            path : str
+                Directory and filename of the data.
+        """
+        hdul = fits.open(path)
+        self.wlen = hdul["EXTRACT1D"].data["WAVELENGTH"]
+        self.flux = hdul["EXTRACT1D"].data["FLUX"]
+        self.flux_error = hdul["EXTRACT1D"].data["FLUX_ERROR"]
+
+        # Convert from Jy to W/m^2/micron
+        self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
+        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
 
     def loadfits(self,path):
         """

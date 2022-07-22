@@ -11,6 +11,7 @@ from scipy.special import erfcinv
 import numpy as np
 import math as math
 from molmass import Formula
+from typing import Tuple
 from petitRADTRANS import nat_cst as nc
 
 # import threading, subprocess
