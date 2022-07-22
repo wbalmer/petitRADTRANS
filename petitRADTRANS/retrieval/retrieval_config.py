@@ -478,47 +478,47 @@ class RetrievalConfig:
                 typicall accounting for filter transmission.
         """
 
-        photometry = open(path)
-        if photometric_transformation_function is None:
-            try:
-                import species
-                species.SpeciesInit()
-            except:
-                logging.error("Please provide a function to transform a spectrum into photometry, or pip install species")
-                sys.exit(12)
-        for line in photometry:
-            # # must be the comment character
-            if line[0] == '#':
-                continue
-            vals = line.split(',')
-            name = vals[0]
-            wlow = float(vals[1])
-            whigh = float(vals[2])
-            flux = float(vals[3])
-            err = float(vals[4])
+        with open(path) as photometry:
             if photometric_transformation_function is None:
-                transform = species.SyntheticPhotometry(name).spectrum_to_flux
-            else:
-                transform = photometric_transformation_function
+                try:
+                    import species
+                    species.SpeciesInit()
+                except:
+                    logging.error("Please provide a function to transform a spectrum into photometry, or pip install species")
+                    sys.exit(12)
+            for line in photometry:
+                # # must be the comment character
+                if line[0] == '#':
+                    continue
+                vals = line.split(',')
+                name = vals[0]
+                wlow = float(vals[1])
+                whigh = float(vals[2])
+                flux = float(vals[3])
+                err = float(vals[4])
+                if photometric_transformation_function is None:
+                    transform = species.SyntheticPhotometry(name).spectrum_to_flux
+                else:
+                    transform = photometric_transformation_function
 
-            if wlen_range_micron is None:
-                wbins = [0.95*wlow,1.05*whigh]
-            else:
-                wbins = wlen_range_micron
-            if opacity_mode == 'lbl':
-                logging.warning("Are you sure you want a high resolution model for photometry?")
-            self.data[name] = Data(name,
-                                    path,
-                                    model_generating_function = model_generating_function,
-                                    distance = distance,
-                                    photometry = True,
-                                    wlen_range_micron = wbins,
-                                    photometric_bin_edges = [wlow,whigh],
-                                    data_resolution = np.mean([wlow,whigh])/(whigh-wlow),
-                                    model_resolution = model_resolution,
-                                    scale = scale,
-                                    photometric_transformation_function = transform,
-                                    external_pRT_reference=external_pRT_reference,
-                                    opacity_mode=opacity_mode)
-            self.data[name].flux = flux
-            self.data[name].flux_error = err
+                if wlen_range_micron is None:
+                    wbins = [0.95*wlow,1.05*whigh]
+                else:
+                    wbins = wlen_range_micron
+                if opacity_mode == 'lbl':
+                    logging.warning("Are you sure you want a high resolution model for photometry?")
+                self.data[name] = Data(name,
+                                        path,
+                                        model_generating_function = model_generating_function,
+                                        distance = distance,
+                                        photometry = True,
+                                        wlen_range_micron = wbins,
+                                        photometric_bin_edges = [wlow,whigh],
+                                        data_resolution = np.mean([wlow,whigh])/(whigh-wlow),
+                                        model_resolution = model_resolution,
+                                        scale = scale,
+                                        photometric_transformation_function = transform,
+                                        external_pRT_reference=external_pRT_reference,
+                                        opacity_mode=opacity_mode)
+                self.data[name].flux = flux
+                self.data[name].flux_error = err

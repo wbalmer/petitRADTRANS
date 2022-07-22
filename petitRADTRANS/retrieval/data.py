@@ -347,13 +347,14 @@ class Data:
             logL += -1*np.sum( (diff / f_err)**2. ) / 2.
         if plotting:
             if not self.photometry:
+                plt.clf()
                 plt.plot(self.wlen, flux_rebinned)
                 plt.errorbar(self.wlen,
                              self.flux*self.scale_factor,
                              yerr = f_err,
                              fmt = '+')
                 plt.show()
-        #print(self.name,logL)
+            print(self.name,logL)
         return logL
 
     def convolve(self, \

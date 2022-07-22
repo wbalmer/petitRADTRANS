@@ -228,6 +228,99 @@ def bin_species_exok(species,resolution):
                                 masses = masses)
     return
 
+def compute_gravity(parameters):
+    gravity = -np.inf
+    R_pl = -np.inf
+    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
+        gravity = 10**parameters['log_g'].value
+        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
+    elif 'log_g' in parameters.keys():
+        gravity= 10**parameters['log_g'].value
+        R_pl = parameters['R_pl'].value
+    elif 'mass' in parameters.keys():
+        R_pl = parameters['R_pl'].value
+        gravity = nc.G * parameters['mass'].value/R_pl**2
+    else:
+        print("Pick two of log_g, R_pl and mass priors!")
+        sys.exit(5)
+    return gravity, R_pl
+
+def set_resolution(lines,abundances,resolution):
+    """
+    deprecated
+    """
+    # Set correct key names in abundances for pRT, with set resolution
+    # Only needed for free chemistry retrieval
+    #print(lines)
+    #print(abundances)
+    if resolution is None:
+        return abundances
+    for line in lines:
+        abundances[line] = abundances[line.split("_R_"+str(resolution))[0]]
+        del abundances[line.split("_R_"+str(resolution))]
+    return abundances
+
+
+def fixed_length_amr(p_clouds, pressures, scaling = 10, width = 3):
+    r"""This function takes in the cloud base pressures for each cloud,
+    and returns an array of pressures with a high resolution mesh
+    in the region where the clouds are located.
+
+    Author:  Francois Rozet.
+
+    The output length is always
+        len(pressures[::scaling]) + len(p_clouds) * width * (scaling - 1)
+
+    Args:
+        P_clouds : numpy.ndarray
+            The cloud base pressures in bar
+        press : np.ndarray
+            The high resolution pressure array.
+        scaling : int
+            The factor by which the low resolution pressure array is scaled
+        width : int
+            The number of low resolution bins to be replaced for each cloud layer.
+    """
+
+    length = len(pressures)
+    cloud_indices = np.searchsorted(pressures, np.asarray(p_clouds))
+
+    # High resolution intervals
+    def bounds(center: int, width: int) -> Tuple[int, int]:
+        upper = min(center + width // 2, length)
+        lower = max(upper - width, 0)
+        return lower, lower + width
+
+    intervals = [bounds(idx, scaling * width) for idx in cloud_indices]
+
+    # Merge intervals
+    while True:
+        intervals, stack = sorted(intervals), []
+
+        for interval in intervals:
+            if stack and stack[-1][1] >= interval[0]:
+                last = stack.pop()
+                interval = bounds(
+                    (last[0] + max(last[1], interval[1]) + 1) // 2,
+                    last[1] - last[0] + interval[1] - interval[0],
+                )
+
+            stack.append(interval)
+
+        if len(intervals) == len(stack):
+            break
+        intervals = stack
+
+    # Intervals to indices
+    indices = [np.arange(0, length, scaling)]
+
+    for interval in intervals:
+        indices.append(np.arange(*interval))
+
+    indices = np.unique(np.concatenate(indices))
+
+    return pressures[indices], indices
+
 ########################
 # File Formatting
 ########################

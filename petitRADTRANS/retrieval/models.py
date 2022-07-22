@@ -1,14 +1,17 @@
-import sys
-import os
-import time
+import sys, os
 import copy as cp
 os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from scipy.interpolate import interp1d,CubicSpline
-from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.retrieval import cloud_cond as fc
 from typing import Tuple
-from .util import surf_to_meas, calc_MMW
+
+from petitRADTRANS import nat_cst as nc
+from petitRADTRANS.temperature_structures import guillot_global_ret, guillot_modif, PT_ret_model
+
+from petitRADTRANS.retrieval.chemistry import get_abundances
+from petitRADTRANS.retrieval import cloud_cond as fc
+from petitRADTRANS import poor_mans_nonequ_chem as pm
+from .util import surf_to_meas, calc_MMW, compute_gravity, fixed_length_amr
 """
 Models Module
 
@@ -88,7 +91,9 @@ def emission_model_diseq(pRT_object,
         p_use = PGLOBAL
     else:
         p_use = pRT_object.press/1e6
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     #for key, val in parameters.items():
     #    print(key,val.value)
 
@@ -98,6 +103,7 @@ def emission_model_diseq(pRT_object,
     T1 = T2*(1.0-parameters['T1'].value)
     delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
     Kzz_use = (10.0**parameters['log_kzz'].value ) * np.ones_like(p_use)
+    gravity, R_pl =  compute_gravity(parameters)
 
     # Make the P-T profile
     temp_arr = np.array([T1,T2,T3])
@@ -136,21 +142,6 @@ def emission_model_diseq(pRT_object,
         return None,None
     pRT_object.press = pressures*1e6
 
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
-
     sigma_lnorm = None
     b_hans = None
     distribution = "lognormal"
@@ -175,7 +166,7 @@ def emission_model_diseq(pRT_object,
                         abundances,
                         gravity,
                         MMW,
-                        contribution = False,
+                        contribution = contribution,
                         fsed = fseds,
                         Kzz = Kzz_use,
                         sigma_lnorm = sigma_lnorm,
@@ -194,6 +185,8 @@ def emission_model_diseq(pRT_object,
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def emission_model_diseq_patchy_clouds(pRT_object,
@@ -243,7 +236,9 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     pglobal_check(pRT_object.press/1e6,
                     parameters['pressure_simple'].value,
                     parameters['pressure_scaling'].value)
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     #for key, val in parameters.items():
     #    print(key,val.value)
 
@@ -252,6 +247,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     T2 = T3*(1.0-parameters['T2'].value)
     T1 = T2*(1.0-parameters['T1'].value)
     delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
+    gravity, R_pl =  compute_gravity(parameters)
 
     # Make the P-T profile
     temp_arr = np.array([T1,T2,T3])
@@ -294,20 +290,6 @@ def emission_model_diseq_patchy_clouds(pRT_object,
         return None,None
     pRT_object.press = pressures*1e6
 
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
     sigma_lnorm = None
     b_hans = None
     distribution = "lognormal"
@@ -321,7 +303,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                         abundances,
                         gravity,
                         MMW,
-                        contribution = False,
+                        contribution = contribution,
                         fsed = parameters['fsed'].value,
                         Kzz = Kzz_use,
                         sigma_lnorm = sigma_lnorm,
@@ -364,6 +346,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_clouds) +\
                      ((1-patchiness)*spectrum_model_clear)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def guillot_free_emission(pRT_object, \
@@ -415,7 +399,9 @@ def guillot_free_emission(pRT_object, \
     pglobal_check(pRT_object.press/1e6,
                   parameters['pressure_simple'].value,
                   parameters['pressure_scaling'].value)
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     if AMR:
         p_use = PGLOBAL
     else:
@@ -424,20 +410,8 @@ def guillot_free_emission(pRT_object, \
     # We need 2 of 3 for gravity, radius and mass
     # So check which parameters are included in the Retrieval
     # and calculate the third if necessary
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
+    gravity, R_pl =  compute_gravity(parameters)
+
 
     # We're using a guillot profile
     temperatures = nc.guillot_global(p_use, \
@@ -497,7 +471,7 @@ def guillot_free_emission(pRT_object, \
                      abundances, \
                      gravity, \
                      MMW, \
-                     contribution = False,
+                     contribution = contribution,
                      fsed = fseds,
                      Kzz = 10**parameters['log_kzz'].value * np.ones_like(pressures),
                      sigma_lnorm = sigma_lnorm,
@@ -520,7 +494,8 @@ def guillot_free_emission(pRT_object, \
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
-    #print(spectrum_model)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def guillot_eqchem_transmission(pRT_object, \
@@ -559,33 +534,16 @@ def guillot_eqchem_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
     # Make the P-T profile
     if AMR:
         p_use = PGLOBAL
     else:
         p_use = pRT_object.press/1e6
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
+    gravity, R_pl =  compute_gravity(parameters)
 
     temperatures = nc.guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
@@ -625,18 +583,21 @@ def guillot_eqchem_transmission(pRT_object, \
                                 R_pl=R_pl, \
                                 P0_bar=0.01,
                                 sigma_lnorm = parameters['sigma_lnorm'].value,
-                                radius = radii)
+                                radius = radii,
+                                contribution = contribution)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01)
+                               P0_bar=0.01,
+                               contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
-
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def guillot_patchy_eqchem_transmission(pRT_object, \
@@ -675,33 +636,16 @@ def guillot_patchy_eqchem_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
     # Make the P-T profile
     if AMR:
         p_use = PGLOBAL
     else:
         p_use = pRT_object.press/1e6
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
+    gravity, R_pl =  compute_gravity(parameters)
 
     temperatures = nc.guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
@@ -740,7 +684,8 @@ def guillot_patchy_eqchem_transmission(pRT_object, \
                             R_pl=R_pl, \
                             P0_bar=0.01,
                             sigma_lnorm = parameters['sigma_lnorm'].value,
-                            radius = radii)
+                            radius = radii,
+                            contribution = contribution)
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model_cloudy = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
     for cloud in pRT_object.cloud_species:
@@ -753,13 +698,16 @@ def guillot_patchy_eqchem_transmission(pRT_object, \
                             R_pl=R_pl, \
                             P0_bar=0.01,
                             sigma_lnorm = parameters['sigma_lnorm'].value,
-                            radius = radii)
+                            radius = radii,
+                            contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model_clear = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def guillot_eqchem_emission(pRT_object, \
@@ -796,32 +744,16 @@ def guillot_eqchem_emission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
     # Make the P-T profile
     if AMR:
         p_use = PGLOBAL
     else:
         p_use = pRT_object.press/1e6
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
+    gravity, R_pl = compute_gravity(parameters)
 
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
 
     temperatures = nc.guillot_global(p_use, \
                                 10**parameters['log_kappa_IR'].value,
@@ -872,7 +804,7 @@ def guillot_eqchem_emission(pRT_object, \
                         abundances,
                         gravity,
                         MMW,
-                        contribution = False,
+                        contribution = contribution,
                         fsed = parameters['fsed'].value,
                         Kzz = Kzz_use,
                         sigma_lnorm = sigma_lnorm,
@@ -891,6 +823,8 @@ def guillot_eqchem_emission(pRT_object, \
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 def isothermal_eqchem_transmission(pRT_object, \
@@ -927,16 +861,13 @@ def isothermal_eqchem_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
     # Make the P-T profile
     pressures = pRT_object.press/1e6
     temperatures = parameters['Temp'].value * np.ones_like(pressures)
-
+    gravity, R_pl =  compute_gravity(parameters)
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     # If in evaluation mode, and PTs are supposed to be plotted
     if PT_plot_mode:
         return pressures, temperatures
@@ -968,20 +899,24 @@ def isothermal_eqchem_transmission(pRT_object, \
         # low gravity objects
         pRT_object.calc_transm(temperatures, \
                                abundances, \
-                               10**parameters['log_g'].value, \
+                               gravity, \
                                MMW, \
-                               R_pl=parameters['R_pl'].value, \
+                               R_pl=R_pl, \
                                P0_bar=0.01,
-                               Pcloud = pcloud)
+                               Pcloud = pcloud,
+                               contribution = contribution)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
-                               10**parameters['log_g'].value, \
+                               10**gravity, \
                                MMW, \
-                               R_pl=parameters['R_pl'].value, \
-                               P0_bar=0.01)
+                               R_pl=R_pl, \
+                               P0_bar=0.01,
+                               contribution = contribution)
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
 
@@ -1020,21 +955,10 @@ def isothermal_free_transmission(pRT_object, \
 
     # Make the P-T profile
     pressures = pRT_object.press/1e6
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
-
+    gravity, R_pl = compute_gravity(parameters)
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     temperatures = parameters['Temp'].value * np.ones_like(pressures)
     #for key,value in parameters.items():
     #    print(key,value.value)
@@ -1073,17 +997,21 @@ def isothermal_free_transmission(pRT_object, \
                                MMW, \
                                R_pl=R_pl, \
                                P0_bar=0.01,
-                               Pcloud = pcloud)
+                               Pcloud = pcloud,
+                               contribution = contribution)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01)
+                               P0_bar=0.01,
+                               contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
 def guillot_free_transmission(pRT_object, \
@@ -1118,33 +1046,18 @@ def guillot_free_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
     # Make the P-T profile
     if AMR:
         p_use = PGLOBAL
     else:
         p_use = pRT_object.press/1e6
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
 
     # Calculate the spectrum
-    gravity = -np.inf
-    R_pl = -np.inf
-    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
-    elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
-    elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
-    else:
-        print("Pick two of log_g, R_pl and mass priors!")
-        sys.exit(5)
+    gravity, R_pl = compute_gravity(parameters)
+
 
     temperatures = nc.guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
@@ -1202,451 +1115,22 @@ def guillot_free_transmission(pRT_object, \
                                 R_pl=R_pl, \
                                 P0_bar=0.01,
                                 sigma_lnorm = parameters['sigma_lnorm'].value,
-                                radius = radii)
+                                radius = radii,
+                                contribution = contribution)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01)
+                               P0_bar=0.01,
+                               contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
-##################
-# Helper Functions
-##################
-
-### Global Guillot P-T formula with kappa/grav replaced by delta
-def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
-    '''
-    Self-luminous retrieval P-T model.
-
-    Arsg:
-        T3 : np.array([t1, t2, t3])
-            temperature points to be added on top
-            radiative Eddington structure (above tau = 0.1).
-            Use spline interpolation, t1 < t2 < t3 < tconnect as prior.
-        delta :
-            proportionality factor in tau = delta * press_cgs**alpha
-        alpha:
-            power law index in tau = delta * press_cgs**alpha
-            For the tau model: use proximity to kappa_rosseland photosphere
-            as prior.
-        tint:
-            internal temperature of the Eddington model
-        press:
-            input pressure profile in bar
-        conv:
-            enforce convective adiabat yes/no
-        CO:
-            C/O for the nabla_ad interpolation
-        FeH:
-            metallicity for the nabla_ad interpolation
-    '''
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
-    # Go grom bar to cgs
-    press_cgs = press*1e6
-
-    # Calculate the optical depth
-    tau = delta*press_cgs**alpha
-
-    # This is the eddington temperature
-    tedd = (3./4.*tint**4.*(2./3.+tau))**0.25
-
-    ab = pm.interpol_abundances(CO*np.ones_like(tedd), \
-            FeH*np.ones_like(tedd), \
-            tedd, \
-            press)
-
-    nabla_ad = ab['nabla_ad']
-
-    # Enforce convective adiabat
-    if conv:
-        # Calculate the current, radiative temperature gradient
-        nab_rad = np.diff(np.log(tedd))/np.diff(np.log(press_cgs))
-        # Extend to array of same length as pressure structure
-        nabla_rad = np.ones_like(tedd)
-        nabla_rad[0] = nab_rad[0]
-        nabla_rad[-1] = nab_rad[-1]
-        nabla_rad[1:-1] = (nab_rad[1:]+nab_rad[:-1])/2.
-
-        # Where is the atmosphere convectively unstable?
-        conv_index = nabla_rad > nabla_ad
-
-        # TODO: Check remains convective and convergence
-        for i in range(10):
-            if i == 0:
-                t_take = cp.copy(tedd)
-            else:
-                t_take = cp.copy(tfinal)
-
-            ab = pm.interpol_abundances(CO*np.ones_like(t_take), \
-                FeH*np.ones_like(t_take), \
-                t_take, \
-                press)
-
-            nabla_ad = ab['nabla_ad']
-
-            # Calculate the average nabla_ad between the layers
-            nabla_ad_mean = nabla_ad
-            nabla_ad_mean[1:] = (nabla_ad[1:]+nabla_ad[:-1])/2.
-            # What are the increments in temperature due to convection
-            tnew = nabla_ad_mean[conv_index]*np.mean(np.diff(np.log(press_cgs)))
-            # What is the last radiative temperature?
-            tstart = np.log(t_take[~conv_index][-1])
-            # Integrate and translate to temperature from log(temperature)
-            tnew = np.exp(np.cumsum(tnew)+tstart)
-
-            # Add upper radiative and
-            # lower conective part into one single array
-            tfinal = cp.copy(t_take)
-            tfinal[conv_index] = tnew
-
-            if np.max(np.abs(t_take-tfinal)/t_take) < 0.01:
-                #print('n_ad', 1./(1.-nabla_ad[conv_index]))
-                break
-
-    else:
-        tfinal = tedd
-
-    # Add the three temperature-point P-T description above tau = 0.1
-    def press_tau(tau):
-        # Returns the pressure at a given tau, in cgs
-        return (tau/delta)**(1./alpha)
-
-    # Where is the uppermost pressure of the Eddington radiative structure?
-    p_bot_spline = press_tau(0.1)
-
-    for i_intp in range(2):
-
-        if i_intp == 0:
-
-            # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]), \
-                             np.log10(p_bot_spline), \
-                             4)
-
-            # Create the pressure coordinates for the spline support nodes at high pressure,
-            # the corresponding temperatures for these nodes will be taken from the
-            # radiative+convective solution
-            support_points_high = 1e1**np.arange(np.log10(p_bot_spline),
-                                                 np.log10(press_cgs[-1]),
-                                                 np.diff(np.log10(support_points_low))[0])
-
-            # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low)+len(support_points_high)-1)
-            support_points[:4] = support_points_low
-            support_points[4:] = support_points_high[1:]
-
-        else:
-
-            # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]), \
-                             np.log10(p_bot_spline), \
-                             7)
-
-            # Create the pressure coordinates for the spline support nodes at high pressure,
-            # the corresponding temperatures for these nodes will be taken from the
-            # radiative+convective solution
-            support_points_high = np.logspace(np.log10(p_bot_spline), np.log10(press_cgs[-1]), 7)
-
-            # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low)+len(support_points_high)-1)
-            support_points[:7] = support_points_low
-            support_points[7:] = support_points_high[1:]
-
-        # Define the temperature values at the node points.
-        t_support = np.zeros_like(support_points)
-
-        if i_intp == 0:
-            tfintp = interp1d(press_cgs, tfinal,kind='cubic')
-            # The temperature at p_bot_spline (from the radiative-convectice solution)
-            t_support[int(len(support_points_low))-1] = tfintp(p_bot_spline)
-            # The temperature at pressures below p_bot_spline (free parameters)
-            t_support[:(int(len(support_points_low))-1)] = T3
-            # t_support[:3] = tfintp(support_points_low)
-            # The temperature at pressures above p_bot_spline
-            # (from the radiative-convectice solution)
-            t_support[int(len(support_points_low)):] = \
-                tfintp(support_points[(int(len(support_points_low))):])
-
-        else:
-            tfintp1 = interp1d(press_cgs, tret,kind='cubic')
-            t_support[:(int(len(support_points_low))-1)] = \
-                tfintp1(support_points[:(int(len(support_points_low))-1)])
-
-            tfintp = interp1d(press_cgs, tfinal)
-            # The temperature at p_bot_spline (from the radiative-convectice solution)
-            t_support[int(len(support_points_low))-1] = tfintp(p_bot_spline)
-            #print('diff', t_connect_calc - tfintp(p_bot_spline))
-            t_support[int(len(support_points_low)):] = \
-                tfintp(support_points[(int(len(support_points_low))):])
-
-        # Make the temperature spline interpolation to be returned to the user
-        cs = CubicSpline(np.log10(support_points), t_support)
-        tret = cs(np.log10(press_cgs))
-
-    tret[tret<0.0] = 10.0
-    # Return the temperature, the pressure at tau = 1,
-    # and the temperature at the connection point.
-    # The last two are needed for the priors on the P-T profile.
-    return tret#, press_tau(1.)/1e6, tfintp(p_bot_spline)
-
-def _make_half_pressure_better(P_clouds, press):
-    """
-    deprecated
-    """
-    # Obsolete, replaced with fixed_length_amr
-    press_plus_index = np.zeros((press.shape[0],2))
-    press_plus_index[:,0] = press
-    press_plus_index[:,1] = range(len(press))
-
-    press_small = press_plus_index[::24, :]
-    press_plus_index = press_plus_index[::2,:]
-
-    indexes_small = press_small[:,0] > 0.
-    indexes       = press_plus_index[:,0] > 0.
-
-    for P_cloud in P_clouds:
-        indexes_small = indexes_small & \
-            ((np.log10(press_small[:,0]/P_cloud) > 0.05) | \
-            (np.log10(press_small[:,0]/P_cloud) < -0.3))
-        indexes = indexes & \
-            ((np.log10(press_plus_index[:,0]/P_cloud) > 0.05) | \
-            (np.log10(press_plus_index[:,0]/P_cloud) < -0.3))
-
-    press_cut = press_plus_index[~indexes, :]
-    press_small_cut = press_small[indexes_small, :]
-
-    press_out = np.zeros((len(press_cut)+len(press_small_cut))*2).reshape((len(press_cut)+len(press_small_cut)), 2)
-    press_out[:len(press_small_cut), :] = press_small_cut
-    press_out[len(press_small_cut):, :] = press_cut
-
-    press_out = np.sort(press_out, axis = 0)
-    return press_out[:,0],  press_out[:, 1].astype('int')
-
-def fixed_length_amr(p_clouds, pressures, scaling = 10, width = 3):
-    r"""This function takes in the cloud base pressures for each cloud,
-    and returns an array of pressures with a high resolution mesh
-    in the region where the clouds are located.
-
-    Author:  Francois Rozet.
-
-    The output length is always
-        len(pressures[::scaling]) + len(p_clouds) * width * (scaling - 1)
-
-    Args:
-        P_clouds : numpy.ndarray
-            The cloud base pressures in bar
-        press : np.ndarray
-            The high resolution pressure array.
-        scaling : int
-            The factor by which the low resolution pressure array is scaled
-        width : int
-            The number of low resolution bins to be replaced for each cloud layer.
-    """
-
-    length = len(pressures)
-    cloud_indices = np.searchsorted(pressures, np.asarray(p_clouds))
-
-    # High resolution intervals
-    def bounds(center: int, width: int) -> Tuple[int, int]:
-        upper = min(center + width // 2, length)
-        lower = max(upper - width, 0)
-        return lower, lower + width
-
-    intervals = [bounds(idx, scaling * width) for idx in cloud_indices]
-
-    # Merge intervals
-    while True:
-        intervals, stack = sorted(intervals), []
-
-        for interval in intervals:
-            if stack and stack[-1][1] >= interval[0]:
-                last = stack.pop()
-                interval = bounds(
-                    (last[0] + max(last[1], interval[1]) + 1) // 2,
-                    last[1] - last[0] + interval[1] - interval[0],
-                )
-
-            stack.append(interval)
-
-        if len(intervals) == len(stack):
-            break
-        intervals = stack
-
-    # Intervals to indices
-    indices = [np.arange(0, length, scaling)]
-
-    for interval in intervals:
-        indices.append(np.arange(*interval))
-
-    indices = np.unique(np.concatenate(indices))
-
-    return pressures[indices], indices
-
-
-
-def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR = False):
-    """
-    This function takes in the C/O ratio, metallicity, and quench pressures and uses them
-    to compute the gas phase and equilibrium condensate abundances.
-    Clouds are currently hard coded into the function.
-
-    Args:
-        pressures : numpy.ndarray
-            A log spaced pressure array. If AMR is on it should be the full high resolution grid.
-        temperatures : numpy.ndarray
-            A temperature array with the same shape as pressures
-        line_species : List(str)
-            A list of gas species that will contribute to the line-by-line opacity of the pRT atmosphere.
-        cloud_species : List(str)
-            A list of condensate species that will contribute to the cloud opacity of the pRT atmosphere.
-        parameters : dict
-            A dictionary of model parameters, in particular it must contain the names C/O, Fe/H and
-            log_pquench. Additionally the cloud parameters log_X_cb_Fe(c) and MgSiO3(c) must be present.
-        AMR : bool
-            Turn the adaptive mesh grid on or off. See fixed_length_amr for implementation.
-
-    Returns:
-        abundances : dict
-            Mass fraction abundances of all atmospheric species
-        MMW : numpy.ndarray
-            Array of the mean molecular weights in each pressure bin
-        small_index : numpy.ndarray
-            The indices of the high resolution grid to use to define the adaptive grid.
-    """
-
-    try:
-        from petitRADTRANS import poor_mans_nonequ_chem as pm
-    except ImportError:
-        print("Could not import poor_mans_nonequ_chemistry. Exiting.")
-        sys.exit(2)
-
-    # Prior check all input params
-    clouds = {}
-    for cloud in cloud_species:
-        cname = cloud.split("_")[0]
-        if "eq_scaling_"+cname in parameters.keys():
-            # equilibrium cloud abundance
-            Xcloud= fc.return_cloud_mass_fraction(cloud,parameters['Fe/H'].value, parameters['C/O'].value)
-            # Scaled by a constant factor
-            clouds[cname] = 10**parameters['eq_scaling_'+cname].value*Xcloud
-        else:
-            # Free cloud abundance
-            clouds[cname] = 10**parameters['log_X_cb_'+cloud.split("_")[0]].value
-
-    # Free Chemistry
-    abundances_interp = {}
-    if line_species[0].split("_R_")[0] in parameters.keys():
-        # Cannot mix free and equilibrium chemistry. Maybe something to add?
-        msum = 0.0
-        for species in line_species:
-            abund = 10**parameters[species.split("_R_")[0]].value
-            abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
-            msum += abund
-        # Whatever's left is H2 and
-        abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
-        abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
-
-        # Imposing strict limit on msum to ensure H2 dominated composition
-        if msum > 0.1:
-            #print(f"Abundance sum > 1.0, msum={msum}")
-            return None,None,None,None
-        MMW = calc_MMW(abundances_interp)
-    else:
-        # Equilibrium chemistry
-        # Make the abundance profile
-        pquench_C = None
-        if 'log_pquench' in parameters.keys():
-            pquench_C = 10**parameters['log_pquench'].value
-        abundances_interp = pm.interpol_abundances(parameters['C/O'].value * np.ones_like(pressures), \
-                                                parameters['Fe/H'].value * np.ones_like(pressures), \
-                                                temperatures, \
-                                                pressures,
-                                                Pquench_carbon = pquench_C)
-        # Magic factor for FeH abundances
-        MMW = abundances_interp['MMW']
-
-    # Get the cloud locations
-    Pbases = {}
-    for cloud in cloud_species:
-        cname = cloud.split('_')[0]
-        # Free cloud bases
-        if 'Pbase_'+cname in parameters.keys():
-            Pbases[cname] = 10**parameters['log_Pbase_'+cname].value
-        # Equilibrium locations
-        elif 'Fe/H' in parameters.keys():
-            Pbases[cname] = fc.simple_cdf(cname,pressures, temperatures,
-                                            parameters['Fe/H'].value, parameters['C/O'].value, np.mean(MMW))
-        else:
-            Pbases[cname] = fc.simple_cdf_free(cname,
-                                               pressures,
-                                               temperatures,
-                                               10**parameters['log_X_cb_'+cname].value,
-                                               MMW[0])
-    # Find high resolution pressure grid and indices
-    if AMR:
-        press_use, small_index = fixed_length_amr(np.array(list(Pbases.values())),
-                                                  pressures,
-                                                  parameters['pressure_scaling'].value,
-                                                  parameters['pressure_width'].value)
-    else :
-        #TODO: Test
-        press_use = pressures
-        small_index = np.linspace(press_use[0],press_use[-1],press_use.shape[0],dtype = int)
-
-    fseds = {}
-    abundances = {}
-    for cloud in cp.copy(cloud_species):
-        cname = cloud.split('_')[0]
-        # Set up fseds per-cloud
-        try:
-            fseds[cname] = parameters['fsed_'+cname].value
-        except:
-            fseds[cname] = parameters['fsed'].value
-        abundances[cname] = np.zeros_like(temperatures)
-        abundances[cname][pressures < Pbases[cname]] = \
-                        clouds[cname] *\
-                        (pressures[pressures <= Pbases[cname]]/\
-                        Pbases[cname])**fseds[cname]
-        # Use correct array length if using AMR
-        if AMR:
-            abundances[cname] = abundances[cname][small_index]
-
-    if AMR:
-        for species in line_species:
-            if 'FeH' in species:
-                abundances[species] = abundances_interp[species.split('_')[0]] / 2.
-                abunds_change_rainout = cp.copy(abundances[species])
-                index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
-                abunds_change_rainout[index_ro] = 0.
-                abundances[species] = abunds_change_rainout[small_index]
-            abundances[species] = abundances_interp[species.split('_')[0]][small_index]
-        abundances['H2'] = abundances_interp['H2'][small_index]
-        abundances['He'] = abundances_interp['He'][small_index]
-
-    else:
-        for species in line_species:
-            if 'FeH' in species:
-                abundances[species] = abundances_interp[species.split('_')[0]] / 2.
-                if "Fe(c)_cd" in cloud_species:
-                    abunds_change_rainout = cp.copy(abundances[species])
-                    index_ro = pressures < Pbases['Fe(c)']
-                    abunds_change_rainout[index_ro] = 0.
-                    abundances[species] = abunds_change_rainout[small_index]
-            abundances[species] = abundances_interp[species.split('_')[0]]
-        abundances['H2'] = abundances_interp['H2']
-        abundances['He'] = abundances_interp['He']
-
-    return abundances, MMW, small_index, Pbases
 
 def pglobal_check(press,shape,scaling):
     """
@@ -1668,17 +1152,4 @@ def pglobal_check(press,shape,scaling):
                               np.log10(press[-1]),
                               int(scaling*shape))
 
-def set_resolution(lines,abundances,resolution):
-    """
-    deprecated
-    """
-    # Set correct key names in abundances for pRT, with set resolution
-    # Only needed for free chemistry retrieval
-    #print(lines)
-    #print(abundances)
-    if resolution is None:
-        return abundances
-    for line in lines:
-        abundances[line] = abundances[line.split("_R_"+str(resolution))[0]]
-        del abundances[line.split("_R_"+str(resolution))]
-    return abundances
+

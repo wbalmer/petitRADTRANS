@@ -90,7 +90,7 @@ if pathinp == None:
     print('before creating a Radtrans object or loading the nat_cst module.')
     sys.exit(1)
 spec_path = pathinp + '/stellar_specs'
-    
+
 description = np.genfromtxt(spec_path+'/stellar_params.dat')
 logTempGrid = description[:,0]
 StarRadGrid = description[:,1]
@@ -154,7 +154,7 @@ def get_PHOENIX_spec(temperature):
     return specDat
 
 def get_PHOENIX_spec_rad(temperature):
-    ''' 
+    '''
     Returns a matrix where the first column is the wavelength in cm
     and the second is the stellar flux :math:`F_\\nu` in units of
     :math:`\\rm erg/cm^2/s/Hz`, at the surface of the star.
@@ -168,7 +168,7 @@ def get_PHOENIX_spec_rad(temperature):
         temperature (float):
             stellar effective temperature in K.
     '''
-    
+
     logTemp = np.log10(temperature)
     interpolationIndex = np.searchsorted(logTempGrid, logTemp)
 
