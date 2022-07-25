@@ -8,7 +8,7 @@ from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 
-from petitRADTRANS.temperature_structures import PT_ret_model, guillot_global, guillot_global_ret, guillot_modif, isothermal
+from petitRADTRANS.physics import PT_ret_model, guillot_global, guillot_global_ret, guillot_modif, isothermal
 from .chemistry import get_abundances
 from .util import surf_to_meas, calc_MMW, compute_gravity, spectrum_cgs_to_si
 """
