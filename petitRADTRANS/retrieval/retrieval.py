@@ -745,7 +745,7 @@ class Retrieval:
             return mg_func(atmosphere, parameters, PT_plot_mode= False, AMR = self.rd.AMR)
 
 
-    def get_best_fit_model(self,best_fit_params,parameters_read,model_generating_func = None,ret_name = None, contribution = False):
+    def get_best_fit_model(self,best_fit_params,parameters_read,ret_name = None, contribution = False):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
         range of the retrieval, to be used in plots.
@@ -802,13 +802,19 @@ class Retrieval:
             self.best_fit_params["pressure_width"] = self.parameters["pressure_width"]
             self.best_fit_params["pressure_simple"] = self.parameters["pressure_simple"]
         if contribution:
-            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self,best_fit_params,model_generating_func = None,ret_name = None, contribution = False)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self,best_fit_params,
+                                                                              model_generating_func = None,
+                                                                              ret_name = ret_name,
+                                                                              contribution = contribution)
             np.save(self.output_dir + "evaluate_" + \
                 self.retrieval_name + "/" + \
                 ret_name + "_best_fit_model_contribution",
                 bf_contribution)
         else:
-            bf_wlen, bf_spectrum = self.get_full_range_model(self,best_fit_params, model_generating_func = None,ret_name = None, contribution = False)
+            bf_wlen, bf_spectrum = self.get_full_range_model(self,best_fit_params,
+                                                             model_generating_func = None,
+                                                             ret_name = ret_name,
+                                                             contribution = contribution)
 
         # Add to the dictionary.
         self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
