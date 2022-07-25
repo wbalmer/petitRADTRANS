@@ -220,6 +220,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.kappa_zero = None
         self.gamma_scat = None
         self.fsed = None
+        self.cloud_wlen = None
 
         # Initialize derived variables  TODO check if some of these can be made private variables instead of attributes
         self.cloud_total_opa_retrieval_check = None
@@ -1000,7 +1001,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                       ' destruction probability in this spectral range to 1.')
                 self.photon_destruction_prob[np.isnan(self.photon_destruction_prob)] = 1.
                 self.skip_RT_step = True
-
         else:
             self.total_tau = \
                 fs.calc_tau_g_tot_ck(gravity, self.press,
@@ -1272,7 +1272,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                          dist=dist, a_hans=a_hans, b_hans=b_hans,
                          give_absorption_opacity=give_absorption_opacity,
                          give_scattering_opacity=give_scattering_opacity)
-        self.calc_opt_depth(gravity, cloud_wlen = cloud_wlen)
+        self.calc_opt_depth(gravity, cloud_wlen=cloud_wlen)
 
         if not self.skip_RT_step:
             self.calc_RT(contribution)

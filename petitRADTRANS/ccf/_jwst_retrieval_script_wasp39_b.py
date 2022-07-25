@@ -12,7 +12,6 @@ import time
 import numpy as np
 
 from petitRADTRANS.ccf.jwst_retrieval_wasp39_b import *
-from petitRADTRANS.ccf.model_containers import RetrievalSpectralModel
 from petitRADTRANS.ccf.spectra_utils import load_snr_file
 from petitRADTRANS.retrieval import Retrieval
 from petitRADTRANS.retrieval.plotting import contour_corner

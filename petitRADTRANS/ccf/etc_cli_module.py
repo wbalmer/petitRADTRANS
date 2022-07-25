@@ -183,7 +183,7 @@ def write_request_file(file_name, star_apparent_magnitude, exposure_time, integr
 
 def get_snr_data_file_name(instrument, setting, exposure_time, integration_time, airmass, star_model,
                            star_effective_temperature, star_apparent_magnitude_band, star_apparent_magnitude,
-                           etc_file=False):
+                           etc_file=False, directory=module_dir, extension='json'):
     file_name = f"snr_{instrument}_{setting}_exp{exposure_time}s_dit{integration_time}s_airmass{airmass}_" \
                 f"{star_model}-{star_effective_temperature}K_" \
                 f"m{star_apparent_magnitude_band}{star_apparent_magnitude}"
@@ -191,13 +191,13 @@ def get_snr_data_file_name(instrument, setting, exposure_time, integration_time,
     if etc_file:
         file_name += '_etc'
 
-    return f'{module_dir}/{instrument}/' + file_name + '.json'
+    return os.path.join(directory, instrument, file_name + f'.{extension}')
 
 
 def download_snr_data(request_file_name, star_spectrum_file_name, star_apparent_magnitude, star_effective_temperature,
                       exposure_time, integration_time, airmass, setting, setting_orders,
                       star_apparent_magnitude_band='J', instrument='crires', indent=4,
-                      output_file=None, save_etc_file=False, star_model='PHOENIX'):
+                      output_file=None, save_etc_file=False, star_model='PHOENIX', directory=module_dir):
     write_request_file(request_file_name, star_apparent_magnitude, exposure_time, integration_time, airmass,
                        setting, setting_orders, star_apparent_magnitude_band=star_apparent_magnitude_band)
 
@@ -212,7 +212,8 @@ def download_snr_data(request_file_name, star_spectrum_file_name, star_apparent_
             star_effective_temperature=star_effective_temperature,
             star_apparent_magnitude_band=star_apparent_magnitude_band,
             star_apparent_magnitude=star_apparent_magnitude,
-            etc_file=True
+            etc_file=True,
+            directory=directory
         )
 
     jsondata = get_data(

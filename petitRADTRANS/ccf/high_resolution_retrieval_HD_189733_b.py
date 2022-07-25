@@ -4,20 +4,19 @@ Useful functions for high-resolution retrievals.
 import copy
 import os
 
-import json
 import numpy as np
-from matplotlib import colors
+from petitRADTRANS.fort_rebin import fort_rebin as fr
 
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
 from petitRADTRANS.ccf.mock_observation import add_telluric_lines, add_variable_throughput, \
-    generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.ccf.model_containers import Planet, SpectralModel2
-from petitRADTRANS.ccf.pipeline import simple_pipeline, pipeline_validity_test
+    generate_mock_observations, get_mock_transit_spectra, get_orbital_phases
+from petitRADTRANS.ccf.pipeline import simple_pipeline
 from petitRADTRANS.ccf.utils import calculate_reduced_chi2
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.containers.spectral_model import SpectralModel
 from petitRADTRANS.phoenix import get_PHOENIX_spec
-from petitRADTRANS.physics import doppler_shift, guillot_global
+from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior
@@ -62,8 +61,8 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     rayleigh_species = ['H2', 'He']
     continuum_species = ['H2-H2', 'H2-He', 'H-']
 
-    metallicity = SpectralModel2.calculate_scaled_metallicity(planet.mass, 10**planet.star_metallicity, 1.0)
-    mass_fractions = SpectralModel2.calculate_mass_mixing_ratios(
+    metallicity = SpectralModel.calculate_scaled_metallicity(planet.mass, 10 ** planet.star_metallicity, 1.0)
+    mass_fractions = SpectralModel.calculate_mass_mixing_ratios(
         pressures=pressures,
         line_species=line_species,
         included_line_species='all',
@@ -146,7 +145,7 @@ def _init_retrieval_model(prt_object, parameters):
             spec = spec.split('_', 1)[0]
             abundances[spec] = 10 ** parameters[species].value * np.ones_like(pressures)
 
-    abundances = SpectralModel2.calculate_mass_mixing_ratios(
+    abundances = SpectralModel.calculate_mass_mixing_ratios(
         pressures=pressures,
         line_species=prt_object.line_species,
         included_line_species='all',

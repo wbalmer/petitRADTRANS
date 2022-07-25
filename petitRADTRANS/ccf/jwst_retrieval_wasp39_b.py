@@ -2,23 +2,22 @@
 Useful functions for high-resolution retrievals.
 """
 import copy
-import os
-
 import functools
+import os
 import pickle
+
 import numpy as np
-from matplotlib import colors
+from petitRADTRANS.fort_rebin import fort_rebin as fr
 
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
 from petitRADTRANS.ccf.mock_observation import add_telluric_lines, add_variable_throughput, \
-    generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.ccf.model_containers import Planet, SpectralModel
-from petitRADTRANS.ccf.pipeline import simple_pipeline, pipeline_validity_test
+    generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
+from petitRADTRANS.ccf.pipeline import simple_pipeline
 from petitRADTRANS.ccf.utils import calculate_reduced_chi2
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
-from petitRADTRANS.physics import doppler_shift, guillot_global
+from petitRADTRANS.physics import guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior

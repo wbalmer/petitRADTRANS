@@ -20,7 +20,7 @@ from petitRADTRANS.ccf.high_resolution_retrieval_HD_189733_b import all_species,
     get_retrieval_name
 from petitRADTRANS.ccf.high_resolution_retrieval_TRAPPIST_1_b import init_mock_observations_co2
 from petitRADTRANS.ccf.high_resolution_retrieval_TRAPPIST_1_b_telluric import init_mock_observations_co2t
-from petitRADTRANS.ccf.model_containers import Planet
+from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval
 

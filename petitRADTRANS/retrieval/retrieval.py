@@ -610,12 +610,13 @@ class Retrieval:
                                                      self.parameters,
                                                      self.PT_plot_mode,
                                                      AMR=self.rd.AMR)
+
                     # Sanity checks on outputs
                     if spectrum_model is None:
                         return -1e99
 
-                    if np.isnan(spectrum_model).any():
-                        return -1e99
+                    # if np.isnan(spectrum_model).any():  # TODO make it work with jagged arrays
+                    #     return -1e99
 
                     # Calculate log likelihood
                     # TODO uniformize convolve/rebin handling
@@ -625,7 +626,7 @@ class Retrieval:
                             # Second dimension of data must be a function of wavelength
                             for i, data in enumerate(dd.flux):
                                 log_likelihood += dd.log_likelihood_gibson(
-                                    spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
+                                    spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
                                     alpha=1.0,
                                     beta=1.0
                                 )
@@ -635,7 +636,7 @@ class Retrieval:
                             for i, detector in enumerate(dd.flux):
                                 for j, data in enumerate(detector):
                                     log_likelihood += dd.log_likelihood_gibson(
-                                        spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
+                                        spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
                                         alpha=1.0,
                                         beta=1.0
                                     )

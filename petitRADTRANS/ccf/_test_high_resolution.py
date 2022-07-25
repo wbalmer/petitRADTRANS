@@ -19,7 +19,8 @@ from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
 from petitRADTRANS.ccf.mock_observation import add_telluric_lines, add_variable_throughput, \
     convolve_shift_rebin, generate_mock_observations, get_orbital_phases, \
     get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
-from petitRADTRANS.ccf.model_containers import Planet, SpectralModel
+from petitRADTRANS.ccf.model_containers import SpectralModel
+from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.ccf.pipeline import _remove_throughput_test, simple_pipeline, pipeline_validity_test
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.phoenix import get_PHOENIX_spec

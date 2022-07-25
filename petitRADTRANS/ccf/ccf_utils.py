@@ -176,6 +176,30 @@ def calculate_tsm_derivatives(tsm, planet_radius, planet_mass, planet_equilibriu
     ])  # scale factor is already included in tsm
 
 
+def crires_snr_dict2array(dictionary):
+    """Convert a CRIRES SNR dictionary into arrays.
+
+    Args:
+        dictionary: dictionary containing the json-loaded CRIRES SNR data
+
+    Returns:
+        wavelengths and single_pixel_snr, two arrays of shape (n_d, n_w),
+        where n_d is the total number of detector, and n_w is the number of wavelength
+    """
+    wavelengths = []
+    single_pixel_snr = []
+
+    for order, detectors in dictionary.items():
+        for detector, data in detectors.items():
+            wavelengths.append(data['wavelength'])
+            single_pixel_snr.append(data['snr'])
+
+    wavelengths = np.array(wavelengths)
+    single_pixel_snr = np.array(single_pixel_snr)
+
+    return wavelengths, single_pixel_snr
+
+
 def get_ccf_results(band, star_snr, settings, models, instrument_resolving_power, pixel_sampling,
                     species_list, velocity_range,
                     observing_time=1., transit_duration=None,
@@ -355,8 +379,61 @@ def get_ccf_results(band, star_snr, settings, models, instrument_resolving_power
     return results
 
 
-def get_crires_snr_data(settings, star_apparent_magnitude, star_effective_temperature, exposure_time, integration_time,
-                        airmass, star_apparent_magnitude_band='V', star_spectrum_file=None, rewrite=False):
+def get_crires_snr_data(setting_key, setting_orders, star_apparent_magnitude, star_effective_temperature, exposure_time,
+                        integration_time, airmass, star_apparent_magnitude_band='V', star_spectrum_file=None,
+                        rewrite=False, directory=module_dir):
+    if star_spectrum_file is None:
+        star_spectrum_file = SpectralModel.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
+
+    snr_data_file = get_snr_data_file_name(
+        instrument='crires',
+        setting=setting_key,
+        exposure_time=exposure_time,
+        integration_time=integration_time,
+        airmass=airmass,
+        star_model='PHOENIX',
+        star_effective_temperature=star_effective_temperature,
+        star_apparent_magnitude_band=star_apparent_magnitude_band,
+        star_apparent_magnitude=star_apparent_magnitude
+    )
+
+    # Loading the json file is much faster than reading the data from the website
+    if not os.path.exists(snr_data_file) or rewrite:
+        print(f"file '{snr_data_file}' does not exist, downloading...")
+
+        if not os.path.exists(star_spectrum_file):
+            print(f"file '{star_spectrum_file}' does not exist, generating...")
+
+            SpectralModel.generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature)
+
+        json_data = download_snr_data(
+            request_file_name=os.path.join(directory, 'etc-form.json'),
+            star_spectrum_file_name=star_spectrum_file,
+            star_apparent_magnitude=star_apparent_magnitude,
+            star_effective_temperature=star_effective_temperature,
+            exposure_time=exposure_time,
+            integration_time=integration_time,
+            airmass=airmass,
+            setting=setting_key,
+            setting_orders=setting_orders,
+            star_apparent_magnitude_band=star_apparent_magnitude_band,
+            directory=directory
+        )
+
+        snr_data = get_snr_from_etc_data(json_data, setting_orders)
+
+        output(snr_data, do_collapse=False, indent=4, outputfile=snr_data_file)
+    else:
+        print(f"loading file '{snr_data_file}'...")
+
+        with open(snr_data_file, 'r') as f:
+            snr_data = json.load(f)
+
+    return snr_data
+
+
+def get_multiple_crires_snr_data(settings, star_apparent_magnitude, star_effective_temperature, exposure_time, integration_time,
+                                 airmass, star_apparent_magnitude_band='V', star_spectrum_file=None, rewrite=False):
     if star_spectrum_file is None:
         star_spectrum_file = SpectralModel.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
 
@@ -371,48 +448,18 @@ def get_crires_snr_data(settings, star_apparent_magnitude, star_effective_temper
             setting_key = f'{band}{setting_number}'
             setting_orders = [int(key) for key in settings[band][setting_number]]
 
-            snr_data_file = get_snr_data_file_name(
-                instrument='crires',
-                setting=setting_key,
+            snr_data[band][setting_number] = get_crires_snr_data(
+                setting_key=setting_key,
+                setting_orders=setting_orders,
+                star_apparent_magnitude=star_apparent_magnitude,
+                star_effective_temperature=star_effective_temperature,
                 exposure_time=exposure_time,
                 integration_time=integration_time,
                 airmass=airmass,
-                star_model='PHOENIX',
-                star_effective_temperature=star_effective_temperature,
                 star_apparent_magnitude_band=star_apparent_magnitude_band,
-                star_apparent_magnitude=star_apparent_magnitude
+                star_spectrum_file=star_spectrum_file,
+                rewrite=rewrite
             )
-
-            # Loading the json file is much faster than reading the data from the website
-            if not os.path.exists(snr_data_file) or rewrite:
-                print(f"file '{snr_data_file}' does not exist, downloading...")
-
-                if not os.path.exists(star_spectrum_file):
-                    print(f"file '{star_spectrum_file}' does not exist, generating...")
-
-                    SpectralModel.generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature)
-
-                json_data = download_snr_data(
-                    request_file_name='etc-form.json',
-                    star_spectrum_file_name=star_spectrum_file,
-                    star_apparent_magnitude=star_apparent_magnitude,
-                    star_effective_temperature=star_effective_temperature,
-                    exposure_time=exposure_time,
-                    integration_time=integration_time,
-                    airmass=airmass,
-                    setting=setting_key,
-                    setting_orders=setting_orders,
-                    star_apparent_magnitude_band=star_apparent_magnitude_band,
-                )
-
-                snr_data[band][setting_number] = get_snr_from_etc_data(json_data, setting_orders)
-
-                output(snr_data[band][setting_number], do_collapse=False, indent=4, outputfile=snr_data_file)
-            else:
-                print(f"loading file '{snr_data_file}'...")
-
-                with open(snr_data_file, 'r') as f:
-                    snr_data[band][setting_number] = json.load(f)
 
     return snr_data
 

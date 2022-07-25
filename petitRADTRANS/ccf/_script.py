@@ -1,7 +1,7 @@
 """
 Script to launch a CCF analysis on multiple models.
 """
-import copy
+import h5py
 import os.path
 
 from petitRADTRANS.ccf._plot_functions import *
@@ -141,10 +141,10 @@ def main():
     planet = Planet.get(planet_name)
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -376,10 +376,250 @@ def main_tic():
     star_apparent_magnitudes = [star_apparent_magnitude_j]  # np.linspace(4, 16, 7)
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
+
+    # Generate parameter dictionaries
+    parameter_dicts = get_parameter_dicts(
+        t_int, metallicity, co_ratio, p_cloud
+    )
+
+    # Load/generate relevant models
+    models = {}
+    id_model = 0
+
+    for wlen_mode in wlen_modes:
+        print(f"Band {wlen_mode}...")
+
+        # Initialize grid
+        models[wlen_mode], all_models_exist = init_model_grid(
+            planet_name, lbl_opacity_sampling, do_scat_emis, parameter_dicts, species_list,
+            wavelength_boundaries=wlen_modes[wlen_mode],
+            model_suffix=model_suffix[id_model]
+        )
+
+        if not all_models_exist:
+            # Load or generate atmosphere
+            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                wlen_bords_micron=wlen_modes[wlen_mode],
+                pressures=pressures,
+                line_species_list=line_species_list,
+                rayleigh_species=SpectralModel.default_rayleigh_species,
+                continuum_opacities=SpectralModel.default_continuum_opacities,
+                lbl_opacity_sampling=lbl_opacity_sampling,
+                do_scat_emis=do_scat_emis,
+                model_suffix=model_suffix[id_model]
+            )
+
+            # Load or generate models
+            models[wlen_mode] = generate_model_grid(
+                models=models[wlen_mode],
+                pressures=pressures,
+                line_species_list=line_species_list,
+                rayleigh_species='default',
+                continuum_opacities='default',
+                model_suffix=model_suffix,
+                atmosphere=atmosphere,
+                mass_fractions=mass_fractions[id_model],
+                temperature_profile=temperature_profiles[id_model],
+                calculate_transmission_spectrum=True,
+                calculate_eclipse_depth=False,
+                rewrite=True,
+                save=True
+            )
+        else:
+            # Load existing models
+            models[wlen_mode] = load_model_grid(models[wlen_mode])
+
+    snrs = {}
+    snrs_error = {}
+    tsm = {}
+
+    for meta in metallicity:
+        snrs[meta] = {}
+        snrs_error[meta] = {}
+        tsm[meta] = {}
+
+        for band in wlen_modes:
+            snrs[meta][band], snrs_error[meta][band], tsm[meta][band], results = get_tsm_snr_pcloud(
+                band=band,
+                wavelength_boundaries=wlen_modes[band] * 1e-4,
+                star_distances=distances,
+                p_clouds=p_cloud,
+                models=models,
+                species_list=species_list,
+                settings=settings,
+                planet=planet,
+                t_int=t_int[0],
+                metallicity=meta,
+                co_ratio=co_ratio[0],
+                velocity_range=velocity_range,
+                exposure_time=exposure_time,
+                telescope_mirror_radius=telescope_mirror_radius,
+                telescope_throughput=telescope_throughput,
+                instrument_resolving_power=instrument_resolving_power,
+                pixel_sampling=pixel_sampling,
+                noise_correction_coefficient=1.0,
+                scale_factor=1.0,
+                star_snr=star_snr,
+                star_apparent_magnitude=star_apparent_magnitudes,
+                star_snr_reference_apparent_magnitude=star_apparent_magnitude_j,
+                mock_observation_number=100,
+                transit_number=1
+            )
+
+    for meta in metallicity:
+        print(f'\n [Z/H] = {10 ** meta}:')
+
+        for species in species_list:
+            if species == 'all':
+                continue
+
+            best_snr, best_band, best_setting = find_best_setting(species, snrs[meta])
+            print(f"Species '{species}', best setting: {best_band}{best_setting} (CCF SNR: {best_snr})")
+
+    for species in species_list:
+        if species == 'all':
+            continue
+
+        plt.figure(figsize=(16, 9))
+        plot_snr_settings_bars(
+            species, snrs,
+            model_labels=[rf"Z/H = {10 ** metallicity[0]:.1f} $\times$ solar",
+                          rf"Z/H = {10 ** metallicity[1]:.1f} $\times$ solar"],
+            planet_name=planet_name,
+            threshold=5,
+            y_err=snrs_error
+        )
+
+        if not os.path.isdir(f"./figures/{planet_name.replace(' ', '_')}"):
+            os.mkdir(f"./figures/{planet_name.replace(' ', '_')}")
+
+        plt.savefig(f"./figures/{planet_name.replace(' ', '_')}/{species}_detection.png")
+
+    plot_tsm_pcloud_snr(
+        p_cloud, tsm, snrs,
+        metallicity=metallicity[0],
+        band='J',
+        setting=list(settings.keys())[0],
+        species=species_list[1],
+        planet_name=planet_name,
+        exposure_time=exposure_time
+    )
+
+
+def main_wasp():
+    # Base parameters
+    planet_name = 'WASP-96 b'
+    lbl_opacity_sampling = 1
+    do_scat_emis = False
+    model_suffix = ['', 'neq']
+    wlen_modes = {
+        # 'Y': np.array([0.92, 1.15]),
+        # 'J': np.array([1.07, 1.4]),
+        'H': np.array([1.4, 1.88]),
+        'K': np.array([1.88, 2.55]),
+        'L': np.array([2.7, 4.25]),
+        'M': np.array([3.25, 5.5])
+    }
+
+    pressures = np.logspace(-10, 2, 130)
+    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    # star_apparent_magnitude_v = 12.095
+
+    # Models to be tested
+    t_int = [80]
+    metallicity = [0, 1]
+    co_ratio = [0.55]
+    p_cloud = [1e2]  # [1e2, 1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4]
+    species_list = ['all', 'H2O', 'CH4', 'NH3', 'CO', 'CO2', 'H2S', 'PH3']
+
+    line_species_list = [
+        'CH4_main_iso',
+        'CO_all_iso',
+        # 'CO_main_iso',
+        # 'CO_36',
+        'CO2_main_iso',
+        'H2O_main_iso',
+        'H2S_main_iso',
+        # 'HCN_main_iso',
+        # 'K',
+        # 'Na_allard',
+        'NH3_main_iso',
+        'PH3_main_iso'
+    ]
+
+    molecular_w = {
+        'CH4_main_iso': 16,
+        'CO_all_iso': 28,
+        'CO2_main_iso': 44,
+        'H2O_main_iso': 18,
+        'H2S_main_iso': 34.1,
+        # 'HCN_main_iso': 27,
+        'NH3_main_iso': 17,
+        'PH3_main_iso': 34
+    }
+
+    data = load_hdf5(f"{module_dir}/../../../exorem/outputs/exorem/wasp_96_b_z1.5_t200_co0.55_nocloud_radiusdown.h5")
+    mmmr_neq = data['outputs']['layers']['molar_mass'][()][::-1]
+    p_neq = data['outputs']['layers']['pressure'][()][::-1] * 1e-5
+    vmr_neq = data['outputs']['layers']['volume_mixing_ratios']['absorbers']
+    t_neq = data['outputs']['layers']['temperature'][()][::-1]
+    mmr_neq = {}
+
+    mmmr_neq_i = interp1d(p_neq, mmmr_neq, fill_value='extrapolate')
+    mmmr_neq_i = mmmr_neq_i(pressures)
+    t_neq_i = interp1d(p_neq, t_neq, fill_value='extrapolate')
+    t_neq_i = t_neq_i(pressures)
+
+    for species in list(vmr_neq.keys()):
+        vmr_neq_i = interp1d(p_neq, vmr_neq[species][()][::-1], fill_value='extrapolate')
+        vmr_neq_i = vmr_neq_i(pressures)
+
+        for line_species in molecular_w:
+            if species + '_' in line_species:
+                mmr_neq[line_species] = molecular_w[line_species] * 1e-3 * vmr_neq_i / mmmr_neq_i
+
+    mmr_neq['MMW'] = mmmr_neq_i * 1e3
+
+    mass_fractions = [
+        None,
+        mmr_neq
+    ]
+
+    temperature_profiles = [
+        None,
+        t_neq_i
+    ]
+
+    # Observation parameters
+    # Actually matter (used to get the CRIRES SNR data from the ETC website)
+    exposure_time = 60  # 4 * 3600
+    integration_time = 60
+    airmass = 1.2
+    velocity_range = [-1400, 1400]
+    instrument_resolving_power = 8e4
+    # Old (don't do anything anymore)
+    telescope_mirror_radius = 8.2e2 / 2  # cm
+    telescope_throughput = 0.1
+    pixel_sampling = 3
+
+    # Load settings
+    settings = load_wavelength_settings(module_dir + '/crires/wavelength_settings.dat')
+
+    # Load planet
+    planet = Planet.get(planet_name)
+    star_apparent_magnitude_j = planet.system_apparent_magnitude_j
+    # star_apparent_magnitude_j = 10
+    star_apparent_magnitudes = [star_apparent_magnitude_j]  # np.linspace(4, 16, 7)
+
+    # Load signal to noise_matrix ratios
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -573,10 +813,10 @@ def main_lp():
         regions_species = pickle.load(f)
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -773,10 +1013,10 @@ def main_ltt2():
         regions_species = pickle.load(f)
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -998,10 +1238,10 @@ def main_toi270():
         regions_species = pickle.load(f)
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -1273,10 +1513,10 @@ def main_ltt():
     planet_keys = ['eq', 'neq']
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet_1.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet_1.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -1592,10 +1832,10 @@ def main_aumicc():
     settings = load_wavelength_settings(module_dir + '/crires/wavelength_settings.dat')
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -1849,10 +2089,10 @@ def main_hd():
     planet_keys = ['eq', 'neq']
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet_1.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet_1.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -2125,10 +2365,10 @@ def main_toi776():
     settings = load_wavelength_settings(module_dir + '/crires/wavelength_settings.dat')
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -2345,10 +2585,10 @@ def main_toi():
         planets[i].transit_duration = 2 * planets[i].transit_duration
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -2556,10 +2796,10 @@ def main_teff():
     settings = load_wavelength_settings(module_dir + '/crires/wavelength_settings.dat')
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   5500, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            5500, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -2767,10 +3007,10 @@ def main_tiso():
     settings = load_wavelength_settings(module_dir + '/crires/wavelength_settings.dat')
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   5500, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            5500, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -2983,10 +3223,10 @@ def _test():
     planet.transit_duration = 500 * 3600
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -3166,10 +3406,10 @@ def _test_emission():
     planet.transit_duration = 500 * 3600
 
     # Load signal to noise_matrix ratios
-    star_snr = get_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
-                                   planet.star_effective_temperature, exposure_time,
-                                   integration_time, airmass,  # TODO add FLI and seeing
-                                   rewrite=False, star_apparent_magnitude_band='J')
+    star_snr = get_multiple_crires_snr_data(settings, star_apparent_magnitude_j,  # TODO apparent mag is really annoying
+                                            planet.star_effective_temperature, exposure_time,
+                                            integration_time, airmass,  # TODO add FLI and seeing
+                                            rewrite=False, star_apparent_magnitude_band='J')
 
     # Generate parameter dictionaries
     parameter_dicts = get_parameter_dicts(
@@ -3279,4 +3519,5 @@ def find_best_setting(species, snrs):
 
 
 if __name__ == '__main__':
-    main_tic()
+    # main_tic()
+    main_wasp()

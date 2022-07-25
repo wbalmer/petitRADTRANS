@@ -6,6 +6,7 @@ import sys
 from warnings import warn
 
 import numpy as np
+
 from petitRADTRANS.ccf.utils import median_uncertainties, calculate_uncertainty
 
 
@@ -746,7 +747,7 @@ def simple_pipeline(spectrum, uncertainties=None,
                 reduction_matrix=reduction_matrix,
                 wavelengths=wavelengths,
                 uncertainties=reduced_data_uncertainties,
-                mask_threshold=1e-16,
+                mask_threshold=sys.float_info.min,
                 polynomial_fit_degree=2
             )
 

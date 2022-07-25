@@ -4,10 +4,10 @@ Useful functions to generate mock observations.
 import copy
 
 import numpy as np
+from petitRADTRANS.fort_rebin import fort_rebin as fr
 from scipy.ndimage.filters import gaussian_filter1d
 
-from petitRADTRANS.ccf.model_containers import Planet
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.physics import doppler_shift
 
 
