@@ -1501,7 +1501,14 @@ class Retrieval:
                 plt.show()
                 print(np.shape(bf_contribution))
 
-            contr_em = bf_contribution
+            pressure_weights = np.diff(np.log10(pressures))
+            weights = np.ones_like(pressures)
+            weights[:-1] = pressure_weights
+            weights[-1] = weights[-2]
+            weights = weights / np.sum(weights)
+            weights = weights.reshape(len(weights), 1)
+
+            contr_em = bf_contribution/weights
 
             # This probably doesn't need to be in a loop
             print(contr_em.shape,spectral_weights.shape)
