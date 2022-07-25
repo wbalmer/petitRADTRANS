@@ -1588,7 +1588,7 @@ subroutine get_rg_N(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
 
 end subroutine get_rg_N
 
-subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
+subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain, &
    b_h,Kzz,a_h,struc_len,N_cloud_spec)
 
 use constants_block
@@ -1596,7 +1596,7 @@ implicit none
 ! I/O
 INTEGER, intent(in)  :: struc_len, N_cloud_spec
 DOUBLE PRECISION, intent(in) :: gravity, rho(struc_len), rho_p(N_cloud_spec), temp(struc_len), &
-     MMW(struc_len), frain(N_cloud_spec), cloud_mass_fracs(struc_len,N_cloud_spec), &
+     MMW(struc_len), frain(N_cloud_spec), &
      b_h(struc_len,N_cloud_spec), Kzz(struc_len)
 DOUBLE PRECISION, intent(out) :: a_h(struc_len,N_cloud_spec)
 
