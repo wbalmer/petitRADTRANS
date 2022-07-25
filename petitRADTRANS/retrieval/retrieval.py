@@ -1149,7 +1149,7 @@ class Retrieval:
         self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
-                                                       parameters_read,model_generating_func)
+                                                       parameters_read)
         # Iterate through each dataset, plotting the data and the residuals.
         for name,dd in self.data.items():
             # If the user has specified a resolution, rebin to that
@@ -1491,7 +1491,7 @@ class Retrieval:
 
         if weighted:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
-                                                                        parameters_read,model_generating_func,
+                                                                        parameters_read,
                                                                         contribution = True)
 
             nu = nc.c/bf_wlen
@@ -1681,7 +1681,7 @@ class Retrieval:
         #self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
         bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
-                                                                        parameters_read,model_generating_func,
+                                                                        parameters_read,
                                                                         contribution = True)
 
         self.PT_plot_mode = True
