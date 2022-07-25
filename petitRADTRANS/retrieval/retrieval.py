@@ -881,9 +881,9 @@ class Retrieval:
         """
         logL = samples[:,-1]
         best_fit_index = np.argmax(logL)
-        print(f"Best fit likelihood = {logL:.2f}")
-        self.chi2 = logL
-        return logL, best_fit_index
+        print(f"Best fit likelihood = {logL[best_fit_index]:.2f}")
+        self.chi2 = logL[best_fit_index]
+        return logL[best_fit_index], best_fit_index
 
     def get_analyzer(self,ret_name = ""):
         """
