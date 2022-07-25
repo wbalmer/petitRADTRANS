@@ -802,13 +802,13 @@ class Retrieval:
             self.best_fit_params["pressure_width"] = self.parameters["pressure_width"]
             self.best_fit_params["pressure_simple"] = self.parameters["pressure_simple"]
         if contribution:
-            bf_wlen, bf_spectrum, bf_contribution = get_full_range_model(self,best_fit_params,model_generating_func = None,ret_name = None, contribution = False)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self,best_fit_params,model_generating_func = None,ret_name = None, contribution = False)
             np.save(self.output_dir + "evaluate_" + \
                 self.retrieval_name + "/" + \
                 ret_name + "_best_fit_model_contribution",
                 bf_contribution)
         else:
-            bf_wlen, bf_spectrum = get_full_range_model(self,best_fit_params, model_generating_func = None,ret_name = None, contribution = False)
+            bf_wlen, bf_spectrum = self.get_full_range_model(self,best_fit_params, model_generating_func = None,ret_name = None, contribution = False)
 
         # Add to the dictionary.
         self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
