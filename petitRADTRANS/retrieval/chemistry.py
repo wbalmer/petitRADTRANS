@@ -110,10 +110,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                                                   parameters['pressure_scaling'].value,
                                                   parameters['pressure_width'].value)
     else :
-        #TODO: Test
-        press_use = pressures
-        small_index = np.linspace(0,press_use.shape[0],press_use.shape[0], dtype = int)
-
+        small_index = np.linspace(0,pressures.shape[0]-1,pressures.shape[0], dtype = int)
     fseds = {}
     abundances = {}
     for cloud in cp.copy(cloud_species):
@@ -132,8 +129,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     for species in line_species:
         if 'FeH' in species:
-            abundances[species] = abundances_interp[species.split('_')[0]] / 2.
-            abunds_change_rainout = cp.copy(abundances[species])
+            # Magic factor for FeH opacity - off by factor of 2
+            abunds_change_rainout = cp.copy(abundances_interp[species.split('_')[0]]/2.)
             index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
             abunds_change_rainout[index_ro] = 0.
             abundances[species] = abunds_change_rainout[small_index]

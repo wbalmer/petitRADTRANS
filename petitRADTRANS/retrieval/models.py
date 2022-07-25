@@ -8,7 +8,7 @@ from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 
-from petitRADTRANS.temperature_structures import PT_ret_model, guillot_global_ret, guillot_modif, isothermal
+from petitRADTRANS.temperature_structures import PT_ret_model, guillot_global, guillot_global_ret, guillot_modif, isothermal
 from .chemistry import get_abundances
 from .util import surf_to_meas, calc_MMW, compute_gravity, spectrum_cgs_to_si
 """
@@ -299,7 +299,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
 
     # Patchiness fraction
     patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_clouds) +\
+    spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
 
     return wlen_model, spectrum_model
@@ -365,7 +365,7 @@ def guillot_emission(pRT_object, \
         contribution = parameters["contribution"].value
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = nc.guillot_global(p_use, \
+    temperatures = guillot_global(p_use, \
                                 10**parameters['log_kappa_IR'].value,
                                 parameters['gamma'].value, \
                                 gravity, \
@@ -476,7 +476,7 @@ def guillot_transmission(pRT_object, \
     # Calculate the spectrum
     gravity, R_pl =  compute_gravity(parameters)
 
-    temperatures = nc.guillot_global(p_use, \
+    temperatures = guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
                                     parameters['gamma'].value, \
                                     gravity, \
@@ -614,7 +614,7 @@ def guillot_patchy_transmission(pRT_object, \
     # Calculate the spectrum
     gravity, R_pl =  compute_gravity(parameters)
 
-    temperatures = nc.guillot_global(p_use, \
+    temperatures = guillot_global(p_use, \
                                     10**parameters['log_kappa_IR'].value, \
                                     parameters['gamma'].value, \
                                     gravity, \
