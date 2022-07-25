@@ -241,7 +241,9 @@ class RetrievalConfig:
                 each species in linelist. The range of the prior goes from abund_lim[0] to abund_lim[1].
                 The abundance limits must be given in log10 units of the mass fraction.
         """
-
+        if abund_lim[1] >= 0.0:
+            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
+            sys.exit(2)
         self.line_species = linelist
         if not eq:
             for spec in self.line_species:
@@ -295,6 +297,10 @@ class RetrievalConfig:
         """
 
         # parameter passed through loglike is log10 abundance
+        if abund_lim[1] >= 0.0:
+            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
+            sys.exit(2)
+
         self.line_species.append(species)
         if not eq:
             if fixed_abund is not None:
@@ -370,6 +376,10 @@ class RetrievalConfig:
                                                 transform_prior_cube_coordinate = \
                                                 lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
         else:
+            if abund_lim[1] >= 0.0:
+                print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
+                sys.exit(3)
+
             if fixed_abund is None:
                 self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,True,\
                                             transform_prior_cube_coordinate = \
