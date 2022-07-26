@@ -1142,7 +1142,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Plotting Best-fit spectrum")
+        print("\nPlotting Best-fit spectrum")
         fig, axes = plt.subplots(nrows=2, ncols=1, sharex='col', sharey=False,
                                gridspec_kw={'height_ratios': [2.5, 1],'hspace':0.1},
                                figsize=(20, 10))
@@ -1384,7 +1384,7 @@ class Retrieval:
             self.run_mode = 'evaluate'
         self.rd.plot_kwargs["nsample"] = int(self.rd.plot_kwargs["nsample"])
 
-        print("Plotting Best-fit spectrum with "+ str(self.rd.plot_kwargs["nsample"]) + " samples.")
+        print("\nPlotting Best-fit spectrum with "+ str(self.rd.plot_kwargs["nsample"]) + " samples.")
         print("This could take some time...")
         len_samples = samples_use.shape[0]
         path = self.output_dir + 'evaluate_'+self.retrieval_name + "/"
@@ -1464,7 +1464,7 @@ class Retrieval:
             ax : matplotlib.axes
         """
 
-        print("Plotting PT profiles")
+        print("\nPlotting PT profiles")
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
@@ -1537,7 +1537,6 @@ class Retrieval:
             contr_em = bf_contribution/weights
 
             # This probably doesn't need to be in a loop
-            print(contr_em.shape,spectral_weights.shape)
             for i_str in range(bf_contribution.shape[0]):
                 contr_em[i_str, :] = bf_contribution[i_str, :] * spectral_weights
 
@@ -1619,7 +1618,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Making corner plot")
+        print("\nMaking corner plot")
         sample_use_dict = {}
         p_plot_inds = {}
         p_ranges = {}
@@ -1705,7 +1704,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Plotting Best-fit contribution function")
+        print("\nPlotting Best-fit contribution function")
 
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -1754,7 +1753,7 @@ class Retrieval:
         return bf_contribution
 
     def plot_abundances(self,samples_use,parameters_read, species_to_plot = None, contribution = False):
-        print("Plotting Abundances profiles")
+        print("\nPlotting Abundances profiles")
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
         self.PT_plot_mode = True
