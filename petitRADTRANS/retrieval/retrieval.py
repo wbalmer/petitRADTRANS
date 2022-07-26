@@ -1257,7 +1257,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${logL}',
+                label = f'Best Fit Model, $\chi^{2}=${logL:.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
