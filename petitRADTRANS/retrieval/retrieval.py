@@ -1728,7 +1728,7 @@ class Retrieval:
         X, Y = np.meshgrid(bf_wlen, pressures)
         fig, ax = plt.subplots()
         if log_scale_contribution:
-            plot_cont = -np.nan_to_num(np.log10(bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights))
+            plot_cont = -np.log10(bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights)
             label = "-Log Weighted Flux"
         else:
             plot_cont = bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights
