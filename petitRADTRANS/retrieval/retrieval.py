@@ -773,25 +773,8 @@ class Retrieval:
         if ret_name is None:
             ret_name = self.retrieval_name
         # Check if the files already exist so that we don't have to recalculate
-        if os.path.exists(self.output_dir + "evaluate_" + \
-                              self.retrieval_name + "/" + \
-                              ret_name + "_best_fit_model_contribution.npy"):
-                print("Loading best fit spectrum and contribution from file")
-                bf_contribution = np.load(self.output_dir + "evaluate_" + \
-                                          self.retrieval_name + "/" + \
-                                          ret_name + "_best_fit_model_contribution.npy")
-                bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
-                                          self.retrieval_name + "/" + \
-                                          ret_name + "_best_fit_model_full.npy")
-                return bf_wlen, bf_spectrum, bf_contribution
-        if os.path.exists(self.output_dir + "evaluate_" + \
-                          self.retrieval_name + "/" + \
-                          ret_name + "_best_fit_model_full.npy"):
-            print("Loading best fit spectrum from file")
-            bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
-                                          self.retrieval_name + "/" + \
-                                          ret_name + "_best_fit_model_full.npy")
-            return bf_wlen, bf_spectrum
+
+
         if not self.retrieval_name in self.best_fit_specs.keys():
             self.get_best_fit_params(best_fit_params,parameters_read)
 
@@ -801,6 +784,17 @@ class Retrieval:
             self.best_fit_params["pressure_width"] = self.parameters["pressure_width"]
             self.best_fit_params["pressure_simple"] = self.parameters["pressure_simple"]
         if contribution:
+            if os.path.exists(self.output_dir + "evaluate_" + \
+                              self.retrieval_name + "/" + \
+                              ret_name + "_best_fit_model_contribution.npy"):
+                print("Loading best fit spectrum and contribution from file")
+                bf_contribution = np.load(self.output_dir + "evaluate_" + \
+                                          self.retrieval_name + "/" + \
+                                          ret_name + "_best_fit_model_contribution.npy")
+                bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
+                                          self.retrieval_name + "/" + \
+                                          ret_name + "_best_fit_model_full.npy").T
+                return bf_wlen, bf_spectrum, bf_contribution
             bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
                                                                               model_generating_func = None,
                                                                               ret_name = ret_name,
@@ -810,6 +804,14 @@ class Retrieval:
                 ret_name + "_best_fit_model_contribution",
                 bf_contribution)
         else:
+            if os.path.exists(self.output_dir + "evaluate_" + \
+                          self.retrieval_name + "/" + \
+                          ret_name + "_best_fit_model_full.npy"):
+                print("Loading best fit spectrum from file")
+                bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
+                                            self.retrieval_name + "/" + \
+                                            ret_name + "_best_fit_model_full.npy").T
+                return bf_wlen,bf_spectrum
             bf_wlen, bf_spectrum = self.get_full_range_model(self.best_fit_params,
                                                              model_generating_func = None,
                                                              ret_name = ret_name,
@@ -1499,7 +1501,7 @@ class Retrieval:
             diff_nu = np.zeros_like(nu)
             diff_nu[:-1] = mean_diff_nu
             diff_nu[-1] = diff_nu[-2]
-            spectral_weights = bf_spectrum*diff_nu/np.sum(flux*diff_nu)
+            spectral_weights = bf_spectrum*diff_nu/np.sum(bf_spectrum*diff_nu)
 
             if self.plotting:
                 plt.clf()

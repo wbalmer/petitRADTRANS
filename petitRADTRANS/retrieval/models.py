@@ -121,8 +121,6 @@ def emission_model_diseq(pRT_object,
                             parameters['Fe/H'].value,
                             parameters['C/O'].value,
                             conv=True)
-    if PT_plot_mode:
-        return p_use, temperatures
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
@@ -131,7 +129,8 @@ def emission_model_diseq(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
-
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -241,8 +240,6 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                             parameters['Fe/H'].value,
                             parameters['C/O'].value,
                             conv=True)
-    if PT_plot_mode:
-        return p_use, temperatures
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
@@ -251,6 +248,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -373,15 +372,14 @@ def guillot_emission(pRT_object, \
                                 parameters['T_equ'].value)
 
     # If in evaluation mode, and PTs are supposed to be plotted
-    if PT_plot_mode:
-        return p_use, temperatures
-    # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
                                                   pRT_object.line_species,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -483,9 +481,6 @@ def guillot_transmission(pRT_object, \
                                     parameters['T_int'].value, \
                                     parameters['T_equ'].value)
 
-    # If in evaluation mode, and PTs are supposed to be plotted
-    if PT_plot_mode:
-        return p_use, temperatures
 
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
@@ -493,6 +488,8 @@ def guillot_transmission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -544,7 +541,7 @@ def guillot_transmission(pRT_object, \
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_em
+        return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
 def guillot_patchy_transmission(pRT_object, \
@@ -621,16 +618,14 @@ def guillot_patchy_transmission(pRT_object, \
                                     parameters['T_int'].value, \
                                     parameters['T_equ'].value)
 
-    # If in evaluation mode, and PTs are supposed to be plotted
-    if PT_plot_mode:
-        return p_use, temperatures
-
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
                                                   pRT_object.line_species,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -676,7 +671,7 @@ def guillot_patchy_transmission(pRT_object, \
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_em
+        return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
 def isothermal_transmission(pRT_object, \
@@ -740,10 +735,6 @@ def isothermal_transmission(pRT_object, \
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
-    # If in evaluation mode, and PTs are supposed to be plotted
-    if PT_plot_mode:
-        return pressures, temperatures
-
     # Make the abundance profile
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
@@ -751,6 +742,8 @@ def isothermal_transmission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
