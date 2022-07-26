@@ -860,7 +860,7 @@ class Retrieval:
                                             self.data[name].pRT_object.line_species,
                                             self.data[name].pRT_object.cloud_species,
                                             parameters,
-                                            AMR=self.rd.AMR)
+                                            AMR=False)
         return abundances, MMW
 
     def get_evidence(self, ret_name = ""):
