@@ -270,7 +270,7 @@ class Data:
         try:
             self.covariance = fits.getdata(path,'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
-            self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
@@ -315,7 +315,7 @@ class Data:
         if self.covariance is not None:
             self.covariance *= scale**2
             self.inv_cov = np.linalg.inv(self.covariance)
-            self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
             self.flux_error = np.sqrt(self.covariance.diagonal())
         else:
