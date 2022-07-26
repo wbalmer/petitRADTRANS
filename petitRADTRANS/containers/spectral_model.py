@@ -422,6 +422,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_model_parameters(**kwargs):
         """Function to update model parameters.
+        This function can be expanded to include anything.
 
         Args:
             **kwargs: parameters to update
@@ -429,7 +430,6 @@ class BaseSpectralModel:
         Returns:
             Updated parameters
         """
-        # This function can be expanded to include anything
         if 'star_spectral_radiosities' in kwargs:
             if kwargs['star_spectral_radiosities'] is None:
                 kwargs['star_spectral_radiosities'] = BaseSpectralModel.calculate_star_spectral_radiosity(
@@ -694,6 +694,7 @@ class BaseSpectralModel:
             if 'relative_velocities' not in self.model_parameters:
                 raise TypeError(f"missing required parameter 'relative_velocities' for shifting")
 
+            # Pop relative velocities outside of model parameters to prevent multiple arguments definition
             relative_velocities_tmp = copy.deepcopy(self.model_parameters['relative_velocities'])
             del self.model_parameters['relative_velocities']
 
@@ -706,6 +707,7 @@ class BaseSpectralModel:
                 **self.model_parameters
             )
 
+            # Put relative velocities back into model parameters
             self.model_parameters['relative_velocities'] = relative_velocities_tmp
 
         if convolve:
@@ -766,6 +768,7 @@ class BaseSpectralModel:
 
         The SpectralModel must have in its model_parameters keys:
             -  'output_wavelengths': (um) the wavelengths to rebin to
+        # TODO complete docstring
 
         The SpectralModel can have in its model_parameters keys:
             - 'relative_velocities' (cm.s-1) the velocities of the source relative to the observer, in that case the
@@ -780,7 +783,7 @@ class BaseSpectralModel:
         if relative_velocities is None and 'relative_velocities' in self.model_parameters:
             relative_velocities = self.model_parameters['relative_velocities']
 
-        # Re-bin requirement is an interval half a bin larger then re-binning interval
+        # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(output_wavelengths, 'dtype'):
             if output_wavelengths.dtype != 'O':
                 wavelengths_flat = output_wavelengths.flatten()
@@ -790,7 +793,6 @@ class BaseSpectralModel:
             wavelengths_flat = np.concatenate(output_wavelengths)
 
         if np.ndim(wavelengths_flat) > 1:
-            print('!')
             wavelengths_flat = np.concatenate(wavelengths_flat)
 
         rebin_required_interval = [
@@ -839,18 +841,6 @@ class BaseSpectralModel:
 
         return rebin_required_interval
 
-    def get_parameters_dict(self):
-        parameters_dict = {}
-
-        for key, value in self.__dict__.items():
-            if key == 'model_parameters':  # model_parameters is a dictionary, extract its values
-                for parameter, parameter_value in value.items():
-                    parameters_dict[parameter] = copy.copy(parameter_value)
-            else:
-                parameters_dict[key] = copy.copy(value)
-
-        return parameters_dict
-
     def get_radtrans(self):
         """Return the Radtrans object corresponding to this SpectrumModel."""
         return self.init_radtrans(
@@ -865,9 +855,8 @@ class BaseSpectralModel:
             lbl_opacity_sampling=self.lbl_opacity_sampling
         )
 
-    @staticmethod
-    def get_reduced_spectrum(spectrum, pipeline, **kwargs):
-        return pipeline(spectrum, **kwargs)
+    def get_reduced_spectrum(self, spectrum, **kwargs):
+        return self.pipeline(spectrum, **kwargs)
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None, **kwargs):
         if pressures is None:
@@ -994,7 +983,6 @@ class BaseSpectralModel:
             spectrum, parameters['reduction_matrix'], parameters['reduced_uncertainties'] = \
                 self.get_reduced_spectrum(
                     spectrum=spectrum,
-                    pipeline=self.pipeline,
                     wavelengths=wavelengths,
                     **parameters
                 )
@@ -1053,14 +1041,14 @@ class BaseSpectralModel:
                        mode='emission', update_parameters=False, deformation_matrix=None, noise_matrix=None,
                        scale=False, shift=False, convolve=False, rebin=False, reduce=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
-                       write_out_spec_sample=False, **kwargs):
+                       write_out_spec_sample=False, dataset_name='data', **kwargs):
         if pressures is None:
             pressures = copy.copy(self.pressures)
 
         if model_parameters is None:
             model_parameters = copy.deepcopy(self.model_parameters)
 
-        run_definition_simple = RetrievalConfig(
+        retrieval_configuration = RetrievalConfig(
             retrieval_name=retrieval_name,
             run_mode=run_mode,
             AMR=amr,
@@ -1081,7 +1069,7 @@ class BaseSpectralModel:
                     f"usage of dictionary or a '{type(RetrievalParameter)}' instance is recommended"
                 )
 
-            run_definition_simple.add_parameter(
+            retrieval_configuration.add_parameter(
                 name=parameter.name,
                 free=True,
                 value=None,
@@ -1093,7 +1081,7 @@ class BaseSpectralModel:
 
         for parameter in model_parameters:
             if parameter not in retrieved_parameters_names:
-                run_definition_simple.add_parameter(
+                retrieval_configuration.add_parameter(
                     name=parameter,
                     free=False,
                     value=model_parameters[parameter],
@@ -1112,6 +1100,7 @@ class BaseSpectralModel:
         # Set model generating function
         def model_generating_function(prt_object, parameters, pt_plot_mode=None, AMR=False):
             # TODO AMR in lowercase
+            # A special function is needed due to the specificity of the Retrieval object
             return self.retrieval_model_generating_function(
                 prt_object=prt_object,
                 parameters=parameters,
@@ -1130,11 +1119,10 @@ class BaseSpectralModel:
             )
 
         # Set Data object
-        run_definition_simple.add_data(
-            name='test',
+        retrieval_configuration.add_data(
+            name=dataset_name,
             path=None,
             model_generating_function=model_generating_function,
-            opacity_mode='lbl',
             pRT_object=radtrans,
             wlen=data_wavelengths,
             flux=data,
@@ -1143,7 +1131,7 @@ class BaseSpectralModel:
         )
 
         retrieval = Retrieval(
-            run_definition_simple,
+            run_definition=retrieval_configuration,
             output_dir=retrieval_directory,
             **kwargs
         )
@@ -1152,15 +1140,17 @@ class BaseSpectralModel:
 
     @classmethod
     def load(cls, filename):
+        # Generate an empty SpectralModel
         new_spectrum_model = cls(pressures=None, wavelengths_boundaries=[0.0, 0.0])
 
+        # Update the SpectralModel attributes from the file
         with h5py.File(filename, 'r') as f:
             new_spectrum_model.__dict__ = hdf52dict(f)
 
         return new_spectrum_model
 
     @staticmethod
-    def pipeline(spectrum):
+    def pipeline(spectrum, **kwargs):
         """Simplistic pipeline model. Do nothing.
         To be updated when initializing an instance of retrieval model.
 
@@ -1300,7 +1290,6 @@ class BaseSpectralModel:
                 del p[species]
 
         p['imposed_mass_mixing_ratios'] = imposed_mass_mixing_ratios
-        # parameters['relative_velocities'] = None  # reset relative velocity so it can be calculated
 
         return spectrum_model.get_spectrum_model(
             radtrans=prt_object,
@@ -1506,7 +1495,7 @@ class SpectralModel(BaseSpectralModel):
     def _calculate_equilibrium_mass_mixing_ratios(pressures, temperatures, co_ratio, log10_metallicity,
                                                   line_species, included_line_species,
                                                   carbon_pressure_quench=None, imposed_mass_mixing_ratios=None):
-        from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm  # import is here because it is long to load
+        from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm  # import is here because it is long to load TODO add a load_data function to the module instead?
         if imposed_mass_mixing_ratios is None:
             imposed_mass_mixing_ratios = {}
 
@@ -1823,8 +1812,7 @@ class SpectralModel(BaseSpectralModel):
                     if h2_in_imposed_mass_mixing_ratios and he_in_imposed_mass_mixing_ratios:
                         if imposed_mass_mixing_ratios['H2'][i] > 0:
                             # Use imposed He/H2 ratio
-                            heh2_ratio = 10 ** imposed_mass_mixing_ratios['He'][i] \
-                                         / 10 ** imposed_mass_mixing_ratios['H2'][i]
+                            heh2_ratio = imposed_mass_mixing_ratios['He'][i] / imposed_mass_mixing_ratios['H2'][i]
                         else:
                             heh2_ratio = None
 
@@ -1931,7 +1919,7 @@ class SpectralModel(BaseSpectralModel):
 
         return temperatures
 
-    def calculate_orbital_phases(self, phase_start, orbital_period):
+    def get_orbital_phases(self, phase_start, orbital_period):
         orbital_phases = Planet.get_orbital_phases(
             phase_start=phase_start,
             orbital_period=orbital_period,
@@ -1939,21 +1927,6 @@ class SpectralModel(BaseSpectralModel):
         )
 
         return orbital_phases
-
-    @staticmethod
-    def get_reduced_spectrum(spectrum, pipeline, **kwargs):
-        # simple_pipeline interface
-        if not hasattr(spectrum, 'mask'):
-            spectrum = np.ma.masked_array(spectrum)
-
-        if 'uncertainties' in kwargs:  # ensure that spectrum and uncertainties share the same mask
-            if hasattr(kwargs['uncertainties'], 'mask'):
-                spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
-
-        reduced_data, reduction_matrix, reduced_data_uncertainties = \
-            pipeline(spectrum=spectrum, full=True, **kwargs)
-
-        return reduced_data, reduction_matrix, reduced_data_uncertainties
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None,
                                             temperature_profile_mode='isothermal',
@@ -2005,8 +1978,10 @@ class SpectralModel(BaseSpectralModel):
         else:
             log10_metallicity = None
 
+        # Put this function's arguments (except self and kwargs) into the model parameters dict
         for argument, value in locals().items():
             if argument not in kwargs and argument != 'self' and argument != 'kwargs':
+                # self is not a model parameter, and adding kwargs to itself must be prevented
                 kwargs[argument] = value
 
         return self.calculate_spectral_parameters(
@@ -2018,21 +1993,30 @@ class SpectralModel(BaseSpectralModel):
         )
 
     @staticmethod
-    def pipeline(**kwargs):
-        return simple_pipeline(**kwargs)
+    def pipeline(spectrum, **kwargs):
+        """Interface with simple_pipeline.
+
+        Args:
+            spectrum: spectrum to reduce
+            **kwargs: simple_pipeline arguments
+
+        Returns:
+            The reduced spectrum, matrix, and uncertainties
+        """
+        # simple_pipeline interface
+        if not hasattr(spectrum, 'mask'):
+            spectrum = np.ma.masked_array(spectrum)
+
+        if 'uncertainties' in kwargs:  # ensure that spectrum and uncertainties share the same mask
+            if hasattr(kwargs['uncertainties'], 'mask'):
+                spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
+
+        return simple_pipeline(spectrum=spectrum, full=True, **kwargs)
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
         pressures = radtrans.press * 1e-6  # cgs to bar
-        # imposed_mass_mixing_ratios = {}
-        kwargs = {'imposed_mass_mixing_ratios': {}}
 
-        # for species in radtrans.line_species:
-        #     # TODO mass mixing ratio dict initialization more general
-        #     spec = species.split('_R_')[0]  # deal with the naming scheme for binned down opacities
-        #
-        #     if spec in parameters:
-        #         # TODO move that to RetrievalSpectralModel
-        #         kwargs['imposed_mass_mixing_ratios'][species] = 10 ** parameters[spec] * np.ones_like(pressures)
+        kwargs = {'imposed_mass_mixing_ratios': {}}
 
         for parameter, value in parameters.items():
             if 'log10_' in parameter and value is not None:
