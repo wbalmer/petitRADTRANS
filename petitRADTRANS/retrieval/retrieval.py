@@ -1354,7 +1354,7 @@ class Retrieval:
         ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.legend(loc='upper center',ncol = len(self.data.keys())+1).set_zorder(1002)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/best_fit_spec.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_spec.pdf')
         self.evaluate_sample_spectra = check
         return fig, ax, ax_r
 
@@ -1442,7 +1442,7 @@ class Retrieval:
         ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"])
         ax.legend(loc='best')
         plt.tight_layout()
-        plt.savefig(path +'sampled_data.pdf',bbox_inches = 0.)
+        plt.savefig(path + self.retrieval_name  +'_sampled.pdf',bbox_inches = 0.)
         return fig, ax
 
     def plot_PT(self, sample_dict, parameters_read, contribution = False):
@@ -1591,7 +1591,7 @@ class Retrieval:
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
         ax.legend(loc='best')
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/PT_envelopes.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf')
         return fig, ax
 
     def plot_corner(self,sample_dict,parameter_dict,parameters_read, plot_best_fit = True, **kwargs):
@@ -1646,7 +1646,7 @@ class Retrieval:
             sample_use_dict[name] = samples_use
 
 
-        output_file = self.output_dir + 'evaluate_'+self.retrieval_name +'/corner_nice.pdf'
+        output_file = self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_corner_plot.pdf'
 
         # from Plotting
         fig = contour_corner(sample_use_dict,
@@ -1669,7 +1669,7 @@ class Retrieval:
                 wlen = dd.wlen
             ax.errorbar(wlen, dd.flux, yerr = dd.flux_error, label = name, marker = 'o')
         ax.legend()
-        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/Data_" + self.retrieval_name + ".pdf")
+        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
     def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = True):
         """
@@ -1746,7 +1746,7 @@ class Retrieval:
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
         plt.colorbar(im, ax = ax, label = label)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_contribution.pdf')
         return bf_contribution
 
     def plot_abundances(self,samples_use,parameters_read, species_to_plot = None, contribution = False):
@@ -1842,4 +1842,4 @@ class Retrieval:
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =14)
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_abundance_profiles.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf')
