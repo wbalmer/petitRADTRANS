@@ -1408,7 +1408,7 @@ class Retrieval:
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
             parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
-            parameters["contribution"] = Parameter("contribution", False, value = contribution)
+            parameters["contribution"] = Parameter("contribution", False, value = False)
             wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
             if downsample_factor != None:
                 npoints = int(len(wlen))
