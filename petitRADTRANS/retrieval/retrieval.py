@@ -1671,7 +1671,7 @@ class Retrieval:
         ax.legend()
         plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/Data_" + self.retrieval_name + ".pdf")
 
-    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None):
+    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = True):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
         between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1727,18 +1727,24 @@ class Retrieval:
 
         X, Y = np.meshgrid(bf_wlen, pressures)
         fig, ax = plt.subplots()
+        if log_scale_contribution:
+            plot_cont = -np.nan_to_num(np.log10(bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights))
+            label = "-Log Weighted Flux"
+        else:
+            plot_cont = bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights
+            label = "Weighted Flux"
 
         im = ax.contourf(X,
                          Y,
-                         bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,
-                         10,
+                         plot_cont,
+                         50,
                          cmap=plt.cm.magma)
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
         ax.set_yscale("log")
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
-        plt.colorbar(im, ax = ax, label = self.rd.plot_kwargs["spec_ylabel"])
+        plt.colorbar(im, ax = ax, label = label)
         plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
         return bf_contribution
