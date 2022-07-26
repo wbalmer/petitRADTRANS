@@ -1418,7 +1418,7 @@ class Retrieval:
                 np.save(path + "posterior_sampled_spectra_"+
                                 str(int(i_sample+1)).zfill(5),
                                 np.column_stack(wlen, model))
-            ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"], linewidth = 0.2, marker = None)
+            ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"] + 0.1, linewidth = 0.2, marker = None)
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
         # Setup best fit spectrum
