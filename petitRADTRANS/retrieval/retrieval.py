@@ -1402,8 +1402,8 @@ class Retrieval:
         #self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
-                                                       parameters_read,model_generating_func)
-        ax.plot(bf_wlen,bf_model,
+                                                       parameters_read)
+        ax.plot(bf_wlen,bf_spectrum,
                 marker = None,
                 label = f"Best fit, $\chi^{2}=${logL:.2f}",
                 linewidth=4,
