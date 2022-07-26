@@ -1675,7 +1675,7 @@ class Retrieval:
         ax.legend()
         plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
-    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = True):
+    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = True, n_contour_levels = 30):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
         between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1741,7 +1741,7 @@ class Retrieval:
         im = ax.contourf(X,
                          Y,
                          plot_cont,
-                         50,
+                         n_contour_levels,
                          cmap=plt.cm.magma)
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
