@@ -28,10 +28,11 @@ class RetrievalParameter:
         'uniform',
         'gaussian',
         'log_gaussian',
-        'delta'
+        'delta',
+        'custom'
     ]
 
-    def __init__(self, name, prior_parameters, prior_type='uniform'):
+    def __init__(self, name, prior_parameters, prior_type='uniform', custom_prior=None):
         """Used to set up retrievals.
         Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
         are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
@@ -41,6 +42,7 @@ class RetrievalParameter:
             name: name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
             prior_parameters: list of two values for the prior parameters, depends on the prior type
             prior_type: type of prior to use, the available types are stored into available_priors
+            custom_prior: function with arguments (cube, **args), args being positional arguments in prior_parameters
         """
         # Check prior parameters validity
         if not hasattr(prior_parameters, '__iter__'):
@@ -96,6 +98,12 @@ class RetrievalParameter:
                     cube=x,  # actually useless
                     x1=self.prior_parameters[0],
                     x2=self.prior_parameters[1]  # actually useless
+                )
+        elif self.prior_type == 'custom':
+            def prior(x):
+                return custom_prior(
+                    cube=x,
+                    *prior_parameters
                 )
         else:
             raise ValueError(
