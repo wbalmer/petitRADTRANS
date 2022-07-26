@@ -65,7 +65,7 @@ class Retrieval:
                  ultranest = False,
                  sampling_efficiency = None,\
                  const_efficiency_mode = None, \
-                 min_num_live_points = None,
+                 n_live_points = None,
                  resume = None,
                  bayes_factor_species = None,
                  corner_plot_names = None,
@@ -106,7 +106,7 @@ class Retrieval:
         # Pymultinest stuff
         self.sampling_efficiency = sampling_efficiency
         self.const_efficiency_mode = const_efficiency_mode
-        self.min_num_live_points = min_num_live_points
+        self.n_live_points = n_live_points
         self.resume = resume
         self.analyzer = None
 
@@ -146,7 +146,7 @@ class Retrieval:
     def run(self,
             sampling_efficiency = 0.8,
             const_efficiency_mode = True,
-            min_num_live_points = 4000,
+            n_live_points = 4000,
             log_z_convergence = 0.5,
             step_sampler = False,
             warmstart_max_tau=0.5,
@@ -166,7 +166,7 @@ class Retrieval:
                 comparison.
             const_efficiency_mode : Bool
                 pymultinest constant efficiency mode
-            min_num_live_points : Int
+            n_live_points : Int
                 Number of live points to use in pymultinest, or the minimum number of live points to
                 use for the Ultranest reactive sampler.
             log_z_convergence : float
@@ -181,9 +181,9 @@ class Retrieval:
         if self.sampling_efficiency is not None:
             logging.warning("Setting sampling_efficiency as a class variable will be deprecated. Use the run method arguments.")
             sampling_efficiency = self.sampling_efficiency
-        if self.min_num_live_points:
-            logging.warning("Setting min_num_live_points as a class variable will be deprecated. Use the run method arguments.")
-            min_num_live_points = self.min_num_live_points
+        if self.n_live_points:
+            logging.warning("Setting n_live_points as a class variable will be deprecated. Use the run method arguments.")
+            n_live_points = self.n_live_points
         if self.resume is not None:
             logging.warning("Setting resume as a class variable will be deprecated. Use the run method arguments.")
             resume = self.resume
@@ -191,7 +191,7 @@ class Retrieval:
             logging.warning("Setting const_efficiency_mode as a class variable will be deprecated. Use the run method arguments.")
             const_efficiency_mode = self.const_efficiency_mode
         if self.ultranest:
-            self._run_ultranest(min_num_live_points = min_num_live_points,
+            self._run_ultranest(n_live_points = n_live_points,
                                 log_z_convergence = log_z_convergence,
                                 step_sampler = step_sampler,
                                 warmstart_max_tau = warmstart_max_tau,
@@ -231,7 +231,7 @@ class Retrieval:
                             sampling_efficiency = sampling_efficiency,
                             const_efficiency_mode = const_efficiency_mode,
                             evidence_tolerance = log_z_convergence,
-                            n_live_points = min_num_live_points,
+                            n_live_points = n_live_points,
                             n_iter_before_update = n_iter_before_update,
                             max_iter = max_iters)
         self.analyzer = pymultinest.Analyzer(n_params = n_params,
@@ -258,7 +258,7 @@ class Retrieval:
             print(fmts % (p, med, sigma))
 
     def _run_ultranest(self,
-                       min_num_live_points,
+                       n_live_points,
                        log_z_convergence,
                        step_sampler,
                        warmstart_max_tau,
@@ -271,7 +271,7 @@ class Retrieval:
         and produce standard outputs.
 
         Args:
-            min_num_live_points : Int
+            n_live_points : Int
                 The minimum number of live points to
                 use for the Ultranest reactive sampler.
             log_z_convergence : float
@@ -319,7 +319,7 @@ class Retrieval:
                 #except:
                 #    logging.error("Could not use step sampling!")
                 #    sys.exit(13)
-            sampler.run(min_num_live_points = min_num_live_points,
+            sampler.run(min_num_live_points = n_live_points,
                        dlogz = log_z_convergence,
                        max_iters = max_iters,
                        frac_remain = frac_remain,
@@ -701,8 +701,7 @@ class Retrieval:
         self.best_fit_params = self.build_param_dict(best_fit_params,parameters_read)
         return self.best_fit_params
 
-
-    def get_full_range_model(self,params,model_generating_func = None,ret_name = None, contribution = False):
+    def get_full_range_model(self, parameters, model_generating_func = None, ret_name = None, contribution = False):
         # Find the boundaries of the wavelength range to calculate
         wmin = 99999.0
         wmax = 0.0
@@ -712,8 +711,8 @@ class Retrieval:
             if dd.wlen_range_pRT[1] > wmax:
                 wmax = dd.wlen_range_pRT[1]
         # Set up parameter dictionary
-        parameters = self.build_param_dict(params,parameters_read)
-        parameters["contribution"] = Parameter("contribution",False, value = contribution)
+        #parameters = self.build_param_dict(params,parameters_read)
+        parameters["contribution"] = Parameter("contribution", False, value = contribution)
 
         # Setup the pRT objec
         atmosphere = Radtrans(line_species = cp.copy(self.rd.line_species), \
@@ -802,7 +801,7 @@ class Retrieval:
             self.best_fit_params["pressure_width"] = self.parameters["pressure_width"]
             self.best_fit_params["pressure_simple"] = self.parameters["pressure_simple"]
         if contribution:
-            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self,best_fit_params,
+            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
                                                                               model_generating_func = None,
                                                                               ret_name = ret_name,
                                                                               contribution = contribution)
@@ -811,7 +810,7 @@ class Retrieval:
                 ret_name + "_best_fit_model_contribution",
                 bf_contribution)
         else:
-            bf_wlen, bf_spectrum = self.get_full_range_model(self,best_fit_params,
+            bf_wlen, bf_spectrum = self.get_full_range_model(self.best_fit_params,
                                                              model_generating_func = None,
                                                              ret_name = ret_name,
                                                              contribution = contribution)
@@ -1392,7 +1391,8 @@ class Retrieval:
         fig,ax = plt.subplots(figsize = (16,10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
-            wlen, model = self.get_full_range_model(samples_use[random_index, :-1], parameters_read)
+            parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
+            wlen, model = self.get_full_range_model(parameters)
             if downsample_factor != None:
                 npoints = int(len(wlen))
                 model = nc.running_mean(model,downsample_factor)[::downsample_factor]
@@ -1467,6 +1467,7 @@ class Retrieval:
             pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
             temps.append(t)
 
+        logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
         temps = np.array(temps)
         temps_sort = np.sort(temps, axis=0)
         fig,ax = plt.subplots(figsize=(16, 10))
@@ -1493,7 +1494,6 @@ class Retrieval:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
                                                                         contribution = True)
-
             nu = nc.c/bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
