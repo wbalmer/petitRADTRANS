@@ -1100,11 +1100,11 @@ class Retrieval:
                         i_p += 1
 
         # Plotting
-        #self.plot_spectra(samples_use,parameters_read)
-        #if self.evaluate_sample_spectra:
-        #    self.plot_sampled(samples_use, parameters_read)
-        #self.plot_PT(sample_dict,parameters_read, contribution = contribution)
-        #self.plot_corner(sample_dict,parameter_dict,parameters_read)
+        self.plot_spectra(samples_use,parameters_read)
+        if self.evaluate_sample_spectra:
+            self.plot_sampled(samples_use, parameters_read)
+        self.plot_PT(sample_dict,parameters_read, contribution = contribution)
+        self.plot_corner(sample_dict,parameter_dict,parameters_read)
         if contribution:
             self.plot_contribution(samples_use,parameters_read)
         self.plot_abundances(samples_use,parameters_read, contribution = contribution)
@@ -1445,7 +1445,7 @@ class Retrieval:
         plt.savefig(path +'sampled_data.pdf',bbox_inches = 0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution = True):
+    def plot_PT(self, sample_dict, parameters_read, contribution = False):
         """
         Plot the PT profile with error contours
 
