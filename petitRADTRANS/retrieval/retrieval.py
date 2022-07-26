@@ -1047,7 +1047,7 @@ class Retrieval:
 #############################################################
 # Plotting functions
 #############################################################
-    def plot_all(self, output_dir = None, ret_names = []):
+    def plot_all(self, output_dir = None, ret_names = [], contribution = False):
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
         the best fit PT profile and a corner plot for parameters specified in the
@@ -1095,10 +1095,10 @@ class Retrieval:
         self.plot_spectra(samples_use,parameters_read)
         if self.evaluate_sample_spectra:
             self.plot_sampled(samples_use, parameters_read)
-        self.plot_PT(sample_dict,parameters_read)
+        self.plot_PT(sample_dict,parameters_read, contribution = contribution)
         self.plot_corner(sample_dict,parameter_dict,parameters_read)
-        self.plot_contribution(samples_use,parameters_read)
-        self.plot_abundances(samples_use,parameters_read)
+        self.plot_contribution(samples_use,parameters_read, contribution = contribution)
+        self.plot_abundances(samples_use,parameters_read, contribution = contribution)
         print("Done!")
         return
 
