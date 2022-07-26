@@ -701,7 +701,12 @@ class Retrieval:
         self.best_fit_params = self.build_param_dict(best_fit_params,parameters_read)
         return self.best_fit_params
 
-    def get_full_range_model(self, parameters, model_generating_func = None, ret_name = None, contribution = False):
+    def get_full_range_model(self,
+                             parameters,
+                             model_generating_func = None,
+                             ret_name = None,
+                             contribution = False,
+                             pRT_object = None):
         # Find the boundaries of the wavelength range to calculate
         wmin = 99999.0
         wmax = 0.0
@@ -714,14 +719,17 @@ class Retrieval:
         #parameters = self.build_param_dict(params,parameters_read)
         parameters["contribution"] = Parameter("contribution", False, value = contribution)
 
-        # Setup the pRT objec
-        atmosphere = Radtrans(line_species = cp.copy(self.rd.line_species), \
-                            rayleigh_species= cp.copy(self.rd.rayleigh_species), \
-                            continuum_opacities = cp.copy(self.rd.continuum_opacities), \
-                            cloud_species = cp.copy(self.rd.cloud_species), \
-                            mode='c-k', \
-                            wlen_bords_micron = [wmin*0.98,wmax*1.02],
-                            do_scat_emis = self.rd.scattering)
+        # Setup the pRT object
+        if pRT_object is not None:
+            atmosphere = pRT_object
+        else:
+            atmosphere = Radtrans(line_species = cp.copy(self.rd.line_species), \
+                                rayleigh_species= cp.copy(self.rd.rayleigh_species), \
+                                continuum_opacities = cp.copy(self.rd.continuum_opacities), \
+                                cloud_species = cp.copy(self.rd.cloud_species), \
+                                mode='c-k', \
+                                wlen_bords_micron = [wmin*0.98,wmax*1.02],
+                                do_scat_emis = self.rd.scattering)
         if self.rd.AMR:
             p = self.rd._setup_pres()
             parameters["pressure_scaling"] = self.parameters["pressure_scaling"]
@@ -1381,11 +1389,27 @@ class Retrieval:
         len_samples = samples_use.shape[0]
         path = self.output_dir + 'evaluate_'+self.retrieval_name + "/"
 
+        wmin = 99999.0
+        wmax = 0.0
+        for name,dd in self.data.items():
+            if dd.wlen_range_pRT[0] < wmin:
+                wmin = dd.wlen_range_pRT[0]
+            if dd.wlen_range_pRT[1] > wmax:
+                wmax = dd.wlen_range_pRT[1]
+        # Set up parameter dictionary
+        atmosphere = Radtrans(line_species = cp.copy(self.rd.line_species), \
+                                rayleigh_species= cp.copy(self.rd.rayleigh_species), \
+                                continuum_opacities = cp.copy(self.rd.continuum_opacities), \
+                                cloud_species = cp.copy(self.rd.cloud_species), \
+                                mode='c-k', \
+                                wlen_bords_micron = [wmin*0.98,wmax*1.02],
+                                do_scat_emis = self.rd.scattering)
         fig,ax = plt.subplots(figsize = (16,10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
             parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
-            wlen, model = self.get_full_range_model(parameters)
+            parameters["contribution"] = Parameter("contribution", False, value = contribution)
+            wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
             if downsample_factor != None:
                 npoints = int(len(wlen))
                 model = nc.running_mean(model,downsample_factor)[::downsample_factor]
