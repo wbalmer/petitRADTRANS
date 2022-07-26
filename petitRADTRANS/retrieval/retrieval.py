@@ -738,10 +738,7 @@ class Retrieval:
             mg_func = model_generating_func
 
         # get the spectrum
-        if contribution:
-            return mg_func(atmosphere,parameters,PT_plot_mode= False,AMR = self.rd.AMR)
-        else:
-            return mg_func(atmosphere, parameters, PT_plot_mode= False, AMR = self.rd.AMR)
+        return mg_func(atmosphere, parameters, PT_plot_mode= False, AMR = self.rd.AMR)
 
 
     def get_best_fit_model(self,best_fit_params,parameters_read,ret_name = None, contribution = False):
@@ -1529,8 +1526,8 @@ class Retrieval:
             if self.plotting:
                 plt.clf()
                 plt.yscale('log')
-                plt.ylim([press[-1], press[0]])
-                plt.plot(contr_em, press)
+                plt.ylim([pressures[-1], pressures[0]])
+                plt.plot(contr_em, pressures)
                 plt.show()
 
             #####
@@ -1539,7 +1536,7 @@ class Retrieval:
 
             contr_em_weigh = contr_em/np.max(contr_em)
             from scipy.interpolate import interp1d
-            contr_em_weigh_intp = interp1d(press, contr_em_weigh)
+            contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
 
             yborders = np.logspace(2, -3, 1000)
             for i_p in range(len(yborders)-1):
@@ -1549,7 +1546,13 @@ class Retrieval:
 
             #plt.plot(temp, p, color = 'white', linewidth = 3.)
             #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
-            ax.plot(contr_em_weigh*(xranges[1]-xranges[0])+xranges[0], press, '--', color = 'black', linewidth = 1.,label='Spectrally weighted contribution')
+            ax.plot(contr_em_weigh*(
+                self.rd.plot_kwargs["temp_limits"][1]-self.rd.plot_kwargs["temp_limits"][0])\
+                +self.rd.plot_kwargs["temp_limits"][0],
+                pressures, '--',
+                color = 'black',
+                linewidth = 1.,
+                label='Spectrally weighted contribution')
 
         ax.set_yscale('log')
         try:
@@ -1700,13 +1703,13 @@ class Retrieval:
         X, Y = np.meshgrid(bf_wlen, pressures)
         fig, ax = plt.subplots()
 
-        ax.contourf(X,Y,bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,30,cmap=plt.cm.magma)
+        im = ax.contourf(X,Y,bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,30,cmap=plt.cm.magma)
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
         ax.set_yscale("log")
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
-        plt.colorbar(label = self.rd.plot_kwargs["spec_ylabel"])
+        plt.colorbar(im, ax = ax, label = self.rd.plot_kwargs["spec_ylabel"])
         plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
         return bf_contribution
