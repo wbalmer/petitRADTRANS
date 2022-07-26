@@ -57,7 +57,7 @@ def fnu_to_flambda(wlen,spectrum):
 
 def spectrum_cgs_to_si(frequency,spectrum):
     wlen = freq_to_micron(frequency)
-    f_lambda = fnu_to_flambda(wlen*1e4, spectrum)
+    f_lambda = fnu_to_flambda(wlen*1e-4, spectrum)
     return wlen, f_lambda
 
 #################

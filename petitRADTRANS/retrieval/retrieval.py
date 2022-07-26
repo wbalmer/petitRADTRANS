@@ -1097,8 +1097,9 @@ class Retrieval:
             self.plot_sampled(samples_use, parameters_read)
         self.plot_PT(sample_dict,parameters_read, contribution = contribution)
         self.plot_corner(sample_dict,parameter_dict,parameters_read)
-        self.plot_contribution(samples_use,parameters_read, contribution = contribution)
-        self.plot_abundances(samples_use,parameters_read, contribution = contribution)
+        if contribution:
+            self.plot_contribution(samples_use,parameters_read)
+        self.plot_abundances(samples_use,parameters_read)
         print("Done!")
         return
 
@@ -1126,8 +1127,9 @@ class Retrieval:
             ax_r : matplotlib.axes
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
-
-        self.evaluate_sample_spectra = False
+        if self.evaluate_sample_spectra == True:
+            check = self.evaluate_sample_spectra
+            self.evaluate_sample_spectra = False
         #TODO: include plotting of multiple retrievals
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
@@ -1345,6 +1347,7 @@ class Retrieval:
         ax.legend(loc='upper center',ncol = len(self.data.keys())+1).set_zorder(1002)
         plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/best_fit_spec.pdf')
+        self.evaluate_sample_spectra = check
         return fig, ax, ax_r
 
     def plot_sampled(self,samples_use,parameters_read, downsample_factor = None, save_outputs = False):
@@ -1368,8 +1371,6 @@ class Retrieval:
                 reduce the resolution from the underlying model_resolution of the
                 data.
         """
-
-        self.evaluate_sample_spectra = True
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
@@ -1379,13 +1380,6 @@ class Retrieval:
         print("This could take some time...")
         len_samples = samples_use.shape[0]
         path = self.output_dir + 'evaluate_'+self.retrieval_name + "/"
-
-        #data_use= {}
-        #for name, dd in self.data.items():
-        #    nsample_name = str(int(self.rd.plot_kwargs["nsample"])).zfill(int(np.log10(self.rd.plot_kwargs["nsample"])+1))
-        #    if not os.path.exists(path + name.replace(' ','_').replace('/','_')+'_sampled_'+ nsample_name +'.dat'):
-        #        data_use[name] = dd
-        # TODO: doesn't guarantee same samples will be saved to file!
 
         fig,ax = plt.subplots(figsize = (16,10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
@@ -1425,10 +1419,9 @@ class Retrieval:
         ax.legend(loc='best')
         plt.tight_layout()
         plt.savefig(path +'sampled_data.pdf',bbox_inches = 0.)
-        self.evaluate_sample_spectra = False
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, weighted = True):
+    def plot_PT(self, sample_dict, parameters_read, contribution = True):
         """
         Plot the PT profile with error contours
 
@@ -1489,7 +1482,7 @@ class Retrieval:
                         x2 = temps_sort[int(len_samp*(0.5+0.68/2.)), :], \
                         color = 'red', label = '1 sig')
 
-        if weighted:
+        if contribution:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
                                                                         contribution = True)
@@ -1538,11 +1531,18 @@ class Retrieval:
             from scipy.interpolate import interp1d
             contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
 
-            yborders = np.logspace(2, -3, 1000)
+            yborders = pressures
             for i_p in range(len(yborders)-1):
                 mean_press = (yborders[i_p+1]+yborders[i_p])/2.
                 #print(1.-contr_em_weigh_intp(mean_press))
-                ax.fill_between([400., 3100.], yborders[i_p+1], yborders[i_p], color = 'white', alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9), linewidth=0, rasterized = True)
+                ax.fill_between(self.rd.plot_kwargs["temp_limits"],
+                                yborders[i_p+1],
+                                yborders[i_p],
+                                color = 'white',
+                                alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
+                                linewidth=0,
+                                rasterized = True,
+                                zorder = 100)
 
             #plt.plot(temp, p, color = 'white', linewidth = 3.)
             #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
@@ -1721,13 +1721,13 @@ class Retrieval:
         self.PT_plot_mode = True
         pressures, temps = self.log_likelihood(samples_use[best_fit_index , :-1], 0, 0)
         self.PT_plot_mode = False
-        abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1],parameters_read)
+        abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
         # Compute spectrum for each chem case
         fig,ax = plt.subplots(figsize = (12,7))
         if species_to_plot is None:
             species_to_plot = self.rd.line_species
         for spec in species_to_plot:
-            ax.plot(ab_de[spec],pressures,label=spec.split('_')[0])
+            ax.plot(abundances[spec],pressures,label=spec.split('_')[0])
 
         ax.set_xlabel("Mass Fraction Abundance")
         ax.set_ylabel("Pressure [bar]")
