@@ -1492,19 +1492,23 @@ class Retrieval:
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[0, :], \
                         x2 = temps_sort[-1, :], \
-                        color = 'cyan', label = 'all')
+                        color = 'cyan', label = 'all',
+                        zorder = 0)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.997/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.997/2.)), :], \
-                        color = 'brown', label = '3 sig')
+                        color = 'brown', label = '3 sig',
+                        zorder = 1)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.95/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.95/2.)), :], \
-                        color = 'orange', label = '2 sig')
+                        color = 'orange', label = '2 sig',
+                        zorder = 2)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.68/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.68/2.)), :], \
-                        color = 'red', label = '1 sig')
+                        color = 'red', label = '1 sig',
+                        zorder = 3)
 
         if contribution:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
@@ -1566,7 +1570,7 @@ class Retrieval:
                                 alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
                                 linewidth=0,
                                 rasterized = True,
-                                zorder = 20)
+                                zorder = 4)
 
             #plt.plot(temp, p, color = 'white', linewidth = 3.)
             #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
@@ -1577,7 +1581,7 @@ class Retrieval:
                 color = 'black',
                 linewidth = 1.,
                 label='Spectrally weighted contribution',
-                zorder = 25)
+                zorder = 5)
 
         ax.set_yscale('log')
         try:
