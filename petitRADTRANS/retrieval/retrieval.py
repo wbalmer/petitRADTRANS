@@ -1100,14 +1100,14 @@ class Retrieval:
                         i_p += 1
 
         # Plotting
-        self.plot_spectra(samples_use,parameters_read)
-        if self.evaluate_sample_spectra:
-            self.plot_sampled(samples_use, parameters_read)
-        self.plot_PT(sample_dict,parameters_read, contribution = contribution)
-        self.plot_corner(sample_dict,parameter_dict,parameters_read)
+        #self.plot_spectra(samples_use,parameters_read)
+        #if self.evaluate_sample_spectra:
+        #    self.plot_sampled(samples_use, parameters_read)
+        #self.plot_PT(sample_dict,parameters_read, contribution = contribution)
+        #self.plot_corner(sample_dict,parameter_dict,parameters_read)
         if contribution:
             self.plot_contribution(samples_use,parameters_read)
-        self.plot_abundances(samples_use,parameters_read)
+        self.plot_abundances(samples_use,parameters_read, contribution = contribution)
         print("Done!")
         return
 
@@ -1135,8 +1135,8 @@ class Retrieval:
             ax_r : matplotlib.axes
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
+        check = self.evaluate_sample_spectra
         if self.evaluate_sample_spectra == True:
-            check = self.evaluate_sample_spectra
             self.evaluate_sample_spectra = False
         #TODO: include plotting of multiple retrievals
         if not self.run_mode == 'evaluate':
@@ -1566,7 +1566,7 @@ class Retrieval:
                                 alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
                                 linewidth=0,
                                 rasterized = True,
-                                zorder = 100)
+                                zorder = 20)
 
             #plt.plot(temp, p, color = 'white', linewidth = 3.)
             #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
@@ -1576,7 +1576,8 @@ class Retrieval:
                 pressures, '--',
                 color = 'black',
                 linewidth = 1.,
-                label='Spectrally weighted contribution')
+                label='Spectrally weighted contribution',
+                zorder = 25)
 
         ax.set_yscale('log')
         try:
@@ -1727,7 +1728,11 @@ class Retrieval:
         X, Y = np.meshgrid(bf_wlen, pressures)
         fig, ax = plt.subplots()
 
-        im = ax.contourf(X,Y,bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,30,cmap=plt.cm.magma)
+        im = ax.contourf(X,
+                         Y,
+                         bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,
+                         10,
+                         cmap=plt.cm.magma)
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
@@ -1738,7 +1743,7 @@ class Retrieval:
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
         return bf_contribution
 
-    def plot_abundances(self,samples_use,parameters_read, species_to_plot = None):
+    def plot_abundances(self,samples_use,parameters_read, species_to_plot = None, contribution = False):
         print("Plotting Abundances profiles")
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -1752,12 +1757,83 @@ class Retrieval:
             species_to_plot = self.rd.line_species
         for spec in species_to_plot:
             ax.plot(abundances[spec],pressures,label=spec.split('_')[0])
+        if contribution:
+            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
+                                                                        parameters_read,
+                                                                        contribution = True)
+            nu = nc.c/bf_wlen
+            mean_diff_nu = -np.diff(nu)
+            diff_nu = np.zeros_like(nu)
+            diff_nu[:-1] = mean_diff_nu
+            diff_nu[-1] = diff_nu[-2]
+            spectral_weights = bf_spectrum*diff_nu/np.sum(bf_spectrum*diff_nu)
 
+            if self.plotting:
+                plt.clf()
+                plt.plot(wlen/1e-4, spectral_weights)
+                plt.show()
+                print(np.shape(bf_contribution))
+
+            pressure_weights = np.diff(np.log10(pressures))
+            weights = np.ones_like(pressures)
+            weights[:-1] = pressure_weights
+            weights[-1] = weights[-2]
+            weights = weights / np.sum(weights)
+            weights = weights.reshape(len(weights), 1)
+
+            contr_em = bf_contribution/weights
+
+            # This probably doesn't need to be in a loop
+            print(contr_em.shape,spectral_weights.shape)
+            for i_str in range(bf_contribution.shape[0]):
+                contr_em[i_str, :] = bf_contribution[i_str, :] * spectral_weights
+
+            contr_em = np.sum(bf_contribution, axis = 1)
+            contr_em = contr_em / np.sum(contr_em)
+
+            if self.plotting:
+                plt.clf()
+                plt.yscale('log')
+                plt.ylim([pressures[-1], pressures[0]])
+                plt.plot(contr_em, pressures)
+                plt.show()
+
+            #####
+            # Use contribution function to weigh alphas
+            #####
+
+            contr_em_weigh = contr_em/np.max(contr_em)
+            from scipy.interpolate import interp1d
+            contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
+
+            yborders = pressures
+            for i_p in range(len(yborders)-1):
+                mean_press = (yborders[i_p+1]+yborders[i_p])/2.
+                #print(1.-contr_em_weigh_intp(mean_press))
+                ax.fill_between([1e-7,3],
+                                yborders[i_p+1],
+                                yborders[i_p],
+                                color = 'white',
+                                alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
+                                linewidth=0,
+                                rasterized = True,
+                                zorder = 100)
+
+            #plt.plot(temp, p, color = 'white', linewidth = 3.)
+            #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
+            ax.plot(contr_em_weigh*(
+                3 - 1e-7)\
+                +1e-7,
+                pressures, '--',
+                color = 'black',
+                linewidth = 1.,
+                zorder = 120,
+                label='Contribution')
         ax.set_xlabel("Mass Fraction Abundance")
         ax.set_ylabel("Pressure [bar]")
         ax.set_yscale('log')
         ax.set_xscale('log')
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
-        ax.legend()
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =14)
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_abundance_profiles.pdf')
