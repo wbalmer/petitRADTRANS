@@ -121,7 +121,6 @@ def emission_model_diseq(pRT_object,
                             parameters['Fe/H'].value,
                             parameters['C/O'].value,
                             conv=True)
-
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
@@ -129,6 +128,8 @@ def emission_model_diseq(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -141,6 +142,7 @@ def emission_model_diseq(pRT_object,
 
     # Calculate the spectrum
     if pressures.shape[0] != pRT_object.press.shape[0]:
+        print("Incorrect output shape!")
         return None,None
 
     # Hansen or log normal clouds
@@ -248,6 +250,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -378,6 +382,9 @@ def guillot_emission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
+
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -488,6 +495,9 @@ def guillot_transmission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
+
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -624,6 +634,8 @@ def guillot_patchy_transmission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -742,6 +754,9 @@ def isothermal_transmission(pRT_object, \
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    if abundances is None:
+        return None, None
+
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
