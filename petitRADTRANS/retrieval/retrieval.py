@@ -587,6 +587,8 @@ class Retrieval:
                                                          self.PT_plot_mode,
                                                          AMR = self.rd.AMR)
                         return pressures, temperatures
+                    else:
+                        continue
                 # Save sampled outputs if necessary.
                 if self.run_mode == 'evaluate':
                     if self.evaluate_sample_spectra:
@@ -857,8 +859,8 @@ class Retrieval:
         name = self.rd.plot_kwargs["take_PTs_from"]
         abundances, MMW, _, _ = get_abundances(pressures,
                                             temps,
-                                            self.data[name].pRT_object.line_species,
-                                            self.data[name].pRT_object.cloud_species,
+                                            cp.copy(self.data[name].pRT_object.line_species),
+                                            cp.copy(self.data[name].pRT_object.cloud_species),
                                             parameters,
                                             AMR=False)
         return abundances, MMW
@@ -1759,11 +1761,12 @@ class Retrieval:
         self.PT_plot_mode = True
         pressures, temps = self.log_likelihood(samples_use[best_fit_index , :-1], 0, 0)
         self.PT_plot_mode = False
+
         abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
         # Compute spectrum for each chem case
         fig,ax = plt.subplots(figsize = (12,7))
         if species_to_plot is None:
-            species_to_plot = self.rd.line_species
+            species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
         for spec in species_to_plot:
             ax.plot(abundances[spec],pressures,label=spec.split('_')[0])
         if contribution:
