@@ -1409,9 +1409,12 @@ class Retrieval:
         fig,ax = plt.subplots(figsize = (16,10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
-            parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
-            parameters["contribution"] = Parameter("contribution", False, value = False)
-            wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
+            if os.path.exists(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)):
+                wlen, model = np.load(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5))
+            else:
+                parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
+                parameters["contribution"] = Parameter("contribution", False, value = False)
+                wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
             if downsample_factor != None:
                 npoints = int(len(wlen))
                 model = nc.running_mean(model,downsample_factor)[::downsample_factor]
@@ -1419,7 +1422,7 @@ class Retrieval:
             if save_outputs:
                 np.save(path + "posterior_sampled_spectra_"+
                                 str(int(i_sample+1)).zfill(5),
-                                np.column_stack(wlen, model))
+                                np.column_stack((wlen, model)))
             ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"] + 0.1, linewidth = 0.2, marker = None)
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
@@ -1596,6 +1599,7 @@ class Retrieval:
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
         ax.legend(loc='best')
+        plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf')
         return fig, ax
 
@@ -1636,7 +1640,6 @@ class Retrieval:
             parameter_ranges       = []
             i_p = 0
             for pp in parameters_read:
-                parameter_ranges.append(self.parameters[pp].corner_ranges)
                 if self.parameters[pp].plot_in_corner:
                     parameter_plot_indices.append(i_p)
                 if self.parameters[pp].corner_label is not None:
@@ -1644,6 +1647,8 @@ class Retrieval:
                 if self.parameters[pp].corner_transform is not None:
                     samples_use[:, i_p] = \
                         self.parameters[pp].corner_transform(samples_use[:, i_p])
+                parameter_ranges.append(self.parameters[pp].corner_ranges)
+
                 i_p += 1
             p_plot_inds[name] = parameter_plot_indices
             p_ranges[name] = parameter_ranges
@@ -1796,7 +1801,6 @@ class Retrieval:
             contr_em = bf_contribution/weights
 
             # This probably doesn't need to be in a loop
-            print(contr_em.shape,spectral_weights.shape)
             for i_str in range(bf_contribution.shape[0]):
                 contr_em[i_str, :] = bf_contribution[i_str, :] * spectral_weights
 
@@ -1848,4 +1852,5 @@ class Retrieval:
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =14)
+        plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf')

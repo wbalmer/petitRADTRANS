@@ -194,7 +194,8 @@ def contour_corner(sampledict, \
             best_fit_ind = np.argmax(samples[:,-1])
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
-        for i in parameter_plot_indices[key]:
+        print(count, len(range_list), range_list)
+        for range_i,i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples)-S:,i])
             labels_list.append(parameter_names[key][i])
             if parameter_ranges[key][i] == None:
@@ -203,12 +204,13 @@ def contour_corner(sampledict, \
                 low = range_mean-4*range_std
                 high = range_mean+4*range_std
                 if count > 0:
-                    if low > range_list[i][0]:
-                        low = range_list[i][0]
-                    if high < range_list[i][1]:
-                        high = range_list[i][1]
+                    print(range_list[range_i])
+                    if low > range_list[range_i][0]:
+                        low = range_list[range_i][0]
+                    if high < range_list[range_i][1]:
+                        high = range_list[range_i][1]
                     range_take = (low,high)
-                    range_list[i] = range_take
+                    range_list[range_i] = range_take
                 else:
                     range_list.append((low,high))
             else:
