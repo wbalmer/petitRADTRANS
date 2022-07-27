@@ -1410,7 +1410,7 @@ class Retrieval:
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
             if os.path.exists(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)):
-                wlen, model = np.load(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5))
+                wlen, model = np.load(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)+".npy")
             else:
                 parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
                 parameters["contribution"] = Parameter("contribution", False, value = False)
@@ -1516,6 +1516,7 @@ class Retrieval:
                         zorder = 3)
 
         if contribution:
+            self.PT_plot_mode = False
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
                                                                         contribution = True)
