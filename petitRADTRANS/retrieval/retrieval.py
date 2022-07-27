@@ -1577,8 +1577,6 @@ class Retrieval:
                                 rasterized = True,
                                 zorder = 4)
 
-            #plt.plot(temp, p, color = 'white', linewidth = 3.)
-            #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
             ax.plot(contr_em_weigh*(
                 self.rd.plot_kwargs["temp_limits"][1]-self.rd.plot_kwargs["temp_limits"][0])\
                 +self.rd.plot_kwargs["temp_limits"][0],
