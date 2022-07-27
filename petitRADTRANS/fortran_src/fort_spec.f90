@@ -1179,6 +1179,7 @@ module fort_spec
           double precision :: N, dndr(N_cloud_rad_bins), integrand_abs(N_cloud_rad_bins), &
                integrand_scat(N_cloud_rad_bins), add_abs, add_scat, integrand_aniso(N_cloud_rad_bins), add_aniso
 
+          ! TODO this function is probably slowed down by the row-major exploration order of some arrays
           !~~~~~~~~~~~~~~~~
           cloud_abs_opa_TOT = 0d0
           cloud_scat_opa_TOT = 0d0
@@ -1188,9 +1189,9 @@ module fort_spec
              do i_spec = 1, N_cloud_spec
                    do i_lamb = 1, N_cloud_lambda_bins
                       N = 3d0*cloud_mass_fracs(i_struc,i_spec)*rho(i_struc)/4d0/pi/rho_p(i_spec)/ &
-                          r_g(i_struc,i_spec)**3d0*exp(-9d0/2d0*log(sigma_n)**2d0)
+                          r_g(i_struc,i_spec)**3d0*exp(-9d0/2d0*log(sigma_n)**2d0)  ! TODO put outside of i_lamb loop
 
-                      dndr = N/(cloud_radii*sqrt(2d0*pi)*log(sigma_n))* &
+                      dndr = N/(cloud_radii*sqrt(2d0*pi)*log(sigma_n))* &  ! TODO put outside of i_lamb loop
                           exp(-log(cloud_radii/r_g(i_struc,i_spec))**2d0/(2d0*log(sigma_n)**2d0))
 
 

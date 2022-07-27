@@ -42,7 +42,7 @@ class RetrievalParameter:
             name: name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
             prior_parameters: list of two values for the prior parameters, depends on the prior type
             prior_type: type of prior to use, the available types are stored into available_priors
-            custom_prior: function with arguments (cube, **args), args being positional arguments in prior_parameters
+            custom_prior: function with arguments (cube, *args), args being positional arguments in prior_parameters
         """
         # Check prior parameters validity
         if not hasattr(prior_parameters, '__iter__'):
@@ -534,7 +534,9 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_spectral_radiosity_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios,
                                               planet_surface_gravity, mean_molar_mass, star_spectral_radiosities=None,
-                                              star_effective_temperature=None, cloud_pressure=None, **kwargs):
+                                              star_effective_temperature=None, cloud_pressure=None, cloud_sigma=None,
+                                              cloud_particle_radii=None,
+                                              **kwargs):
         """Wrapper of Radtrans.calc_flux that output wavelengths in um and spectral radiosity in erg.s-1.cm-2.sr-1/cm.
         # TODO move to Radtrans or outside of object
         Args:
@@ -546,6 +548,8 @@ class BaseSpectralModel:
             star_effective_temperature:
             star_spectral_radiosities:
             cloud_pressure:
+            cloud_sigma:
+            cloud_particle_radii:
 
         Returns:
 
@@ -564,7 +568,9 @@ class BaseSpectralModel:
             mmw=mean_molar_mass,
             Tstar=star_effective_temperature,
             Pcloud=cloud_pressure,
-            stellar_intensity=star_spectral_radiosities
+            stellar_intensity=star_spectral_radiosities,
+            sigma_lnorm=cloud_sigma,
+            radius=cloud_particle_radii
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
         )
 
@@ -857,7 +863,7 @@ class BaseSpectralModel:
             line_species=self.line_species,
             rayleigh_species=self.rayleigh_species,
             continuum_opacities=self.continuum_opacities,
-            cloud_species=None,
+            cloud_species=self.cloud_species,
             opacity_mode=self.opacity_mode,
             do_scat_emis=self.do_scat_emis,
             lbl_opacity_sampling=self.lbl_opacity_sampling
