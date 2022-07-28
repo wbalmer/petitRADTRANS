@@ -1724,9 +1724,13 @@ class Retrieval:
                                                                         parameters_read,
                                                                         contribution = True)
 
+        index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
+        bf_contribution[index] = 1e-16
+
         self.PT_plot_mode = True
         pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         self.PT_plot_mode = False
+
 
         pressure_weights = np.diff(np.log10(pressures))
         weights = np.ones_like(pressures)
