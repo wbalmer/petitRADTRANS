@@ -915,7 +915,8 @@ class Retrieval:
             else:
                 add = 0.5*np.sum(np.log(2*np.pi*dd.flux_error**2.))
             norm += add
-        print(f"Best fit 𝛘^2 = {logL + norm:.2f}")
+            #print(name,norm)
+        print(f"Best fit 𝛘^2 = {-logL - norm:.2f}")
         return -logL - norm
 
     def get_reduced_chi2(self,samples):
@@ -1472,7 +1473,7 @@ class Retrieval:
         ax.plot(bf_wlen,
                 bf_spectrum,
                 marker = None,
-                label = f"Best fit, $\chi^{2}=${logL:.2f}",
+                label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}",
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
