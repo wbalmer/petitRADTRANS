@@ -896,7 +896,6 @@ class Retrieval:
         logL = samples[:,-1]
         best_fit_index = np.argmax(logL)
         print(f"Best fit likelihood = {logL[best_fit_index]:.2f}")
-        self.chi2 = logL[best_fit_index]
         return logL[best_fit_index], best_fit_index
 
     def get_best_fit_chi2(self,samples):
@@ -935,6 +934,7 @@ class Retrieval:
             if pp.is_free_parameter:
                 DoF -= 1
         print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        self.chi2 = chi2/DoF
         return chi2/DoF
 
     def get_analyzer(self,ret_name = ""):
