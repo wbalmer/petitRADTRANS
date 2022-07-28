@@ -201,7 +201,6 @@ def contour_corner(sampledict, \
                 low = range_mean-4*range_std
                 high = range_mean+4*range_std
                 if count > 0:
-                    print(range_list[range_i])
                     if low > range_list[range_i][0]:
                         low = range_list[range_i][0]
                     if high < range_list[range_i][1]:

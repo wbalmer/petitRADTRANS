@@ -419,7 +419,7 @@ class Retrieval:
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
-                summary.write(f"$\chi^{2}$ = {self.chi2}\n")
+                summary.write(f"    𝛘^{2} = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                         continue
@@ -899,6 +899,43 @@ class Retrieval:
         self.chi2 = logL[best_fit_index]
         return logL[best_fit_index], best_fit_index
 
+    def get_best_fit_chi2(self,samples):
+        """
+        Get the 𝛘^2 of the best fit model - removing normalization term from log L
+
+        Args:
+            samples : numpy.ndarray
+                An array of samples and likelihoods taken from a post_equal_weights file
+        """
+        logL, best_fit_index = self.get_best_fit_likelihood(samples)
+        norm = 0.0
+        for name, dd in self.data.items():
+            if dd.covariance is not None:
+                add = 0.5 * dd.log_covariance_determinant
+            else:
+                add = 0.5*np.sum(np.log(2*np.pi*dd.flux_error**2.))
+            norm += add
+        print(f"Best fit 𝛘^2 = {logL + norm:.2f}")
+        return -logL - norm
+
+    def get_reduced_chi2(self,samples):
+         """
+        Get the 𝛘^2/DoF of the best fit model - divide chi^2 by DoF
+
+        Args:
+            samples : numpy.ndarray
+                An array of samples and likelihoods taken from a post_equal_weights file
+        """
+        chi2 = self.get_best_fit_chi2(samples)
+        DoF = 0
+        for name, dd in self.data.items():
+            DoF += np.size(dd.flux)
+        for name, pp in self.parameters.items():
+            if pp.is_free_parameter:
+                DoF -= 1
+        print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        return chi2/DoF
+
     def get_analyzer(self,ret_name = ""):
         """
         Get the PMN analyer from a retrieval run
@@ -1267,7 +1304,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${logL:.2f}',
+                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
