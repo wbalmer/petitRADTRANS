@@ -192,7 +192,6 @@ def contour_corner(sampledict, \
             best_fit_ind = np.argmax(samples[:,-1])
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
-        print(count, len(range_list), range_list)
         for range_i,i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples)-S:,i])
             labels_list.append(parameter_names[key][i])
@@ -238,7 +237,6 @@ def contour_corner(sampledict, \
             contour_kwargs = kwargs["contour_kwargs"]
 
         if count == 0:
-            print(len(data_list))
             fig = corner.corner(np.array(data_list).T,
                                 #fig = fig,
                                 smooth=True,
