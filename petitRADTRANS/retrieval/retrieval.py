@@ -919,7 +919,7 @@ class Retrieval:
         return -logL - norm
 
     def get_reduced_chi2(self,samples):
-         """
+        """
         Get the 𝛘^2/DoF of the best fit model - divide chi^2 by DoF
 
         Args:
