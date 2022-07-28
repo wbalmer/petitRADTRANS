@@ -419,7 +419,7 @@ class Retrieval:
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
-                summary.write(f"$\chi^{2} = {self.chi2}\n")
+                summary.write(f"$\chi^{2}$ = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                         continue
@@ -1432,7 +1432,8 @@ class Retrieval:
         # Then get the full wavelength range
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                        parameters_read)
-        ax.plot(bf_wlen,bf_spectrum,
+        ax.plot(bf_wlen,
+                bf_spectrum,
                 marker = None,
                 label = f"Best fit, $\chi^{2}=${logL:.2f}",
                 linewidth=4,

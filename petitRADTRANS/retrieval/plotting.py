@@ -44,9 +44,7 @@ def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val =
     return fig,ax
 
 def plot_data(fig,ax,data,resolution = None, scaling = 1.0):
-    scale = 1.0
-    if data.scale:
-        scale = data.scale_factor
+    scale = data.scale_factor
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
