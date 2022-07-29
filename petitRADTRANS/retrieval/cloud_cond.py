@@ -526,7 +526,11 @@ def simple_cdf_MgSiO3(press, temp, FeH, CO, MMW = 2.33):
     Pc, Tc = return_T_cond_MgSiO3(FeH, CO, MMW)
     index = (Pc > 1e-8) & (Pc < 1e5)
     Pc, Tc = Pc[index], Tc[index]
-    tcond_p = interp1d(Pc, Tc)
+    try:
+        tcond_p = interp1d(Pc, Tc)
+    except ValueError:
+        logging.warn("Could not interpolate pressures and temperatures!")
+        return np.min(press)
     #print(Pc, press)
     Tcond_on_input_grid = tcond_p(press)
 

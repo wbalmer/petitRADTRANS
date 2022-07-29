@@ -135,6 +135,7 @@ class Data:
         # Optional, covariance and scaling
         self.covariance = None
         self.inv_cov = None
+        self.log_covariance_determinant = None
         self.flux_error = None
         self.scale = scale
         self.scale_err = scale_err
@@ -269,7 +270,7 @@ class Data:
         try:
             self.covariance = fits.getdata(path,'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
-
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
@@ -314,6 +315,8 @@ class Data:
         if self.covariance is not None:
             self.covariance *= scale**2
             self.inv_cov = np.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
             self.flux_error = np.sqrt(self.covariance.diagonal())
         else:
             self.flux_error *= scale
@@ -368,8 +371,9 @@ class Data:
             f_err = self.flux_error*self.scale_factor
         logL=0.0
         if self.covariance is not None:
+            #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
             logL += -1*np.dot(diff, np.dot(self.inv_cov, diff))/2.
-            logL += -0.5 * np.log(np.linalg.det(2 * np.pi * self.covariance))
+            logL += -0.5 * self.log_covariance_determinant
         else:
             logL += -1*np.sum( (diff / f_err)**2. ) / 2.
             logL += -0.5*np.sum(np.log(2*np.pi*f_err**2.))

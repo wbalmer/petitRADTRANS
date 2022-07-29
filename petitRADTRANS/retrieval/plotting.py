@@ -44,9 +44,7 @@ def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val =
     return fig,ax
 
 def plot_data(fig,ax,data,resolution = None, scaling = 1.0):
-    scale = 1.0
-    if data.scale:
-        scale = data.scale_factor
+    scale = data.scale_factor
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
@@ -194,7 +192,7 @@ def contour_corner(sampledict, \
             best_fit_ind = np.argmax(samples[:,-1])
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
-        for i in parameter_plot_indices[key]:
+        for range_i,i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples)-S:,i])
             labels_list.append(parameter_names[key][i])
             if parameter_ranges[key][i] == None:
@@ -203,12 +201,12 @@ def contour_corner(sampledict, \
                 low = range_mean-4*range_std
                 high = range_mean+4*range_std
                 if count > 0:
-                    if low > range_list[i][0]:
-                        low = range_list[i][0]
-                    if high < range_list[i][1]:
-                        high = range_list[i][1]
+                    if low > range_list[range_i][0]:
+                        low = range_list[range_i][0]
+                    if high < range_list[range_i][1]:
+                        high = range_list[range_i][1]
                     range_take = (low,high)
-                    range_list[i] = range_take
+                    range_list[range_i] = range_take
                 else:
                     range_list.append((low,high))
             else:
@@ -238,7 +236,6 @@ def contour_corner(sampledict, \
             contour_kwargs = kwargs["contour_kwargs"]
 
         if count == 0:
-            print(len(data_list))
             fig = corner.corner(np.array(data_list).T,
                                 #fig = fig,
                                 smooth=True,

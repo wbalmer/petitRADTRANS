@@ -419,7 +419,7 @@ class Retrieval:
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
-                summary.write(f"$\chi^{2} = {self.chi2}\n")
+                summary.write(f"    chi^{2} = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                         continue
@@ -587,6 +587,8 @@ class Retrieval:
                                                          self.PT_plot_mode,
                                                          AMR = self.rd.AMR)
                         return pressures, temperatures
+                    else:
+                        continue
                 # Save sampled outputs if necessary.
                 if self.run_mode == 'evaluate':
                     if self.evaluate_sample_spectra:
@@ -857,8 +859,8 @@ class Retrieval:
         name = self.rd.plot_kwargs["take_PTs_from"]
         abundances, MMW, _, _ = get_abundances(pressures,
                                             temps,
-                                            self.data[name].pRT_object.line_species,
-                                            self.data[name].pRT_object.cloud_species,
+                                            cp.copy(self.data[name].pRT_object.line_species),
+                                            cp.copy(self.data[name].pRT_object.cloud_species),
                                             parameters,
                                             AMR=False)
         return abundances, MMW
@@ -894,8 +896,46 @@ class Retrieval:
         logL = samples[:,-1]
         best_fit_index = np.argmax(logL)
         print(f"Best fit likelihood = {logL[best_fit_index]:.2f}")
-        self.chi2 = logL[best_fit_index]
         return logL[best_fit_index], best_fit_index
+
+    def get_best_fit_chi2(self,samples):
+        """
+        Get the 𝛘^2 of the best fit model - removing normalization term from log L
+
+        Args:
+            samples : numpy.ndarray
+                An array of samples and likelihoods taken from a post_equal_weights file
+        """
+        logL, best_fit_index = self.get_best_fit_likelihood(samples)
+        norm = 0.0
+        for name, dd in self.data.items():
+            if dd.covariance is not None:
+                add = 0.5 * dd.log_covariance_determinant
+            else:
+                add = 0.5*np.sum(np.log(2*np.pi*dd.flux_error**2.))
+            norm += add
+            #print(name,norm)
+        print(f"Best fit 𝛘^2 = {-logL - norm:.2f}")
+        return -logL - norm
+
+    def get_reduced_chi2(self,samples):
+        """
+        Get the 𝛘^2/DoF of the best fit model - divide chi^2 by DoF
+
+        Args:
+            samples : numpy.ndarray
+                An array of samples and likelihoods taken from a post_equal_weights file
+        """
+        chi2 = self.get_best_fit_chi2(samples)
+        DoF = 0
+        for name, dd in self.data.items():
+            DoF += np.size(dd.flux)
+        for name, pp in self.parameters.items():
+            if pp.is_free_parameter:
+                DoF -= 1
+        print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        self.chi2 = chi2/DoF
+        return chi2/DoF
 
     def get_analyzer(self,ret_name = ""):
         """
@@ -1100,11 +1140,11 @@ class Retrieval:
                         i_p += 1
 
         # Plotting
-        #self.plot_spectra(samples_use,parameters_read)
-        #if self.evaluate_sample_spectra:
-        #    self.plot_sampled(samples_use, parameters_read)
-        #self.plot_PT(sample_dict,parameters_read, contribution = contribution)
-        #self.plot_corner(sample_dict,parameter_dict,parameters_read)
+        self.plot_spectra(samples_use,parameters_read)
+        if self.evaluate_sample_spectra:
+            self.plot_sampled(samples_use, parameters_read)
+        self.plot_PT(sample_dict,parameters_read, contribution = contribution)
+        self.plot_corner(sample_dict,parameter_dict,parameters_read)
         if contribution:
             self.plot_contribution(samples_use,parameters_read)
         self.plot_abundances(samples_use,parameters_read, contribution = contribution)
@@ -1142,7 +1182,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Plotting Best-fit spectrum")
+        print("\nPlotting Best-fit spectrum")
         fig, axes = plt.subplots(nrows=2, ncols=1, sharex='col', sharey=False,
                                gridspec_kw={'height_ratios': [2.5, 1],'hspace':0.1},
                                figsize=(20, 10))
@@ -1265,7 +1305,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${logL:.2f}',
+                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
@@ -1354,7 +1394,7 @@ class Retrieval:
         ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.legend(loc='upper center',ncol = len(self.data.keys())+1).set_zorder(1002)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/best_fit_spec.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_spec.pdf')
         self.evaluate_sample_spectra = check
         return fig, ax, ax_r
 
@@ -1384,7 +1424,7 @@ class Retrieval:
             self.run_mode = 'evaluate'
         self.rd.plot_kwargs["nsample"] = int(self.rd.plot_kwargs["nsample"])
 
-        print("Plotting Best-fit spectrum with "+ str(self.rd.plot_kwargs["nsample"]) + " samples.")
+        print("\nPlotting Best-fit spectrum with "+ str(self.rd.plot_kwargs["nsample"]) + " samples.")
         print("This could take some time...")
         len_samples = samples_use.shape[0]
         path = self.output_dir + 'evaluate_'+self.retrieval_name + "/"
@@ -1407,9 +1447,12 @@ class Retrieval:
         fig,ax = plt.subplots(figsize = (16,10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform()*len_samples)
-            parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
-            parameters["contribution"] = Parameter("contribution", False, value = False)
-            wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
+            if os.path.exists(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)):
+                wlen, model = np.load(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)+".npy")
+            else:
+                parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
+                parameters["contribution"] = Parameter("contribution", False, value = False)
+                wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
             if downsample_factor != None:
                 npoints = int(len(wlen))
                 model = nc.running_mean(model,downsample_factor)[::downsample_factor]
@@ -1417,8 +1460,8 @@ class Retrieval:
             if save_outputs:
                 np.save(path + "posterior_sampled_spectra_"+
                                 str(int(i_sample+1)).zfill(5),
-                                np.column_stack(wlen, model))
-            ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"], linewidth = 0.2, marker = None)
+                                np.column_stack((wlen, model)))
+            ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"] + 0.1, linewidth = 0.2, marker = None)
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
         # Setup best fit spectrum
@@ -1427,9 +1470,10 @@ class Retrieval:
         # Then get the full wavelength range
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                        parameters_read)
-        ax.plot(bf_wlen,bf_spectrum,
+        ax.plot(bf_wlen,
+                bf_spectrum,
                 marker = None,
-                label = f"Best fit, $\chi^{2}=${logL:.2f}",
+                label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}",
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
@@ -1442,10 +1486,10 @@ class Retrieval:
         ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"])
         ax.legend(loc='best')
         plt.tight_layout()
-        plt.savefig(path +'sampled_data.pdf',bbox_inches = 0.)
+        plt.savefig(path + self.retrieval_name  +'_sampled.pdf',bbox_inches = 0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution = True):
+    def plot_PT(self, sample_dict, parameters_read, contribution = False):
         """
         Plot the PT profile with error contours
 
@@ -1464,7 +1508,7 @@ class Retrieval:
             ax : matplotlib.axes
         """
 
-        print("Plotting PT profiles")
+        print("\nPlotting PT profiles")
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
@@ -1492,21 +1536,26 @@ class Retrieval:
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[0, :], \
                         x2 = temps_sort[-1, :], \
-                        color = 'cyan', label = 'all')
+                        color = 'cyan', label = 'all',
+                        zorder = 0)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.997/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.997/2.)), :], \
-                        color = 'brown', label = '3 sig')
+                        color = 'brown', label = '3 sig',
+                        zorder = 1)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.95/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.95/2.)), :], \
-                        color = 'orange', label = '2 sig')
+                        color = 'orange', label = '2 sig',
+                        zorder = 2)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.68/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.68/2.)), :], \
-                        color = 'red', label = '1 sig')
+                        color = 'red', label = '1 sig',
+                        zorder = 3)
 
         if contribution:
+            self.PT_plot_mode = False
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
                                                                         contribution = True)
@@ -1533,7 +1582,6 @@ class Retrieval:
             contr_em = bf_contribution/weights
 
             # This probably doesn't need to be in a loop
-            print(contr_em.shape,spectral_weights.shape)
             for i_str in range(bf_contribution.shape[0]):
                 contr_em[i_str, :] = bf_contribution[i_str, :] * spectral_weights
 
@@ -1566,10 +1614,8 @@ class Retrieval:
                                 alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
                                 linewidth=0,
                                 rasterized = True,
-                                zorder = 20)
+                                zorder = 4)
 
-            #plt.plot(temp, p, color = 'white', linewidth = 3.)
-            #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
             ax.plot(contr_em_weigh*(
                 self.rd.plot_kwargs["temp_limits"][1]-self.rd.plot_kwargs["temp_limits"][0])\
                 +self.rd.plot_kwargs["temp_limits"][0],
@@ -1577,7 +1623,7 @@ class Retrieval:
                 color = 'black',
                 linewidth = 1.,
                 label='Spectrally weighted contribution',
-                zorder = 25)
+                zorder = 5)
 
         ax.set_yscale('log')
         try:
@@ -1591,7 +1637,8 @@ class Retrieval:
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
         ax.legend(loc='best')
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/PT_envelopes.pdf')
+        plt.tight_layout()
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf')
         return fig, ax
 
     def plot_corner(self,sample_dict,parameter_dict,parameters_read, plot_best_fit = True, **kwargs):
@@ -1615,7 +1662,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Making corner plot")
+        print("\nMaking corner plot")
         sample_use_dict = {}
         p_plot_inds = {}
         p_ranges = {}
@@ -1631,7 +1678,6 @@ class Retrieval:
             parameter_ranges       = []
             i_p = 0
             for pp in parameters_read:
-                parameter_ranges.append(self.parameters[pp].corner_ranges)
                 if self.parameters[pp].plot_in_corner:
                     parameter_plot_indices.append(i_p)
                 if self.parameters[pp].corner_label is not None:
@@ -1639,6 +1685,8 @@ class Retrieval:
                 if self.parameters[pp].corner_transform is not None:
                     samples_use[:, i_p] = \
                         self.parameters[pp].corner_transform(samples_use[:, i_p])
+                parameter_ranges.append(self.parameters[pp].corner_ranges)
+
                 i_p += 1
             p_plot_inds[name] = parameter_plot_indices
             p_ranges[name] = parameter_ranges
@@ -1646,7 +1694,7 @@ class Retrieval:
             sample_use_dict[name] = samples_use
 
 
-        output_file = self.output_dir + 'evaluate_'+self.retrieval_name +'/corner_nice.pdf'
+        output_file = self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_corner_plot.pdf'
 
         # from Plotting
         fig = contour_corner(sample_use_dict,
@@ -1669,9 +1717,9 @@ class Retrieval:
                 wlen = dd.wlen
             ax.errorbar(wlen, dd.flux, yerr = dd.flux_error, label = name, marker = 'o')
         ax.legend()
-        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/Data_" + self.retrieval_name + ".pdf")
+        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
-    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None):
+    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = False, n_contour_levels = 30):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
         between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1701,7 +1749,7 @@ class Retrieval:
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
-        print("Plotting Best-fit contribution function")
+        print("\nPlotting Best-fit contribution function")
 
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -1714,9 +1762,13 @@ class Retrieval:
                                                                         parameters_read,
                                                                         contribution = True)
 
+        index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
+        bf_contribution[index] = 1e-16
+
         self.PT_plot_mode = True
         pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         self.PT_plot_mode = False
+
 
         pressure_weights = np.diff(np.log10(pressures))
         weights = np.ones_like(pressures)
@@ -1727,34 +1779,41 @@ class Retrieval:
 
         X, Y = np.meshgrid(bf_wlen, pressures)
         fig, ax = plt.subplots()
+        if log_scale_contribution:
+            plot_cont = -np.log10(bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights)
+            label = "-Log Weighted Flux"
+        else:
+            plot_cont = bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights
+            label = "Weighted Flux"
 
         im = ax.contourf(X,
                          Y,
-                         bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights,
-                         10,
+                         plot_cont,
+                         n_contour_levels,
                          cmap=plt.cm.magma)
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
         ax.set_yscale("log")
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
-        plt.colorbar(im, ax = ax, label = self.rd.plot_kwargs["spec_ylabel"])
+        plt.colorbar(im, ax = ax, label = label)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_contribution.pdf')
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_contribution.pdf')
         return bf_contribution
 
     def plot_abundances(self,samples_use,parameters_read, species_to_plot = None, contribution = False):
-        print("Plotting Abundances profiles")
+        print("\nPlotting Abundances profiles")
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
         self.PT_plot_mode = True
         pressures, temps = self.log_likelihood(samples_use[best_fit_index , :-1], 0, 0)
         self.PT_plot_mode = False
+
         abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
         # Compute spectrum for each chem case
         fig,ax = plt.subplots(figsize = (12,7))
         if species_to_plot is None:
-            species_to_plot = self.rd.line_species
+            species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
         for spec in species_to_plot:
             ax.plot(abundances[spec],pressures,label=spec.split('_')[0])
         if contribution:
@@ -1784,7 +1843,6 @@ class Retrieval:
             contr_em = bf_contribution/weights
 
             # This probably doesn't need to be in a loop
-            print(contr_em.shape,spectral_weights.shape)
             for i_str in range(bf_contribution.shape[0]):
                 contr_em[i_str, :] = bf_contribution[i_str, :] * spectral_weights
 
@@ -1836,4 +1894,5 @@ class Retrieval:
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =14)
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/best_fit_abundance_profiles.pdf')
+        plt.tight_layout()
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf')
