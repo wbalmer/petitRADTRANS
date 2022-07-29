@@ -18,8 +18,8 @@ from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
-from petitRADTRANS.retrieval.util import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
-    delta_prior
+from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
+    uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 
 
 class RetrievalParameter:
@@ -1025,6 +1025,15 @@ class BaseSpectralModel:
         )
 
         return self.wavelengths, self.transit_radii
+
+    def get_volume_mixing_ratios(self):
+        volume_mixing_ratios = {}
+
+        for species_, mass_mixing_ratio in self.mass_mixing_ratios.items():
+            species = species_.split('(', 1)[0]
+            volume_mixing_ratios[species_] = self.mean_molar_masses / getMM(species) * mass_mixing_ratio
+
+        return volume_mixing_ratios
 
     @staticmethod
     def hz2um(frequency):
@@ -2034,6 +2043,13 @@ class SpectralModel(BaseSpectralModel):
 
         for parameter, value in parameters.items():
             if 'log10_' in parameter and value is not None:
+                parameter_name = parameter.split('log10_', 1)[-1]
+
+                if parameter_name in kwargs:
+                    raise TypeError(f"got multiple values for parameter '{parameter_name}'; "
+                                    f"this may be caused by "
+                                    f"giving both '{parameter_name}' and e.g. 'log10_{parameter_name}'")
+
                 kwargs[parameter.split('log10_', 1)[-1]] = 10 ** value
             else:
                 if parameter == 'imposed_mass_mixing_ratios':
@@ -2043,6 +2059,10 @@ class SpectralModel(BaseSpectralModel):
                     for species, mass_mixing_ratios in parameters[parameter].items():
                         if species not in kwargs[parameter]:
                             kwargs[parameter][species] = copy.copy(mass_mixing_ratios)
+                elif parameter in kwargs:
+                    raise TypeError(f"got multiple values for parameter '{parameter}'; "
+                                    f"this may be caused by "
+                                    f"giving both '{parameter}' and e.g. 'log10_{parameter}'")
                 else:
                     kwargs[parameter] = copy.copy(value)
 
