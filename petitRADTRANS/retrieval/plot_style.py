@@ -37,9 +37,10 @@ xmaj = {'size': 10}
 ymaj = {'size': 10}
 axes = {'labelsize': 26,
         'prop_cycle': mpl.cycler(color=prt_colours),
-        'titlesize': 32}
-figure = {'titlesize': 32,
-          'figsize': (16, 10),
+        'titlesize' : 32,
+        'linewidth' : 2}
+figure = {'titlesize' : 32,
+          'figsize' : (16,10),
           'dpi': 300,
           'autolayout': True}
 legend = {'fancybox': True,

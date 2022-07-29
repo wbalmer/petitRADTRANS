@@ -10,7 +10,6 @@ import h5py
 import numpy as np
 from scipy.interpolate import interp1d
 
-
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS import _read_opacities
 from petitRADTRANS import nat_cst as nc
@@ -1926,64 +1925,69 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         return np.array(pressures)/1e6
 
-def py_calc_cloud_opas(rho,
-                       rho_p,
-                       cloud_mass_fracs,
-                       r_g,
-                       sigma_n,
-                       cloud_rad_bins,
-                       cloud_radii,
-                       cloud_specs_abs_opa,
-                       cloud_specs_scat_opa,
-                       cloud_aniso):
-    """
+def py_calc_cloud_opas(
+    rho, # (M,)
+    rho_p,  # (N,)
+    cloud_mass_fracs,  # (M, N)
+    r_g,  # (M, N)
+    sigma_n,
+    cloud_rad_bins,  # (P + 1,)
+    cloud_radii,  # (P,)
+    cloud_specs_abs_opa,  # (P, Q, N)
+    cloud_specs_scat_opa,  # (P, Q, N)
+    cloud_aniso,  # (P, Q, N)
+):
+    r""""
     This function reimplements calc_cloud_opas from fort_spec.f90. For some reason
-    it runs faster in python than in fortran, so we'll use this from now on. # TODO check the .f90 version for opti
+    it runs faster in python than in fortran, so we'll use this from now on.
     This function integrates the cloud opacity throught the different layers of
     the atmosphere to get the total optical depth, scattering and anisotropic fraction.
 
-    See the fortran implementation for details of the input arrays.
+    author: Francois Rozet
     """
-    ncloud = int(cloud_mass_fracs.shape[1])
-    n_cloud_rad_bins = int(cloud_radii.shape[0])
-    n_cloud_lambda_bins = int(cloud_specs_abs_opa.shape[1])
-    nstruct = int(rho.shape[0])
+    N = (  # (M, N)
+        3.0
+        * cloud_mass_fracs
+        * rho[:, None]
+        / (4.0 * np.pi * rho_p * (r_g ** 3))
+        * np.exp(-4.5 * np.log(sigma_n) ** 2)
+    )
 
-    cloud_abs_opa_tot = np.zeros((n_cloud_lambda_bins, nstruct))
-    cloud_scat_opa_tot = np.zeros((n_cloud_lambda_bins, nstruct))
-    cloud_red_fac_aniso_tot = np.zeros((n_cloud_lambda_bins, nstruct))
+    diff = np.log(cloud_radii[:,None,None]) - np.log(r_g)
+    dndr = (  # (P, M, N)
+        N
+        / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
+        * np.exp(
+            -diff ** 2
+            / (2.0 * np.log(sigma_n) ** 2)
+        )
+    )
 
-    for i_struct in range(nstruct):
-        for i_c in range(ncloud):
-            n = 3.0 * cloud_mass_fracs[i_struct, i_c] * rho[i_struct] / (
-                    4.0 * np.pi * rho_p[i_c] * (r_g[i_struct, i_c] ** 3.0)) * \
-                np.exp(-4.5 * np.log(sigma_n) ** 2.0)
+    integrand_scale = (  # (P, M, N)
+        (4.0 * np.pi / 3.0)
+        * cloud_radii[:, None, None] ** 3
+        * rho_p
+        * dndr
+    )
 
-            dndr = n / (cloud_radii * np.sqrt(2.0 * np.pi) * np.log(sigma_n)) \
-                * np.exp(-np.log(cloud_radii / r_g[i_struct, i_c]) ** 2.0 / (2.0 * (np.log(sigma_n) ** 2.0)))
+    integrand_abs = integrand_scale[:, None] * cloud_specs_abs_opa[:, :, None]
+    integrand_scat = integrand_scale[:, None] * cloud_specs_scat_opa[:, :, None]
+    integrand_aniso = integrand_scat * (1.0 - cloud_aniso[:, :, None])
 
-            integrand_abs = (4.0 * np.pi / 3.0) * (cloud_radii[:, np.newaxis] ** 3.0) * rho_p[i_c] \
-                * dndr[:, np.newaxis] * cloud_specs_abs_opa[:, :, i_c]
-            integrand_scat = (4.0 * np.pi / 3.0) * (cloud_radii[:, np.newaxis] ** 3.0) * rho_p[i_c] \
-                * dndr[:, np.newaxis] * cloud_specs_scat_opa[:, :, i_c]
-            integrand_aniso = integrand_scat * (1.0 - cloud_aniso[:, :, i_c])
-            add_abs = np.sum(integrand_abs * (cloud_rad_bins[1:n_cloud_rad_bins + 1, np.newaxis] -
-                                              cloud_rad_bins[0:n_cloud_rad_bins, np.newaxis]), axis=0)
+    widths = np.diff(cloud_rad_bins)[:, None, None, None]  # (P, 1, 1, 1)
 
-            cloud_abs_opa_tot[:, i_struct] = cloud_abs_opa_tot[:, i_struct] + add_abs
+    cloud_abs_opa = np.sum(integrand_abs * widths, axis=(0, 3))  # (Q, M)
+    cloud_scat_opa = np.sum(integrand_scat * widths, axis=(0, 3))  # (Q, M)
+    cloud_red_fac_aniso = np.sum(integrand_aniso * widths, axis=(0, 3))  # (Q, M)
 
-            add_scat = np.sum(integrand_scat * (cloud_rad_bins[1:n_cloud_rad_bins + 1, np.newaxis] -
-                                                cloud_rad_bins[0:n_cloud_rad_bins, np.newaxis]), axis=0)
-            cloud_scat_opa_tot[:, i_struct] = cloud_scat_opa_tot[:, i_struct] + add_scat
+    cloud_red_fac_aniso = np.true_divide(
+        cloud_red_fac_aniso,
+        cloud_scat_opa,
+        out=np.zeros_like(cloud_scat_opa),
+        where=cloud_scat_opa > 1e-200,
+    )
 
-            add_aniso = np.sum(integrand_aniso * (cloud_rad_bins[1:n_cloud_rad_bins + 1, np.newaxis] -
-                                                  cloud_rad_bins[0:n_cloud_rad_bins, np.newaxis]), axis=0)
-            cloud_red_fac_aniso_tot[:, i_struct] = cloud_red_fac_aniso_tot[:, i_struct] + add_aniso
+    cloud_abs_opa = cloud_abs_opa / rho
+    cloud_scat_opa = cloud_scat_opa / rho
 
-        cloud_red_fac_aniso_tot[:, i_struct] = np.divide(cloud_red_fac_aniso_tot[:, i_struct],
-                                                         cloud_scat_opa_tot[:, i_struct],
-                                                         where=cloud_scat_opa_tot[:, i_struct] > 1e-200)
-        cloud_red_fac_aniso_tot[cloud_scat_opa_tot < 1e-200] = 0.0
-        cloud_abs_opa_tot[:, i_struct] /= rho[i_struct]
-        cloud_scat_opa_tot[:, i_struct] /= rho[i_struct]
-    return cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot
+    return cloud_abs_opa, cloud_scat_opa, cloud_red_fac_aniso

@@ -146,6 +146,8 @@ class Data:
         # Optional, covariance and scaling
         self.covariance = None
         self.inv_cov = None
+        self.log_covariance_determinant = None
+        self.flux_error = None
         self.scale = scale
         self.scale_err = scale_err
 
@@ -177,7 +179,9 @@ class Data:
                 sys.exit(7)
 
             if not photometry:
-                if path_to_observations.endswith('.fits'):
+                if path_to_observations.endswith("_x1d.fits"):
+                    self.load_jwst(path_to_observations)
+                elif path_to_observations.endswith('.fits'):
                     self.loadfits(path_to_observations)
                 else:
                     self.loadtxt(path_to_observations)
@@ -248,7 +252,25 @@ class Data:
         self.flux = obs[:, 1]
         self.flux_error = obs[:, 2]
 
-    def loadfits(self, path):
+    def load_jwst(self,path):
+        """
+        Load in an x1d fits file as produced by the STSci JWST pipeline.
+        Expects units of Jy for the flux and micron for the wavelength.
+
+        Args:
+            path : str
+                Directory and filename of the data.
+        """
+        hdul = fits.open(path)
+        self.wlen = hdul["EXTRACT1D"].data["WAVELENGTH"]
+        self.flux = hdul["EXTRACT1D"].data["FLUX"]
+        self.flux_error = hdul["EXTRACT1D"].data["FLUX_ERROR"]
+
+        # Convert from Jy to W/m^2/micron
+        self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
+        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
+
+    def loadfits(self,path):
         """
         Load in a particular style of fits file.
         Must include extension SPECTRUM with fields WAVLENGTH, FLUX
@@ -267,7 +289,7 @@ class Data:
         try:
             self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
-
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
@@ -312,6 +334,8 @@ class Data:
         if self.covariance is not None:
             self.covariance *= scale ** 2
             self.inv_cov = np.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
             self.flux_error = np.sqrt(self.covariance.diagonal())
         else:
             self.flux_error *= scale
@@ -365,21 +389,23 @@ class Data:
         log_l = 0.0
 
         if self.covariance is not None:
-            log_l += -1 * np.dot(diff, np.dot(self.inv_cov * (self.scale_factor ** -2), diff)) / 2.
-            log_l += -0.5 * np.log(np.linalg.det(2 * np.pi * self.covariance))
+            #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
+            logL += -1*np.dot(diff, np.dot(self.inv_cov, diff))/2.
+            logL += -0.5 * self.log_covariance_determinant
         else:
             log_l += -1 * np.sum((diff / f_err) ** 2) / 2
             log_l += -0.5 * np.sum(np.log(2 * np.pi * f_err ** 2))
         if plotting:
-            import matplotlib.pyplot as plt
-
             if not self.photometry:
+                plt.clf()
                 plt.plot(self.wlen, flux_rebinned)
                 plt.errorbar(self.wlen,
-                             self.flux * self.scale_factor,
-                             yerr=f_err*self.scale_factor,
-                             fmt='+')
+                             self.flux*self.scale_factor,
+                             yerr = f_err,
+                             fmt = '+')
                 plt.show()
+            print(self.name,logL)
+        return logL
 
         return log_l
 

@@ -12,10 +12,11 @@ from scipy.stats import binned_statistic
 
 def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=None):
     # TODO write generic plotting functions rather than copy pasting code.
-    specs = sorted([f for f in glob.glob(path + '/' + name + '*.dat')])
-    wlen = np.genfromtxt(specs[0])[:, 0]
-    if rebin_val is not None:
-        wlen = uniform_filter1d(wlen, rebin_val)[::rebin_val]
+    # Deprecated
+    specs = sorted([f for f in glob.glob(path+'/' + name + '*.dat')])
+    wlen = np.genfromtxt(specs[0])[:,0]
+    if rebin_val != None:
+        wlen = nc.running_mean(wlen, rebin_val)[::rebin_val]
     npoints = int(len(wlen))
     spectra = np.zeros((nsample, npoints))
 
@@ -44,10 +45,8 @@ def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=N
     return fig, ax
 
 
-def plot_data(fig, ax, data, resolution=None, scaling=1.0):
-    scale = 1.0
-    if data.scale:
-        scale = data.scale_factor
+def plot_data(fig,ax,data,resolution = None, scaling = 1.0):
+    scale = data.scale_factor
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
@@ -201,9 +200,14 @@ def contour_corner(sampledict,
 
         data_list = []
         labels_list = []
-
-        for i in parameter_plot_indices[key]:
-            data_list.append(samples[len(samples) - s:, i])
+        best_fit = None
+        if plot_best_fit:
+            best_fit = []
+            best_fit_ind = np.argmax(samples[:,-1])
+            for i in parameter_plot_indices[key]:
+                best_fit.append(samples[best_fit_ind][i])
+        for range_i,i in enumerate(parameter_plot_indices[key]):
+            data_list.append(samples[len(samples)-S:,i])
             labels_list.append(parameter_names[key][i])
 
             if parameter_ranges[key][i] is None:
@@ -213,13 +217,12 @@ def contour_corner(sampledict,
                 high = range_mean + 4 * range_std
 
                 if count > 0:
-                    if low > range_list[i][0]:
-                        low = range_list[i][0]
-                    if high < range_list[i][1]:
-                        high = range_list[i][1]
-
-                    range_take = (low, high)
-                    range_list[i] = range_take
+                    if low > range_list[range_i][0]:
+                        low = range_list[range_i][0]
+                    if high < range_list[range_i][1]:
+                        high = range_list[range_i][1]
+                    range_take = (low,high)
+                    range_list[range_i] = range_take
                 else:
                     range_list.append((low, high))
             else:
