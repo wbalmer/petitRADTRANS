@@ -3,8 +3,7 @@ This module contains a set of useful functions that don't really fit anywhere
 else. This includes flux conversions, prior functions, mean molecular weight
 calculations, transforms from mass to number fractions, and fits file output.
 """
-import sys
-import os
+import sys, os
 
 # To not have numpy start parallelizing on its own
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -12,6 +11,8 @@ from scipy.special import erfcinv
 import numpy as np
 import math as math
 from molmass import Formula
+from typing import Tuple
+from petitRADTRANS import nat_cst as nc
 
 # import threading, subprocess
 
@@ -41,6 +42,23 @@ def surf_to_meas(flux, p_rad, dist):
     m_flux = flux * p_rad ** 2 / dist ** 2
     return m_flux
 
+def freq_to_micron(frequency):
+    return nc.c/frequency/1e-4
+
+def fnu_to_flambda(wlen,spectrum):
+    f_lambda = spectrum*nc.c/wlen**2.
+    # convert to flux per m^2 (from flux per cm^2) cancels with step below
+    #f_lambda = f_lambda * 1e4
+    # convert to flux per micron (from flux per cm) cancels with step above
+    #f_lambda = f_lambda * 1e-4
+    # convert from ergs to Joule
+    f_lambda = f_lambda * 1e-7
+    return f_lambda
+
+def spectrum_cgs_to_si(frequency,spectrum):
+    wlen = freq_to_micron(frequency)
+    f_lambda = fnu_to_flambda(wlen*1e-4, spectrum)
+    return wlen, f_lambda
 
 #################
 # Prior Functions
@@ -148,7 +166,6 @@ def get_MMW_from_mfrac(m_frac):
     """
 
     return calc_MMW(m_frac)
-
 
 def get_MMW_from_nfrac(n_frac):
     """
@@ -258,6 +275,99 @@ def bin_species_exok(species, resolution):
         species=species,
         masses=masses
     )
+
+def compute_gravity(parameters):
+    gravity = -np.inf
+    R_pl = -np.inf
+    if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
+        gravity = 10**parameters['log_g'].value
+        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
+    elif 'log_g' in parameters.keys():
+        gravity= 10**parameters['log_g'].value
+        R_pl = parameters['R_pl'].value
+    elif 'mass' in parameters.keys():
+        R_pl = parameters['R_pl'].value
+        gravity = nc.G * parameters['mass'].value/R_pl**2
+    else:
+        print("Pick two of log_g, R_pl and mass priors!")
+        sys.exit(5)
+    return gravity, R_pl
+
+def set_resolution(lines,abundances,resolution):
+    """
+    deprecated
+    """
+    # Set correct key names in abundances for pRT, with set resolution
+    # Only needed for free chemistry retrieval
+    #print(lines)
+    #print(abundances)
+    if resolution is None:
+        return abundances
+    for line in lines:
+        abundances[line] = abundances[line.split("_R_"+str(resolution))[0]]
+        del abundances[line.split("_R_"+str(resolution))]
+    return abundances
+
+
+def fixed_length_amr(p_clouds, pressures, scaling = 10, width = 3):
+    r"""This function takes in the cloud base pressures for each cloud,
+    and returns an array of pressures with a high resolution mesh
+    in the region where the clouds are located.
+
+    Author:  Francois Rozet.
+
+    The output length is always
+        len(pressures[::scaling]) + len(p_clouds) * width * (scaling - 1)
+
+    Args:
+        P_clouds : numpy.ndarray
+            The cloud base pressures in bar
+        press : np.ndarray
+            The high resolution pressure array.
+        scaling : int
+            The factor by which the low resolution pressure array is scaled
+        width : int
+            The number of low resolution bins to be replaced for each cloud layer.
+    """
+
+    length = len(pressures)
+    cloud_indices = np.searchsorted(pressures, np.asarray(p_clouds))
+
+    # High resolution intervals
+    def bounds(center: int, width: int) -> Tuple[int, int]:
+        upper = min(center + width // 2, length)
+        lower = max(upper - width, 0)
+        return lower, lower + width
+
+    intervals = [bounds(idx, scaling * width) for idx in cloud_indices]
+
+    # Merge intervals
+    while True:
+        intervals, stack = sorted(intervals), []
+
+        for interval in intervals:
+            if stack and stack[-1][1] >= interval[0]:
+                last = stack.pop()
+                interval = bounds(
+                    (last[0] + max(last[1], interval[1]) + 1) // 2,
+                    last[1] - last[0] + interval[1] - interval[0],
+                )
+
+            stack.append(interval)
+
+        if len(intervals) == len(stack):
+            break
+        intervals = stack
+
+    # Intervals to indices
+    indices = [np.arange(0, length, scaling)]
+
+    for interval in intervals:
+        indices.append(np.arange(*interval))
+
+    indices = np.unique(np.concatenate(indices))
+
+    return pressures[indices], indices
 
 ########################
 # File Formatting

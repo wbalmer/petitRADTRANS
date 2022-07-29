@@ -242,8 +242,7 @@ def create_guillot_2010_temperature_profile_ref(plot_figure=False):
     #     t_int=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
     #     t_equ=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
     # )  # future
-    temperature_guillot = petitRADTRANS.nat_cst.guillot_global(
-        P=radtrans_parameters['pressures'],
+    temperature_guillot = petitRADTRANS.physics.guillot_global(P=radtrans_parameters['pressures'],
         kappa_IR=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
         grav=radtrans_parameters['planetary_parameters']['surface_gravity'],

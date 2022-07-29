@@ -478,7 +478,7 @@ subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
      end if
   end do
   if (rad_neg) then
-     write(*,*) 'pRT: negative radius corretion applied!'
+     write(*,*) 'pRT: negative radius correction applied!'
   end if
 
   ! Calc. mean free paths across grazing distances
@@ -1257,7 +1257,7 @@ subroutine calc_hansen_opas(rho,rho_p,cloud_mass_fracs,a_h,b_h,cloud_rad_bins, &
 
    integer, intent(in) :: struc_len, N_cloud_spec, N_cloud_rad_bins, N_cloud_lambda_bins
    double precision, intent(in) :: rho(struc_len), rho_p(N_cloud_spec)
-   double precision, intent(in) :: cloud_mass_fracs(struc_len,N_cloud_spec), &
+   double precision, intent(in) :: cloud_mass_fracs(struc_len, N_cloud_spec), &
          a_h(struc_len,N_cloud_spec), b_h(struc_len,N_cloud_spec)
    double precision, intent(in) :: cloud_rad_bins(N_cloud_rad_bins+1), cloud_radii(N_cloud_rad_bins)
    double precision, intent(in) :: cloud_specs_abs_opa(N_cloud_rad_bins,N_cloud_lambda_bins,N_cloud_spec), &
@@ -1588,7 +1588,7 @@ subroutine get_rg_N(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
 
 end subroutine get_rg_N
 
-subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
+subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain, &
    b_h,Kzz,a_h,struc_len,N_cloud_spec)
 
 use constants_block
@@ -1596,7 +1596,7 @@ implicit none
 ! I/O
 INTEGER, intent(in)  :: struc_len, N_cloud_spec
 DOUBLE PRECISION, intent(in) :: gravity, rho(struc_len), rho_p(N_cloud_spec), temp(struc_len), &
-     MMW(struc_len), frain(N_cloud_spec), cloud_mass_fracs(struc_len,N_cloud_spec), &
+     MMW(struc_len), frain(N_cloud_spec), &
      b_h(struc_len,N_cloud_spec), Kzz(struc_len)
 DOUBLE PRECISION, intent(out) :: a_h(struc_len,N_cloud_spec)
 
@@ -2007,37 +2007,6 @@ subroutine combine_opas_sample_ck(line_struc_kappas, g_gauss, weights, &
 end subroutine combine_opas_sample_ck
 
 
-
-! Implementation of linear interpolation function
-! Takes arrays of points in x and y, together with an
-! array of output points. Interpolates to find
-! the output y-values.
-subroutine linear_interpolate(x,y,x_out,input_len,output_len,y_out)
-
-   implicit none
-
-   ! inputs
-   DOUBLE PRECISION, INTENT(IN) :: x(input_len), y(input_len), x_out(output_len)
-   INTEGER, INTENT(IN) :: input_len, output_len
-
-   ! outputs
-   DOUBLE PRECISION, INTENT(INOUT) :: y_out(output_len)
-
-   ! internal
-   INTEGER :: i, interp_ind(output_len)
-   DOUBLE PRECISION :: dx, dy, delta_x
-   call search_intp_ind(x, input_len, x_out, output_len, interp_ind)
-   do i = 1, output_len
-      dy = y(interp_ind(i)+1)-y(interp_ind(i))
-      dx = x(interp_ind(i)+1)-x(interp_ind(i))
-      delta_x = x_out(i) - x(interp_ind(i))
-      y_out(i) = y(interp_ind(i)) + ((dy/dx)*delta_x)
-   enddo
-end subroutine linear_interpolate
-
-
-
-
 ! Subroutine to completely mix the c-k opacities
 subroutine combine_opas_ck(line_struc_kappas, g_gauss, weights, &
    g_len, freq_len, N_species, struc_len, line_struc_kappas_out)
@@ -2130,6 +2099,37 @@ subroutine combine_opas_ck(line_struc_kappas, g_gauss, weights, &
 
    endif
 end subroutine combine_opas_ck
+
+
+
+
+! Implementation of linear interpolation function
+! Takes arrays of points in x and y, together with an
+! array of output points. Interpolates to find
+! the output y-values.
+subroutine linear_interpolate(x,y,x_out,input_len,output_len,y_out)
+
+   implicit none
+
+   ! inputs
+   DOUBLE PRECISION, INTENT(IN) :: x(input_len), y(input_len), x_out(output_len)
+   INTEGER, INTENT(IN) :: input_len, output_len
+
+   ! outputs
+   DOUBLE PRECISION, INTENT(INOUT) :: y_out(output_len)
+
+   ! internal
+   INTEGER :: i, interp_ind(output_len)
+   DOUBLE PRECISION :: dx, dy, delta_x
+   call search_intp_ind(x, input_len, x_out, output_len, interp_ind)
+   do i = 1, output_len
+      dy = y(interp_ind(i)+1)-y(interp_ind(i))
+      dx = x(interp_ind(i)+1)-x(interp_ind(i))
+      delta_x = x_out(i) - x(interp_ind(i))
+      y_out(i) = y(interp_ind(i)) + ((dy/dx)*delta_x)
+   enddo
+end subroutine linear_interpolate
+
 
 
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

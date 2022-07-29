@@ -64,6 +64,91 @@ masses['V'] = 51.
 masses['Fe'] = 55.8
 masses['Ni'] = 58.7
 
+def setup_clouds(pressures, parameters, cloud_species):
+    """
+    This function provides the set of cloud parameters used in
+    petitRADTRANS. This will be some combination of atmospheric
+    parameters (fsed and Kzz), distribution descriptions (log normal or hansen)
+    and the cloud particle radius. Fsed and the particle radii can be provided
+    on a per-cloud basis.
+
+    Args:
+        pressures : np.ndarray
+            The pressure array used to provide the atmospheric grid
+        parameters : dict
+            The dictionary of parameters passed to the model function. Should contain:
+                 *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                  *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                  *  log_kzz : Vertical mixing parameter
+        cloud_species : list
+            A list of the names of each of the cloud species used in the atmosphere.
+
+    Returns:
+        sigma_lnorm : float, None
+            The width of a log normal particle size distribution
+        fseds : dict, None
+            The sedimentation fraction for each cloud species in the atmosphere
+        kzz : np.ndarray, None
+            The vertical mixing parameter
+        b_hans : float, None
+            The width of a hansen particle size distribution
+        radii : dict, None
+            The central radius of the particle size distribution
+        distribution : string
+            Either "lognormal" or "hansen" - tells pRT which distribution to use.
+    """
+
+
+    sigma_lnorm = None
+    radii = None
+    b_hans = None
+    distribution = "lognormal"
+    fseds = None
+    kzz = None
+
+    # Setup distribution shape
+    if "sigma_lnorm" in parameters.keys():
+        sigma_lnorm = parameters['sigma_lnorm'].value
+    elif "b_hans" in parameters.keys():
+        b_hans = parameters['b_hans'].value
+        distribution = "hansen"
+
+    # Are we retrieving the particle radii?
+    radii = {}
+    for cloud in cloud_species:
+        if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
+            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+    if not radii:
+        radii = None
+
+    # per-cloud species fseds
+    fseds = get_fseds(parameters, cloud_species)
+    if "log_kzz" in parameters.keys():
+        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
+    return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+
+def get_fseds(parameters, cloud_species):
+    """
+    This function checks to see if the fsed values are input on a per-cloud basis
+    or only as a single value, and returns the dictionary providing the fsed values
+    for each cloud, or None, if no cloud is used.
+    """
+
+    fseds = {}
+    for cloud in cloud_species:
+        cname = cloud.split('_')[0]
+        if 'fsed_'+cname in parameters.keys():
+            fseds[cloud] = parameters['fsed_'+cname].value
+        elif 'fsed' in parameters.keys():
+                fseds[cloud] = parameters['fsed'].value
+    if not fseds:
+        fseds = None
+    return fseds
+
 def return_cloud_mass_fraction(name,FeH,CO):
     if "Fe(c)" in name:
         return return_XFe(FeH,CO)
@@ -237,7 +322,7 @@ def return_T_cond_Fe_comb(FeH, CO, MMW = 2.33):
 
 def return_T_cond_Fe_free(XFe, MMW = 2.33):
 
-    T = np.linspace(100.,10000.,1000)
+    T = np.linspace(100.,12000.,1200)
     # Taken from Ackerman & Marley (2001)
     # including their erratum
     P_vap = lambda x: np.exp(15.71 - 47664./x)
@@ -245,7 +330,7 @@ def return_T_cond_Fe_free(XFe, MMW = 2.33):
 
 def return_T_cond_Fe_l_free(XFe, MMW = 2.33):
 
-    T = np.linspace(100.,10000.,1000)
+    T = np.linspace(100.,12000.,1200)
     # Taken from Ackerman & Marley (2001)
     # including their erratum
     P_vap = lambda x: np.exp(9.86 - 37120./x)
@@ -302,6 +387,7 @@ def return_T_cond_Na2S(FeH, CO, MMW = 2.33):
     m_na2s =  2.*masses['Na'] \
       + masses['S']
     return P_vap(T)/(Xna2s*MMW/m_na2s), T
+
 def return_T_cond_Na2S_free(Xna2s, MMW = 2.33):
 
     # Taken from Charnay+2018
@@ -406,17 +492,19 @@ def simple_cdf_Fe(press, temp, FeH, CO, MMW = 2.33):
 
     return P_cloud
 def simple_cdf_Fe_free(press, temp, XFe, MMW = 2.33):
-
     Pc, Tc = return_T_cond_Fe_comb_free(XFe, MMW)
     index = (Pc > 1e-8) & (Pc < 1e5)
     Pc, Tc = Pc[index], Tc[index]
     tcond_p = interp1d(Pc, Tc)
-    #print(Pc, press)
-    Tcond_on_input_grid = tcond_p(press)
-
+    try:
+        Tcond_on_input_grid = tcond_p(press)
+    except:
+        print(Pc)
+        return np.min(press)
     Tdiff = Tcond_on_input_grid - temp
     diff_vec = Tdiff[1:]*Tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         P_clouds = (press[1:]+press[:-1])[ind_cdf]/2.
         P_cloud = P_clouds[-1]

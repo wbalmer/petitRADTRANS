@@ -101,7 +101,6 @@ def init_run():
         abund_lim=(
             radtrans_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][0],
             radtrans_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][1]
-            - radtrans_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][0]
         )  # prior: min = abund_lim[0], max = min + abund_lim[1]
     )
 
