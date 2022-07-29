@@ -143,6 +143,7 @@ class Data:
         self.scale_factor = 1.0
 
         # Bins and photometry
+        # Bins and photometry
         self.wlen_bins = wlen_bins
         self.photometry = photometry
         self.photometric_transformation_function = \
@@ -214,7 +215,8 @@ class Data:
         obs = np.genfromtxt(path,delimiter = delimiter, comments = comments)
         # Input sanity checks
         if np.isnan(obs).any():
-            obs = np.genfromtxt(path, delimiter = ' ', comments = comments)
+            #obs = np.genfromtxt(path, delimiter = ' ', comments = comments)
+            obs = np.genfromtxt(path)
         if len(obs.shape) < 2:
             obs = np.genfromtxt(path, comments = comments)
         if obs.shape[1] != 3:
