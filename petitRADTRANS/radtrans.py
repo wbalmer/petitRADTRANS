@@ -1258,27 +1258,30 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.calc_opt_depth(gravity, cloud_wlen = cloud_wlen)
 
         if R_pl is not None:
-            radius_hse = self.calc_radius_hydrostatic_equilibrium(temp,
-                                            mmw,
-                                            gravity,
-                                            self.press[-1] * 1e-6,
-                                            R_pl)
+            try:
+                radius_hse = self.calc_radius_hydrostatic_equilibrium(temp,
+                                                mmw,
+                                                gravity,
+                                                self.press[-1] * 1e-6,
+                                                R_pl)
 
-            rad_press = interp1d(self.press, radius_hse)
+                rad_press = interp1d(self.press, radius_hse)
 
-            self.phot_radius = np.zeros(self.freq_len)
+                self.phot_radius = np.zeros(self.freq_len)
 
-            if self.mode == 'lbl' or self.test_ck_shuffle_comp:
-                #self.total_tau[:, :, :1, :]
-                # line_struc_kappas = np.zeros(
-                #                 (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
-                #             )
-                wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
-                for i_freq in range(self.freq_len):
-                    tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis = 0)
-                    press_taup = interp1d(tau_p, self.press)
-                    #print(tau_p)
-                    self.phot_radius[i_freq] = rad_press(press_taup(2./3.))
+                if self.mode == 'lbl' or self.test_ck_shuffle_comp:
+                    #self.total_tau[:, :, :1, :]
+                    # line_struc_kappas = np.zeros(
+                    #                 (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
+                    #             )
+                    wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
+                    for i_freq in range(self.freq_len):
+                        tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis = 0)
+                        press_taup = interp1d(tau_p, self.press)
+                        #print(tau_p)
+                        self.phot_radius[i_freq] = rad_press(press_taup(2./3.))
+            except:
+                self.phot_radius = -np.ones(self.freq_len)
 
         if not self.skip_RT_step:
             self.calc_RT(contribution)
