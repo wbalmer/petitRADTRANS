@@ -114,7 +114,7 @@ def setup_clouds(pressures, parameters, cloud_species):
     if "sigma_lnorm" in parameters.keys():
         sigma_lnorm = parameters['sigma_lnorm'].value
     elif "b_hans" in parameters.keys():
-        b_hans = parameters['b_hans'].value
+        b_hans = get_bhans(parameters, cloud_species, pressures.shape[0])
         distribution = "hansen"
 
     # Are we retrieving the particle radii?
@@ -131,23 +131,42 @@ def setup_clouds(pressures, parameters, cloud_species):
         kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
 
+def cloud_dict(parameters, parameter_name, cloud_species, shape = 0):
+    """
+    This is a generic method to create a dictionary of
+    parameters for a given parameter, testing if
+    the parameter should be filled on a per-cloud basis or
+    if each cloud species should have the same value.
+    """
+    output_dictionary = {}
+    for cloud in cloud_species:
+        cname = cloud.split('_')[0]
+        if parameter_name + "_" + cname in parameters.keys():
+            output = parameters[parameter_name+"_"+cname].value
+        elif parameter_name in parameters.keys():
+            output = parameters[parameter_name].value
+        if shape > 0:
+            output = output * np.ones(shape)
+        output_dictionary[cloud] = output
+    if not output_dictionary:
+        output_dictionary = None
+    return output_dictionary
+
 def get_fseds(parameters, cloud_species):
     """
     This function checks to see if the fsed values are input on a per-cloud basis
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
     """
+    return cloud_dict(parameters,"fsed", cloud_species)
 
-    fseds = {}
-    for cloud in cloud_species:
-        cname = cloud.split('_')[0]
-        if 'fsed_'+cname in parameters.keys():
-            fseds[cloud] = parameters['fsed_'+cname].value
-        elif 'fsed' in parameters.keys():
-                fseds[cloud] = parameters['fsed'].value
-    if not fseds:
-        fseds = None
-    return fseds
+def get_bhans(parameters, cloud_species, shape = 0):
+    """
+    This function checks to see if the bhans values are input on a per-cloud basis
+    or only as a single value, and returns the dictionary providing the fsed values
+    for each cloud, or None, if no cloud is used.
+    """
+    return cloud_dict(parameters, "b_hans", cloud_species, shape = shape)
 
 def return_cloud_mass_fraction(name,FeH,CO):
     if "Fe(c)" in name:
