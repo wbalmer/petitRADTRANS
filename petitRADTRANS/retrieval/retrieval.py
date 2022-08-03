@@ -411,12 +411,11 @@ class Retrieval:
                     summary.write(fmts % (p, med, sigma) + '\n')
                 summary.write('\n')
             if self.run_mode == 'evaluate':
-                samples = self.get_samples()
-                chi2 = self.get_reduced_chi2(samples)
                 summary.write("Best Fit Parameters\n")
                 if not self.best_fit_params:
                     self.get_samples(self.output_dir)
                     samples_use = self.samples[self.retrieval_name]
+                    chi2 = self.get_reduced_chi2(samples_use)
                     parameters_read = self.param_dict[self.retrieval_name]
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
