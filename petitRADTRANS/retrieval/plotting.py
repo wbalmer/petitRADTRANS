@@ -164,6 +164,7 @@ def contour_corner(sampledict, \
 
         #from .plot_style import prt_colours
     #color_list = prt_colours
+    tcolor = 'k'
     N_samples = []
     range_list = []
     handles = []
@@ -212,12 +213,10 @@ def contour_corner(sampledict, \
             else:
                 range_take = (parameter_ranges[key][i][0],parameter_ranges[key][i][1])
                 range_list.append(range_take)
-        try:
-            truths_list = []
-            for i in parameter_plot_indices[key]:
-                truths_list.append(true_values[key][i])
-        except:
-            pass
+        if true_values:
+            best_fit = true_values
+            tcolor = 'red'
+            #print(best_fit)
         #fig = plt.figure(figsize = (60,60),dpi=80)
         label_kwargs = None
         title_kwargs = None
@@ -253,7 +252,7 @@ def contour_corner(sampledict, \
                                 hist_kwargs = hist_kwargs,
                                 levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
                                 truths=best_fit,
-                                truth_color='k'
+                                truth_color=tcolor
                                 )
             count +=1
         else:

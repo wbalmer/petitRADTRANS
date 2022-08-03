@@ -147,7 +147,6 @@ def emission_model_diseq(pRT_object,
 
     # Hansen or log normal clouds
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
-
     # calculate the spectrum
     pRT_object.calc_flux(temperatures,
                         abundances,

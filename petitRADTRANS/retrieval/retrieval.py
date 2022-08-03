@@ -411,6 +411,8 @@ class Retrieval:
                     summary.write(fmts % (p, med, sigma) + '\n')
                 summary.write('\n')
             if self.run_mode == 'evaluate':
+                samples = self.get_samples()
+                chi2 = self.get_reduced_chi2(samples)
                 summary.write("Best Fit Parameters\n")
                 if not self.best_fit_params:
                     self.get_samples(self.output_dir)
@@ -1641,7 +1643,7 @@ class Retrieval:
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf')
         return fig, ax
 
-    def plot_corner(self,sample_dict,parameter_dict,parameters_read, plot_best_fit = True, **kwargs):
+    def plot_corner(self,sample_dict,parameter_dict,parameters_read, plot_best_fit = True, true_values = None, **kwargs):
         """
         Make the corner plots
 
@@ -1702,7 +1704,7 @@ class Retrieval:
                              output_file,
                              parameter_plot_indices = p_plot_inds,
                              parameter_ranges = p_ranges, \
-                             true_values = None,
+                             true_values = true_values,
                              prt_plot_style=self.prt_plot_style,
                              plot_best_fit = plot_best_fit,
                              **kwargs)
