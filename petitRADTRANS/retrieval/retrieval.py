@@ -802,6 +802,7 @@ class Retrieval:
                 bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
                                           self.retrieval_name + "/" + \
                                           ret_name + "_best_fit_model_full.npy").T
+                self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
                 return bf_wlen, bf_spectrum, bf_contribution
             bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
                                                                               model_generating_func = None,
@@ -819,14 +820,16 @@ class Retrieval:
                 bf_wlen,bf_spectrum = np.load(self.output_dir + "evaluate_" + \
                                             self.retrieval_name + "/" + \
                                             ret_name + "_best_fit_model_full.npy").T
+                self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
+
                 return bf_wlen,bf_spectrum
             bf_wlen, bf_spectrum = self.get_full_range_model(self.best_fit_params,
                                                              model_generating_func = None,
                                                              ret_name = ret_name,
                                                              contribution = contribution)
+        self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
 
         # Add to the dictionary.
-        self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
         np.save(self.output_dir + "evaluate_" + \
                 self.retrieval_name + "/" + \
                 ret_name + "_best_fit_model_full",
@@ -1237,30 +1240,15 @@ class Retrieval:
             if dd.scale_err:
                 errscale = dd.scale_factor
             if not dd.photometry:
-                if dd.external_pRT_reference is None:
-                    best_fit_binned = rgw(self.best_fit_specs[name][0], \
-                                            self.best_fit_specs[name][1], \
-                                            wlen, \
-                                            wlen_bins)
-                else:
-                    best_fit_binned = rgw(self.best_fit_specs[dd.external_pRT_reference][0], \
-                                self.best_fit_specs[dd.external_pRT_reference][1], \
-                                wlen, \
-                                wlen_bins)
+                best_fit_binned = rgw(self.best_fit_specs[self.retrieval_name][0], \
+                                        self.best_fit_specs[self.retrieval_name][1], \
+                                        wlen, \
+                                        wlen_bins)
             else:
                 if dd.external_pRT_reference is None:
-                    best_fit_binned = dd.photometric_transformation_function(self.best_fit_specs[name][0],
-                                                                         self.best_fit_specs[name][1])
+                    best_fit_binned = dd.photometric_transformation_function(self.best_fit_specs[self.retrieval_name][0],
+                                                                         self.best_fit_specs[self.retrieval_name][1])
                     # Species functions give tuples of (flux,error)
-                    try:
-                        best_fit_binned = best_fit_binned[0]
-                    except:
-                        pass
-
-                else:
-                    best_fit_binned = \
-                        dd.photometric_transformation_function(self.best_fit_specs[dd.external_pRT_reference][0],
-                                                               self.best_fit_specs[dd.external_pRT_reference][1])
                     try:
                         best_fit_binned = best_fit_binned[0]
                     except:
@@ -1514,7 +1502,10 @@ class Retrieval:
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
         self.PT_plot_mode = True
+
         samples_use = cp.copy(sample_dict[self.retrieval_name])
+        logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
+
         i_p = 0
         for pp in self.parameters:
             if self.parameters[pp].is_free_parameter:
@@ -1528,7 +1519,6 @@ class Retrieval:
             pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
             temps.append(t)
 
-        logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
         temps = np.array(temps)
         temps_sort = np.sort(temps, axis=0)
         fig,ax = plt.subplots(figsize=(16, 10))
@@ -1612,7 +1602,7 @@ class Retrieval:
                                 yborders[i_p+1],
                                 yborders[i_p],
                                 color = 'white',
-                                alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
+                                alpha = max(min(1.-contr_em_weigh_intp(mean_press), 0.9),0.01),
                                 linewidth=0,
                                 rasterized = True,
                                 zorder = 4)
