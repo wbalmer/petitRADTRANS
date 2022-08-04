@@ -229,12 +229,17 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     T3 = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3'].value)
     T2 = T3*(1.0-parameters['T2'].value)
     T1 = T2*(1.0-parameters['T1'].value)
+    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
     temp_arr = np.array([T1,T2,T3])
 
-    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
+    T3_clear = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3_clear'].value)
+    T2_clear = T3_clear*(1.0-parameters['T2_clear'].value)
+    T1_clear = T2_clear*(1.0-parameters['T1_clear'].value)
+    temps_clear = np.array([T1_clear,T2_clear,T3_clear])
+    delta_clear = ((10.0**(-3.0+5.0*parameters['log_delta_clear'].value))*1e6)**(-parameters['alpha_clear'].value)
     gravity, R_pl =  compute_gravity(parameters)
 
-    temperatures = PT_ret_model(temp_arr, \
+    temperatures = PT_ret_model(temp_arr,
                             delta,
                             parameters['alpha'].value,
                             parameters['T_int'].value,
@@ -250,6 +255,21 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+
+    t_clear = PT_ret_model(temps_clear,
+                            delta_clear,
+                            parameters['alpha_clear'].value,
+                            parameters['T_int'].value,
+                            PGLOBAL[small_index],
+                            parameters['Fe/H'].value,
+                            parameters['C/O'].value,
+                            conv=True)
+    abundances_clear, MMW_clear, small_index_clear, Pbases_clear = get_abundances(PGLOBAL[small_index],
+                                                  t_clear,
+                                                  pRT_object.line_species,
+                                                  pRT_object.cloud_species,
+                                                  parameters,
+                                                  AMR = False)
     if abundances is None:
         return None, None
     if PT_plot_mode:
@@ -285,8 +305,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
-    pRT_object.calc_flux(temperatures,
-                    abundances,
+    pRT_object.calc_flux(t_clear,
+                    abundances_clear,
                     gravity,
                     MMW,
                     contribution = contribution,
