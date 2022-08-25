@@ -782,7 +782,6 @@ def isothermal_transmission(pRT_object, \
                                                   AMR =AMR)
     if abundances is None:
         return None, None
-
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -793,13 +792,12 @@ def isothermal_transmission(pRT_object, \
     else:
         pressures = p_use
 
-       # Calculate the spectrum
+    # Calculate the spectrum
     pcloud = None
     if 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
     elif 'log_Pcloud' in parameters.keys():
         pcloud = 10**parameters['log_Pcloud'].value
-
     if pcloud is not None:
         # P0_bar is important for low gravity transmission
         # spectrum. 100 is standard, 0.01 is good for small,
@@ -825,7 +823,8 @@ def isothermal_transmission(pRT_object, \
                                 fsed = fseds,
                                 Kzz = kzz,
                                 radius = radii,
-                                contribution = contribution)
+                                contribution = contribution,
+                                dist = distribution)
     else:
         pRT_object.calc_transm(temperatures, \
                                abundances, \
