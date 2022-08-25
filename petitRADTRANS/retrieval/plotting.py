@@ -157,7 +157,7 @@ def contour_corner(sampledict, \
         mpl.rc('ytick.minor',**ymin)
         mpl.rc('font', **font)
 
-        color_list = ['#009FB8','#FF695C', '#70FF92',  '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D", "#B429FF" ]
+        color_list = ['#009FB8','#FF695C', '#6171FF', '#FFBB33', '#70FF92', "#FF1F69", "#52AC25", '#E574FF', "#FF261D", "#B429FF" ]
     else:
         color_list = [None,None,None,None,None] #TODO get the default cmap
         mpl.rcParams.update(mpl.rcParamsDefault)
@@ -254,7 +254,9 @@ def contour_corner(sampledict, \
                                 truths=best_fit,
                                 truth_color=tcolor
                                 )
-            count +=1
+            if len(list(sampledict.keys()))==1:
+                plt.savefig(output_file, bbox_inches='tight')
+                return fig
         else:
             corner.corner(np.array(data_list).T,
                           fig = fig,
@@ -264,6 +266,7 @@ def contour_corner(sampledict, \
                           show_titles = True,
                           range = range_list,
                           color = color_list[count],
+                          quantiles=[0.16, 0.5, 0.84],
                           labels = labels_list,
                           label_kwargs = label_kwargs,
                           hist2d_kwargs = hist2d_kwargs,
@@ -274,7 +277,6 @@ def contour_corner(sampledict, \
                           truths=best_fit,
                           truth_color='red'
                           )
-            count += 1
         #if dimensions == 1:
         #    plt.tight_layout(h_pad=0, w_pad=0)
         if short_name is None:
@@ -282,10 +284,13 @@ def contour_corner(sampledict, \
         else:
             label = short_name[key]
         handles.append(Line2D([0], [0], marker = 'o',color=color_list[count], label = label,markersize = 15))
+        count += 1
+
     #fig.subplots_adjust( wspace=0.005, hspace=0.005)
     if legend:
         fig.get_axes()[2].legend(handles = handles,
-                                 loc = 'upper right' )
+                                 loc = 'upper right' ,
+                                 fontsize = 24)
     plt.savefig(output_file,dpi=300, bbox_inches='tight')
     if prt_plot_style:
         import petitRADTRANS.retrieval.plot_style

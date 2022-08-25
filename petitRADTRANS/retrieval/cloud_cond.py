@@ -121,7 +121,7 @@ def setup_clouds(pressures, parameters, cloud_species):
     radii = {}
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
     if not radii:
         radii = None
 

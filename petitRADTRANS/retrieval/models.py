@@ -147,6 +147,7 @@ def emission_model_diseq(pRT_object,
 
     # Hansen or log normal clouds
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+
     # calculate the spectrum
     pRT_object.calc_flux(temperatures,
                         abundances,
@@ -473,7 +474,9 @@ def guillot_transmission(pRT_object, \
             Computed transmission spectrum R_pl**2/Rstar**2
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
-
+    p_reference = 100.0
+    if "reference_pressure" in parameters.keys():
+        p_reference = parameters["reference_pressure"].value
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
@@ -521,13 +524,13 @@ def guillot_transmission(pRT_object, \
                                 gravity,
                                 MMW,
                                 R_pl=R_pl,
-                                P0_bar=0.01,
+                                P0_bar=p_reference,
                                 sigma_lnorm = sigma_lnorm,
                                 radius = radii,
                                 fsed = fseds,
                                 Kzz = kzz,
                                 b_hans = b_hans,
-                                distribution = distribution,
+                                dist = distribution,
                                 contribution = contribution)
     elif pcloud is not None:
         pRT_object.calc_transm(temperatures, \
@@ -535,7 +538,7 @@ def guillot_transmission(pRT_object, \
                         gravity, \
                         MMW, \
                         R_pl=R_pl, \
-                        P0_bar=0.01,
+                        P0_bar=p_reference,
                         Pcloud = pcloud,
                         contribution = contribution)
     else:
@@ -544,7 +547,7 @@ def guillot_transmission(pRT_object, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01,
+                               P0_bar=p_reference,
                                contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
@@ -613,7 +616,9 @@ def guillot_patchy_transmission(pRT_object, \
             Computed transmission spectrum R_pl**2/Rstar**2
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
-
+    p_reference = 100.0
+    if "reference_pressure" in parameters.keys():
+        p_reference = parameters["reference_pressure"].value
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
@@ -652,13 +657,13 @@ def guillot_patchy_transmission(pRT_object, \
                             gravity, \
                             MMW, \
                             R_pl=R_pl, \
-                            P0_bar=0.01,
+                            P0_bar=p_reference,
                             sigma_lnorm = sigma_lnorm,
                             b_hans = b_hans,
                             fsed = fseds,
                             Kzz = kzz,
                             radius = radii,
-                            distribution = distribution,
+                            dist = distribution,
                             contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
@@ -671,7 +676,7 @@ def guillot_patchy_transmission(pRT_object, \
                             gravity, \
                             MMW, \
                             R_pl=R_pl, \
-                            P0_bar=0.01,
+                            P0_bar=p_reference,
                             sigma_lnorm = parameters['sigma_lnorm'].value,
                             radius = radii,
                             contribution = contribution)
@@ -738,7 +743,9 @@ def isothermal_transmission(pRT_object, \
             Computed transmission spectrum R_pl**2/Rstar**2
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
-
+    p_reference = 100.0
+    if "reference_pressure" in parameters.keys():
+        p_reference = parameters["reference_pressure"].value
     # Make the P-T profile
     temperatures = isothermal(p_use,parameters["Temp"].value)
     gravity, R_pl = compute_gravity(parameters)
@@ -782,8 +789,9 @@ def isothermal_transmission(pRT_object, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01,
-                               Pcloud = pcloud)
+                               P0_bar=p_reference,
+                               Pcloud = pcloud,
+                               contribution = contribution)
     elif len(pRT_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
         pRT_object.calc_transm(temperatures, \
@@ -791,7 +799,7 @@ def isothermal_transmission(pRT_object, \
                                 gravity, \
                                 MMW, \
                                 R_pl=R_pl, \
-                                P0_bar=0.01,
+                                P0_bar=p_reference,
                                 sigma_lnorm = sigma_lnorm,
                                 b_hans = b_hans,
                                 fsed = fseds,
@@ -804,7 +812,7 @@ def isothermal_transmission(pRT_object, \
                                gravity, \
                                MMW, \
                                R_pl=R_pl, \
-                               P0_bar=0.01,
+                               P0_bar=p_reference,
                                contribution = contribution)
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.

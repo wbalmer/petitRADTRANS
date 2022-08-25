@@ -773,7 +773,8 @@ class Radtrans(_read_opacities.ReadOpacities):
                                        self.cloud_specs_scat_opa,
                                        self.cloud_aniso)
             else:
-                self.r_g = fs.get_rg_n_hansen(gravity,rho,
+                self.r_g = fs.get_rg_n_hansen(gravity,
+                                              rho,
                                               self.rho_cloud_particles,
                                               self.temp,
                                               mmw,

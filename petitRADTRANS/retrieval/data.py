@@ -172,13 +172,13 @@ class Data:
                 else:
                     self.wlen_range_pRT = [0.95 * self.wlen[0], \
                                     1.05 * self.wlen[-1]]
-
-                if wlen_bins is not None:
-                    self.wlen_bins = wlen_bins
-                else:
-                    self.wlen_bins = np.zeros_like(self.wlen)
-                    self.wlen_bins[:-1] = np.diff(self.wlen)
-                    self.wlen_bins[-1] = self.wlen_bins[-2]
+                if self.wlen_bins is None:
+                    if wlen_bins is not None:
+                        self.wlen_bins = wlen_bins
+                    else:
+                        self.wlen_bins = np.zeros_like(self.wlen)
+                        self.wlen_bins[:-1] = np.diff(self.wlen)
+                        self.wlen_bins[-1] = self.wlen_bins[-2]
             else:
                 if wlen_range_micron is not None:
                     self.wlen_range_pRT = wlen_range_micron
@@ -217,16 +217,22 @@ class Data:
             obs = np.genfromtxt(path, delimiter = ' ', comments = comments)
         if len(obs.shape) < 2:
             obs = np.genfromtxt(path, comments = comments)
-        if obs.shape[1] != 3:
+        if obs.shape[1] == 4:
+            self.wlen = obs[:,0]
+            self.wlen_bins = obs[:,1]
+            self.flux = obs[:,2]
+            self.flux_error = obs[:,3]
+            return
+        elif obs.shape[1] != 3:
             obs= np.genfromtxt(path)
 
         # Warnings and errors
         if obs.shape[1] < 3:
             logging.error("Failed to properly load data in " + path + "!!!")
             sys.exit(6)
-        elif obs.shape[1] > 3:
-            logging.warning(" File " + path + " has more than three columns. Retrieval package assumes that"+ \
-                          " the first three have this meaning: wavelength, flux, flux error")
+        elif obs.shape[1] > 4:
+            logging.warning(" File " + path + " has more than four columns. Retrieval package assumes that"+ \
+                          " the first three have this meaning: wavelength, [opt, wavelength bins], flux, flux error")
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
         self.wlen = obs[:,0]
@@ -271,6 +277,7 @@ class Data:
             self.covariance = fits.getdata(path,'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
@@ -372,11 +379,11 @@ class Data:
         logL=0.0
         if self.covariance is not None:
             #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
-            logL += -1*np.dot(diff, np.dot(self.inv_cov, diff))/2.
+            logL += -0.5*np.dot(diff, np.dot(self.inv_cov, diff))
             logL += -0.5 * self.log_covariance_determinant
         else:
-            logL += -1*np.sum( (diff / f_err)**2. ) / 2.
-            logL += -0.5*np.sum(np.log(2*np.pi*f_err**2.))
+            logL += -0.5*np.sum( (diff / f_err)**2. )
+            logL += -0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
         if plotting:
             if not self.photometry:
                 plt.clf()
