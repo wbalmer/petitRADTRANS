@@ -389,11 +389,12 @@ class Data:
         log_l = 0.0
 
         if self.covariance is not None:
-            log_l += -1 * np.dot(diff, np.dot(self.inv_cov * (self.scale_factor ** -2), diff)) / 2.
-            log_l += -0.5 * np.log(np.linalg.det(2 * np.pi * self.covariance))
+            log_l += -1 * np.dot(diff, np.dot(self.inv_cov, diff)) / 2
+            log_l += -0.5 * self.log_covariance_determinant
         else:
             log_l += -1 * np.sum((diff / f_err) ** 2) / 2
             log_l += -0.5 * np.sum(np.log(2 * np.pi * f_err ** 2))
+
         if plotting:
             import matplotlib.pyplot as plt
 
