@@ -3,7 +3,8 @@ This module contains a set of useful functions that don't really fit anywhere
 else. This includes flux conversions, prior functions, mean molecular weight
 calculations, transforms from mass to number fractions, and fits file output.
 """
-import sys, os
+import os
+import sys
 
 # To not have numpy start parallelizing on its own
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -42,8 +43,10 @@ def surf_to_meas(flux, p_rad, dist):
     m_flux = flux * p_rad ** 2 / dist ** 2
     return m_flux
 
+
 def freq_to_micron(frequency):
     return nc.c/frequency/1e-4
+
 
 def fnu_to_flambda(wlen,spectrum):
     f_lambda = spectrum*nc.c/wlen**2.
@@ -55,10 +58,12 @@ def fnu_to_flambda(wlen,spectrum):
     f_lambda = f_lambda * 1e-7
     return f_lambda
 
+
 def spectrum_cgs_to_si(frequency,spectrum):
     wlen = freq_to_micron(frequency)
     f_lambda = fnu_to_flambda(wlen*1e-4, spectrum)
     return wlen, f_lambda
+
 
 #################
 # Prior Functions

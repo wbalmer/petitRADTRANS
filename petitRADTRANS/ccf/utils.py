@@ -189,3 +189,8 @@ def median_uncertainties(uncertainties):
     """
     return mean_uncertainty(uncertainties) \
         * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
+
+
+def savez_compressed_record(file, numpy_record_array):
+    data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
+    np.savez_compressed(file, **data_dict)

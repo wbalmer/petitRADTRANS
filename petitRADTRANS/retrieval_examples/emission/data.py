@@ -1,10 +1,10 @@
 import numpy as np
 import spectres as spectres
 class Data:
-    def __init__(observation_files,
-                 name_in = None,
-                 data_path = None
-                 output_path = None):
+    def __init__(self, observation_files,
+                 name_in=None,
+                 data_path=None,
+                 output_path=None):
         self.observation_files = observation_files
         
         # Read in data, convert all to cgs!

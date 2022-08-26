@@ -59,3 +59,9 @@ def read_abunds(path):
             ret['n' + name] = dat[:, number]
 
     return ret
+
+
+def running_mean(x, n):
+    cum_sum = np.cumsum(np.insert(x, 0, 0))
+
+    return (cum_sum[n:] - cum_sum[:-n]) / float(n)

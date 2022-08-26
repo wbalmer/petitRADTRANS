@@ -68,7 +68,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
         included_line_species='all',
         temperatures=temperature,
         co_ratio=0.55,
-        log10_metallicity=np.log10(metallicity),
+        metallicity=np.log10(metallicity),
         carbon_pressure_quench=None,
         use_equilibrium_chemistry=True
     )
@@ -151,7 +151,7 @@ def _init_retrieval_model(prt_object, parameters):
         included_line_species='all',
         temperatures=temperatures,
         co_ratio=0.55,
-        log10_metallicity=np.log10(parameters['planet_metallicity'].value),
+        metallicity=np.log10(parameters['planet_metallicity'].value),
         carbon_pressure_quench=None,
         imposed_mass_mixing_ratios=abundances,
         use_equilibrium_chemistry=True

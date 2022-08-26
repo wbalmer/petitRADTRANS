@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 
+from astropy.io import fits
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
@@ -147,7 +148,6 @@ class Data:
         self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
-        self.flux_error = None
         self.scale = scale
         self.scale_err = scale_err
 
@@ -252,7 +252,7 @@ class Data:
         self.flux = obs[:, 1]
         self.flux_error = obs[:, 2]
 
-    def load_jwst(self,path):
+    def load_jwst(self, path):
         """
         Load in an x1d fits file as produced by the STSci JWST pipeline.
         Expects units of Jy for the flux and micron for the wavelength.
@@ -389,23 +389,22 @@ class Data:
         log_l = 0.0
 
         if self.covariance is not None:
-            #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
-            logL += -1*np.dot(diff, np.dot(self.inv_cov, diff))/2.
-            logL += -0.5 * self.log_covariance_determinant
+            log_l += -1 * np.dot(diff, np.dot(self.inv_cov * (self.scale_factor ** -2), diff)) / 2.
+            log_l += -0.5 * np.log(np.linalg.det(2 * np.pi * self.covariance))
         else:
             log_l += -1 * np.sum((diff / f_err) ** 2) / 2
             log_l += -0.5 * np.sum(np.log(2 * np.pi * f_err ** 2))
         if plotting:
+            import matplotlib.pyplot as plt
+
             if not self.photometry:
                 plt.clf()
                 plt.plot(self.wlen, flux_rebinned)
                 plt.errorbar(self.wlen,
-                             self.flux*self.scale_factor,
-                             yerr = f_err,
-                             fmt = '+')
+                             self.flux * self.scale_factor,
+                             yerr=f_err,
+                             fmt='+')
                 plt.show()
-            print(self.name,logL)
-        return logL
 
         return log_l
 

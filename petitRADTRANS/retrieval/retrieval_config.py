@@ -4,15 +4,17 @@ import sys
 
 # To not have numpy start parallelizing on its own
 os.environ["OMP_NUM_THREADS"] = "1"
+
 import numpy as np
+from petitRADTRANS.config.configuration import petitradtrans_config
+
 from .data import Data
 from .parameter import Parameter
-from petitRADTRANS.config.configuration import petitradtrans_config
 
 
 class RetrievalConfig:
     """
-    The RetrievalConfig class contains all of the data and model level information necessary
+    The RetrievalConfig class contains all the data and model level information necessary
     to run a petitRADTRANS retrieval. The name of the class will be used to name outputs.
     This class is passed to the Retrieval, which runs the actual pymultinest retrieval
     and produces the outputs.
@@ -209,7 +211,7 @@ class RetrievalConfig:
 
         return files
 
-    def set_line_species(self,linelist,eq=False,abund_lim=(-6.0,-0.5)):
+    def set_line_species(self, linelist, eq=False, abund_lim=(-6.0, -0.5)):
         """
         Set RadTrans.line_species
 
@@ -226,7 +228,7 @@ class RetrievalConfig:
                 The list of species to include in the retrieval
             eq : bool
                 If false, the retrieval should use free chemistry, and Parameters for the abundance of each
-                species in the linelist will be added to the retrieval. Otherwise equilibrium chemistry will
+                species in the linelist will be added to the retrieval. Otherwise, equilibrium chemistry will
                 be used. If you need fine control species, use the add_line_species and set up each species
                 individually.
             abund_lim : Tuple(float,float)
@@ -235,15 +237,19 @@ class RetrievalConfig:
                 The abundance limits must be given in log10 units of the mass fraction.
         """
         if abund_lim[1] > 0.0:
-            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-            sys.exit(2)
+            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+
         self.line_species = linelist
+
         if not eq:
             for spec in self.line_species:
-                self.parameters[spec] = Parameter(spec,True,\
-                                    transform_prior_cube_coordinate = \
-                                    lambda x : abund_lim[0]+(abund_lim[1]-abund_lim[0])*x)
-    def set_rayleigh_species(self,linelist):
+                self.parameters[spec] = Parameter(
+                    spec,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
+
+    def set_rayleigh_species(self, linelist):
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
 
@@ -265,10 +271,11 @@ class RetrievalConfig:
 
         self.continuum_opacities = linelist
 
-    def add_line_species(self,species,eq=False,abund_lim=(-7.0,0.0), fixed_abund = None):
+    def add_line_species(self, species, eq=False, abund_lim=(-7.0, 0.0), fixed_abund=None):
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
-        The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line opacities.
+        The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
+        opacities.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
@@ -279,7 +286,7 @@ class RetrievalConfig:
                 The species to include in the retrieval
             eq : bool
                 If False, the retrieval should use free chemistry, and Parameters for the abundance of the
-                species will be added to the retrieval. Otherwise (dis)equilibrium chemistry will be used.
+                species will be added to the retrieval. Otherwise, (dis)equilibrium chemistry will be used.
             abund_lim : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
                 The range of the prior goes from abund_lim[0] to abund_lim[1]
@@ -291,8 +298,7 @@ class RetrievalConfig:
 
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
-            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-            sys.exit(2)
+            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
 
         self.line_species.append(species)
         if not eq:
@@ -300,9 +306,11 @@ class RetrievalConfig:
                 self.parameters[species] = Parameter(species, False,
                                                      value=fixed_abund)
             else:
-                self.parameters[species] = Parameter(species,True,\
-                                        transform_prior_cube_coordinate = \
-                                        lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+                self.parameters[species] = Parameter(
+                    species,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
 
     def remove_species_lines(self, species, free=False):
         """
@@ -322,7 +330,8 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), PBase_lim = None, fixed_abund = None,fixed_base=None):
+    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), PBase_lim=None, fixed_abund=None,
+                          fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -334,7 +343,7 @@ class RetrievalConfig:
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
-        Similarly for PBase_lim.
+        The same is true for PBase_lim.
 
         Args:
             species : str
@@ -343,7 +352,7 @@ class RetrievalConfig:
                 Does the retrieval model use an equilibrium cloud model. This restricts the available species!
             abund_lim : tuple(float,float)
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
-                range would be (-3,1). If eq is false, this sets the the range on the actual cloud abundance,
+                range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
                 with a typical range being (-5,0).
             PBase_lim : tuple(float,float)
                 Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
@@ -365,30 +374,43 @@ class RetrievalConfig:
         self.cloud_species.append(species)
         cname = species.split('_')[0]
         if eq:
-            self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
-                                                transform_prior_cube_coordinate = \
-                                                lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+            self.parameters['eq_scaling_' + cname] = Parameter(
+                'eq_scaling_' + cname,
+                True,
+                transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+            )
         else:
             if abund_lim[1] > 0.0:
-                print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-                sys.exit(3)
+                raise ValueError(
+                    f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                )
 
             if fixed_abund is None:
-                self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,True,\
-                                            transform_prior_cube_coordinate = \
-                                            lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+                self.parameters['log_X_cb_' + cname] = Parameter(
+                    'log_X_cb_' + cname,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
             else:
-                self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,False,\
-                                value = fixed_abund)
+                self.parameters['log_X_cb_' + cname] = Parameter(
+                    'log_X_cb_' + cname,
+                    False,
+                    value=fixed_abund
+                )
 
         if PBase_lim is not None or fixed_base is not None:
             if fixed_base is None:
-                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,True,\
-                                                            transform_prior_cube_coordinate = \
-                                                            lambda x : PBase_lim[0] + (PBase_lim[1]-PBase_lim[0])*x)
+                self.parameters['log_Pbase_' + cname] = Parameter(
+                    'log_Pbase_' + cname,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: PBase_lim[0] + (PBase_lim[1] - PBase_lim[0]) * x
+                )
             else:
-                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,False,\
-                                                               value = fixed_base)
+                self.parameters['log_Pbase_' + cname] = Parameter(
+                    'log_Pbase_' + cname,
+                    False,
+                    value=fixed_base
+                )
 
     def add_data(self, name, path,
                  model_generating_function,
@@ -408,7 +430,7 @@ class RetrievalConfig:
                  ):
         """
         Create a Data class object.
-
+        # TODO complete docstring
         Args:
             name : str
                 Identifier for this data set.
@@ -434,8 +456,8 @@ class RetrievalConfig:
                 model computation.
             external_pRT_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
-                of the new Data object. This is useful when two datasets overlap, as only one model computation is required
-                to compute the log likelihood of both datasets.
+                of the new Data object. This is useful when two datasets overlap, as only one model computation is
+                required to compute the log likelihood of both datasets.
             opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -443,7 +465,6 @@ class RetrievalConfig:
                 'c-k' mode is recommended for retrievals of everything other than
                 high-resolution (R>40000) spectra.
         """
-
         self.data[name] = Data(name, path,
                                model_generating_function=model_generating_function,
                                data_resolution=data_resolution,
@@ -512,42 +533,51 @@ class RetrievalConfig:
                 try:
                     import species
                     species.SpeciesInit()
-                except:
-                    logging.error("Please provide a function to transform a spectrum into photometry, or pip install species")
-                    sys.exit(12)
+                except:  # TODO find what error is expected here
+                    logging.error(
+                        "Please provide a function to transform a spectrum into photometry, or pip install species"
+                    )
+                    raise ValueError
+
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
                     continue
+
                 vals = line.split(',')
                 name = vals[0]
                 wlow = float(vals[1])
                 whigh = float(vals[2])
                 flux = float(vals[3])
                 err = float(vals[4])
+
                 if photometric_transformation_function is None:
                     transform = species.SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 
                 if wlen_range_micron is None:
-                    wbins = [0.95*wlow,1.05*whigh]
+                    wbins = [0.95 * wlow, 1.05 * whigh]
                 else:
                     wbins = wlen_range_micron
+
                 if opacity_mode == 'lbl':
                     logging.warning("Are you sure you want a high resolution model for photometry?")
-                self.data[name] = Data(name,
-                                        path,
-                                        model_generating_function = model_generating_function,
-                                        distance = distance,
-                                        photometry = True,
-                                        wlen_range_micron = wbins,
-                                        photometric_bin_edges = [wlow,whigh],
-                                        data_resolution = np.mean([wlow,whigh])/(whigh-wlow),
-                                        model_resolution = model_resolution,
-                                        scale = scale,
-                                        photometric_transformation_function = transform,
-                                        external_pRT_reference=external_pRT_reference,
-                                        opacity_mode=opacity_mode)
+
+                self.data[name] = Data(
+                    name,
+                    path,
+                    model_generating_function=model_generating_function,
+                    distance=distance,
+                    photometry=True,
+                    wlen_range_micron=wbins,
+                    photometric_bin_edges=[wlow, whigh],
+                    data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
+                    model_resolution=model_resolution,
+                    scale=scale,
+                    photometric_transformation_function=transform,
+                    external_pRT_reference=external_pRT_reference,
+                    opacity_mode=opacity_mode
+                )
                 self.data[name].flux = flux
                 self.data[name].flux_error = err

@@ -923,6 +923,7 @@ class BaseSpectralModel:
 
             parameters = copy.deepcopy(self.model_parameters)
 
+        # Raw spectrum
         if mode == 'emission':
             self.wavelengths, self.spectral_radiosities = self.get_spectral_radiosity_spectrum_model(
                 radtrans=radtrans,
@@ -940,6 +941,7 @@ class BaseSpectralModel:
 
         wavelengths = copy.copy(self.wavelengths)
 
+        # Modified spectrum
         wavelengths, spectrum = self.get_instrument_model(
             wavelengths=wavelengths,
             spectrum=spectrum,
@@ -993,6 +995,7 @@ class BaseSpectralModel:
         if noise_matrix is not None:
             spectrum += noise_matrix
 
+        # Reduced spectrum
         if reduce:
             spectrum, parameters['reduction_matrix'], parameters['reduced_uncertainties'] = \
                 self.get_reduced_spectrum(
@@ -1173,6 +1176,115 @@ class BaseSpectralModel:
         return new_spectrum_model
 
     @staticmethod
+    def modify_spectrum(wavelengths, spectrum,
+                        shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
+                        shift=False, convolve=False, rebin=False,
+                        **kwargs):
+        if shift:
+            wavelengths_shift = shift_wavelengths_function(
+                wavelengths_rest=wavelengths,
+                **kwargs
+            )
+
+        # TODO shift -> TT -> conv -> rebin -> VT, and delete get_instrument_model
+
+        if convolve:
+            if np.ndim(wavelengths) <= 1:
+                spectrum = convolve_function(
+                    input_wavelengths=wavelengths,
+                    input_spectrum=spectrum,
+                    **kwargs
+                )
+            else:
+                spectrum = convolve_function(
+                    input_wavelengths=wavelengths[0],  # assuming Doppler shifting doesn't change the resolving power
+                    input_spectrum=spectrum,
+                    **kwargs
+                )
+
+        if rebin:
+            if np.ndim(wavelengths) <= 1:
+                wavelengths_tmp, spectrum = rebin_spectrum_function(
+                    input_wavelengths=wavelengths,
+                    input_spectrum=spectrum,
+                    **kwargs
+                )
+
+                if spectrum.dtype == 'O' and np.ndim(spectrum) >= 2:
+                    spectrum = np.moveaxis(spectrum, 0, 1)
+
+            elif np.ndim(wavelengths) == 2:
+                spectrum_tmp = []
+                wavelengths_tmp = None
+
+                for i, wavelength_shift in enumerate(wavelengths):
+                    spectrum_tmp.append([])
+                    wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
+                        input_wavelengths=wavelength_shift,
+                        input_spectrum=spectrum,
+                        **kwargs
+                    )
+
+                spectrum = np.array(spectrum_tmp)
+
+                if np.ndim(spectrum) == 3 or spectrum.dtype == 'O':
+                    spectrum = np.moveaxis(spectrum, 0, 1)
+                elif np.ndim(spectrum) > 3:
+                    raise ValueError(f"spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
+            else:
+                raise ValueError(f"argument 'wavelength' must have at most 2 dimensions, "
+                                 f"but has {np.ndim(wavelengths)}")
+
+            wavelengths = wavelengths_tmp
+
+            # if scale:
+            #     if mode == 'emission':  # shift the star spectrum as well for scaling
+            #         if 'star_observed_spectral_radiosities' not in parameters:
+            #             missing = []
+            #
+            #             if 'star_spectral_radiosities' not in parameters:
+            #                 missing.append('star_spectral_radiosities')
+            #
+            #             if shift:
+            #                 if 'system_observer_radial_velocities' not in parameters:
+            #                     if 'relative_velocities' in parameters:
+            #                         parameters['system_observer_radial_velocities'] = \
+            #                             np.zeros(parameters['relative_velocities'].shape)
+            #                     else:
+            #                         missing.append('system_observer_radial_velocities')
+            #
+            #             if len(missing) > 0:
+            #                 joint = "', '".join(missing)
+            #
+            #                 raise TypeError(f"missing {len(missing)} parameters for scaling: '{joint}'")
+            #
+            #             _, parameters['star_observed_spectral_radiosities'] = self.get_instrument_model(
+            #                 wavelengths=copy.copy(self.wavelengths),
+            #                 spectrum=parameters['star_spectral_radiosities'],
+            #                 relative_velocities=parameters['system_observer_radial_velocities'],
+            #                 shift=shift,
+            #                 convolve=convolve,
+            #                 rebin=rebin
+            #             )
+            #
+            #             if update_parameters:
+            #                 self.model_parameters['star_observed_spectral_radiosities'] = \
+            #                     copy.deepcopy(parameters['star_observed_spectral_radiosities'])
+            #
+            #     spectrum = self.scale_spectrum(
+            #         spectrum=spectrum,
+            #         **parameters
+            #     )
+            #
+            # if deformation_matrix is not None:
+            #     spectrum *= deformation_matrix
+            #
+            # if noise_matrix is not None:
+            #     spectrum += noise_matrix
+
+        return wavelengths, spectrum
+
+    @staticmethod
     def pipeline(spectrum, **kwargs):
         """Simplistic pipeline model. Do nothing.
         To be updated when initializing an instance of retrieval model.
@@ -1311,6 +1423,8 @@ class BaseSpectralModel:
                         * np.ones(prt_object.press.shape)
 
                 del p[species]
+
+        # TODO add cloud MMR model(s)
 
         p['imposed_mass_mixing_ratios'] = imposed_mass_mixing_ratios
 
@@ -1477,45 +1591,42 @@ class SpectralModel(BaseSpectralModel):
         )
 
     @staticmethod
-    def __calculate_metallicity_wrap(metallicity=None, log10_metallicity=None,
+    def __calculate_metallicity_wrap(metallicity=None,
                                      planet_mass=None, planet_radius=None, planet_surface_gravity=None,
                                      star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                      verbose=False, **kwargs):
-        if log10_metallicity is None:
-            if metallicity is None:
-                if verbose:
-                    print(f"log10 metallicity set to None, calculating it using scaled metallicity...")
+        if metallicity is None:
+            if verbose:
+                print(f"metallicity set to None, calculating it using scaled metallicity...")
 
-                if planet_mass is None:
-                    if planet_radius is None or planet_surface_gravity is None:
-                        raise ValueError(f"both planet radius ({planet_radius}) "
-                                         f"and surface gravity ({planet_surface_gravity}) "
-                                         f"are required to calculate planet mass")
-                    elif planet_radius <= 0:
-                        raise ValueError(f"cannot calculate planet mass from surface gravity with a radius <= 0")
+            if planet_mass is None:
+                if planet_radius is None or planet_surface_gravity is None:
+                    raise ValueError(f"both planet radius ({planet_radius}) "
+                                     f"and surface gravity ({planet_surface_gravity}) "
+                                     f"are required to calculate planet mass")
+                elif planet_radius <= 0:
+                    raise ValueError(f"cannot calculate planet mass from surface gravity with a radius <= 0")
 
-                    planet_mass = Planet.surface_gravity2mass(
-                        surface_gravity=planet_surface_gravity,
-                        radius=planet_radius
-                    )[0]
+                planet_mass = Planet.surface_gravity2mass(
+                    surface_gravity=planet_surface_gravity,
+                    radius=planet_radius
+                )[0]
 
-                metallicity = SpectralModel.calculate_scaled_metallicity(
-                    planet_mass=planet_mass,
-                    star_metallicity=star_metallicity,
-                    atmospheric_mixing=atmospheric_mixing,
-                    alpha=alpha,
-                    beta=beta
-                )
+            metallicity = SpectralModel.calculate_scaled_metallicity(
+                planet_mass=planet_mass,
+                star_metallicity=star_metallicity,
+                atmospheric_mixing=atmospheric_mixing,
+                alpha=alpha,
+                beta=beta
+            )
 
             if metallicity <= 0:
                 metallicity = sys.float_info.min
 
-            log10_metallicity = np.log10(metallicity)
-
-        return log10_metallicity, metallicity, planet_mass, star_metallicity, atmospheric_mixing, alpha, beta
+        return metallicity, planet_mass, star_metallicity, atmospheric_mixing, alpha, beta
 
     @staticmethod
-    def _calculate_equilibrium_mass_mixing_ratios(pressures, temperatures, co_ratio, log10_metallicity,
+    def _calculate_equilibrium_mass_mixing_ratios(pressures, temperatures, co_ratio, metallicity,
                                                   line_species, included_line_species,
                                                   carbon_pressure_quench=None, imposed_mass_mixing_ratios=None):
         from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm  # import is here because it is long to load TODO add a load_data function to the module instead?
@@ -1527,10 +1638,12 @@ class SpectralModel(BaseSpectralModel):
         else:
             co_ratios = co_ratio
 
-        if np.size(log10_metallicity) == 1:
-            log10_metallicities = np.ones_like(pressures) * log10_metallicity
+        if np.size(metallicity) == 1:
+            log10_metallicities = np.ones_like(pressures) * metallicity
         else:
-            log10_metallicities = log10_metallicity
+            log10_metallicities = metallicity
+
+        log10_metallicities = np.log10(log10_metallicities)
 
         equilibrium_mass_mixing_ratios = pm.interpol_abundances(
             COs_goal_in=co_ratios,
@@ -1602,7 +1715,7 @@ class SpectralModel(BaseSpectralModel):
     @staticmethod
     def calculate_mass_mixing_ratios(pressures, line_species=None,
                                      included_line_species='all', temperatures=None, co_ratio=0.55,
-                                     log10_metallicity=None, carbon_pressure_quench=None,
+                                     metallicity=None, carbon_pressure_quench=None,
                                      imposed_mass_mixing_ratios=None, heh2_ratio=0.324324, c13c12_ratio=0.01,
                                      planet_mass=None, planet_radius=None, planet_surface_gravity=None,
                                      star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
@@ -1632,7 +1745,7 @@ class SpectralModel(BaseSpectralModel):
             included_line_species: which line species of the list to include, mass mixing ratio set to 0 otherwise
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
-            log10_metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
+            metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
             carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium chemistry
             imposed_mass_mixing_ratios: imposed mass mixing ratios
             heh2_ratio: H2 over He mass mixing ratio
@@ -1674,14 +1787,8 @@ class SpectralModel(BaseSpectralModel):
         # Chemical equilibrium mass mixing ratios
         if use_equilibrium_chemistry:
             # Calculate metallicity
-            if log10_metallicity is None:
-                if 'metallicity' in kwargs:
-                    metallicity = kwargs['metallicity']
-                else:
-                    metallicity = None
-
-                log10_metallicity, _, _, _, _, _, _ = SpectralModel.__calculate_metallicity_wrap(
-                    log10_metallicity=log10_metallicity,
+            if metallicity is None:
+                metallicity, _, _, _, _, _ = SpectralModel.__calculate_metallicity_wrap(
                     metallicity=metallicity,
                     planet_mass=planet_mass,
                     planet_radius=planet_radius,
@@ -1698,7 +1805,7 @@ class SpectralModel(BaseSpectralModel):
                 pressures=pressures,
                 temperatures=temperatures,
                 co_ratio=co_ratio,
-                log10_metallicity=log10_metallicity,
+                metallicity=metallicity,
                 line_species=line_species,
                 included_line_species=included_line_species,
                 carbon_pressure_quench=carbon_pressure_quench,
@@ -1826,9 +1933,9 @@ class SpectralModel(BaseSpectralModel):
                             else:
                                 mass_mixing_ratios[species][i] = mass_mixing_ratios[species][i] / m_sum_total[i]
                 elif m_sum_total[i] == 0:
-                    if verbose:
-                        print(f"sum of species mass fraction ({m_sum_species[i]} + {m_sum_imposed_species[i]}) "
-                              f"is 0")
+                    raise ValueError(f"total mass mixing ratio at pressure level {i} is 0; "
+                                     f"add at least one species with non-zero imposed mass mixing ratio "
+                                     f"or set equilibrium chemistry to True")
                 elif m_sum_total[i] < 1:
                     # Fill atmosphere with H2 and He
                     # TODO there might be a better filling species, N2?
@@ -1988,18 +2095,13 @@ class SpectralModel(BaseSpectralModel):
         if pressures is None:
             pressures = self.pressures
 
-        if metallicity is not None:
-            log10_metallicity = np.log10(metallicity)
-        elif use_equilibrium_chemistry:
-            log10_metallicity, metallicity, planet_mass, star_metallicity, atmospheric_mixing, alpha, beta = \
+        if use_equilibrium_chemistry and metallicity is None:
+            metallicity, planet_mass, star_metallicity, atmospheric_mixing, alpha, beta = \
                 self.__calculate_metallicity_wrap(
-                    log10_metallicity=None,
                     metallicity=metallicity,
                     planet_surface_gravity=planet_surface_gravity,
                     **kwargs
                 )
-        else:
-            log10_metallicity = None
 
         # Put this function's arguments (except self and kwargs) into the model parameters dict
         for argument, value in locals().items():
