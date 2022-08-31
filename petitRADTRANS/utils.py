@@ -35,6 +35,57 @@ def calc_met(f):
                     / (1. / (np.sum(1e1 ** logs_g) + np.sum(1e1 ** logs_met))))
 
 
+def gaussian_weights1d(sigma, truncate=4.0):
+    """Compute a 1D Gaussian convolution kernel.
+    To be used with scipy.ndimage.convolve1d.
+
+    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
+
+    Args:
+        sigma:
+            Standard deviation for Gaussian kernel.
+        truncate:
+            Truncate the filter at this many standard deviations.
+
+    Returns:
+
+    """
+    sd = float(sigma)
+
+    # Make the radius of the filter equal to truncate standard deviations
+    radius = int(truncate * sd + 0.5)
+
+    x = np.arange(-radius, radius + 1)
+    phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
+
+    return phi_x / phi_x.sum()
+
+
+def gaussian_weights_running(sigmas, truncate=4.0):
+    """Compute 1D Gaussian convolution kernels for an array of standard deviations.
+
+    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
+
+    Args:
+        sigmas:
+            Standard deviations for Gaussian kernel.
+        truncate:
+            Truncate the filter at this many standard deviations.
+
+    Returns:
+
+    """
+    # Make the radius of the filter equal to truncate standard deviations
+    radius = int(truncate * np.max(sigmas) + 0.5)
+
+    x = np.arange(-radius, radius + 1)
+    sd = np.tile(sigmas, (x.size, 1)).T
+
+    phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
+
+    return np.transpose(phi_x.T / phi_x.sum(axis=1))
+
+
 def read_abunds(path):
     f = open(path)
     header = f.readlines()[0][:-1]

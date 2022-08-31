@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.5.0-a23] - 2021-07-25
+## [2.5.0-a25] - 2021-08-31
 ### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.
@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to calculate the radial velocity of a planet.
 - Function to calculate the orbital velocity of a planet.
 - Function to calculate the Doppler shift.
-- Function to convolve, Doppler shift, and rebin a spectrum.
+- Function to convolve, run-convolve, Doppler shift, and rebin a spectrum.
 - Noise estimation for eclipse spectra in addition to transit spectra.
 - Method to generate a `Planet` using a NASA Exoplanet Archive tab file.
 - Function to calculate the radius of a planet from its surface gravity and mass.

@@ -8,7 +8,7 @@ import warnings
 import h5py
 import numpy as np
 from petitRADTRANS.fort_rebin import fort_rebin as fr
-from scipy.ndimage import gaussian_filter1d
+import scipy.ndimage
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.ccf.pipeline import simple_pipeline
@@ -20,6 +20,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
+from petitRADTRANS.utils import gaussian_weights_running
 
 
 class RetrievalParameter:
@@ -380,6 +381,26 @@ class BaseSpectralModel:
         return relative_velocities, planet_max_radial_orbital_velocity, orbital_longitudes
 
     @staticmethod
+    def calculate_bins_resolving_power(wavelengths):
+        """Calculate the resolving power of wavelengths bins
+        Args:
+            wavelengths: wavelengths at the center of the bins
+
+        Returns:
+            The resolving power for each bins
+        """
+        input_wavelengths_half_diff = np.diff(wavelengths) / 2
+
+        resolving_power = wavelengths[1:-1] / (input_wavelengths_half_diff[:-1] + input_wavelengths_half_diff[1:])
+        resolving_power = np.concatenate((
+            [resolving_power[0]],
+            resolving_power,
+            [resolving_power[-1]],
+        ))
+
+        return resolving_power
+
+    @staticmethod
     def calculate_mass_mixing_ratios(pressures, **kwargs):
         """Template for mass mixing ratio profile function.
         Here, generate iso-abundant mass mixing ratios profiles.
@@ -471,6 +492,58 @@ class BaseSpectralModel:
             del kwargs['wavelengths']
 
         return kwargs
+
+    @staticmethod
+    def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function,
+                                                 relative_velocities=None, **kwargs):
+        # Re-bin requirement is an interval half a bin larger than re-binning interval
+        if hasattr(output_wavelengths, 'dtype'):
+            if output_wavelengths.dtype != 'O':
+                wavelengths_flat = output_wavelengths.flatten()
+            else:
+                wavelengths_flat = np.concatenate(output_wavelengths)
+        else:
+            wavelengths_flat = np.concatenate(output_wavelengths)
+
+        if np.ndim(wavelengths_flat) > 1:
+            wavelengths_flat = np.concatenate(wavelengths_flat)
+
+        rebin_required_interval = [
+            wavelengths_flat[0]
+            - (wavelengths_flat[1] - wavelengths_flat[0]) / 2,
+            wavelengths_flat[-1]
+            + (wavelengths_flat[-1] - wavelengths_flat[-2]) / 2,
+        ]
+
+        # Take Doppler shifting into account
+        rebin_required_interval_shifted = copy.copy(rebin_required_interval)
+
+        if relative_velocities is not None:
+            rebin_required_interval_shifted[0] = shift_wavelengths_function(
+                wavelengths_rest=np.array([rebin_required_interval[0]]),
+                relative_velocities=np.array([
+                    -np.max(relative_velocities)
+                ]),
+                **kwargs
+            )[0][0]
+
+            rebin_required_interval_shifted[1] = shift_wavelengths_function(
+                wavelengths_rest=np.array([rebin_required_interval[1]]),
+                relative_velocities=np.array([
+                    -np.min(relative_velocities)
+                ]),
+                **kwargs
+            )[0][0]
+
+        # Ensure that non-shifted spectrum can still be re-binned
+        rebin_required_interval[0] = np.min((rebin_required_interval_shifted[0], rebin_required_interval[0]))
+        rebin_required_interval[1] = np.max((rebin_required_interval_shifted[1], rebin_required_interval[1]))
+
+        # Satisfy re-bin requirement by increasing the range by the smallest possible significant value
+        rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - sys.float_info.dig)
+        rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - sys.float_info.dig)
+
+        return rebin_required_interval
 
     @staticmethod
     def calculate_relative_velocities(orbital_longitudes, planet_orbital_inclination=90.0,
@@ -650,33 +723,66 @@ class BaseSpectralModel:
         return wavelengths, planet_transit_radius
 
     @staticmethod
-    def convolve(input_wavelengths, input_spectrum, new_resolving_power, **kwargs):
-        """Convolve a spectrum to a new resolving power.
+    def convolve(input_wavelengths, input_spectrum, new_resolving_power, constance_tolerance=1e-6,
+                 **kwargs):
+        """
+        Args:
+            input_wavelengths: (cm) wavelengths of the input spectrum
+            input_spectrum: input spectrum
+            new_resolving_power: resolving power of output spectrum
+            constance_tolerance: relative tolerance on input resolving power to apply constant or running convolutions
+
+        Returns:
+            convolved_spectrum: the convolved spectrum at the new resolving power
+        """
+        input_resolving_powers = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
+
+        if np.allclose(input_resolving_powers, np.mean(input_resolving_powers), atol=0.0, rtol=constance_tolerance):
+            convolved_spectrum = SpectralModel.convolve_constant(
+                input_wavelengths=input_wavelengths,
+                input_spectrum=input_spectrum,
+                new_resolving_power=new_resolving_power,
+                input_resolving_power=input_resolving_powers[0],
+                **kwargs
+            )
+        else:
+            convolved_spectrum = SpectralModel.convolve_running(
+                input_wavelengths=input_wavelengths,
+                input_spectrum=input_spectrum,
+                new_resolving_power=new_resolving_power,
+                input_resolving_power=input_resolving_powers,
+                **kwargs
+            )
+
+        return convolved_spectrum
+
+    @staticmethod
+    def convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
+        """Convolve a spectrum to a new resolving power, assuming near-constant input resolving power.
         The spectrum is convolved using a Gaussian filter with a standard deviation ~R_in/R_new input wavelengths bins.
-        The spectrum must have a constant resolving power as a function of wavelength.
         The input resolving power is given by:
             lambda / Delta_lambda
-        where lambda is the center of a wavelength bin and Delta_lambda the difference between the edges of the bin.
+        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
 
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
             new_resolving_power: resolving power of output spectrum
+            input_resolving_power: if not None, skip its calculation using input_wavelengths
 
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
         """
         # Compute resolving power of the model
         # In petitRADTRANS, the wavelength grid is log-spaced, so the resolution is constant as a function of wavelength
-        model_resolving_power = np.mean(
-            (input_wavelengths[1:] + input_wavelengths[:-1]) / (2 * np.diff(input_wavelengths))
-        )
+        if input_resolving_power is None:
+            input_resolving_power = np.mean(SpectralModel.calculate_bins_resolving_power(input_wavelengths))
 
         # Calculate the sigma to be used in the gauss filter in units of input wavelength bins
         # Delta lambda of resolution element is the FWHM of the instrument's LSF (here: a gaussian)
-        sigma_lsf_gauss_filter = model_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
 
-        convolved_spectrum = gaussian_filter1d(
+        convolved_spectrum = scipy.ndimage.gaussian_filter1d(
             input=input_spectrum,
             sigma=sigma_lsf_gauss_filter,
             mode='reflect'
@@ -685,22 +791,47 @@ class BaseSpectralModel:
         return convolved_spectrum
 
     @staticmethod
-    def cnvl2(y, convolution_filter):
-        # TODO [WIP] implement sliding convolution
-        yc = np.zeros(y.size + convolution_filter.shape[-1] - 1)
-        yp = copy.copy(yc)
-        filterc = np.zeros((yc.size, convolution_filter.shape[-1]))
-        yp[:y.size] = y
-        filterc[int(convolution_filter.shape[-1] / 2):y.size + int(convolution_filter.shape[-1] / 2), :] = \
-            convolution_filter
-        filterc[y.size + int(convolution_filter.shape[-1] / 2):, :] = convolution_filter[-1]
-        filterc[:int(convolution_filter.shape[-1] / 2), :] = convolution_filter[0]
+    def convolve_running(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
+        """Convolve a spectrum to a new resolving power.
+        The spectrum is convolved using Gaussian filters with a standard deviation
+            std_dev = R_in(lambda) / R_new(lambda) * input_wavelengths_bins.
+        Both the input resolving power and output resolving power can vary with wavelength.
+        The input resolving power is given by:
+            lambda / Delta_lambda
+        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
 
-        for i, yy in enumerate(yp):
-            for j, g in enumerate(filterc[i, :np.min((i, filterc.shape[-1]))]):
-                yc[i] += yp[i - j] * g
+        The weights of the convolution are stored in a (N, M) matrix, with N being the size of the input, and M the size
+        of the convolution kernels.
+        To speed-up calculations, a matrix A of shape (N, M) is built from the inputs such as:
+            A[i, :] = s[i - M/2], s[i - M/2 + 1], ..., s[i - M/2 + M],
+        with s the input spectrum.
+        The definition of the convolution C of s by constant weights with wavelength is:
+            C[i] = sum_{j=0}^{j=M-1} s[i - M/2 + j] * weights[j].
+        Thus, the convolution of s by weights at index i is:
+            C[i] = sum_{j=0}^{j=M-1} A[i, j] * weights[i, j].
 
-        return yc[int(convolution_filter.shape[-1] / 2):y.size + int(convolution_filter.shape[-1] / 2)]
+        Args:
+            input_wavelengths: (cm) wavelengths of the input spectrum
+            input_spectrum: input spectrum
+            new_resolving_power: resolving power of output spectrum
+            input_resolving_power: if not None, skip its calculation using input_wavelengths
+
+        Returns:
+            convolved_spectrum: the convolved spectrum at the new resolving power
+        """
+        if input_resolving_power is None:
+            input_resolving_power = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
+
+        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        weights = gaussian_weights_running(sigma_lsf_gauss_filter)
+
+        input_length = weights.shape[1]
+        central_index = int(input_length / 2)
+
+        # Create a matrix
+        input_matrix = np.array([np.roll(input_spectrum, i - central_index) for i in range(input_length)]).T
+
+        return np.sum(input_matrix * weights, axis=1)
 
     def get_instrument_model(self, wavelengths, spectrum,
                              relative_velocities=None, shift=False, convolve=False, rebin=False):
@@ -789,71 +920,45 @@ class BaseSpectralModel:
                 wavelength range is increased to take into account Doppler shifting
 
         Returns:
-            rebin_required_interval: (um) the optimal wavelengths boundaries for the spectrum
+            optimal_wavelengths_boundaries: (um) the optimal wavelengths boundaries for the spectrum
         """
         if output_wavelengths is None:
             output_wavelengths = self.model_parameters['output_wavelengths']
 
         if relative_velocities is None and 'relative_velocities' in self.model_parameters:
-            relative_velocities = self.model_parameters['relative_velocities']
+            relative_velocities = copy.deepcopy(self.model_parameters['relative_velocities'])
 
-        # Re-bin requirement is an interval half a bin larger than re-binning interval
-        if hasattr(output_wavelengths, 'dtype'):
-            if output_wavelengths.dtype != 'O':
-                wavelengths_flat = output_wavelengths.flatten()
-            else:
-                wavelengths_flat = np.concatenate(output_wavelengths)
+        # Prevent multiple definitions and give priority to the function argument
+        if 'output_wavelengths' in self.model_parameters:
+            output_wavelengths_tmp = copy.deepcopy(self.model_parameters['output_wavelengths'])
+            del self.model_parameters['output_wavelengths']
+            save_output_wavelengths = True
         else:
-            wavelengths_flat = np.concatenate(output_wavelengths)
+            output_wavelengths_tmp = None
+            save_output_wavelengths = False
 
-        if np.ndim(wavelengths_flat) > 1:
-            wavelengths_flat = np.concatenate(wavelengths_flat)
+        if 'relative_velocities' in self.model_parameters:
+            relative_velocities_tmp = copy.deepcopy(self.model_parameters['relative_velocities'])
+            del self.model_parameters['relative_velocities']
+            save_relative_velocities = True
+        else:
+            relative_velocities_tmp = None
+            save_relative_velocities = False
 
-        rebin_required_interval = [
-            wavelengths_flat[0]
-            - (wavelengths_flat[1] - wavelengths_flat[0]) / 2,
-            wavelengths_flat[-1]
-            + (wavelengths_flat[-1] - wavelengths_flat[-2]) / 2,
-        ]
+        optimal_wavelengths_boundaries = self.calculate_optimal_wavelengths_boundaries(
+            output_wavelengths=output_wavelengths,
+            shift_wavelengths_function=self.shift_wavelengths,
+            relative_velocities=relative_velocities,
+            **self.model_parameters
+        )
 
-        # Take Doppler shifting into account
-        rebin_required_interval_shifted = copy.copy(rebin_required_interval)
+        if save_output_wavelengths:
+            self.model_parameters['output_wavelengths'] = output_wavelengths_tmp
 
-        if relative_velocities is not None:
-            if 'relative_velocities' in self.model_parameters:
-                relative_velocities_tmp = copy.deepcopy(self.model_parameters['relative_velocities'])
-                del self.model_parameters['relative_velocities']  # tmp rm parameters to prevent multiple argument def
-            else:
-                relative_velocities_tmp = None
+        if save_relative_velocities:
+            self.model_parameters['relative_velocities'] = relative_velocities_tmp
 
-            rebin_required_interval_shifted[0] = self.shift_wavelengths(
-                wavelengths_rest=np.array([rebin_required_interval[0]]),
-                relative_velocities=np.array([
-                    -np.max(relative_velocities)
-                ]),
-                **self.model_parameters
-            )[0][0]
-
-            rebin_required_interval_shifted[1] = self.shift_wavelengths(
-                wavelengths_rest=np.array([rebin_required_interval[1]]),
-                relative_velocities=np.array([
-                    -np.min(relative_velocities)
-                ]),
-                **self.model_parameters
-            )[0][0]
-
-            if relative_velocities_tmp is not None:
-                self.model_parameters['relative_velocities'] = relative_velocities_tmp
-
-        # Ensure that non-shifted spectrum can still be re-binned
-        rebin_required_interval[0] = np.min((rebin_required_interval_shifted[0], rebin_required_interval[0]))
-        rebin_required_interval[1] = np.max((rebin_required_interval_shifted[1], rebin_required_interval[1]))
-
-        # Satisfy re-bin requirement by increasing the range by the smallest possible significant value
-        rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - sys.float_info.dig)
-        rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - sys.float_info.dig)
-
-        return rebin_required_interval
+        return optimal_wavelengths_boundaries
 
     def get_radtrans(self):
         """Return the Radtrans object corresponding to this SpectrumModel."""
@@ -1177,9 +1282,18 @@ class BaseSpectralModel:
 
     @staticmethod
     def modify_spectrum(wavelengths, spectrum,
-                        shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
                         shift=False, convolve=False, rebin=False,
+                        shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
                         **kwargs):
+        if shift_wavelengths_function is None:
+            shift_wavelengths_function = SpectralModel.shift_wavelengths
+
+        if convolve_function is None:
+            convolve_function = SpectralModel.convolve
+
+        if rebin_spectrum_function is None:
+            rebin_spectrum_function = SpectralModel.rebin_spectrum
+
         if shift:
             wavelengths_shift = shift_wavelengths_function(
                 wavelengths_rest=wavelengths,
