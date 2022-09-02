@@ -274,6 +274,7 @@ class BaseSpectralModel:
         else:
             self.cloud_species = cloud_species
 
+        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value
         # Spectrum generation base parameters
         self.temperatures = temperatures
         self.mass_mixing_ratios = mass_mixing_ratios
@@ -345,13 +346,13 @@ class BaseSpectralModel:
                         **kwargs
                     )
                 except TypeError as msg:
-                    raise TypeError(
-                        str(msg) + '\n'
-                        + f"This error was raised because the modelled object was assumed to be orbiting "
-                          f"and some related model parameters were missing.\n"
-                          f"If the modelled object is not orbiting, add key 'is_orbiting' to the model parameters "
-                          f"and set its value to False"
-                    )
+                    raise TypeError(BaseSpectralModel._explained_error(
+                        str(msg),
+                        f"This error was raised because the modelled object was assumed to be orbiting "
+                        f"and some related model parameters were missing.\n"
+                        f"If the modelled object is not orbiting, add key 'is_orbiting' to the model parameters "
+                        f"and set its value to False"
+                    ))
 
         kwargs['planet_max_radial_orbital_velocity'] = planet_max_radial_orbital_velocity
 
@@ -379,6 +380,98 @@ class BaseSpectralModel:
         )
 
         return relative_velocities, planet_max_radial_orbital_velocity, orbital_longitudes
+
+    @staticmethod
+    def __convolve_wrap(wavelengths, convolve_function, spectrum, **kwargs):
+        if np.ndim(wavelengths) <= 1:
+            spectrum = convolve_function(
+                input_wavelengths=wavelengths,
+                input_spectrum=spectrum,
+                **kwargs
+            )
+        else:
+            spectrum = np.array([convolve_function(
+                input_wavelengths=wavelength,
+                input_spectrum=spectrum,
+                **kwargs
+            ) for wavelength in wavelengths])
+
+        return spectrum
+
+    @staticmethod
+    def __rebin_wrap(wavelengths, spectrum, rebin_spectrum_function, **kwargs):
+        if np.ndim(wavelengths) <= 1:
+            wavelengths_tmp, spectrum = rebin_spectrum_function(
+                input_wavelengths=wavelengths,
+                input_spectrum=spectrum,
+                **kwargs
+            )
+
+            if spectrum.dtype == 'O' and np.ndim(spectrum) >= 2:
+                spectrum = np.moveaxis(spectrum, 0, 1)
+
+        elif np.ndim(wavelengths) == 2:
+            spectrum_tmp = []
+            wavelengths_tmp = None
+
+            for i, wavelength_shift in enumerate(wavelengths):
+                spectrum_tmp.append([])
+                wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
+                    input_wavelengths=wavelength_shift,
+                    input_spectrum=spectrum,
+                    **kwargs
+                )
+
+            spectrum = np.array(spectrum_tmp)
+
+            if np.ndim(spectrum) == 3 or spectrum.dtype == 'O':
+                spectrum = np.moveaxis(spectrum, 0, 1)
+            elif np.ndim(spectrum) > 3:
+                raise ValueError(f"spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
+        else:
+            raise ValueError(f"argument 'wavelength' must have at most 2 dimensions, "
+                             f"but has {np.ndim(wavelengths)}")
+
+        return wavelengths_tmp, spectrum
+
+    @staticmethod
+    def _check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
+        missing = []
+
+        for parameter_name in args:
+            if parameter_name not in model_parameters:
+                missing.append(parameter_name)
+
+        if len(missing) >= 1:
+            joint = "', '".join(missing)
+
+            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
+
+            raise TypeError(BaseSpectralModel._explained_error(base_error_message, explanation_message_))
+
+    @staticmethod
+    def _check_none_model_parameters(explanation_message_=None, **kwargs):
+        missing = []
+
+        for parameter_name, value in kwargs.items():
+            if value is None:
+                missing.append(parameter_name)
+
+        if len(missing) >= 1:
+            joint = "', '".join(missing)
+
+            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
+
+            raise TypeError(BaseSpectralModel._explained_error(base_error_message, explanation_message_))
+
+    @staticmethod
+    def _explained_error(base_error_message, explanation_message):
+        if explanation_message is None:
+            explanation_message = ''
+        else:
+            explanation_message = '\n' + explanation_message
+
+        return str(base_error_message) + explanation_message
 
     @staticmethod
     def calculate_bins_resolving_power(wavelengths):
@@ -459,11 +552,12 @@ class BaseSpectralModel:
         Returns:
             Updated parameters
         """
-        if 'star_spectral_radiosities' in kwargs:
-            if kwargs['star_spectral_radiosities'] is None:
-                kwargs['star_spectral_radiosities'] = BaseSpectralModel.calculate_star_spectral_radiosity(
-                    **kwargs
-                )
+        if 'is_orbiting' in kwargs:
+            if kwargs['is_orbiting']:
+                if 'star_spectral_radiosities' not in kwargs:
+                    kwargs['star_spectral_radiosities'] = BaseSpectralModel.calculate_star_spectral_radiosities(
+                        **kwargs
+                    )
 
         if 'planet_max_radial_orbital_velocity' in kwargs \
                 or 'relative_velocities' in kwargs \
@@ -607,8 +701,10 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_spectral_radiosity_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios,
                                               planet_surface_gravity, mean_molar_mass, star_spectral_radiosities=None,
-                                              star_effective_temperature=None, cloud_pressure=None, cloud_sigma=None,
-                                              cloud_particle_radii=None,
+                                              star_effective_temperature=None, star_radius=None, semi_major_axis=None,
+                                              cloud_pressure=None, cloud_sigma=None,
+                                              cloud_particle_radii=None, planet_radius=None, system_distance=None,
+                                              is_observed=False,
                                               **kwargs):
         """Wrapper of Radtrans.calc_flux that output wavelengths in um and spectral radiosity in erg.s-1.cm-2.sr-1/cm.
         # TODO move to Radtrans or outside of object
@@ -620,19 +716,50 @@ class BaseSpectralModel:
             mean_molar_mass:
             star_effective_temperature:
             star_spectral_radiosities:
+            star_radius:
+            semi_major_axis:
             cloud_pressure:
             cloud_sigma:
             cloud_particle_radii:
+            planet_radius:
+            system_distance:
+            is_observed:
 
         Returns:
 
         """
+        if is_observed:
+            BaseSpectralModel._check_none_model_parameters(
+                explanation_message_=f"These model parameters are required to calculate "
+                                     f"the observed irradiance of the planet ; "
+                                     f"set model parameter 'is_observed' to False if the planet is not observed",
+                planet_radius=planet_radius,
+                system_distance=system_distance
+            )
+
         # Calculate the spectrum
         # TODO units in native calc_flux units for more performances?
         if star_spectral_radiosities is not None:
-            star_spectral_radiosities = BaseSpectralModel.radiosity_erg_cm2radiosity_erg_hz(
-                star_spectral_radiosities, nc.c / radtrans.freq  # Hz to cm
+            BaseSpectralModel._check_none_model_parameters(
+                explanation_message_=f"These model parameters are required to calculate "
+                                     f"the ingoing radiance of the star on the planet ; "
+                                     f"set model parameter 'star_spectral_radiosities' to None if the planet is not"
+                                     f"irradiated",
+                star_radius=star_radius,
+                semi_major_axis=semi_major_axis
             )
+
+            star_spectral_radiances = BaseSpectralModel.radiosity_erg_cm2radiosity_erg_hz(
+                star_spectral_radiosities, nc.c / radtrans.freq  # Hz to cm
+            ) * 1e7 / np.pi  # W.m-2/um to erg.s-1.cm-2.sr-1.Hz-1
+
+            star_spectral_radiances = BaseSpectralModel.radiosity2irradiance(
+                spectral_radiosity=star_spectral_radiances,
+                source_radius=star_radius,
+                target_distance=semi_major_axis
+            )  # ingoing radiance of the star on the planet
+        else:
+            star_spectral_radiances = None
 
         radtrans.calc_flux(
             temp=temperatures,
@@ -641,32 +768,40 @@ class BaseSpectralModel:
             mmw=mean_molar_mass,
             Tstar=star_effective_temperature,
             Pcloud=cloud_pressure,
-            stellar_intensity=star_spectral_radiosities,
+            stellar_intensity=star_spectral_radiances,
             sigma_lnorm=cloud_sigma,
             radius=cloud_particle_radii
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
+            # TODO add the other arguments
         )
 
         # Transform the outputs into the units of our data
-        spectral_radiosity = BaseSpectralModel.radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq)
+        spectral_radiosity = BaseSpectralModel.radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq) \
+            * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+
+        if is_observed:
+            spectral_radiosity = BaseSpectralModel.radiosity2irradiance(
+                spectral_radiosity=spectral_radiosity,
+                source_radius=planet_radius,
+                target_distance=system_distance
+            )  # irradiance of the planet on the observer
+
         wavelengths = BaseSpectralModel.hz2um(radtrans.freq)
 
         return wavelengths, spectral_radiosity
 
     @staticmethod
-    def calculate_star_spectral_radiosity(wavelengths, star_effective_temperature, star_radius, semi_major_axis,
-                                          **kwargs):
+    def calculate_star_spectral_radiosities(wavelengths, star_effective_temperature, **kwargs):
         star_data = get_PHOENIX_spec(star_effective_temperature)
 
         star_radiosities = star_data[:, 1]
         star_wavelengths = star_data[:, 0] * 1e4  # cm to um
 
         star_radiosities = fr.rebin_spectrum(star_wavelengths, star_radiosities, wavelengths)
-        star_radiosities *= (star_radius / semi_major_axis) ** 2 / np.pi
 
         star_radiosities = BaseSpectralModel.radiosity_erg_hz2radiosity_erg_cm(
             star_radiosities, BaseSpectralModel.um2hz(wavelengths)
-        )
+        ) * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         return star_radiosities
 
@@ -723,41 +858,7 @@ class BaseSpectralModel:
         return wavelengths, planet_transit_radius
 
     @staticmethod
-    def convolve(input_wavelengths, input_spectrum, new_resolving_power, constance_tolerance=1e-6,
-                 **kwargs):
-        """
-        Args:
-            input_wavelengths: (cm) wavelengths of the input spectrum
-            input_spectrum: input spectrum
-            new_resolving_power: resolving power of output spectrum
-            constance_tolerance: relative tolerance on input resolving power to apply constant or running convolutions
-
-        Returns:
-            convolved_spectrum: the convolved spectrum at the new resolving power
-        """
-        input_resolving_powers = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
-
-        if np.allclose(input_resolving_powers, np.mean(input_resolving_powers), atol=0.0, rtol=constance_tolerance):
-            convolved_spectrum = SpectralModel.convolve_constant(
-                input_wavelengths=input_wavelengths,
-                input_spectrum=input_spectrum,
-                new_resolving_power=new_resolving_power,
-                input_resolving_power=input_resolving_powers[0],
-                **kwargs
-            )
-        else:
-            convolved_spectrum = SpectralModel.convolve_running(
-                input_wavelengths=input_wavelengths,
-                input_spectrum=input_spectrum,
-                new_resolving_power=new_resolving_power,
-                input_resolving_power=input_resolving_powers,
-                **kwargs
-            )
-
-        return convolved_spectrum
-
-    @staticmethod
-    def convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
+    def convolve(input_wavelengths, input_spectrum, new_resolving_power, **kwargs):
         """Convolve a spectrum to a new resolving power, assuming near-constant input resolving power.
         The spectrum is convolved using a Gaussian filter with a standard deviation ~R_in/R_new input wavelengths bins.
         The input resolving power is given by:
@@ -768,15 +869,13 @@ class BaseSpectralModel:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
             new_resolving_power: resolving power of output spectrum
-            input_resolving_power: if not None, skip its calculation using input_wavelengths
 
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
         """
         # Compute resolving power of the model
         # In petitRADTRANS, the wavelength grid is log-spaced, so the resolution is constant as a function of wavelength
-        if input_resolving_power is None:
-            input_resolving_power = np.mean(SpectralModel.calculate_bins_resolving_power(input_wavelengths))
+        input_resolving_power = np.mean(BaseSpectralModel.calculate_bins_resolving_power(input_wavelengths))
 
         # Calculate the sigma to be used in the gauss filter in units of input wavelength bins
         # Delta lambda of resolution element is the FWHM of the instrument's LSF (here: a gaussian)
@@ -790,54 +889,14 @@ class BaseSpectralModel:
 
         return convolved_spectrum
 
-    @staticmethod
-    def convolve_running(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
-        """Convolve a spectrum to a new resolving power.
-        The spectrum is convolved using Gaussian filters with a standard deviation
-            std_dev = R_in(lambda) / R_new(lambda) * input_wavelengths_bins.
-        Both the input resolving power and output resolving power can vary with wavelength.
-        The input resolving power is given by:
-            lambda / Delta_lambda
-        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
-
-        The weights of the convolution are stored in a (N, M) matrix, with N being the size of the input, and M the size
-        of the convolution kernels.
-        To speed-up calculations, a matrix A of shape (N, M) is built from the inputs such as:
-            A[i, :] = s[i - M/2], s[i - M/2 + 1], ..., s[i - M/2 + M],
-        with s the input spectrum.
-        The definition of the convolution C of s by constant weights with wavelength is:
-            C[i] = sum_{j=0}^{j=M-1} s[i - M/2 + j] * weights[j].
-        Thus, the convolution of s by weights at index i is:
-            C[i] = sum_{j=0}^{j=M-1} A[i, j] * weights[i, j].
-
-        Args:
-            input_wavelengths: (cm) wavelengths of the input spectrum
-            input_spectrum: input spectrum
-            new_resolving_power: resolving power of output spectrum
-            input_resolving_power: if not None, skip its calculation using input_wavelengths
-
-        Returns:
-            convolved_spectrum: the convolved spectrum at the new resolving power
-        """
-        if input_resolving_power is None:
-            input_resolving_power = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
-
-        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
-        weights = gaussian_weights_running(sigma_lsf_gauss_filter)
-
-        input_length = weights.shape[1]
-        central_index = int(input_length / 2)
-
-        # Create a matrix
-        input_matrix = np.array([np.roll(input_spectrum, i - central_index) for i in range(input_length)]).T
-
-        return np.sum(input_matrix * weights, axis=1)
-
     def get_instrument_model(self, wavelengths, spectrum,
                              relative_velocities=None, shift=False, convolve=False, rebin=False):
         if shift:
-            if 'relative_velocities' not in self.model_parameters:
-                raise TypeError(f"missing required parameter 'relative_velocities' for shifting")
+            BaseSpectralModel._check_missing_model_parameters(
+                self.model_parameters,
+                f"Required for Doppler shifting",
+                'relative_velocities'
+            )
 
             # Pop relative velocities outside of model parameters to prevent multiple arguments definition
             relative_velocities_tmp = copy.deepcopy(self.model_parameters['relative_velocities'])
@@ -1006,7 +1065,7 @@ class BaseSpectralModel:
         return self.wavelengths, self.spectral_radiosities
 
     def get_spectrum_model(self, radtrans: Radtrans, mode='emission', parameters=None, update_parameters=False,
-                           deformation_matrix=None, noise_matrix=None,
+                           telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, convolve=False, rebin=False, reduce=False):
         if parameters is None:
             parameters = self.model_parameters
@@ -1018,7 +1077,8 @@ class BaseSpectralModel:
             )
 
             self.model_parameters['mode'] = mode
-            self.model_parameters['deformation_matrix'] = deformation_matrix
+            self.model_parameters['telluric_transmittances'] = telluric_transmittances
+            self.model_parameters['instrumental_deformations'] = instrumental_deformations
             self.model_parameters['noise_matrix'] = noise_matrix
             self.model_parameters['scale'] = scale
             self.model_parameters['shift'] = shift
@@ -1047,58 +1107,27 @@ class BaseSpectralModel:
         wavelengths = copy.copy(self.wavelengths)
 
         # Modified spectrum
-        wavelengths, spectrum = self.get_instrument_model(
+        wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=wavelengths,
             spectrum=spectrum,
-            shift=shift,
-            convolve=convolve,
-            rebin=rebin
+            shift_wavelengths_function=self.shift_wavelengths,
+            convolve_function=self.convolve,
+            rebin_spectrum_function=self.rebin_spectrum,
+            **self.model_parameters
         )
 
+        if star_observed_spectrum is not None:
+            if 'star_observed_spectrum' not in parameters:
+                parameters['star_observed_spectrum'] = star_observed_spectrum
+
+            if update_parameters:
+                self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
+
         if scale:
-            if mode == 'emission':  # shift the star spectrum as well for scaling
-                if 'star_observed_spectral_radiosities' not in parameters:
-                    missing = []
-
-                    if 'star_spectral_radiosities' not in parameters:
-                        missing.append('star_spectral_radiosities')
-
-                    if shift:
-                        if 'system_observer_radial_velocities' not in parameters:
-                            if 'relative_velocities' in parameters:
-                                parameters['system_observer_radial_velocities'] = \
-                                    np.zeros(parameters['relative_velocities'].shape)
-                            else:
-                                missing.append('system_observer_radial_velocities')
-
-                    if len(missing) > 0:
-                        joint = "', '".join(missing)
-
-                        raise TypeError(f"missing {len(missing)} parameters for scaling: '{joint}'")
-
-                    _, parameters['star_observed_spectral_radiosities'] = self.get_instrument_model(
-                        wavelengths=copy.copy(self.wavelengths),
-                        spectrum=parameters['star_spectral_radiosities'],
-                        relative_velocities=parameters['system_observer_radial_velocities'],
-                        shift=shift,
-                        convolve=convolve,
-                        rebin=rebin
-                    )
-
-                    if update_parameters:
-                        self.model_parameters['star_observed_spectral_radiosities'] = \
-                            copy.deepcopy(parameters['star_observed_spectral_radiosities'])
-
             spectrum = self.scale_spectrum(
                 spectrum=spectrum,
                 **parameters
             )
-
-        if deformation_matrix is not None:
-            spectrum *= deformation_matrix
-
-        if noise_matrix is not None:
-            spectrum += noise_matrix
 
         # Reduced spectrum
         if reduce:
@@ -1169,7 +1198,8 @@ class BaseSpectralModel:
 
     def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties, retrieval_directory,
                        retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
-                       mode='emission', update_parameters=False, deformation_matrix=None, noise_matrix=None,
+                       mode='emission', update_parameters=False, telluric_transmittances=None,
+                       instrumental_deformations=None, noise_matrix=None,
                        scale=False, shift=False, convolve=False, rebin=False, reduce=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
                        write_out_spec_sample=False, dataset_name='data', **kwargs):
@@ -1240,7 +1270,8 @@ class BaseSpectralModel:
                 spectrum_model=self,
                 mode=mode,
                 update_parameters=update_parameters,
-                deformation_matrix=deformation_matrix,
+                telluric_transmittances=telluric_transmittances,
+                instrumental_deformations=instrumental_deformations,
                 noise_matrix=noise_matrix,
                 scale=scale,
                 shift=shift,
@@ -1282,121 +1313,153 @@ class BaseSpectralModel:
 
     @staticmethod
     def modify_spectrum(wavelengths, spectrum,
-                        shift=False, convolve=False, rebin=False,
+                        shift=False, rebin=False, convolve=False, star_spectral_radiosities=None,
+                        telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
                         shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
+                        is_observed=False, star_radius=None, system_distance=None, star_observed_spectrum=None,
                         **kwargs):
         if shift_wavelengths_function is None:
-            shift_wavelengths_function = SpectralModel.shift_wavelengths
+            shift_wavelengths_function = BaseSpectralModel.shift_wavelengths
 
         if convolve_function is None:
-            convolve_function = SpectralModel.convolve
+            convolve_function = BaseSpectralModel.convolve
 
         if rebin_spectrum_function is None:
-            rebin_spectrum_function = SpectralModel.rebin_spectrum
+            rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
+
+        if star_spectral_radiosities is not None and star_observed_spectrum is None:
+            star_spectrum = copy.deepcopy(star_spectral_radiosities)
+            wavelengths_star = copy.deepcopy(wavelengths)
+        else:
+            star_spectrum = None
+            wavelengths_star = None
 
         if shift:
-            wavelengths_shift = shift_wavelengths_function(
+            wavelengths = shift_wavelengths_function(
                 wavelengths_rest=wavelengths,
                 **kwargs
             )
 
-        # TODO shift -> TT -> conv -> rebin -> VT, and delete get_instrument_model
+            if star_spectrum is not None:
+                if not rebin:
+                    raise ValueError(f"argument 'rebin' must be True "
+                                     f"if 'shift' is True and 'star_spectrum' is not None: "
+                                     f"cannot add shifted star spectrum to shifted spectrum if the two are not"
+                                     f"re-binned on the same wavelength grid")
 
-        if convolve:
-            if np.ndim(wavelengths) <= 1:
-                spectrum = convolve_function(
-                    input_wavelengths=wavelengths,
-                    input_spectrum=spectrum,
+                if 'relative_velocities' in kwargs:
+                    relative_velocities_tmp = copy.deepcopy(kwargs['relative_velocities'])
+                    del kwargs['relative_velocities']
+                    save_relative_velocities = True
+                else:
+                    relative_velocities_tmp = None
+                    save_relative_velocities = False
+
+                if 'system_observer_radial_velocities' in kwargs:
+                    system_observer_radial_velocities = copy.deepcopy(kwargs['system_observer_radial_velocities'])
+                    del kwargs['system_observer_radial_velocities']
+                    save_system_observer_radial_velocities = True
+                else:
+                    system_observer_radial_velocities = None
+                    save_system_observer_radial_velocities = False
+
+                wavelengths_star = shift_wavelengths_function(
+                    wavelengths_rest=wavelengths_star,
+                    relative_velocities=system_observer_radial_velocities,
                     **kwargs
                 )
-            else:
-                spectrum = convolve_function(
-                    input_wavelengths=wavelengths[0],  # assuming Doppler shifting doesn't change the resolving power
-                    input_spectrum=spectrum,
-                    **kwargs
-                )
 
+                if save_relative_velocities:
+                    kwargs['relative_velocities'] = relative_velocities_tmp
+
+                if save_system_observer_radial_velocities:
+                    kwargs['system_observer_radial_velocities'] = system_observer_radial_velocities
+
+        # Re-binning should be done after convolution and multiplication by telluric transmittance,
+        # but telluric transmittances and the spectrum must be on the same wavelength grid anyway
         if rebin:
-            if np.ndim(wavelengths) <= 1:
-                wavelengths_tmp, spectrum = rebin_spectrum_function(
-                    input_wavelengths=wavelengths,
-                    input_spectrum=spectrum,
+            wavelengths, spectrum = BaseSpectralModel.__rebin_wrap(
+                wavelengths=wavelengths,
+                spectrum=spectrum,
+                rebin_spectrum_function=rebin_spectrum_function,
+                **kwargs
+            )
+
+            if star_spectrum is not None:
+                _, star_spectrum = BaseSpectralModel.__rebin_wrap(
+                    wavelengths=wavelengths_star,
+                    spectrum=star_spectrum,
+                    rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
 
-                if spectrum.dtype == 'O' and np.ndim(spectrum) >= 2:
-                    spectrum = np.moveaxis(spectrum, 0, 1)
+        # Star spectrum, telluric lines and convolution
+        if star_spectrum is not None and star_observed_spectrum is None:
+            # This case should be used for simulating data, or for models with simulated star spectrum
+            if is_observed:
+                star_spectrum = BaseSpectralModel.radiosity2irradiance(
+                    spectral_radiosity=star_spectrum,
+                    source_radius=star_radius,
+                    target_distance=system_distance
+                )
 
-            elif np.ndim(wavelengths) == 2:
-                spectrum_tmp = []
-                wavelengths_tmp = None
+            star_observed_spectrum = star_spectrum
+            spectrum += star_observed_spectrum
 
-                for i, wavelength_shift in enumerate(wavelengths):
-                    spectrum_tmp.append([])
-                    wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
-                        input_wavelengths=wavelength_shift,
-                        input_spectrum=spectrum,
-                        **kwargs
-                    )
+            if telluric_transmittances is not None:
+                spectrum *= telluric_transmittances
 
-                spectrum = np.array(spectrum_tmp)
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
 
-                if np.ndim(spectrum) == 3 or spectrum.dtype == 'O':
-                    spectrum = np.moveaxis(spectrum, 0, 1)
-                elif np.ndim(spectrum) > 3:
-                    raise ValueError(f"spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
-            else:
-                raise ValueError(f"argument 'wavelength' must have at most 2 dimensions, "
-                                 f"but has {np.ndim(wavelengths)}")
+                star_observed_spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=star_observed_spectrum,
+                    spectrum=spectrum,
+                    **kwargs
+                )
+        elif star_observed_spectrum is not None:  # assuming that the observed star spectrum is already convolved
+            # This case should be used for models with measured and reduced star spectrum
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
 
-            wavelengths = wavelengths_tmp
+            spectrum += star_observed_spectrum
 
-            # if scale:
-            #     if mode == 'emission':  # shift the star spectrum as well for scaling
-            #         if 'star_observed_spectral_radiosities' not in parameters:
-            #             missing = []
-            #
-            #             if 'star_spectral_radiosities' not in parameters:
-            #                 missing.append('star_spectral_radiosities')
-            #
-            #             if shift:
-            #                 if 'system_observer_radial_velocities' not in parameters:
-            #                     if 'relative_velocities' in parameters:
-            #                         parameters['system_observer_radial_velocities'] = \
-            #                             np.zeros(parameters['relative_velocities'].shape)
-            #                     else:
-            #                         missing.append('system_observer_radial_velocities')
-            #
-            #             if len(missing) > 0:
-            #                 joint = "', '".join(missing)
-            #
-            #                 raise TypeError(f"missing {len(missing)} parameters for scaling: '{joint}'")
-            #
-            #             _, parameters['star_observed_spectral_radiosities'] = self.get_instrument_model(
-            #                 wavelengths=copy.copy(self.wavelengths),
-            #                 spectrum=parameters['star_spectral_radiosities'],
-            #                 relative_velocities=parameters['system_observer_radial_velocities'],
-            #                 shift=shift,
-            #                 convolve=convolve,
-            #                 rebin=rebin
-            #             )
-            #
-            #             if update_parameters:
-            #                 self.model_parameters['star_observed_spectral_radiosities'] = \
-            #                     copy.deepcopy(parameters['star_observed_spectral_radiosities'])
-            #
-            #     spectrum = self.scale_spectrum(
-            #         spectrum=spectrum,
-            #         **parameters
-            #     )
-            #
-            # if deformation_matrix is not None:
-            #     spectrum *= deformation_matrix
-            #
-            # if noise_matrix is not None:
-            #     spectrum += noise_matrix
+            if telluric_transmittances is not None:
+                if convolve:
+                    warnings.warn(f"Adding telluric transmittances to a convolved spectrum with an observed star "
+                                  f"spectrum: telluric transmittances won't be convolved and model will be inaccurate")
 
-        return wavelengths, spectrum
+                spectrum *= telluric_transmittances
+        else:  # no star spectrum
+            if telluric_transmittances is not None:
+                spectrum *= telluric_transmittances
+
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
+
+        if instrumental_deformations is not None:
+            spectrum *= instrumental_deformations
+
+        if noise_matrix is not None:
+            spectrum += noise_matrix
+
+        return wavelengths, spectrum, star_observed_spectrum
 
     @staticmethod
     def pipeline(spectrum, **kwargs):
@@ -1455,6 +1518,20 @@ class BaseSpectralModel:
         return radiosity_erg_hz * frequency ** 2 / nc.c
 
     @staticmethod
+    def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):
+        """Calculate the spectral irradiance of a spherical source on a target from its spectral radiosity.
+
+        Args:
+            spectral_radiosity: (M.L-1.T-3) spectral radiosity of the source
+            source_radius: (L) radius of the spherical source
+            target_distance: (L) distance from the source to the target
+
+        Returns:
+            The irradiance of the source on the target (M.L-1.T-3).
+        """
+        return spectral_radiosity * (source_radius / target_distance) ** 2
+
+    @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths, **kwargs):
         if np.ndim(output_wavelengths) <= 1 and isinstance(output_wavelengths, np.ndarray):
             return output_wavelengths, fr.rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths)
@@ -1511,7 +1588,8 @@ class BaseSpectralModel:
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
                                             spectrum_model=None, mode='emission', update_parameters=False,
-                                            deformation_matrix=None, noise_matrix=None,
+                                            telluric_transmittances=None, instrumental_deformations=None,
+                                            noise_matrix=None,
                                             scale=False, shift=False, convolve=False, rebin=False, reduce=False):
         # TODO Change model generating function template to not include pt_plot_mode
         # Convert from Parameter object to dictionary
@@ -1547,7 +1625,8 @@ class BaseSpectralModel:
             mode=mode,
             parameters=p,
             update_parameters=update_parameters,
-            deformation_matrix=deformation_matrix,
+            telluric_transmittances=telluric_transmittances,
+            instrumental_deformations=instrumental_deformations,
             noise_matrix=noise_matrix,
             scale=scale,
             shift=shift,
@@ -1612,23 +1691,23 @@ class BaseSpectralModel:
             )
 
     @staticmethod
-    def scale_spectrum(spectrum, star_radius, planet_radius=None, star_observed_spectral_radiosities=None,
+    def scale_spectrum(spectrum, star_radius, planet_radius=None, star_observed_spectrum=None,
                        mode='emission', **kwargs):
         if mode == 'emission':
-            if planet_radius is None or star_observed_spectral_radiosities is None:
+            if planet_radius is None or star_observed_spectrum is None:
                 missing = []
 
                 if planet_radius is None:
                     missing.append('planet_radius')
 
-                if star_observed_spectral_radiosities is None:
-                    missing.append('star_spectral_radiosities')
+                if star_observed_spectrum is None:
+                    missing.append('star_observed_spectrum')
 
                 joint = "', '".join(missing)
 
                 raise TypeError(f"missing {len(missing)} positional arguments: '{joint}'")
 
-            return 1 + spectrum / star_observed_spectral_radiosities * (planet_radius / star_radius) ** 2
+            return 1 + spectrum / star_observed_spectrum
         elif mode == 'transmission':
             return 1 - (spectrum / star_radius) ** 2
         else:
@@ -1825,6 +1904,126 @@ class SpectralModel(BaseSpectralModel):
                     mass_mixing_ratios[key] = equilibrium_mass_mixing_ratios[key]
 
         return mass_mixing_ratios
+
+    @staticmethod
+    def _convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None,
+                           **kwargs):
+        """Convolve a spectrum to a new resolving power, assuming near-constant input resolving power.
+        The spectrum is convolved using a Gaussian filter with a standard deviation ~R_in/R_new input wavelengths bins.
+        The input resolving power is given by:
+            lambda / Delta_lambda
+        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
+
+        Args:
+            input_wavelengths: (cm) wavelengths of the input spectrum
+            input_spectrum: input spectrum
+            new_resolving_power: resolving power of output spectrum
+            input_resolving_power: if not None, skip its calculation using input_wavelengths
+
+        Returns:
+            convolved_spectrum: the convolved spectrum at the new resolving power
+        """
+        # Compute resolving power of the model
+        # In petitRADTRANS, the wavelength grid is log-spaced, so the resolution is constant as a function of wavelength
+        if input_resolving_power is None:
+            input_resolving_power = np.mean(SpectralModel.calculate_bins_resolving_power(input_wavelengths))
+
+        # Calculate the sigma to be used in the gauss filter in units of input wavelength bins
+        # Delta lambda of resolution element is the FWHM of the instrument's LSF (here: a gaussian)
+        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+
+        convolved_spectrum = scipy.ndimage.gaussian_filter1d(
+            input=input_spectrum,
+            sigma=sigma_lsf_gauss_filter,
+            mode='reflect'
+        )
+
+        return convolved_spectrum
+
+    @staticmethod
+    def _convolve_running(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
+        """Convolve a spectrum to a new resolving power.
+        The spectrum is convolved using Gaussian filters with a standard deviation
+            std_dev = R_in(lambda) / R_new(lambda) * input_wavelengths_bins.
+        Both the input resolving power and output resolving power can vary with wavelength.
+        The input resolving power is given by:
+            lambda / Delta_lambda
+        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
+
+        The weights of the convolution are stored in a (N, M) matrix, with N being the size of the input, and M the size
+        of the convolution kernels.
+        To speed-up calculations, a matrix A of shape (N, M) is built from the inputs such as:
+            A[i, :] = s[i - M/2], s[i - M/2 + 1], ..., s[i - M/2 + M],
+        with s the input spectrum.
+        The definition of the convolution C of s by constant weights with wavelength is:
+            C[i] = sum_{j=0}^{j=M-1} s[i - M/2 + j] * weights[j].
+        Thus, the convolution of s by weights at index i is:
+            C[i] = sum_{j=0}^{j=M-1} A[i, j] * weights[i, j].
+
+        Args:
+            input_wavelengths: (cm) wavelengths of the input spectrum
+            input_spectrum: input spectrum
+            new_resolving_power: resolving power of output spectrum
+            input_resolving_power: if not None, skip its calculation using input_wavelengths
+
+        Returns:
+            convolved_spectrum: the convolved spectrum at the new resolving power
+        """
+        if input_resolving_power is None:
+            input_resolving_power = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
+
+        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        weights = gaussian_weights_running(sigma_lsf_gauss_filter)
+
+        input_length = weights.shape[1]
+        central_index = int(input_length / 2)
+
+        # Create a matrix
+        input_matrix = np.moveaxis(
+            np.array([np.roll(input_spectrum, i - central_index, axis=-1) for i in range(input_length)]),
+            0,
+            -1
+        )
+
+        convolved_spectrum = np.sum(input_matrix * weights, axis=-1)
+        n_dims_non_wavelength = len(input_spectrum.shape[:-1])
+
+        # Replace non-valid convolved values by non-convolved values (inaccurate but better than 'reflect' or 0 padding)
+        for i in range(input_length):
+            if i - central_index < 0:
+                ind = np.arange(0, central_index - i, dtype=int)
+
+                for j in range(n_dims_non_wavelength):
+                    ind = np.expand_dims(ind, axis=0)
+
+                np.put_along_axis(
+                    convolved_spectrum,
+                    ind,
+                    np.take_along_axis(
+                        input_spectrum,
+                        ind,
+                        axis=-1
+                    ),
+                    axis=-1
+                )
+            elif i - central_index > 0:
+                ind = -np.arange(1, i - central_index + 1, dtype=int)
+
+                for j in range(n_dims_non_wavelength):
+                    ind = np.expand_dims(ind, axis=0)
+
+                np.put_along_axis(
+                    convolved_spectrum,
+                    ind,
+                    np.take_along_axis(
+                        input_spectrum,
+                        ind,
+                        axis=-1
+                    ),
+                    axis=-1
+                )
+
+        return convolved_spectrum
 
     @staticmethod
     def calculate_mass_mixing_ratios(pressures, line_species=None,
@@ -2136,8 +2335,10 @@ class SpectralModel(BaseSpectralModel):
                                       intrinsic_temperature=None, planet_surface_gravity=None, metallicity=None,
                                       guillot_temperature_profile_gamma=0.4,
                                       guillot_temperature_profile_kappa_ir_z0=0.01, **kwargs):
-        if temperature is None:
-            raise TypeError(f"missing required argument 'temperature'")
+        SpectralModel._check_none_model_parameters(
+            explanation_message_=f"Required for calculating the temperature profile",
+            temperature=temperature
+        )
 
         if temperature_profile_mode == 'isothermal':
             if isinstance(temperature, (float, int)):
@@ -2162,6 +2363,40 @@ class SpectralModel(BaseSpectralModel):
             raise ValueError(f"mode must be 'isothermal' or 'guillot', but was '{temperature_profile_mode}'")
 
         return temperatures
+
+    @staticmethod
+    def convolve(input_wavelengths, input_spectrum, new_resolving_power, constance_tolerance=1e-6, **kwargs):
+        """
+        Args:
+            input_wavelengths: (cm) wavelengths of the input spectrum
+            input_spectrum: input spectrum
+            new_resolving_power: resolving power of output spectrum
+            constance_tolerance: relative tolerance on input resolving power to apply constant or running convolutions
+
+        Returns:
+            convolved_spectrum: the convolved spectrum at the new resolving power
+        """
+        input_resolving_powers = SpectralModel.calculate_bins_resolving_power(input_wavelengths)
+
+        if np.allclose(input_resolving_powers, np.mean(input_resolving_powers), atol=0.0, rtol=constance_tolerance) \
+                and np.size(new_resolving_power) <= 1:
+            convolved_spectrum = SpectralModel._convolve_constant(
+                input_wavelengths=input_wavelengths,
+                input_spectrum=input_spectrum,
+                new_resolving_power=new_resolving_power,
+                input_resolving_power=input_resolving_powers[0],
+                **kwargs
+            )
+        else:
+            convolved_spectrum = SpectralModel._convolve_running(
+                input_wavelengths=input_wavelengths,
+                input_spectrum=input_spectrum,
+                new_resolving_power=new_resolving_power,
+                input_resolving_power=input_resolving_powers,
+                **kwargs
+            )
+
+        return convolved_spectrum
 
     def get_orbital_phases(self, phase_start, orbital_period):
         orbital_phases = Planet.get_orbital_phases(
