@@ -392,9 +392,9 @@ class BaseSpectralModel:
         else:
             spectrum = np.array([convolve_function(
                 input_wavelengths=wavelength,
-                input_spectrum=spectrum,
+                input_spectrum=spectrum[i],
                 **kwargs
-            ) for wavelength in wavelengths])
+            ) for i, wavelength in enumerate(wavelengths)])
 
         return spectrum
 
@@ -1394,7 +1394,7 @@ class BaseSpectralModel:
                 )
 
         # Star spectrum, telluric lines and convolution
-        if star_spectrum is not None and star_observed_spectrum is None:
+        if star_spectrum is not None and star_observed_spectrum is None:  # TODO fix star observed spectrum never being updated
             # This case should be used for simulating data, or for models with simulated star spectrum
             if is_observed:
                 star_spectrum = BaseSpectralModel.radiosity2irradiance(
