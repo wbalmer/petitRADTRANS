@@ -837,6 +837,24 @@ def isothermal_transmission(pRT_object, \
     spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contr_tr
+    if "patchiness" in parameters.keys():
+        if sigma_lnorm is not None or b_hans is not None:
+            for cloud in pRT_object.cloud_species:
+                abundances[cloud.split('_')[0]] = np.zeros_like(temperatures)
+        pRT_object.calc_transm(temperatures, \
+                        abundances, \
+                        gravity, \
+                        MMW, \
+                        R_pl=R_pl, \
+                        P0_bar=p_reference,
+                        Pcloud = None,
+                        contribution = contribution)
+        wlen_model_clear = nc.c/pRT_object.freq/1e-4
+        spectrum_model_clear = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+        patchiness = parameters["patchiness"].value
+        spectrum_model_full = (patchiness * spectrum_model) +\
+                            ((1-patchiness)*spectrum_model_clear)
+        return wlen_model, spectrum_model_full
     return wlen_model, spectrum_model
 
 def initialize_pressure(press, parameters, AMR):

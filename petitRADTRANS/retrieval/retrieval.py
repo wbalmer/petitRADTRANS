@@ -154,6 +154,7 @@ class Retrieval:
             resume = True,
             max_iters = 0,
             frac_remain=0.1,
+            importance_nested_sampling = True,
             Lepsilon=0.3):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
@@ -233,6 +234,7 @@ class Retrieval:
                             evidence_tolerance = log_z_convergence,
                             n_live_points = n_live_points,
                             n_iter_before_update = n_iter_before_update,
+                            importance_nested_sampling = importance_nested_sampling,
                             max_iter = max_iters)
         self.analyzer = pymultinest.Analyzer(n_params = n_params,
                                              outputfiles_basename = prefix)
