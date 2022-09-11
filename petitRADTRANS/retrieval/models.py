@@ -838,7 +838,7 @@ def isothermal_transmission(pRT_object, \
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contr_tr
     if "patchiness" in parameters.keys():
-        if sigma_lnorm is not None or b_hans is not None:
+        if len(pRT_object.cloud_species) > 0 :
             for cloud in pRT_object.cloud_species:
                 abundances[cloud.split('_')[0]] = np.zeros_like(temperatures)
         pRT_object.calc_transm(temperatures, \
