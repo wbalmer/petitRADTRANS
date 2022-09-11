@@ -418,7 +418,7 @@ class Retrieval:
                     samples_use = self.samples[self.retrieval_name]
                     parameters_read = self.param_dict[self.retrieval_name]
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index])
+                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
                     # Get best-fit index
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    𝛘^{2} = {self.chi2}\n")
@@ -668,16 +668,6 @@ class Retrieval:
             return self.samples, self.param_dict
 
         # pymultinest
-        for name in self.corner_files:
-            samples = np.genfromtxt(output_dir +'out_PMN/'+ \
-                                    name+ \
-                                    '_post_equal_weights.dat')
-
-            parameters_read = json.load(open(output_dir + 'out_PMN/'+ \
-                                        name+ \
-                                        '_params.json'))
-            self.samples[name] = samples
-            self.param_dict[name] = parameters_read
         for name in ret_names:
             samples = np.genfromtxt(output_dir +'out_PMN/'+ \
                                     name+ \
@@ -688,6 +678,17 @@ class Retrieval:
                                         '_params.json'))
             self.samples[name] = samples
             self.param_dict[name] = parameters_read
+        for name in self.corner_files:
+            samples = np.genfromtxt(output_dir +'out_PMN/'+ \
+                                    name+ \
+                                    '_post_equal_weights.dat')
+
+            parameters_read = json.load(open(output_dir + 'out_PMN/'+ \
+                                        name+ \
+                                        '_params.json'))
+            self.samples[name] = samples
+            self.param_dict[name] = parameters_read
+
         return self.samples, self.param_dict
 
     def get_best_fit_params(self,best_fit_params,parameters_read):
@@ -1339,7 +1340,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index]):.2f}',
+                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
@@ -1479,6 +1480,7 @@ class Retrieval:
         if ret_names is None:
             ret_names = [self.retrieval_name]
         if colours is None:
+            import petitRADTRANS.retrieval.plot_style as ps
             colours = ps.prt_colours
         if len(colours) < len(ret_names):
             print("You must have at least as many colours as retrievals to plot!")
@@ -1502,12 +1504,13 @@ class Retrieval:
                                 do_scat_emis = self.rd.scattering)
 
         fig,ax = plt.subplots(figsize = (16,10))
+        np.random.seed(0)
+
         for i,ret_name in enumerate(ret_names):
             parameters_use =  cp.copy(parameter_dict[ret_name])
             samples_use = cp.copy(sample_dict[ret_name])
             path = self.output_dir + 'evaluate_'+ret_name + "/"
             inds = np.random.uniform(low = 0, high = len(samples_use),size = self.rd.plot_kwargs["nsample"]).astype(int)
-            np.random.seed(0)
             for ind in inds:
                 if os.path.exists(path + "posterior_sampled_spectra_"+str(ind).zfill(5)):
                     wlen, model = np.load(path + "posterior_sampled_spectra_"+str(ind).zfill(5)+".npy")
@@ -1534,7 +1537,7 @@ class Retrieval:
             ax.plot(bf_wlen,
                     bf_spectrum,
                     marker = None,
-                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index]):.2f}",
+                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}",
                     linewidth=3,
                     alpha = 0.5,
                     color = colours[i])
