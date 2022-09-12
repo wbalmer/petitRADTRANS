@@ -1107,7 +1107,7 @@ class BaseSpectralModel:
         wavelengths = copy.copy(self.wavelengths)
 
         # Modified spectrum
-        wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
+        wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum_old(
             wavelengths=wavelengths,
             spectrum=spectrum,
             shift_wavelengths_function=self.shift_wavelengths,
@@ -1128,6 +1128,13 @@ class BaseSpectralModel:
                 spectrum=spectrum,
                 **parameters
             )
+
+        # TODO fix new modify_spectrum and scale
+        if instrumental_deformations is not None:
+            spectrum *= instrumental_deformations
+
+        if noise_matrix is not None:
+            spectrum += noise_matrix
 
         # Reduced spectrum
         if reduce:
@@ -1456,9 +1463,139 @@ class BaseSpectralModel:
         if instrumental_deformations is not None:
             spectrum *= instrumental_deformations
 
-        if noise_matrix is not None:
-            spectrum += noise_matrix
+        # TODO better noise integration
+        # if noise_matrix is not None:
+        #     spectrum += noise_matrix
 
+        return wavelengths, spectrum, star_observed_spectrum
+
+    @staticmethod
+    def modify_spectrum_old(wavelengths, spectrum,
+                            shift=False, rebin=False, convolve=False, star_spectral_radiosities=None,
+                            shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
+                            is_observed=False, star_radius=None, system_distance=None, star_observed_spectrum=None,
+                            **kwargs):
+        if shift_wavelengths_function is None:
+            shift_wavelengths_function = BaseSpectralModel.shift_wavelengths
+
+        if convolve_function is None:
+            convolve_function = BaseSpectralModel.convolve
+
+        if rebin_spectrum_function is None:
+            rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
+
+        if star_spectral_radiosities is not None and star_observed_spectrum is None:
+            star_spectrum = copy.deepcopy(star_spectral_radiosities)
+            wavelengths_star = copy.deepcopy(wavelengths)
+        else:
+            star_spectrum = None
+            wavelengths_star = None
+
+        if shift:
+            wavelengths = shift_wavelengths_function(
+                wavelengths_rest=wavelengths,
+                **kwargs
+            )
+
+            if star_spectrum is not None:
+                if not rebin:
+                    raise ValueError(f"argument 'rebin' must be True "
+                                     f"if 'shift' is True and 'star_spectrum' is not None: "
+                                     f"cannot add shifted star spectrum to shifted spectrum if the two are not"
+                                     f"re-binned on the same wavelength grid")
+
+                if 'relative_velocities' in kwargs:
+                    relative_velocities_tmp = copy.deepcopy(kwargs['relative_velocities'])
+                    del kwargs['relative_velocities']
+                    save_relative_velocities = True
+                else:
+                    relative_velocities_tmp = None
+                    save_relative_velocities = False
+
+                if 'system_observer_radial_velocities' in kwargs:
+                    system_observer_radial_velocities = copy.deepcopy(kwargs['system_observer_radial_velocities'])
+                    del kwargs['system_observer_radial_velocities']
+                    save_system_observer_radial_velocities = True
+                else:
+                    system_observer_radial_velocities = None
+                    save_system_observer_radial_velocities = False
+
+                wavelengths_star = shift_wavelengths_function(
+                    wavelengths_rest=wavelengths_star,
+                    relative_velocities=system_observer_radial_velocities,
+                    **kwargs
+                )
+
+                if save_relative_velocities:
+                    kwargs['relative_velocities'] = relative_velocities_tmp
+
+                if save_system_observer_radial_velocities:
+                    kwargs['system_observer_radial_velocities'] = system_observer_radial_velocities
+
+        # Re-binning should be done after convolution and multiplication by telluric transmittance,
+        # but telluric transmittances and the spectrum must be on the same wavelength grid anyway
+        if rebin:
+            wavelengths, spectrum = BaseSpectralModel.__rebin_wrap(
+                wavelengths=wavelengths,
+                spectrum=spectrum,
+                rebin_spectrum_function=rebin_spectrum_function,
+                **kwargs
+            )
+
+            if star_spectrum is not None:
+                _, star_spectrum = BaseSpectralModel.__rebin_wrap(
+                    wavelengths=wavelengths_star,
+                    spectrum=star_spectrum,
+                    rebin_spectrum_function=rebin_spectrum_function,
+                    **kwargs
+                )
+
+        # Star spectrum, telluric lines and convolution
+        if star_spectrum is not None and star_observed_spectrum is None:  # TODO fix star observed spectrum never being updated
+            # This case should be used for simulating data, or for models with simulated star spectrum
+            if is_observed:
+                star_spectrum = BaseSpectralModel.radiosity2irradiance(
+                    spectral_radiosity=star_spectrum,
+                    source_radius=star_radius,
+                    target_distance=system_distance
+                )
+
+            star_observed_spectrum = star_spectrum
+            spectrum += star_observed_spectrum
+
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
+
+                star_observed_spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=star_observed_spectrum,
+                    spectrum=spectrum,
+                    **kwargs
+                )
+        elif star_observed_spectrum is not None:  # assuming that the observed star spectrum is already convolved
+            # This case should be used for models with measured and reduced star spectrum
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
+
+            spectrum += star_observed_spectrum
+        else:  # no star spectrum
+            if convolve:
+                spectrum = BaseSpectralModel.__convolve_wrap(
+                    wavelengths=wavelengths,
+                    convolve_function=convolve_function,
+                    spectrum=spectrum,
+                    **kwargs
+                )
         return wavelengths, spectrum, star_observed_spectrum
 
     @staticmethod
