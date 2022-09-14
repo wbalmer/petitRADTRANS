@@ -505,8 +505,9 @@ class Radtrans(_read_opacities.ReadOpacities):
                 order), in units of bar. Will be converted to cgs internally.
         """
 
-        if np.diff(P)[0] < 0.:
-            raise ValueError('ERROR! pRT needs pressures sorted from small to large!')
+        if len(P) > 2:
+            if np.diff(P)[0] < 0.:
+                raise ValueError('ERROR! pRT needs pressures sorted from small to large!')
 
         self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
             self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
