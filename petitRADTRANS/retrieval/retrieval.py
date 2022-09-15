@@ -145,7 +145,7 @@ class Retrieval:
 
     def run(self,
             sampling_efficiency = 0.8,
-            const_efficiency_mode = True,
+            const_efficiency_mode = False,
             n_live_points = 4000,
             log_z_convergence = 0.5,
             step_sampler = False,
@@ -353,7 +353,10 @@ class Retrieval:
                 if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
                     continue
                 if not value.is_free_parameter:
-                    summary.write(f"    {key} = {value.value:.3f}\n")
+                    try:
+                        summary.write(f"    {key} = {value.value:.3f}\n")
+                    except TypeError:
+                        summary.write(f"    {key} = is function!")
             summary.write('\n')
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
             for key,value in self.parameters.items():
@@ -421,7 +424,7 @@ class Retrieval:
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    chi^{2} = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
-                    if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
+                    if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
                     out = value.value
                     if self.parameters[key].corner_transform is not None:
