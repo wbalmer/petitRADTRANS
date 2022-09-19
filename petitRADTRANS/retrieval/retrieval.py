@@ -577,7 +577,6 @@ class Retrieval:
                         return -1e98
                     if np.isnan(spectrum_model).any():
                         return -1e98
-                    #print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting)
@@ -1324,8 +1323,12 @@ class Retrieval:
             lims = [lims[0]*1.09,lims[1]*1.02]
         else:
             lims = [bf_wlen[0]*0.98,bf_wlen[-1]*1.02]
-        ax.set_xlim(lims)
-        ax_r.set_xlim(lims)
+        if self.rd.plot_kwargs.get('wavelength_lim') is not None:
+            ax.set_xlim(self.rd.plot_kwargs.get('wavelength_lim'))
+            ax_r.set_xlim(self.rd.plot_kwargs.get('wavelength_lim'))
+        else:
+            ax.set_xlim(lims)
+            ax_r.set_xlim(lims)
         ax_r.set_ylim(ymin=-yabs_max, ymax=yabs_max)
         ax_r.fill_between(lims,-1,1,color='dimgrey',alpha=0.4,zorder = -10)
         ax_r.fill_between(lims,-3,3,color='darkgrey',alpha=0.3,zorder = -9)

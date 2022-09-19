@@ -65,6 +65,8 @@ class Data:
             and output a single photometric point (and optionally flux error).
         photometric_bin_edges : Tuple, numpy.ndarray
             The edges of the photometric bin in micron. [low,high]
+        pRT_grid: bool
+            Set to true if data has been binned to pRT R = 1,000 c-k grid.
         opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
             or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -89,6 +91,7 @@ class Data:
                  photometry = False,
                  photometric_transformation_function = None,
                  photometric_bin_edges = None,
+                 pRT_grid = False,
                  opacity_mode = 'c-k'):
 
         self.name = name
@@ -157,6 +160,8 @@ class Data:
                 sys.exit(9)
         self.photometry_range = wlen_range_micron
         self.width_photometry = photometric_bin_edges
+
+        self.pRT_grid = pRT_grid
 
         # Read in data
         if path_to_observations is not None:
@@ -353,11 +358,18 @@ class Data:
                                            self.data_resolution)
 
         if not self.photometry:
-            # Rebin to model observation
-            flux_rebinned = rebin_give_width(wlen_model,
-                                             spectrum_model,
-                                             self.wlen,
-                                             self.wlen_bins)
+
+            if self.pRT_grid:
+                index = (wlen_model >= self.wlen[0] * 0.99999999) & \
+                        (wlen_model <= self.wlen[-1] * 1.00000001)
+                flux_rebinned = spectrum_model[index]
+                #print('Using pRT_grid!', self.name)
+            else:
+                # Rebin to model observation
+                flux_rebinned = rebin_give_width(wlen_model,
+                                                 spectrum_model,
+                                                 self.wlen,
+                                                 self.wlen_bins)
         else:
             flux_rebinned = \
                 self.photometric_transformation_function(wlen_model,
