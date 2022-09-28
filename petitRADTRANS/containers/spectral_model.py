@@ -484,7 +484,14 @@ class BaseSpectralModel:
         """
         input_wavelengths_half_diff = np.diff(wavelengths) / 2
 
-        resolving_power = wavelengths[1:-1] / (input_wavelengths_half_diff[:-1] + input_wavelengths_half_diff[1:])
+        # Take second to before-last element on the last axis of wavelengths
+        wavelengths_shape = wavelengths.shape[-1]
+        taken_wavelengths = np.take(wavelengths, np.arange(1, wavelengths_shape - 1, 1), axis=-1)
+        taken_diffs_m = np.take(input_wavelengths_half_diff, np.arange(0, wavelengths_shape - 2, 1), axis=-1)
+        taken_diffs_p = np.take(input_wavelengths_half_diff, np.arange(1, wavelengths_shape - 1, 1), axis=-1)
+
+        # resolving_power = wavelengths[1:-1] / (input_wavelengths_half_diff[:-1] + input_wavelengths_half_diff[1:])
+        resolving_power = taken_wavelengths / (taken_diffs_m + taken_diffs_p)
         resolving_power = np.concatenate((
             [resolving_power[0]],
             resolving_power,
@@ -821,7 +828,15 @@ class BaseSpectralModel:
 
     @staticmethod
     def calculate_transit_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
-                                   planet_surface_gravity, reference_pressure, planet_radius, cloud_pressure=None,
+                                   planet_surface_gravity, reference_pressure, planet_radius,
+                                   cloud_pressure=None, haze_factor=None, cloud_particle_size_distribution='lognormal',
+                                   cloud_particle_radii=None, cloud_particle_lognorm_width=None,
+                                   cloud_hansen_a=None, cloud_hansen_b=None,
+                                   cloud_sedimentation_factor=None, eddy_diffusion_coefficient=None,
+                                   scattering_opacity_350nm=None, scattering_opacity_coefficient=None,
+                                   uniform_gray_opacity=None,
+                                   absorption_opacity_function=None, scattering_opacity_function=None,
+                                   gravity_is_variable=True, calculate_contribution=False,
                                    **kwargs):
         """Wrapper of Radtrans.calc_transm that output wavelengths in um and transit radius in cm.
         # TODO move to Radtrans or outside of object
@@ -835,6 +850,21 @@ class BaseSpectralModel:
             reference_pressure:
             planet_radius:
             cloud_pressure:
+            haze_factor:
+            cloud_particle_size_distribution:
+            cloud_particle_radii:
+            cloud_particle_lognorm_width:
+            cloud_hansen_a:
+            cloud_hansen_b:
+            cloud_sedimentation_factor:
+            eddy_diffusion_coefficient:
+            scattering_opacity_350nm:
+            scattering_opacity_coefficient:
+            uniform_gray_opacity:
+            absorption_opacity_function:
+            scattering_opacity_function:
+            gravity_is_variable:
+            calculate_contribution:
 
         Returns:
 
@@ -847,8 +877,22 @@ class BaseSpectralModel:
             mmw=mean_molar_masses,
             P0_bar=reference_pressure,
             R_pl=planet_radius,
+            sigma_lnorm=cloud_particle_lognorm_width,
+            fsed=cloud_sedimentation_factor,
+            Kzz=eddy_diffusion_coefficient,
+            radius=cloud_particle_radii,
             Pcloud=cloud_pressure,
-            # **kwargs  # TODO add kwargs once arguments names are made unambiguous
+            kappa_zero=scattering_opacity_350nm,
+            gamma_scat=scattering_opacity_coefficient,
+            contribution=calculate_contribution,
+            haze_factor=haze_factor,
+            gray_opacity=uniform_gray_opacity,
+            variable_gravity=gravity_is_variable,
+            dist=cloud_particle_size_distribution,
+            b_hans=cloud_hansen_b,
+            a_hans=cloud_hansen_a,
+            give_absorption_opacity=absorption_opacity_function,
+            give_scattering_opacity=scattering_opacity_function
         )
 
         # Convert into more useful units
@@ -1248,7 +1292,7 @@ class BaseSpectralModel:
         retrieved_parameters_names = [retrieved_parameter.name for retrieved_parameter in retrieved_parameters]
 
         for parameter in model_parameters:
-            if parameter not in retrieved_parameters_names:
+            if parameter not in retrieved_parameters_names and 'log10_' + parameter not in retrieved_parameters_names:
                 retrieval_configuration.add_parameter(
                     name=parameter,
                     free=False,
@@ -1673,8 +1717,7 @@ class BaseSpectralModel:
         if np.ndim(output_wavelengths) <= 1 and isinstance(output_wavelengths, np.ndarray):
             return output_wavelengths, fr.rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths)
         else:
-            if (np.ndim(output_wavelengths) == 2 and isinstance(output_wavelengths, np.ndarray)) \
-                    or hasattr(output_wavelengths, '__iter__'):
+            if np.ndim(output_wavelengths) == 2 and isinstance(output_wavelengths, np.ndarray):
                 spectra = []
                 lengths = []
 
@@ -1747,7 +1790,6 @@ class BaseSpectralModel:
                 else:
                     spec = species.split('_R_')[
                         0]  # deal with the naming scheme for binned down opacities (see below)
-                    # spec = spec.split('_', 1)[0]
                     imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
                         * np.ones(prt_object.press.shape)
 
@@ -1755,7 +1797,21 @@ class BaseSpectralModel:
 
         # TODO add cloud MMR model(s)
 
-        p['imposed_mass_mixing_ratios'] = imposed_mass_mixing_ratios
+        for species in p['imposed_mass_mixing_ratios']:
+            if species in p and species not in prt_object.line_species:
+                if species == 'CO_36':
+                    imposed_mass_mixing_ratios[species] = 10 ** p[species] \
+                                                          * np.ones(prt_object.press.shape)
+                else:
+                    spec = species.split('_R_')[
+                        0]  # deal with the naming scheme for binned down opacities (see below)
+                    imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
+                        * np.ones(prt_object.press.shape)
+
+                del p[species]
+
+        for key, value in imposed_mass_mixing_ratios.items():
+            p['imposed_mass_mixing_ratios'][key] = value
 
         return spectrum_model.get_spectrum_model(
             radtrans=prt_object,

@@ -599,7 +599,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     )
 
     if uncertainties is not None:
-        weights = 1 / uncertainties
+        weights = uncertainties  # ensure low weights within tellurics, but gives more weight to noisy non-telluric wvls
         weights[weights.mask] = 0  # polyfit doesn't take masks into account, so set weight of masked values to 0
     else:
         weights = np.ones(spectrum.shape)

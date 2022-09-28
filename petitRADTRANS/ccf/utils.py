@@ -50,6 +50,8 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
             new_group = group + key + '/'
             dict2hdf5(dictionary[key], hdf5_file, new_group)
+        elif callable(dictionary[key]):
+            print(f"Skipping callable '{key}': dtype('O') has no native HDF5 equivalent")
         else:
             if dictionary[key] is None:
                 data = 'None'
