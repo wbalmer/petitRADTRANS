@@ -332,7 +332,8 @@ class Data:
 
     def get_chisq(self, wlen_model, \
                   spectrum_model, \
-                  plotting):
+                  plotting,
+                  parameters):
         """
         Calculate the chi square between the model and the data.
 
@@ -380,9 +381,14 @@ class Data:
 
 
         diff = (flux_rebinned - self.flux*self.scale_factor)
-        f_err = self.flux_error
+
         if self.scale_err:
             f_err = self.flux_error*self.scale_factor
+        elif parameters.get('Mike_Line_b') is not None:
+            f_err = np.sqrt(self.flux_error**2. + 10**parameters['Mike_Line_b'].value)
+            #print('Mike_line_b', 10**parameters['Mike_Line_b'].value)
+        else:
+            f_err = self.flux_error
         logL=0.0
         if self.covariance is not None:
             #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.

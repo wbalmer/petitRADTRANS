@@ -579,7 +579,8 @@ class Retrieval:
                         return -1e98
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
-                                            self.plotting)
+                                            self.plotting,
+                                            self.parameters)
                 else:
                     # Get the PT profile
                     if name == self.rd.plot_kwargs["take_PTs_from"]:
@@ -619,7 +620,8 @@ class Retrieval:
                             return -1e99
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
-                                        self.plotting)
+                                        self.plotting,
+                                        self.parameters)
         #print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
