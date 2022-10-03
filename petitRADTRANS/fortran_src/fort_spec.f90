@@ -419,153 +419,188 @@ module fort_spec
 
         !!$ Subroutine to calculate the transmission spectrum
 
-        subroutine calc_transm_spec(total_kappa_in,temp,press,gravity,mmw,P0_bar,R_pl, &
-             w_gauss,scat,continuum_opa_scat,var_grav,transm,radius,freq_len,struc_len,g_len,N_species)
+        subroutine calc_transm_spec(total_kappa_in, temp, press, gravity, mmw, P0_bar, R_pl, &
+             w_gauss, scat, continuum_opa_scat, var_grav, transm, radius, freq_len, struc_len, g_len, N_species)
 
-          use constants_block
-          implicit none
+            use constants_block
+            implicit none
 
-          ! I/O
-          integer, intent(in)                         :: freq_len, struc_len, g_len, N_species
-          double precision, intent(in)                :: P0_bar, R_pl
-          double precision, intent(in)                :: temp(struc_len), press(struc_len), mmw(struc_len)
-          double precision, intent(in)                :: total_kappa_in(g_len,freq_len,N_species,struc_len)
+            ! I/O
+            integer, intent(in)                         :: freq_len, struc_len, g_len, N_species
+            double precision, intent(in)                :: P0_bar, R_pl
+            double precision, intent(in)                :: temp(struc_len), press(struc_len), mmw(struc_len)
+            double precision, intent(in)                :: total_kappa_in(g_len,freq_len,N_species,struc_len)
 
-          double precision, intent(in)                :: gravity
-          double precision, intent(in)                :: w_gauss(g_len), continuum_opa_scat(freq_len,struc_len)
-          logical, intent(in)                         :: scat !, contribution
-          logical, intent(in)                         :: var_grav
+            double precision, intent(in)                :: gravity
+            double precision, intent(in)                :: w_gauss(g_len), continuum_opa_scat(freq_len,struc_len)
+            logical, intent(in)                         :: scat !, contribution
+            logical, intent(in)                         :: var_grav
 
-          double precision, intent(out)               :: transm(freq_len), radius(struc_len) !, contr_tr(struc_len,freq_len)
+            double precision, intent(out)               :: transm(freq_len), radius(struc_len) !, contr_tr(struc_len,freq_len)
 
-          ! Internal
-          double precision                            :: P0_cgs, rho(struc_len), &
-                total_kappa(g_len,freq_len,N_species,struc_len)
-          integer                                     :: i_str, i_freq, i_g, i_spec, j_str
-          logical                                     :: rad_neg
-          double precision                            :: alpha_t2(g_len,freq_len,N_species,struc_len-1)
-          double precision                            :: t_graze(g_len,freq_len,N_species,struc_len), s_1, s_2, &
-               t_graze_wlen_int(struc_len,freq_len), &
-               alpha_t2_scat(freq_len,struc_len-1), t_graze_scat(freq_len,struc_len)
+            ! Internal
+            double precision                            :: P0_cgs, rho(struc_len), radius_squared(struc_len), &
+                total_kappa(g_len,freq_len,N_species,struc_len), d_radius(struc_len)
+            integer                                     :: i_str, i_freq, i_g, i_spec, j_str, sizet2
+            logical                                     :: rad_neg
+            double precision                            :: alpha_t2(g_len,freq_len,N_species,struc_len)
+            double precision                            :: t_graze(g_len,freq_len,N_species,struc_len), &
+               t_graze_wlen_int(freq_len, struc_len), &
+               t_graze_wlen_int_1(freq_len, struc_len), &
+               t_graze_wlen_int_2(freq_len, struc_len), &
+               t_graze_wlen_int_t(struc_len, freq_len), &
+               alpha_t2_scat(freq_len,struc_len-1), t_graze_scat(freq_len,struc_len), &
+                radius_squared2(struc_len, struc_len)
 
-          total_kappa = total_kappa_in
-          ! Some cloud opas can be < 0 sometimes, apparently.
-          do i_str = 1, struc_len
-             do i_spec = 1, N_species
-                do i_freq = 1, freq_len
-                   do i_g = 1, g_len
-                      if (total_kappa(i_g,i_freq,i_spec,i_str) < 0d0) then
-                         total_kappa(i_g,i_freq,i_spec,i_str) = 0d0
-                      end if
-                   end do
+            rad_neg = .False.
+            sizet2 = g_len * freq_len * N_species
+
+            radius = 0d0
+            transm = 0d0
+
+            t_graze = 0d0
+            t_graze_scat = 0d0
+            alpha_t2 = 0d0
+            alpha_t2_scat = 0d0
+            t_graze_wlen_int_t = 0d0
+
+            total_kappa = total_kappa_in
+
+            ! Some cloud opas can be < 0 sometimes, apparently.
+            do i_str = 1, struc_len
+                do i_spec = 1, N_species
+                    do i_freq = 1, freq_len
+                        do i_g = 1, g_len
+                            if (total_kappa(i_g, i_freq, i_spec, i_str) < 0d0) then
+                                total_kappa(i_g, i_freq, i_spec, i_str) = 0d0
+                            end if
+                        end do
+                    end do
                 end do
-             end do
-          end do
+            end do
 
-          transm = 0d0
-          t_graze = 0d0
-          t_graze_scat = 0d0
+            ! Convert reference pressure to cgs
+            P0_cgs = P0_bar * 1d6
 
-          ! Convert reference pressure to cgs
-          P0_cgs = P0_bar*1d6
-          ! Calculate density
-          rho = mmw*amu*press/kB/temp
-          ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
-          call calc_radius(struc_len,press,gravity,rho,P0_cgs,R_pl,var_grav,radius)
+            ! Calculate density
+            rho = mmw * amu * press / kB / temp
 
-          rad_neg = .FALSE.
-          do i_str = struc_len, 1, -1
-             if (radius(i_str) < 0d0) then
-                rad_neg = .TRUE.
-                radius(i_str) = radius(i_str+1)
-             end if
-          end do
-          if (rad_neg) then
-             write(*,*) 'pRT: negative radius corretion applied!'
-          end if
+            ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
+            call calc_radius(struc_len, press, gravity, rho, P0_cgs, R_pl, var_grav, radius)
 
-          ! Calc. mean free paths across grazing distances
-          do i_str = 1, struc_len-1
-             alpha_t2(:,:,:,i_str) = (total_kappa(:,:,:,i_str)*rho(i_str)+total_kappa(:,:,:,i_str+1)*rho(i_str+1))
-          end do
-
-          if (scat) then
-             do i_str = 1, struc_len-1
-                alpha_t2_scat(:,i_str) = (continuum_opa_scat(:,i_str)*rho(i_str)+ &
-                     continuum_opa_scat(:,i_str+1)*rho(i_str+1))
-             end do
-          end if
-
-          ! Cacuclate grazing rays optical depths
-          do i_str = 2, struc_len
-             s_1 = sqrt(radius(1)**2d0-radius(i_str)**2d0)
-             do j_str = 1, i_str-1
-                if (j_str > 1) then
-                   s_1 = s_2
+            do i_str = struc_len, 1, -1
+                if (radius(i_str) < 0d0) then
+                    rad_neg = .True.
+                    radius(i_str) = radius(i_str + 1)
                 end if
-                s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
-                t_graze(:,:,:,i_str) = t_graze(:,:,:,i_str)+alpha_t2(:,:,:,j_str)*(s_1-s_2)
-             end do
-          end do
-          if (scat) then
-             do i_str = 2, struc_len
-                s_1 = sqrt(radius(1)**2d0-radius(i_str)**2d0)
-                do j_str = 1, i_str-1
-                   if (j_str > 1) then
-                      s_1 = s_2
-                   end if
-                   s_2 = sqrt(radius(j_str+1)**2d0-radius(i_str)**2d0)
-                   t_graze_scat(:,i_str) = t_graze_scat(:,i_str)+alpha_t2_scat(:,j_str)*(s_1-s_2)
+            end do
+
+            if (rad_neg) then
+                write(*, *) 'pRT: negative radius corretion applied!'
+            end if
+
+            ! Calculate mean free paths across grazing distances
+            do i_str = 1, struc_len - 1
+                alpha_t2(:, :, :, i_str) = total_kappa(:, :, :, i_str) * rho(i_str)
+            end do
+
+            alpha_t2(:, :, :, 1:struc_len - 2) = &
+                alpha_t2(:, :, :, 1:struc_len - 2) + alpha_t2(:, :, :, 2:struc_len - 1)
+            alpha_t2(:, :, :, struc_len - 1) = &
+                alpha_t2(:, :, :, struc_len - 1) + total_kappa(:, :, :, struc_len) * rho(struc_len)
+
+            if (scat) then
+                do i_str = 1, struc_len - 1
+                    alpha_t2_scat(:, i_str) = continuum_opa_scat(:, i_str) * rho(i_str)
                 end do
-             end do
-          end if
 
-          ! Calculate transmissions, update tau array to store these
-          t_graze = exp(-t_graze)
-          if (scat) then
-             t_graze_scat = exp(-t_graze_scat)
-          end if
+                alpha_t2_scat(:, 1:struc_len - 2) = &
+                    alpha_t2_scat(:, 1:struc_len - 2) + alpha_t2_scat(:, 2:struc_len - 1)
+                alpha_t2_scat(:, struc_len - 1) = &
+                    alpha_t2_scat(:, struc_len - 1) + continuum_opa_scat(:, struc_len) * rho(struc_len)
+            end if
 
-          t_graze_wlen_int = 1d0
-          ! Wlen (in g-space) integrate transmissions
-          do i_str = 2, struc_len ! i_str=1 t_grazes are 1 anyways
-             do i_spec = 1, N_species
-                do i_freq = 1, freq_len
-                   t_graze_wlen_int(i_str,i_freq) = t_graze_wlen_int(i_str,i_freq)* &
-                        sum(t_graze(:,i_freq,i_spec,i_str)*w_gauss)
-                   if (scat .and. (i_spec == 1)) then
-                      t_graze_wlen_int(i_str,i_freq) = t_graze_wlen_int(i_str,i_freq)* &
-                           t_graze_scat(i_freq,i_str)
-                   end if
+            ! Calculate grazing rays optical depths
+            radius_squared(:) = radius(:) ** 2d0
+            radius_squared2(:, :) = 0d0
+
+            do i_str = 1, struc_len
+                do j_str = 1, i_str - 1
+                    radius_squared2(j_str, i_str) = radius_squared(j_str) - radius_squared(i_str)
                 end do
-             end do
-          end do
+            end do
 
-          ! Get effective area fraction from transmission
-          t_graze_wlen_int = 1d0-t_graze_wlen_int
+            radius_squared2 = sqrt(radius_squared2)
+            radius_squared2(1:struc_len - 1, :) = radius_squared2(1:struc_len - 1, :) - radius_squared2(2:struc_len, :)
 
-          ! Caculate planets effectice area (leaving out pi, because we want the radius in the end)
-          do i_freq = 1, freq_len
-             do i_str = 2, struc_len
-                transm(i_freq) = transm(i_freq)+(t_graze_wlen_int(i_str-1,i_freq)*radius(i_str-1)+ &
-                     t_graze_wlen_int(i_str,i_freq)*radius(i_str))*(radius(i_str-1)-radius(i_str))
-             end do
-          end do
-          ! Get radius
-          transm = sqrt(transm+radius(struc_len)**2d0)
+            ! Bottleneck is here
+            do i_str = 2, struc_len
+                do j_str = 1, i_str - 1
+                    t_graze(:, :, :, i_str) = &
+                        t_graze(:, :, :, i_str) + alpha_t2(:, :, :, j_str) * radius_squared2(j_str, i_str)
+                    t_graze_scat(:, i_str) = &
+                        t_graze_scat(:, i_str) + alpha_t2_scat(:, j_str) * radius_squared2(j_str, i_str)
+                end do
+            end do
 
-        !!$  if (contribution) then
-        !!$     contr_tr = t_graze_wlen_int
-        !!$  end if
+            ! Safeguard
+            if (.not. scat) then
+                t_graze_scat = 0d0
+            end if
 
-        !!$  call calc_radius(struc_len,temp,press,gravity,mmw,rho,P0_cgs,R_pl,.FALSE.,radius)
-        !!$  call calc_radius(struc_len,temp,press,gravity,mmw,rho,P0_cgs,R_pl,.TRUE., radius_var)
-        !!$  open(unit=10,file='rad_test.dat')
-        !!$  do i_str = 1, struc_len
-        !!$     write(10,*) press(i_str)*1d-6, radius(i_str)/R_jup, radius_var(i_str)/R_jup
-        !!$  end do
-        !!$  close(10)
+            ! Calculate transmissions, update tau array to store these
+            t_graze = exp(-t_graze)
 
+            if (scat) then
+                t_graze_scat = exp(-t_graze_scat)
+            end if
+
+            t_graze_wlen_int = 1d0
+            ! Wlen (in g-space) integrate transmissions
+            do i_str = 2, struc_len ! i_str=1 t_grazes are 1 anyways
+                do i_spec = 1, N_species
+                    do i_freq = 1, freq_len
+                        t_graze_wlen_int(i_freq, i_str) = t_graze_wlen_int(i_freq, i_str) * &
+                            sum(t_graze(:, i_freq, i_spec, i_str) * w_gauss)
+
+                        if (scat .and. (i_spec == 1)) then
+                            t_graze_wlen_int(i_freq, i_str) = t_graze_wlen_int(i_freq, i_str) * &
+                               t_graze_scat(i_freq, i_str)
+                        end if
+                    end do
+                end do
+            end do
+
+            t_graze_wlen_int = 1d0 - t_graze_wlen_int
+
+            do i_str = 1, struc_len
+                t_graze_wlen_int(:, i_str) = t_graze_wlen_int(:, i_str) * radius(i_str)
+            end do
+
+            d_radius(1) = 0d0
+
+            do i_str = 2, struc_len
+                d_radius(i_str) = radius(i_str - 1) - radius(i_str)
+            end do
+
+            t_graze_wlen_int_1(:, 1) = 0d0
+            t_graze_wlen_int_2(:, 1) = 0d0
+
+            do i_str = 2, struc_len
+                t_graze_wlen_int_1(:, i_str) = t_graze_wlen_int(:, i_str - 1) * d_radius(i_str)
+                t_graze_wlen_int_2(:, i_str) = t_graze_wlen_int(:, i_str) * d_radius(i_str)
+            end do
+
+            t_graze_wlen_int = t_graze_wlen_int_1 + t_graze_wlen_int_2
+            t_graze_wlen_int_t = transpose(t_graze_wlen_int)
+
+            ! Caculate planets effectice area (leaving out pi, because we want the radius in the end)
+            do i_freq = 1, freq_len
+                transm(i_freq) = sum(transm(i_freq) + t_graze_wlen_int_t(:, i_freq))
+            end do
+
+            ! Get radius
+            transm = sqrt(transm + radius(struc_len) ** 2d0)
         end subroutine calc_transm_spec
 
         !!$ #########################################################################
@@ -575,112 +610,97 @@ module fort_spec
 
         !!$ Subroutine to calculate the radius from the pressure grid
 
-        subroutine calc_radius(struc_len,press,gravity,rho,P0_cgs, &
-             R_pl,var_grav,radius)
+        subroutine calc_radius(struc_len, press, gravity, rho, P0_cgs, R_pl, var_grav, radius)
+            implicit none
+            ! I/O
+            integer, intent(in)                         :: struc_len
+            double precision, intent(in)                :: P0_cgs
+            double precision, intent(in)                :: press(struc_len), rho(struc_len)
+            double precision, intent(in)                :: gravity, R_pl
+            logical, intent(in)                         :: var_grav
+            double precision, intent(out)               :: radius(struc_len)
 
-          implicit none
-          ! I/O
-          integer, intent(in)                         :: struc_len
-          double precision, intent(in)                :: P0_cgs
-          double precision, intent(in)                :: press(struc_len), &
-               rho(struc_len)
-          double precision, intent(in)                :: gravity, R_pl
-          logical, intent(in)                         :: var_grav
-          double precision, intent(out)               :: radius(struc_len)
+            ! Internal
+            integer                                     :: i_str
+            double precision                            :: R0, inv_rho(struc_len), coefficient
 
-          ! Internal
-          integer                                     :: i_str
-          double precision                            :: R0, inv_rho(struc_len)
+            inv_rho = 1d0 / rho
 
-          inv_rho = 1d0/rho
+            radius = 0d0
+            R0 = 0d0
 
-          radius = 0d0
-          R0=0d0
-          if (var_grav) then
+            if (var_grav) then
+                coefficient = 1d0 / gravity / R_pl ** 2d0
+            else
+                coefficient = -1d0 / gravity
+            end if
 
-             !write(*,*) '####################### VARIABLE GRAVITY'
-             !write(*,*) '####################### VARIABLE GRAVITY'
-             !write(*,*) '####################### VARIABLE GRAVITY'
-             !write(*,*) '####################### VARIABLE GRAVITY'
+            ! Calculate radius with vertically varying gravity, set up such that at P=P0, i.e. R=R_pl
+            ! the planet has the predefined scalar gravity value
+            radius(struc_len - 1) = radius(struc_len) - (inv_rho(struc_len - 1) + inv_rho(struc_len)) &
+                * (press(struc_len) - press(struc_len - 1)) * coefficient * 0.5d0
 
-             ! Calculate radius with vertically varying gravity, set up such that at P=P0, i.e. R=R_pl
-             ! the planet has the predefined scalar gravity value
-             do i_str = struc_len-1, 1, -1
-                if ((press(i_str+1) > P0_cgs) .and. (press(i_str) <= P0_cgs)) then
-                   if (i_str <= struc_len-2) then
-                      R0 = radius(i_str+1) - integ_parab(press(i_str),press(i_str+1),press(i_str+2), &
-                           inv_rho(i_str),inv_rho(i_str+1),inv_rho(i_str+2),P0_cgs,press(i_str+1))/gravity &
-                           /R_pl**2d0
-                   else
-                      R0 = radius(i_str+1)-(1d0/rho(i_str)+1d0/rho(i_str+1))/(2d0*gravity)* &
-                           (press(i_str+1)-P0_cgs)/R_pl**2d0
-                   end if
+            do i_str = struc_len - 2, 1, -1
+                radius(i_str) = radius(i_str + 1) - integ_parab(&
+                    press(i_str), &
+                    press(i_str + 1), &
+                    press(i_str + 2), &
+                    inv_rho(i_str), &
+                    inv_rho(i_str + 1), &
+                    inv_rho(i_str + 2), &
+                    press(i_str), press(i_str+1) &
+                ) * coefficient
+            end do
+
+            ! Find R0
+            do i_str = struc_len - 1, 1, -1
+                if ((press(i_str + 1) > P0_cgs) .and. (press(i_str) <= P0_cgs)) then
+                    if (i_str <= struc_len - 2) then
+                        R0 = radius(i_str + 1) - integ_parab(&
+                            press(i_str), &
+                            press(i_str + 1), &
+                            press(i_str + 2), &
+                            inv_rho(i_str), &
+                            inv_rho(i_str + 1), &
+                            inv_rho(i_str + 2), &
+                            P0_cgs, &
+                            press(i_str + 1) &
+                        ) * coefficient
+
+                        exit
+                    else
+                        R0 = radius(i_str + 1) - (inv_rho(i_str) + inv_rho(i_str+1)) &
+                            * (press(i_str + 1) - P0_cgs) * coefficient * 0.5d0
+
+                        exit
+                    end if
                 end if
-                if (i_str <= struc_len-2) then
-                   radius(i_str) = radius(i_str+1) - integ_parab(press(i_str),press(i_str+1),press(i_str+2), &
-                        inv_rho(i_str),inv_rho(i_str+1),inv_rho(i_str+2),press(i_str),press(i_str+1))/gravity &
-                        /R_pl**2d0
-                else
-                   radius(i_str) = radius(i_str+1)-(1d0/rho(i_str)+1d0/rho(i_str+1))/(2d0*gravity)* &
-                        (press(i_str+1)-press(i_str))/R_pl**2d0
-                end if
-             end do
-             R0 = 1d0/R_pl-R0
-             radius = radius + R0
-             radius = 1d0/radius
+            end do
 
-          else
-
-             !write(*,*) '####################### CONSTANT GRAVITY'
-             !write(*,*) '####################### CONSTANT GRAVITY'
-             !write(*,*) '####################### CONSTANT GRAVITY'
-             !write(*,*) '####################### CONSTANT GRAVITY'
-
-
-             ! Calculate radius with vertically constant gravity
-             do i_str = struc_len-1, 1, -1
-                if ((press(i_str+1) > P0_cgs) .and. (press(i_str) <= P0_cgs)) then
-                   if (i_str <= struc_len-2) then
-                      R0 = radius(i_str+1) + integ_parab(press(i_str),press(i_str+1),press(i_str+2), &
-                           inv_rho(i_str),inv_rho(i_str+1),inv_rho(i_str+2),P0_cgs,press(i_str+1))/gravity
-                   else
-                      R0 = radius(i_str+1)+(1d0/rho(i_str)+1d0/rho(i_str+1))/(2d0*gravity)* &
-                           (press(i_str+1)-P0_cgs)
-                   end if
-                end if
-                if (i_str <= struc_len-2) then
-                   radius(i_str) = radius(i_str+1) + integ_parab(press(i_str),press(i_str+1),press(i_str+2), &
-                        inv_rho(i_str),inv_rho(i_str+1),inv_rho(i_str+2),press(i_str),press(i_str+1))/gravity
-                else
-                   radius(i_str) = radius(i_str+1)+(1d0/rho(i_str)+1d0/rho(i_str+1))/(2d0*gravity)* &
-                        (press(i_str+1)-press(i_str))
-                end if
-             end do
-
-             R0 = R_pl-R0
-             radius = radius + R0
-        !!$     write(*,*) R0, P0_cgs, gravity, R_pl, press(20), rho(20)
-
-          end if
-
+            if (var_grav) then
+                R0 = 1d0 / R_pl - R0
+                radius = radius + R0
+                radius = 1d0 / radius
+            else
+                R0 = R_pl - R0
+                radius = radius + R0
+            end if
 
             contains
-                !!$ Function to calc higher order integ.
-                function integ_parab(x,y,z,fx,fy,fz,a,b)
+                function integ_parab(x, y, z, fx, fy, fz, a, b)
+                    ! Function to calc higher order integ.
+                    implicit none
+                    ! I/O
+                    double precision :: x, y, z, fx, fy, fz, a, b
+                    double precision :: integ_parab
+                    ! Internal
+                    double precision :: c1, c2, c3
 
-                  implicit none
-                  ! I/O
-                  double precision :: x,y,z,fx,fy,fz,a,b
-                  double precision :: integ_parab
-                  ! Internal
-                  double precision :: c1,c2,c3
+                    c3 = ((fz - fy) / (z - y) - (fz - fx) / (z - x)) / (y - x)
+                    c2 = (fz - fx) / (z - x) - c3 * (z + x)
+                    c1 = fx - c2 * x - c3 * x ** 2d0
 
-                  c3 = ((fz-fy)/(z-y)-(fz-fx)/(z-x))/(y-x)
-                  c2 = (fz-fx)/(z-x)-c3*(z+x)
-                  c1 = fx-c2*x-c3*x**2d0
-
-                  integ_parab = c1*(b-a)+c2*(b**2d0-a**2d0)/2d0+c3*(b**3d0-a**3d0)/3d0
-
+                    integ_parab = c1 * (b - a) + c2 * (b ** 2d0 - a ** 2d0) / 2d0 + c3 * (b ** 3d0 - a ** 3d0) / 3d0
                 end function integ_parab
         end subroutine calc_radius
 
@@ -2594,8 +2614,6 @@ module fort_spec
                 geom, &
                 mu_star, &
                 flux, &
-                contribution,&
-                contr_em, &
                 freq_len_p_1, &
                 struc_len, &
                 N_mu, &
@@ -2607,7 +2625,6 @@ module fort_spec
 
             implicit none
 
-            logical, intent(in)             :: contribution
             character(len=*)                :: geom
             integer, intent(in)             :: freq_len_p_1, struc_len, N_g
             integer, intent(in)             :: N_mu
@@ -2619,7 +2636,6 @@ module fort_spec
             double precision, intent(in)    :: mu(N_mu), w_gauss_mu(N_mu),w_gauss_ck(N_g)
             double precision, intent(in)    :: I_star_0(freq_len_p_1-1)
             double precision, intent(out)   :: flux(freq_len_p_1-1)
-            double precision, intent(out)   :: contr_em(struc_len,freq_len_p_1-1)
 
             double precision                :: del_tau(struc_len-1), atten_factors(struc_len-1), &
                                                mean_source(struc_len-1), atten_factors_no_exp(struc_len-1), &

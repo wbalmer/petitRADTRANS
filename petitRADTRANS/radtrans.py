@@ -1063,8 +1063,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                                                       self.mu, self.w_gauss_mu,
                                                       self.w_gauss, contribution)
 
-    def calc_tr_rad(self, P0_bar, R_pl, gravity, mmw,
-                    contribution, variable_gravity):
+    def calc_tr_rad(self, P0_bar, R_pl, gravity, mmw, contribution, variable_gravity):
         # Calculate the transmission spectrum
         if ((self.mode == 'lbl') or self.test_ck_shuffle_comp) \
                 and (int(len(self.line_species)) > 1):
@@ -1459,6 +1458,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                          dist=dist, a_hans=a_hans, b_hans=b_hans,
                          give_absorption_opacity=give_absorption_opacity,
                          give_scattering_opacity=give_scattering_opacity)
+
         self.calc_tr_rad(P0_bar, R_pl, gravity, mmw, contribution, variable_gravity)
 
     def calc_flux_transm(self, temp, abunds, gravity, mmw, P0_bar, R_pl,

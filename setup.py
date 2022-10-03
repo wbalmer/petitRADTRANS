@@ -12,9 +12,7 @@ if use_compiler_flags:
         "-O3",
         "-funroll-loops",
         "-ftree-vectorize",
-        "-msse",
-        "-msse2",
-        "-m3dnow"
+        "-march=native"
     ]
     extra_compile_args_debug = [
         "-mcmodel=large",
@@ -31,6 +29,7 @@ if use_compiler_flags:
     ]
 else:
     extra_compile_args = None
+    extra_compile_args_debug = None
 
 
 fort_spec = Extension(
