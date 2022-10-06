@@ -382,11 +382,25 @@ class Data:
 
         diff = (flux_rebinned - self.flux*self.scale_factor)
 
+        param_names = list(parameters.keys())
+        tentotheb_scaling = False
+        b_val = -np.inf
+        for param_name in param_names:
+            if 'Mike_Line_b' in param_name:
+                tentotheb_scaling = True
+                if param_name == 'Mike_Line_b':
+                    b_val = parameters['Mike_Line_b'].value
+                    #print('A', self.name, param_name, b_val)
+                else:
+                    id = param_name.split('Mike_Line_b')[-1][1:]
+                    if id in self.name:
+                        b_val = parameters[param_name].value
+                        #print('B', self.name, param_name, id, b_val)
+
         if self.scale_err:
             f_err = self.flux_error*self.scale_factor
-        elif parameters.get('Mike_Line_b') is not None:
-            f_err = np.sqrt(self.flux_error**2. + 10**parameters['Mike_Line_b'].value)
-            #print('Mike_line_b', 10**parameters['Mike_Line_b'].value)
+        elif tentotheb_scaling is not None:
+            f_err = np.sqrt(self.flux_error**2. + 10**b_val)
         else:
             f_err = self.flux_error
         logL=0.0

@@ -920,7 +920,7 @@ class Retrieval:
             norm += add
             #print(name,norm)
         print(f"Best fit 𝛘^2 = {-logL - norm:.2f}")
-        return -logL - norm
+        return (-logL - norm)*2.
 
     def get_reduced_chi2(self,samples):
         """
