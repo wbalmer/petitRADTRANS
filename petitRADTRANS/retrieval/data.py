@@ -281,10 +281,10 @@ class Data:
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
-            try:
-                self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
-            except:
-                self.flux_error = np.sqrt(self.covariance.diagonal())
+            #try:
+            #    self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
+            #except:
+            self.flux_error = np.sqrt(self.covariance.diagonal())
         except:
             self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
 
@@ -332,7 +332,8 @@ class Data:
 
     def get_chisq(self, wlen_model, \
                   spectrum_model, \
-                  plotting):
+                  plotting,
+                  parameters = None):
         """
         Calculate the chi square between the model and the data.
 
@@ -353,9 +354,9 @@ class Data:
             import matplotlib.pyplot as plt
         # Convolve to data resolution
         if self.data_resolution is not None:
-            spectrum_model = self.convolve(wlen_model,
-                                           spectrum_model,
-                                           self.data_resolution)
+            spectrum_model = convolve(wlen_model,
+                                    spectrum_model,
+                                    self.data_resolution)
 
         if not self.photometry:
             # Rebin to model observation
@@ -371,11 +372,18 @@ class Data:
             if isinstance(flux_rebinned,(tuple,list)):
                 flux_rebinned = flux_rebinned[0]
 
+        b_val = -np.inf
+        if parameters is not None:
+            b_val = line_b_uncertainty_scaling(parameters)
 
         diff = (flux_rebinned - self.flux*self.scale_factor)
+
         f_err = self.flux_error
         if self.scale_err:
-            f_err = self.flux_error*self.scale_factor
+            f_err *=self.scale_factor
+        if not b_val==-np.inf:
+            f_err = np.sqrt(f_err**2 + 10**b_val)
+
         logL=0.0
         if self.covariance is not None:
             #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
@@ -396,43 +404,75 @@ class Data:
             print(self.name,logL)
         return logL
 
-    def convolve(self, \
-                 input_wavelength, \
-                 input_flux, \
-                 instrument_res):
+    # TODO: do we want to pass the whole parameter dict,
+    # or just set a class variable for b in the likelihood function?
+    def line_b_uncertainty_scaling(self,parameters):
         """
-        This function convolves a model spectrum to the instrumental wavelength
-        using the provided data_resolution
+        This function implements the 10^b scaling from Line 2015, which allows
+        for us to account for underestimated uncertainties:
+
+        We modify the standard error on the data point by the factor 10^b to account for
+        underestimated uncertainties and/or unknown missing forward model physics
+        (Foreman-Mackey et al. 2013, Hogg et al. 2010, Tremain et al. 2002), e.g., imperfect fits.
+        This results in a more generous estimate of the parameter uncertainties. Note that this
+        is similar to inflating the error bars post-facto in order to achieve reduced chi-squares
+        of unity, except that this approach is more formal because uncertainties in this parameter
+        are properly marginalized into the other relevant parameters. Generally, the factor 10^b
+        takes on values that fall between the minimum and maximum of the square of the data uncertainties.
+
         Args:
-            input_wavelength : numpy.ndarray
-                The wavelength grid of the model spectrum
-            input_flux : numpy.ndarray
-                The flux as computed by the model
-            instrument_res : float
-                :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
-
+            parameters: Dict
+                Dictionary of Parameters, should contain key 'uncertianty_scaling_b'.
+                This can be done for all data sets, or specified with a tag at the end of
+                the key to apply different factors to different datasets.
         Returns:
-            flux_LSF
-                The convolved spectrum.
+            10**b: float
+                10**b error bar scaling factor.
         """
+        b_val = -np.inf
+        if parameters is not None:
+            if f'uncertainty_scaling_b_{self.name}' in parameters.keys():
+                b_val = parameters[f'uncertainty_scaling_b_{self.name}'].value
+            elif f'uncertainty_scaling_b' in parameters.keys():
+                b_val = parameters['uncertainty_scaling_b'].value
+        return 10**b
 
-        # From talking to Ignas: delta lambda of resolution element
-        # is FWHM of the LSF's standard deviation, hence:
-        sigma_LSF = 1./instrument_res/(2.*np.sqrt(2.*np.log(2.)))
+def convolve(input_wavelength, \
+                input_flux, \
+                instrument_res):
+    """
+    This function convolves a model spectrum to the instrumental wavelength
+    using the provided data_resolution
+    Args:
+        input_wavelength : numpy.ndarray
+            The wavelength grid of the model spectrum
+        input_flux : numpy.ndarray
+            The flux as computed by the model
+        instrument_res : float
+            :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
 
-        # The input spacing of petitRADTRANS is 1e3, but just compute
-        # it to be sure, or more versatile in the future.
-        # Also, we have a log-spaced grid, so the spacing is constant
-        # as a function of wavelength
-        spacing = np.mean(2.*np.diff(input_wavelength)/ \
-                          (input_wavelength[1:]+input_wavelength[:-1]))
+    Returns:
+        flux_LSF
+            The convolved spectrum.
+    """
 
-        # Calculate the sigma to be used in the gauss filter in units
-        # of input wavelength bins
-        sigma_LSF_gauss_filter = sigma_LSF/spacing
+    # From talking to Ignas: delta lambda of resolution element
+    # is FWHM of the LSF's standard deviation, hence:
+    sigma_LSF = 1./instrument_res/(2.*np.sqrt(2.*np.log(2.)))
 
-        flux_LSF = gaussian_filter(input_flux, \
-                                   sigma = sigma_LSF_gauss_filter, \
-                                   mode = 'nearest')
+    # The input spacing of petitRADTRANS is 1e3, but just compute
+    # it to be sure, or more versatile in the future.
+    # Also, we have a log-spaced grid, so the spacing is constant
+    # as a function of wavelength
+    spacing = np.mean(2.*np.diff(input_wavelength)/ \
+                        (input_wavelength[1:]+input_wavelength[:-1]))
 
-        return flux_LSF
+    # Calculate the sigma to be used in the gauss filter in units
+    # of input wavelength bins
+    sigma_LSF_gauss_filter = sigma_LSF/spacing
+
+    flux_LSF = gaussian_filter(input_flux, \
+                                sigma = sigma_LSF_gauss_filter, \
+                                mode = 'nearest')
+
+    return flux_LSF

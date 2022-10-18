@@ -163,13 +163,14 @@ def contour_corner(sampledict, \
         mpl.rcParams.update(mpl.rcParamsDefault)
 
         #from .plot_style import prt_colours
-    #color_list = prt_colours
+    color_list = ["dodgerblue","deeppink","darkviolet"]#prt_colours
     tcolor = 'k'
     N_samples = []
     range_list = []
     handles = []
     count = 0
     for key,samples in sampledict.items():
+        print(key)
         if prt_plot_style and count > len(color_list):
             print("Not enough colors to continue plotting. Please add to the list.")
             print("Outputting first " + str(count) + " retrievals.")
@@ -261,9 +262,9 @@ def contour_corner(sampledict, \
             corner.corner(np.array(data_list).T,
                           fig = fig,
                           smooth=True,
-                          title_fmt = ".2f",
-                          title_kwargs = title_kwargs,
-                          show_titles = True,
+                          title_fmt = None,
+                          title_kwargs = None,
+                          show_titles = False,
                           range = range_list,
                           color = color_list[count],
                           quantiles=[0.16, 0.5, 0.84],
