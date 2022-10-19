@@ -8,10 +8,14 @@ import sys
 # To not have numpy start parallelizing on its own  # TODO is this really necessary?
 os.environ["OMP_NUM_THREADS"] = "1"
 # Read external packages
+import numpy as np
+import copy as cp
 
+import json
+import logging
+from scipy.stats import binned_statistic
 # Plotting
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.config.configuration import petitradtrans_config
@@ -102,6 +106,7 @@ class Retrieval:
         # Plotting variables
         self.best_fit_specs = {}
         self.best_fit_params = {}
+        self.chi2 = None
         self.posterior_sample_specs = {}
         self.plotting = test_plotting
         self.PT_plot_mode = False
@@ -153,7 +158,7 @@ class Retrieval:
             warmstart_max_tau=0.5,
             n_iter_before_update=50,
             resume=True,
-            max_iter=0,
+            max_iters=0,
             frac_remain=0.1,
             Lepsilon=0.3):
         """
@@ -217,7 +222,7 @@ class Retrieval:
                                 step_sampler=step_sampler,
                                 warmstart_max_tau=warmstart_max_tau,
                                 resume=resume,
-                                max_iters=max_iter,
+                                max_iters=max_iters,
                                 frac_remain=frac_remain,
                                 Lepsilon=Lepsilon)
             return
@@ -258,7 +263,7 @@ class Retrieval:
                 outputfiles_basename=prefix,
                 verbose=True,
                 resume=resume,
-                max_iter=max_iter
+                max_iter=max_iters
             )
 
         # Analyze the output data
@@ -341,19 +346,13 @@ class Retrieval:
                                                warmstart_max_tau=warmstart_max_tau,
                                                resume=resume)
             if step_sampler:
-                # try:
                 import ultranest.stepsampler
-                #    #sampler.run(min_num_live_points=400,
-                #    #        max_n_calls = 400000,
-                #    #        region_class =  RobustEllipsoidRegion)
+
                 sampler.stepsampler = ultranest.stepsampler.SliceSampler(
                     nsteps=n_live_points,
                     adaptive_nsteps='move-distance',
                     generate_direction=ultranest.stepsampler.generate_mixture_random_direction
                 )
-                # except:
-                #    logging.error("Could not use step sampling!")
-                #    sys.exit(13)
             sampler.run(min_num_live_points=n_live_points,
                         dlogz=log_z_convergence,
                         max_iters=max_iters,
@@ -473,7 +472,7 @@ class Retrieval:
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_best_fit_params(samples_use[best_fit_index, :-1], parameters_read)
 
-                summary.write(f"    𝛘^{2} = {self.chi2}\n")
+                summary.write(f"    chi^2 = {self.chi2}\n")
 
                 for key, value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
@@ -1525,7 +1524,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label=rf'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}',
+                label=rf'Best Fit Model, $\chi^2=${self.get_reduced_chi2(samples_use):.2f}',
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -1728,7 +1727,8 @@ class Retrieval:
                 Used to plot correct parameters, as some in self.parameters are not free, and
                 aren't included in the PMN outputs
             contribution : bool
-                # TODO complete docstring
+                Weight the opacity of the pt profile by the emission contribution function,
+                and overplot the contribution curve.
 
         Returns:
             fig : matplotlib.figure

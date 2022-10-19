@@ -497,6 +497,9 @@ class Radtrans(_read_opacities.ReadOpacities):
                 the atmospheric pressure (1-d numpy array, sorted in increasing
                 order), in units of bar. Will be converted to cgs internally.
         """
+        if P[1] < P[0]:
+            raise ValueError('pRT needs pressures sorted from small to large!')
+
         self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
             self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
             self.line_struc_kappas, self.line_struc_kappas_comb, \
@@ -753,40 +756,63 @@ class Radtrans(_read_opacities.ReadOpacities):
                                        self.cloud_specs_scat_opa,
                                        self.cloud_aniso)
             else:
-                cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot = \
-                    fs.calc_hansen_opas(rho, self.rho_cloud_particles,
-                                        self.cloud_mass_fracs, self.r_g, b_hans,
-                                        self.cloud_rad_bins, self.cloud_radii,
-                                        self.cloud_specs_abs_opa,
-                                        self.cloud_specs_scat_opa,
-                                        self.cloud_aniso)
+                cloud_abs_opa_tot,cloud_scat_opa_tot,cloud_red_fac_aniso_tot = \
+                fs.calc_hansen_opas(
+                    rho,
+                    self.rho_cloud_particles,
+                    self.cloud_mass_fracs,
+                    self.r_g,
+                    b_hans,
+                    self.cloud_rad_bins,
+                    self.cloud_radii,
+                    self.cloud_specs_abs_opa,
+                    self.cloud_specs_scat_opa,
+                    self.cloud_aniso
+                )
         else:
             fseds = np.zeros(len(self.cloud_species))
-
-            if not hasattr(fsed, '__iter__'):
-                for i_spec in range(len(self.cloud_species)):
+            for i_spec, cloud in enumerate(self.cloud_species):
+                if isinstance(fsed, dict):
+                    fseds[i_spec] = fsed[cloud.split('_')[0]]
+                elif not hasattr(fsed, '__iter__'):
                     fseds[i_spec] = fsed
-            elif isinstance(fsed, dict):
-                for i_spec in range(len(self.cloud_species)):
-                    fseds[i_spec] = fsed[self.cloud_species[i_spec]]
-
             if dist == "lognormal":
-                self.r_g = fs.get_rg_n(gravity, rho, self.rho_cloud_particles,
-                                       self.temp, mmw, fseds,
-                                       sigma_lnorm, Kzz)
+                self.r_g = fs.get_rg_n(
+                    gravity,
+                    rho,
+                    self.rho_cloud_particles,
+                    self.temp,
+                    mmw,
+                    fseds,
+                    sigma_lnorm,
+                    Kzz
+                )
 
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot = \
-                    py_calc_cloud_opas(rho, self.rho_cloud_particles,
-                                       self.cloud_mass_fracs,
-                                       self.r_g, sigma_lnorm,
-                                       self.cloud_rad_bins, self.cloud_radii,
-                                       self.cloud_specs_abs_opa,
-                                       self.cloud_specs_scat_opa,
-                                       self.cloud_aniso)
+                    py_calc_cloud_opas(
+                        rho,
+                        self.rho_cloud_particles,
+                        self.cloud_mass_fracs,
+                        self.r_g,
+                        sigma_lnorm,
+                        self.cloud_rad_bins,
+                        self.cloud_radii,
+                        self.cloud_specs_abs_opa,
+                        self.cloud_specs_scat_opa,
+                        self.cloud_aniso
+                    )
             else:
-                self.r_g = fs.get_rg_n_hansen(gravity, rho, self.rho_cloud_particles,
-                                              self.temp, mmw, fseds,
-                                              b_hans, Kzz)
+                self.r_g = fs.get_rg_n_hansen(
+                    gravity,
+                    rho,
+                    self.rho_cloud_particles,
+                    self.temp,
+                    mmw,
+                    fseds,
+                    b_hans,
+                    Kzz
+                )
+
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot = \
                     fs.calc_hansen_opas(
                         rho,
@@ -1098,7 +1124,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                     self.continuum_opa_scat, variable_gravity
                 )
 
-    def calc_flux(self, temp, abunds, gravity, mmw, sigma_lnorm=None,
+    def calc_flux(self, temp, abunds, gravity, mmw, R_pl=None, sigma_lnorm=None,
                   fsed=None, Kzz=None, radius=None,
                   contribution=False,
                   gray_opacity=None, Pcloud=None,
@@ -1133,6 +1159,8 @@ class Radtrans(_read_opacities.ReadOpacities):
                     the atmospheric mean molecular weight in amu,
                     at each atmospheric layer
                     (1-d numpy array, same length as pressure array).
+                R_pl: planet radius at maximum pressure in cm. If specified, the planet's changing photospheric radius
+                    as function of wavelength will be calculated and saved in the self.phot_radius attribute (in cm).
                 sigma_lnorm (Optional[float]):
                     width of the log-normal cloud particle size distribution
                 fsed (Optional[float]):
@@ -1271,6 +1299,32 @@ class Radtrans(_read_opacities.ReadOpacities):
                          give_absorption_opacity=give_absorption_opacity,
                          give_scattering_opacity=give_scattering_opacity)
         self.calc_opt_depth(gravity, cloud_wlen=cloud_wlen)
+
+        if R_pl is not None:
+            try:
+                radius_hse = self.calc_radius_hydrostatic_equilibrium(temp,
+                                                mmw,
+                                                gravity,
+                                                self.press[-1] * 1e-6,
+                                                R_pl)
+
+                rad_press = interp1d(self.press, radius_hse)
+
+                self.phot_radius = np.zeros(self.freq_len)
+
+                if self.mode == 'lbl' or self.test_ck_shuffle_comp:
+                    #self.total_tau[:, :, :1, :]
+                    # line_struc_kappas = np.zeros(
+                    #                 (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
+                    #             )
+                    wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
+                    for i_freq in range(self.freq_len):
+                        tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis = 0)
+                        press_taup = interp1d(tau_p, self.press)
+                        #print(tau_p)
+                        self.phot_radius[i_freq] = rad_press(press_taup(2./3.))
+            except:
+                self.phot_radius = -np.ones(self.freq_len)
 
         if not self.skip_RT_step:
             self.calc_RT(contribution)

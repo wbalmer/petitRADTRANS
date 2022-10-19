@@ -123,9 +123,9 @@
  ],
  "metadata": {
   "kernelspec": {
-   "display_name": "Python [conda env:miniconda3]",
+   "display_name": "Python 3.9.7 ('base')",
    "language": "python",
-   "name": "conda-env-miniconda3-py"
+   "name": "python3"
   },
   "language_info": {
    "codemirror_mode": {
@@ -137,7 +137,12 @@
    "name": "python",
    "nbconvert_exporter": "python",
    "pygments_lexer": "ipython3",
-   "version": "3.6.1"
+   "version": "3.9.7"
+  },
+  "vscode": {
+   "interpreter": {
+    "hash": "207b56136aaee7ec9eed3aa3bd9bf42bb51cfe74d6567821df16aa3ffeea32bf"
+   }
   }
  },
  "nbformat": 4,

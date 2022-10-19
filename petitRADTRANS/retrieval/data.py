@@ -148,6 +148,7 @@ class Data:
         self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
+        self.flux_error = None
         self.scale = scale
         self.scale_err = scale_err
 
@@ -233,7 +234,7 @@ class Data:
         obs = np.genfromtxt(path, delimiter=delimiter, comments=comments)
         # Input sanity checks
         if np.isnan(obs).any():
-            obs = np.genfromtxt(path, delimiter=' ', comments=comments)
+            obs = np.genfromtxt(path)
         if len(obs.shape) < 2:
             obs = np.genfromtxt(path, comments=comments)
         if obs.shape[1] != 3:
