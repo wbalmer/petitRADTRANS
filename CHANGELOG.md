@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.5.0-a25] - 2021-08-31
+## [2.5.0-a27] - 2021-10-19
 ### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.
@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Module `phoenix` for PHOENIX stellar models.
 - Module `physics` to store useful physical functions.
 - Module `utils` to store generic useful functions.
-- Module `ccf.pipeline` to reduce ground-based high-resolution data.
+- Module `retrieval.reprocessing` to reduce ground-based data.
+- Module `ccf` to perform cross-correlation analysis.
+- Module `cli.eso_etc_cli` as a custom interface to ESO's ETC CLI.
+- Module `cli.eso_skycalc_cli` as a custom interface to ESO's SKYCALC CLI.
 - Class `SpectralModel` as a wrapper to `Radtrans` and `Retrieval` objects.
 - Function `get_guillot_2010_temperature_profile`, a more general Guillot 2010 temperature profile.
 - Function to calculate the ESM of a planet.

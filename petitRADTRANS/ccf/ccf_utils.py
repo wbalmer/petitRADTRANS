@@ -1,5 +1,6 @@
 """
 Useful functions for pre/post-processing CCF analysis.
+Mostly deprecated.
 """
 import json
 import os
@@ -11,10 +12,10 @@ from scipy.stats import norm
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS import phoenix
 from petitRADTRANS import physics
-from petitRADTRANS.ccf.ccf import calculate_ccf_snr, ccf_analysis
-from petitRADTRANS.ccf.etc_cli_module import download_snr_data, get_snr_data_file_name, output
-from petitRADTRANS.ccf.mock_observation import convolve_rebin, simple_mock_observation
-from petitRADTRANS.ccf.model_containers import module_dir, ParametersDict, SpectralModel
+from petitRADTRANS.ccf._ccf_old import calculate_ccf_snr, ccf_analysis
+from petitRADTRANS.cli.eso_etc_cli import download_snr_data, get_snr_data_file_name, output
+from scripts.mock_observation import convolve_rebin, simple_mock_observation
+from scripts.model_containers import module_dir, ParametersDict, SpectralModel
 
 
 def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, star_distance, exposure_time,
@@ -407,7 +408,7 @@ def get_crires_snr_data(setting_key, setting_orders, star_apparent_magnitude, st
             SpectralModel.generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature)
 
         json_data = download_snr_data(
-            request_file_name=os.path.join(directory, 'etc-form.json'),
+            request_file_name=os.path.join(directory, '../cli/eso_etc-form.json'),
             star_spectrum_file_name=star_spectrum_file,
             star_apparent_magnitude=star_apparent_magnitude,
             star_effective_temperature=star_effective_temperature,

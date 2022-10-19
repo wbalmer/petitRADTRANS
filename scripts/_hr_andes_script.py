@@ -16,10 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
-from petitRADTRANS.ccf.high_resolution_retrieval_HD_189733_b import all_species, init_mock_observations, init_run, \
+from scripts.high_resolution_retrieval_HD_189733_b import all_species, init_mock_observations, init_run, \
     get_retrieval_name
-from petitRADTRANS.ccf.high_resolution_retrieval_TRAPPIST_1_b import init_mock_observations_co2
-from petitRADTRANS.ccf.high_resolution_retrieval_TRAPPIST_1_b_telluric import init_mock_observations_co2t
+from scripts.high_resolution_retrieval_TRAPPIST_1_b import init_mock_observations_co2
+from scripts.high_resolution_retrieval_TRAPPIST_1_b_telluric import init_mock_observations_co2t
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval

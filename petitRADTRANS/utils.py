@@ -1,5 +1,6 @@
 """Stores useful generic functions.
 """
+import copy
 
 import numpy as np
 
@@ -110,6 +111,45 @@ def read_abunds(path):
             ret['n' + name] = dat[:, number]
 
     return ret
+
+
+def remove_mask(data, data_uncertainties):
+    """Remove masked values of 3D data and linked uncertainties. TODO generalize this
+    An array of objects is created if the resulting array is jagged.
+
+    Args:
+        data: 3D masked array
+        data_uncertainties: 3D masked array
+
+    Returns:
+        The data and errors without the data masked values, and the mask of the original data array.
+    """
+    data_ = []
+    error_ = []
+    mask_ = copy.copy(data.mask)
+    lengths = []
+
+    for i in range(data.shape[0]):
+        data_.append([])
+        error_.append([])
+
+        for j in range(data.shape[1]):
+            data_[i].append(np.array(
+                data[i, j, ~mask_[i, j, :]]
+            ))
+            error_[i].append(np.array(data_uncertainties[i, j, ~mask_[i, j, :]]))
+            lengths.append(data_[i][j].size)
+
+    # Handle jagged arrays
+    if np.all(np.asarray(lengths) == lengths[0]):
+        data_ = np.asarray(data_)
+        error_ = np.asarray(error_)
+    else:
+        print("Array is jagged, generating object array...")
+        data_ = np.asarray(data_, dtype=object)
+        error_ = np.asarray(error_, dtype=object)
+
+    return data_, error_, mask_
 
 
 def running_mean(x, n):

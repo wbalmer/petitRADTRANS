@@ -1,4 +1,6 @@
-"""Useful functions for spectrum models."""
+"""Useful functions for spectrum models.
+Mostly deprecated.
+"""
 import copy
 
 from scipy.ndimage import gaussian_filter1d

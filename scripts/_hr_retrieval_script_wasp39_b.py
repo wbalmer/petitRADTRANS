@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 # from petitRADTRANS.ccf.high_resolution_retrieval_wasp39_b import *
 # from petitRADTRANS.ccf.high_resolution_retrieval_toi270_c import *
 # from petitRADTRANS.ccf.high_resolution_retrieval_HD_189733_b import *
-from petitRADTRANS.ccf.high_resolution_retrieval_HD_189733_b2 import *
+from scripts.high_resolution_retrieval_HD_189733_b2 import *
 # from petitRADTRANS.ccf._high_resolution_retrieval2 import *
 from petitRADTRANS.retrieval import Retrieval
 from petitRADTRANS.retrieval.plotting import contour_corner
@@ -50,13 +50,13 @@ def main(sim_id=0):
     # line_species_str = ['CO_all_iso', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_tt_p_kp_vr_CO_13CO_CO2_H2O_t_79-80'
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     mode = 'transit'
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -339,13 +339,13 @@ def maintoi(sim_id=0):
     # line_species_str = ['CO_all_iso', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_p_kp_vr_CH4_CO_CO2_H2O_t_K2192-25-26-27-28_4transits_nn'
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     mode = 'transit'
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -599,13 +599,13 @@ def maintic(sim_id=0):
     # line_species_str = ['CO_all_iso', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_tt_p_kp_vr_CO_CO2_H2O_t_79-80_nn'
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     mode = 'transit'
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -867,14 +867,14 @@ def main_hd(sim_id=0):
     retrieval_name = f't{planet_name}{sim_id}_12CO_13CO_CH4_H2O_t_18-28_noCO_36'
 
     if not os.path.isdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
     ):
         os.mkdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
         )
 
     retrieval_directory = os.path.abspath(
-        os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
+        os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
                      retrieval_name)
     )
 
@@ -882,7 +882,7 @@ def main_hd(sim_id=0):
     n_live_points = 100
     add_noise = True
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -1097,14 +1097,14 @@ def main_hd2(sim_id=0):
     retrieval_name = f't{planet_name}{sim_id}_12CO_13CO_CH4_H2O_t_18-28_noCO_36_nonoise_260s'
 
     if not os.path.isdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
     ):
         os.mkdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
         )
 
     retrieval_directory = os.path.abspath(
-        os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
+        os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
                      retrieval_name)
     )
 
@@ -1112,7 +1112,7 @@ def main_hd2(sim_id=0):
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -1353,17 +1353,17 @@ def _main_hd2(sim_id=0):
     ]
 
     if not os.path.isdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
     ):
         os.mkdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
         )
 
     mode = 'transit'
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')
@@ -1410,7 +1410,7 @@ def _main_hd2(sim_id=0):
             print(f"rank {j}, line list {ls_str}, wrange = {wavelengths_borders[band]}")
             # Initialize parameters
             retrieval_directory = os.path.abspath(
-                os.path.join(module_dir, '..', '__tmp', 'test_retrieval',
+                os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval',
                              'bins_' + planet_name.lower().replace(' ', '_'),
                              retrieval_names[j])
             )
@@ -1455,14 +1455,14 @@ def main_hd3(sim_id=0):
     retrieval_name = f't{planet_name}{sim_id}_12CO_13CO_CH4_H2O_t_18-28_noCO_36_nonoise_260s'
 
     if not os.path.isdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
     ):
         os.mkdir(
-            os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
+            os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'))
         )
 
     retrieval_directory = os.path.abspath(
-        os.path.join(module_dir, '..', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
+        os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', 'bins_' + planet_name.lower().replace(' ', '_'),
                      retrieval_name)
     )
 
@@ -1470,7 +1470,7 @@ def main_hd3(sim_id=0):
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')

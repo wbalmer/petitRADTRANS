@@ -6,13 +6,9 @@ Try:
     sudo mpiexec -n N --allow-run-as-root ...
 If for some reason the script crashes.
 """
-import sys
 import time
 
-import numpy as np
-
-from petitRADTRANS.ccf.jwst_retrieval_wasp39_b import *
-from petitRADTRANS.ccf.spectra_utils import load_snr_file
+from scripts.jwst_retrieval_wasp39_b import *
 from petitRADTRANS.retrieval import Retrieval
 from petitRADTRANS.retrieval.plotting import contour_corner
 import matplotlib.pyplot as plt
@@ -33,13 +29,13 @@ def main(sim_id=0):
     # line_species_str = ['CO_all_iso', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_jwst_p_kp_vr_CO_CO2_H2O_t_NIRCam_F322W2'
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     mode = 'transit'
     n_live_points = 100
     add_noise = False
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')

@@ -8,7 +8,7 @@ If for some reason the script crashes.
 """
 import time
 
-from petitRADTRANS.ccf.high_resolution_retrieval import *
+from scripts.high_resolution_retrieval import *
 # from petitRADTRANS.ccf._high_resolution_retrieval2 import *
 # from petitRADTRANS.ccf.model_containers import RetrievalSpectralModel
 # from petitRADTRANS.ccf.spectra_utils import load_snr_file
@@ -31,7 +31,7 @@ def main(sim_id=0):
     line_species_str = ['CO_all_iso', 'H2O_main_iso']
 
     retrieval_name = f'METIS_t{sim_id}l2_vttta_p_t_kp_vr_CO_H2O_86-87'
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     mode = 'transit'
     n_live_points = 100

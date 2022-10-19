@@ -16,12 +16,12 @@ import numpy as np
 
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
-from petitRADTRANS.ccf.mock_observation import add_telluric_lines, add_variable_throughput, \
+from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     convolve_shift_rebin, generate_mock_observations, get_orbital_phases, \
     get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
-from petitRADTRANS.ccf.model_containers import SpectralModel
+from scripts.model_containers import SpectralModel
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.ccf.pipeline import _remove_throughput_test, simple_pipeline, pipeline_validity_test
+from petitRADTRANS.retrieval.reprocessing import _remove_throughput_test, reprocessing_pipeline, pipeline_validity_test
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import guillot_global, doppler_shift
@@ -147,7 +147,7 @@ def get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=N
             #     spectrum_model * parameters['deformation_matrix'].value, mean=True
             # )  # p_true
 
-            spectrum_model, rm, _ = simple_pipeline(
+            spectrum_model, rm, _ = reprocessing_pipeline(
                 spectrum_model0, mean=True
             )  # p
 
@@ -203,7 +203,7 @@ def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=F
             #     spectrum_model * parameters['deformation_matrix'].value, mean=True, airmass=parameters['airmass'].value
             # )  # p_true
 
-            spectrum_model, rm, _ = simple_pipeline(
+            spectrum_model, rm, _ = reprocessing_pipeline(
                 spectrum_model0, mean=True, airmass=parameters['airmass'].value,
                 uncertainties=parameters['data_noise'].value
             )  # p
@@ -215,7 +215,7 @@ def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=F
             #     data_noise=parameters['data_noise'].value
             # )  # pn
 
-            spectrum_model, _, _ = simple_pipeline(
+            spectrum_model, _, _ = reprocessing_pipeline(
                 spectrum_model0 * parameters['data'].value, mean=True, airmass=parameters['airmass'].value,
                 uncertainties=parameters['data_noise'].value
             )  # mbrogi
@@ -434,7 +434,7 @@ def init_parameters(planet, line_species_str, mode,
         line_species, rayleigh_species, continuum_species, \
         model = init_model(planet, model_wavelengths_border[band], line_species_str)
 
-    retrieval_directory = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval', retrieval_name))
+    retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
 
     if not os.path.isdir(retrieval_directory):
         os.mkdir(retrieval_directory)
@@ -608,7 +608,7 @@ def init_parameters(planet, line_species_str, mode,
 
     if apply_pipeline:
         print('Data reduction...')
-        reduced_mock_observations, reduction_matrix, pipeline_noise = simple_pipeline(
+        reduced_mock_observations, reduction_matrix, pipeline_noise = reprocessing_pipeline(
             spectrum=mock_observations,
             uncertainties=error,
             airmass=airmass,
@@ -718,7 +718,7 @@ def init_parameters(planet, line_species_str, mode,
         print('\tSpectral correction in retrieval model: NONE')
     elif true_parameters['use_true_spectra'].value:
         print('\tSpectral correction in retrieval model: USING TRUE')
-        _, rm, _ = simple_pipeline(true_spectra, times=times, airmass=airmass, mean=median)
+        _, rm, _ = reprocessing_pipeline(true_spectra, times=times, airmass=airmass, mean=median)
         true_parameters['deformation_matrix_approximation'].value = rm
     else:
         print('\tSpectral correction in retrieval model: using current model')
@@ -732,15 +732,15 @@ def init_parameters(planet, line_species_str, mode,
 
     ts = copy.copy(true_spectra)
     ts = np.ma.masked_where(mock_observations.mask, ts)
-    fmt, mr0t, _ = simple_pipeline(ts, airmass=airmass, mean=median, uncertainties=true_parameters['data_noise'].value)
+    fmt, mr0t, _ = reprocessing_pipeline(ts, airmass=airmass, mean=median, uncertainties=true_parameters['data_noise'].value)
 
     true_parameters['true_correction'] = Param(mr0t)
     w, r = retrieval_model(model, true_parameters)
 
-    fmtd, mr0td, _ = simple_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass, mean=median,
-                                     uncertainties=true_parameters['data_noise'].value)
-    fs, mr, _ = simple_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass, mean=median,
-                                uncertainties=true_parameters['data_noise'].value)
+    fmtd, mr0td, _ = reprocessing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass, mean=median,
+                                           uncertainties=true_parameters['data_noise'].value)
+    fs, mr, _ = reprocessing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass, mean=median,
+                                      uncertainties=true_parameters['data_noise'].value)
 
     # print('!!! noiseless Mr !!!')
     # reduction_matrix = np.ones(mock_observations.shape)
@@ -860,8 +860,8 @@ def init_parameters(planet, line_species_str, mode,
 
     print(f'Log L reduction matrix = {log_l_reduction_matrix}')
 
-    noiseless_reduced_spectra, _, _ = simple_pipeline(ts * deformation_matrix, airmass=airmass, mean=median,
-                                                      uncertainties=true_parameters['data_noise'].value)
+    noiseless_reduced_spectra, _, _ = reprocessing_pipeline(ts * deformation_matrix, airmass=airmass, mean=median,
+                                                            uncertainties=true_parameters['data_noise'].value)
 
     pipeline_test_noiseless = pipeline_validity_test(
         reduced_true_model=r,
@@ -1253,7 +1253,7 @@ def main(sim_id=0):
     use_true_spectra = False
     deformation_matrix_noise = 0
 
-    retrieval_directories = os.path.abspath(os.path.join(module_dir, '..', '__tmp', 'test_retrieval'))
+    retrieval_directories = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval'))
 
     # load_from = None
     # load_from = os.path.join(retrieval_directories, f't0_kp_vr_CO_H2O_79-80_{mode}_200lp_np')

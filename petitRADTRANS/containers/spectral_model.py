@@ -11,7 +11,7 @@ from petitRADTRANS.fort_rebin import fort_rebin as fr
 import scipy.ndimage
 
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.ccf.pipeline import simple_pipeline
+from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
 from petitRADTRANS.ccf.utils import dict2hdf5, hdf52dict, fill_object
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
@@ -20,7 +20,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-from petitRADTRANS.utils import gaussian_weights_running
+from petitRADTRANS.utils import gaussian_weights_running, remove_mask
 
 
 class RetrievalParameter:
@@ -1738,32 +1738,11 @@ class BaseSpectralModel:
     @staticmethod
     def remove_mask(data, data_uncertainties):
         print('Taking care of mask...')
-        data_ = []
-        error_ = []
-        mask_ = copy.copy(data.mask)
-        lengths = []
 
-        for i in range(data.shape[0]):
-            data_.append([])
-            error_.append([])
-
-            for j in range(data.shape[1]):
-                data_[i].append(np.array(
-                    data[i, j, ~mask_[i, j, :]]
-                ))
-                error_[i].append(np.array(data_uncertainties[i, j, ~mask_[i, j, :]]))
-                lengths.append(data_[i][j].size)
-
-        # Handle jagged arrays
-        if np.all(np.asarray(lengths) == lengths[0]):
-            data_ = np.asarray(data_)
-            error_ = np.asarray(error_)
-        else:
-            print("Array is jagged, generating object array...")
-            data_ = np.asarray(data_, dtype=object)
-            error_ = np.asarray(error_, dtype=object)
-
-        return data_, error_, mask_
+        return remove_mask(
+            data=data,
+            data_uncertainties=data_uncertainties
+        )
 
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
@@ -2222,7 +2201,7 @@ class SpectralModel(BaseSpectralModel):
     def calculate_mass_mixing_ratios(pressures, line_species=None,
                                      included_line_species='all', temperatures=None, co_ratio=0.55,
                                      metallicity=None, carbon_pressure_quench=None,
-                                     imposed_mass_mixing_ratios=None, heh2_ratio=0.324324, c13c12_ratio=0.01,
+                                     imposed_mass_mixing_ratios=None, heh2_ratio=12/37, c13c12_ratio=0.01,
                                      planet_mass=None, planet_radius=None, planet_surface_gravity=None,
                                      star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                      use_equilibrium_chemistry=False, verbose=False, **kwargs):
@@ -2678,7 +2657,7 @@ class SpectralModel(BaseSpectralModel):
             if hasattr(kwargs['uncertainties'], 'mask'):
                 spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
 
-        return simple_pipeline(spectrum=spectrum, full=True, **kwargs)
+        return reprocessing_pipeline(spectrum=spectrum, full=True, **kwargs)
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
         pressures = radtrans.press * 1e-6  # cgs to bar

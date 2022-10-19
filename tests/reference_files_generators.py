@@ -173,7 +173,7 @@ def npz2dat(file, new_resolution_power=60.0, relative_error=0.05, mode='transmis
         mode:
             How to read the .npz file ('emission'|'transmission')
     """
-    from petitRADTRANS.ccf.mock_observation import convolve_rebin
+    from scripts.mock_observation import convolve_rebin
 
     npz_data = np.load(file)
 

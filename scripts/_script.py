@@ -4,9 +4,9 @@ Script to launch a CCF analysis on multiple models.
 import h5py
 import os.path
 
-from petitRADTRANS.ccf._plot_functions import *
+from scripts._plot_functions import *
 from petitRADTRANS.ccf.ccf_utils import *
-from petitRADTRANS.ccf.model_containers import *
+from scripts.model_containers import *
 
 species_color = {
     'CH4': 'C7',

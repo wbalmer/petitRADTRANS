@@ -1,143 +1,325 @@
-from scipy.interpolate import interp1d
-from scipy.signal import correlate
-from scipy.stats import norm
+"""Useful functions to analyze data using cross-correlation.
+Data and model are expected to be 3D (n_detectors, n_integrations, n_wavelengths).
+"""
+
+import copy
 
 import numpy as np
-import petitRADTRANS.nat_cst as nc
+
+from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.physics import doppler_shift
+from petitRADTRANS.ccf.ccf_core import cross_correlate_3d, co_add_cross_correlation
 
 
-def ccf_analysis(wavelengths, observed_spectrum, modelled_spectrum, velocity_range=2000., get_snr=True):
-    """
-    Calculate the cross-correlation between an observed spectrum and a modelled spectrum.
-    The modelled spectrum can be a spectrum with e.g. the contribution of a single molecule. In that case e.g. log_l_ccf
-    gives the log-likelihood of the detection of this molecule.
-    The modelled spectrum has to be re-binned to the resolution of the observed spectrum.
+def calculate_co_added_cross_correlation(cross_correlation, orbital_phases_ccf, velocities_ccf,
+                                         system_radial_velocities, planet_max_radial_orbital_velocity, kp_factor=2.0,
+                                         planet_orbital_inclination=90.0,
+                                         n_kp=None, n_vr=None):
+    n_detectors = np.shape(cross_correlation)[0]
 
-    Args:
-        wavelengths: (cm) wavelengths of the spectra
-        observed_spectrum: observed spectrum
-        modelled_spectrum: modelled spectrum
-        velocity_range: (km.s-1) velocity range of the cross-correlation
-        get_snr: if True, calculate the SNR fo the CCF
+    co_added_velocities, kps, v_rest = co_added_ccf_velocity_space(
+        system_radial_velocities=system_radial_velocities,
+        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        orbital_longitudes=orbital_phases_ccf * 360,  # phase to deg
+        velocities_ccf=velocities_ccf,
+        planet_orbital_inclination=planet_orbital_inclination,
+        kp_factor=kp_factor,
+        n_kp=n_kp,
+        n_vr=n_vr
+    )
 
-    Returns:
-        snr: the signal-to-noise ratio of the CCF
-        velocities: the velocities of the CCF
-        cross_correlation: the values of the cross-correlation
-        log_l: the log-likelihood between the model and the observations
-        log_l_ccf: the log-likelihood of the CCF
-    """
-    corrected_observed_spectrum = remove_large_scale_trends(wavelengths, observed_spectrum)
-    corrected_modelled_spectrum = remove_large_scale_trends(wavelengths, modelled_spectrum)
+    # Calculate the co-added CCFs
+    ccf_tot = np.zeros((n_detectors, np.size(kps), np.size(v_rest)))
 
-    ccf = correlate(corrected_observed_spectrum, corrected_modelled_spectrum, mode='same', method='fft')
-
-    if get_snr:
-        # Get S/N of detection, the 1e-5 coefficient is to convert from cm.s-1 to km.s-1
-        velocities = np.linspace(
-            -(np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * nc.c * 1e-5,
-            (np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * nc.c * 1e-5,
-            np.size(ccf, axis=1)
+    for i, ccf in enumerate(cross_correlation):
+        ccf_tot[i] = co_add_cross_correlation(
+            cross_correlation=ccf,
+            velocities_ccf=velocities_ccf,
+            co_added_velocities=co_added_velocities
         )
 
-        wh = np.where(np.abs(velocities) < velocity_range)
-        velocities = velocities[wh]
+    return ccf_tot, kps, v_rest
 
-        snr = np.zeros(np.size(ccf, axis=0))
-        mu = np.zeros(np.size(ccf, axis=0))
-        std = np.zeros(np.size(ccf, axis=0))
 
-        for i, ccf_ in enumerate(ccf):  # TODO this can be made more efficient
-            snr[i], mu[i], std[i] = calculate_ccf_snr(velocities, ccf_[wh])
+def calculate_co_added_ccf_snr(co_added_cross_correlation, vr_space, vr_peak_width):
+    ccf_tot_sn = np.zeros(co_added_cross_correlation.shape)
 
-        log_l = -np.size(corrected_observed_spectrum) / 2. * np.log(
-            1. / np.size(corrected_observed_spectrum) * np.sum(
-                (corrected_observed_spectrum - corrected_modelled_spectrum) ** 2.,
-                axis=1
-            )
-        )
+    for i, ccf_tot in enumerate(co_added_cross_correlation):
+        for k, ccf_tot_kp in enumerate(ccf_tot):
+            # Find the maximum of the co-added CCF at a given Kp
+            index_max = np.argmax(ccf_tot_kp)
 
-        log_l_ccf = -np.size(corrected_observed_spectrum, axis=1) / 2. * np.log(
-            np.std(corrected_observed_spectrum, axis=1) ** 2.
-            - 2. * np.max(ccf[:, wh[0]][:, np.argmin(np.abs(velocities))], axis=0)
-            / np.size(corrected_observed_spectrum, axis=1)
-            + np.std(corrected_modelled_spectrum, axis=1) ** 2.
-        )
+            # Select co-added CCF points around the "detected peak", hopefully far enough to not include the peak itself
+            noise_indices_lower = np.where(vr_space < (vr_space[index_max] - vr_peak_width))[0]
+            noise_indices_greater = np.where(vr_space > (vr_space[index_max] + vr_peak_width))[0]
+            noise_indices = np.concatenate((noise_indices_lower, noise_indices_greater))
 
-        cross_correlation = np.transpose((np.transpose(ccf[:, wh[0]]) - mu) / std)
+            # Calculate the "signal" to "noise" ratio
+            ccf_tot_sn[i, k, :] = ccf_tot_kp / np.std(ccf_tot_kp[noise_indices])
+
+    return ccf_tot_sn
+
+
+def calculate_cross_correlation(wavelength_data, data, wavelength_model, model,
+                                planet_max_radial_orbital_velocity, line_spread_function_fwhm,
+                                system_radial_velocity=0.0, pixels_per_resolution_element=2,
+                                kp_factor=1.0, extra_velocity_factor=0.25, normalize=True, full=False):
+    velocities_ccf = ccf_velocity_space(
+        system_radial_velocity=system_radial_velocity,
+        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        line_spread_function_fwhm=line_spread_function_fwhm,
+        pixels_per_resolution_element=pixels_per_resolution_element,
+        kp_factor=kp_factor,
+        extra_velocity_factor=extra_velocity_factor
+    )
+
+    ccf = shift_cross_correlate(
+        wavelength_data=wavelength_data,
+        data=data,
+        wavelength_model=wavelength_model,
+        model=model,
+        velocities_ccf=velocities_ccf,
+        full=full
+    )
+
+    if normalize:
+        ccf = normalize_cross_correlation(ccf)
+
+    if full:
+        ccf, models_shift, wavelength_shift = ccf
+
+        return ccf, velocities_ccf, models_shift, wavelength_shift
     else:
-        snr = None
-        velocities = None
-        cross_correlation = np.sum(ccf)
-        log_l = None
-        log_l_ccf = None
-
-    return snr, velocities, cross_correlation, log_l, log_l_ccf
+        return ccf, velocities_ccf
 
 
-def calculate_ccf_snr(xval, signal):
+def ccf_velocity_space(system_radial_velocity, planet_max_radial_orbital_velocity,
+                       line_spread_function_fwhm, pixels_per_resolution_element,
+                       kp_factor=1.0, extra_velocity_factor=0.25):
+    # Get min and max velocities based on the planet parameters
+    velocity_min = np.min(system_radial_velocity) - planet_max_radial_orbital_velocity * kp_factor
+    velocity_max = np.max(system_radial_velocity) + planet_max_radial_orbital_velocity * kp_factor
+
+    # Add a margin to the boundaries
+    velocity_interval = velocity_max - velocity_min
+    velocity_min -= extra_velocity_factor * velocity_interval
+    velocity_max += extra_velocity_factor * velocity_interval
+
+    # Set the velocity step as the equivalent to the instrument spectral resolution
+    # A finer step won't be fully resolved by the instrument
+    velocity_step = line_spread_function_fwhm / pixels_per_resolution_element
+
+    # Get the velocities
+    n_low = int(np.floor(velocity_min / velocity_step))
+    n_high = int(np.ceil(velocity_max / velocity_step))
+
+    velocities = np.linspace(
+        n_low * velocity_step,
+        n_high * velocity_step,
+        n_high - n_low + 1
+    )
+
+    return velocities
+
+
+def co_added_ccf_analysis(co_added_cross_correlation, kp_space, vr_space, max_percentage_area):
+    """Get the location of the co-added cross-correlation ("SNR") peak and the number of points around the peak.
     """
-    Calculate the signal-to-noise ratio of a CCF.
+    ccf_tot_max = np.max(co_added_cross_correlation)
+
+    max_coord = np.nonzero(co_added_cross_correlation == ccf_tot_max)
+    max_kp = kp_space[max_coord[0]][0]
+    max_v_rest = vr_space[max_coord[1]][0]
+
+    n_around_peak = np.size(np.nonzero(co_added_cross_correlation >= max_percentage_area * ccf_tot_max))
+
+    return ccf_tot_max, max_kp, max_v_rest, n_around_peak
+
+
+def co_added_ccf_velocity_space(system_radial_velocities, planet_max_radial_orbital_velocity,
+                                orbital_longitudes, velocities_ccf,
+                                planet_orbital_inclination=90.0, kp_factor=2.0,
+                                n_kp=None, n_vr=None):
+    # Initializations
+    if n_kp is None:
+        n_kp = np.size(velocities_ccf)
+
+    if n_vr is None:
+        n_vr = np.size(velocities_ccf)
+
+    n_integrations = np.size(orbital_longitudes)
+
+    # Get Kp space
+    kps = np.linspace(
+        -planet_max_radial_orbital_velocity * kp_factor,
+        planet_max_radial_orbital_velocity * kp_factor,
+        n_kp
+    )
+
+    # Calculate the planet relative velocities in the Kp space
+    planet_relative_velocities = system_radial_velocities + np.array([
+        Planet.calculate_planet_radial_velocity(
+            planet_max_radial_orbital_velocity=kp,
+            planet_orbital_inclination=planet_orbital_inclination,
+            orbital_longitude=orbital_longitudes  # phase to longitude (deg)
+        ) for kp in kps
+    ])
+
+    # Set rest velocity space boundaries taking the CCF velocities into account to prevent out-of-bound interpolation
+    v_planet_min = np.min(planet_relative_velocities)
+    v_planet_max = np.max(planet_relative_velocities)
+
+    v_rest_min = np.max((
+        -planet_max_radial_orbital_velocity * kp_factor,
+        np.min(velocities_ccf) - v_planet_min
+    ))
+    v_rest_max = np.min((
+        planet_max_radial_orbital_velocity * kp_factor,
+        np.max(velocities_ccf) - v_planet_max
+    ))
+    v_rest = np.linspace(v_rest_min, v_rest_max, n_vr)
+
+    # Get velocity space
+    velocities = np.zeros((n_kp, n_integrations, n_vr))
+
+    for i in range(n_kp):
+        for j in range(n_integrations):
+            velocities[i, j] = v_rest + planet_relative_velocities[i, j]
+
+    return velocities, kps, v_rest
+
+
+def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, model,
+                                   planet_max_radial_orbital_velocity, line_spread_function_fwhm,
+                                   orbital_phases_ccf,
+                                   planet_orbital_inclination=90.0,
+                                   system_radial_velocity=0.0, sum_ccf=False, normalize_ccf=True, calculate_snr=False,
+                                   co_added_ccf_peak_width=15.6e5, pixels_per_resolution_element=2,
+                                   kp_factor_ccf=1.0, kp_factor_co_added_ccf=2.0, extra_velocity_factor_ccf=0.25,
+                                   n_kp=None, n_vr=None, full=False):
+    """Calculate the cross correlation, then the co-added cross correlation.
 
     Args:
-        xval: (km.s-1) velocities
-        signal: a cross-correlation
+        wavelength_data:
+        data:
+        wavelength_model:
+        model:
+        planet_max_radial_orbital_velocity:
+        line_spread_function_fwhm:
+        orbital_phases_ccf:
+        planet_orbital_inclination:
+        system_radial_velocity:
+        sum_ccf:
+        normalize_ccf:
+        calculate_snr:
+        co_added_ccf_peak_width
+        pixels_per_resolution_element:
+        kp_factor_ccf:
+        kp_factor_co_added_ccf:
+        extra_velocity_factor_ccf:
+        n_kp:
+        n_vr:
+        full:
 
     Returns:
-        snr: the signal-to-noise ratio of the CCF
-        mu: the mean value of the CCF's noise
-        std: the standard  deviation of the CCF noise
+
     """
-    index = np.where(np.abs(xval) > 50.)  # assumes the peak is within -50, +50
-    mu, std = norm.fit(signal[index])  # fit of the CCF noise
-    signal_peak = signal[np.argmin(np.abs(xval))]  # assumes the peak is at/near 0 # TODO this method to get the peak is not always accurate!
-    snr = (signal_peak - mu) / std
+    ccf, velocities_ccf = calculate_cross_correlation(
+        wavelength_data=wavelength_data,
+        data=data,
+        wavelength_model=wavelength_model,
+        model=model,
+        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        line_spread_function_fwhm=line_spread_function_fwhm,
+        system_radial_velocity=system_radial_velocity,
+        pixels_per_resolution_element=pixels_per_resolution_element,
+        kp_factor=kp_factor_ccf,
+        extra_velocity_factor=extra_velocity_factor_ccf,
+        normalize=normalize_ccf,
+        full=False
+    )
 
-    return snr, mu, std
+    ccf_ = copy.deepcopy(ccf)
+
+    if sum_ccf:
+        ccf_ = np.array([np.ma.sum(ccf_, axis=0)])
+
+    ccf_tot, kps, v_rest = calculate_co_added_cross_correlation(
+        cross_correlation=ccf_,
+        orbital_phases_ccf=orbital_phases_ccf,
+        velocities_ccf=velocities_ccf,
+        system_radial_velocities=system_radial_velocity,
+        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        kp_factor=kp_factor_co_added_ccf,
+        planet_orbital_inclination=planet_orbital_inclination,
+        n_kp=n_kp,
+        n_vr=n_vr
+    )
+
+    if calculate_snr:
+        ccf_tot_sn = calculate_co_added_ccf_snr(
+            co_added_cross_correlation=ccf_tot,
+            vr_space=v_rest,
+            vr_peak_width=co_added_ccf_peak_width
+        )
+    else:
+        ccf_tot_sn = None
+
+    if full:
+        return ccf_tot, kps, v_rest, ccf_tot_sn, ccf, velocities_ccf, ccf_
+    else:
+        return ccf_tot, kps, v_rest, ccf_tot_sn
 
 
-def remove_large_scale_trends(freq, flux, ran=2 * 0.0015 * 1e-4):  # TODO better function?
-    """
-    Remove large scale trends from a spectrum.
+def normalize_cross_correlation(cross_correlation):
+    return np.transpose(np.transpose(cross_correlation) - np.transpose(np.mean(cross_correlation, axis=2)))
 
-    Args:
-        freq: (cm) wavelengths of the spectrum
-        flux: flux of the spectrum
-        ran: (um)
 
-    Returns:
-        flux_transform: the flux of the spectrum, removed from its large scale trends
-    """
-    if np.ndim(flux) == 1:
-        flux = np.array([flux])
+def shift_cross_correlate(wavelength_data, data, wavelength_model, model, velocities_ccf, full=False):
+    # Initialization
+    n_detectors, n_integrations, n_spectral_pixels = np.shape(data)
+    n_velocities = np.size(velocities_ccf)
+    ccf = np.zeros((n_detectors, n_integrations, n_velocities))
 
-    wavelength_range = np.arange(np.min(freq) - 2. * ran, np.max(freq) + 2. * ran, ran)
+    # Shift the wavelengths
+    wavelength_shift = np.zeros((n_velocities, np.size(wavelength_model)))
+    models_shift = np.zeros((n_detectors, n_velocities, n_spectral_pixels))
 
-    vals = np.zeros((np.size(flux, axis=0), np.size(wavelength_range[:-1]))) * np.nan
+    if np.ndim(wavelength_data) == 3:  # time-dependent wavelengths
+        print(f"3D data wavelengths detected: assuming no time dependency (axis 1)")
+        wavelengths = copy.copy(wavelength_data[:, 0, :])
+    else:
+        wavelengths = copy.copy(wavelength_data)
 
-    for i in range(1, np.size(wavelength_range) - 2):
-        wh = np.where(
-                np.logical_and(freq >= wavelength_range[i], freq < wavelength_range[i + 1])
-            )[0]
+    # Calculate Doppler shifted model wavelengths
+    for j in range(n_velocities):
+        wavelength_shift[j, :] = doppler_shift(
+            wavelength_0=wavelength_model,
+            velocity=velocities_ccf[j]
+        )
 
-        if np.size(wh) > 0:
-            vals[:, i] = np.median(flux[:, wh], axis=1)
-        else:
-            vals[:, i] = vals[:, i - 1]
+    # Rebin model to data wavelengths and shift
+    for i in range(n_detectors):
+        for k in range(n_velocities):
+            models_shift[i, k, :] = \
+                fr.rebin_spectrum(wavelength_shift[k, :], model, wavelengths[i, :])
 
-    vals[:, 0], vals[:, -1] = vals[:, 1], vals[:, -2]  # expand
+    if isinstance(data, np.ma.masked_array):
+        data_ = data.filled(np.nan)  # fill masked values with NaN to be handled properly by cross_correlate_3d
+    else:
+        data_ = copy.deepcopy(data)
 
-    # Remove leading and tailing NaNs
-    for i in range(np.size(flux, axis=0)):
-        wh = np.where(np.logical_not(np.isnan(vals[i, :])))[0]
-        vals[i, :wh[0]] = vals[i, wh[0]]
-        vals[i, wh[-1]:] = vals[i, wh[-1]]
+    data_ = np.moveaxis(np.tile(data_, (n_velocities, 1, 1, 1)), 0, 1)
+    model_ = np.moveaxis(np.tile(models_shift, (n_integrations, 1, 1, 1)), 0, 2)
 
-    # Interpolate means and divide to the flux
-    taut_val = interp1d((wavelength_range[1:] + wavelength_range[:-1]) / 2., vals)
-    flux_transform = flux / taut_val(freq) - 1.
+    # Calculate cross correlation
+    ccf = np.moveaxis(cross_correlate_3d(
+        matrix_1=data_,
+        matrix_2=model_
+    ), 1, 2)
 
-    # Remove last remaining NaNs (there should be none)
-    flux_transform = np.ma.masked_where(np.isnan(flux_transform), flux_transform)
-
-    return flux_transform
+    if full:
+        return ccf, models_shift, wavelength_shift
+    else:
+        return ccf
