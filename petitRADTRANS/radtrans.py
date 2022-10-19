@@ -232,6 +232,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.hack_cloud_total_scat_aniso = None
         self.hack_cloud_total_abs = None
         self.hack_cloud_photospheric_tau = hack_cloud_photospheric_tau
+        self.phot_radius = None
 
         # TODO instead of reading lines here, do it in a separate function
         # START Reading in opacities
@@ -526,7 +527,7 @@ class Radtrans(_read_opacities.ReadOpacities):
 
     def interpolate_cia(self, key, mfrac):
         mu_part = np.sqrt(self.CIA_species[key]['weight'])
-        factor = (mfrac/mu_part) ** 2 * self.mmw / nc.amu / (nc.L0**2) * self.press / nc.kB / self.temp
+        factor = (mfrac / mu_part) ** 2 * self.mmw / nc.amu / (nc.L0 ** 2) * self.press / nc.kB / self.temp
 
         x = self.CIA_species[key]['temperature']
         y = self.CIA_species[key]['lambda']
@@ -535,7 +536,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         z = np.log10(self.CIA_species[key]['alpha'])
 
         xnew = self.temp
-        ynew = nc.c/self.freq
+        ynew = nc.c / self.freq
 
         if x.shape[0] > 1:
             # Interpolation on temperatures for each wavelength point
@@ -543,7 +544,7 @@ class Radtrans(_read_opacities.ReadOpacities):
             z_temp2 = f(xnew)
 
             f1 = interp1d(
-              y, z_temp2, kind='linear', bounds_error=False, fill_value=(np.log10(sys.float_info.min)), axis=0
+                y, z_temp2, kind='linear', bounds_error=False, fill_value=(np.log10(sys.float_info.min)), axis=0
             )
 
             znew = 10 ** f1(ynew)
@@ -597,8 +598,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                         raise ValueError(f"species {m} of CIA '{key}' not found in mass mixing ratios dict "
                                          f"(listed species: {list(abundances.keys())})")
 
-            self.continuum_opa = self.continuum_opa + \
-                self.interpolate_cia(key, np.sqrt(abund))
+            self.continuum_opa = self.continuum_opa + self.interpolate_cia(key, np.sqrt(abund))
 
         # Calc. H- opacity
         if self.Hminus:
@@ -630,8 +630,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         if self.kappa_zero is not None:
             self.scat = True
             wlen_micron = nc.c / self.freq / 1e-4
-            scattering_add = self.kappa_zero \
-                * (wlen_micron / 0.35) ** self.gamma_scat
+            scattering_add = self.kappa_zero * (wlen_micron / 0.35) ** self.gamma_scat
             add_term = np.repeat(scattering_add[None],
                                  int(len(self.press)), axis=0).transpose()
             self.continuum_opa_scat += add_term
@@ -660,7 +659,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                     self.hack_cloud_total_abs = np.zeros(opa_shape)
 
         else:
-            cloud_abs = give_absorption_opacity(nc.c/self.freq/1e-4, self.press*1e-6)
+            cloud_abs = give_absorption_opacity(nc.c / self.freq / 1e-4, self.press * 1e-6)
             self.continuum_opa += cloud_abs
 
             if self.hack_cloud_photospheric_tau is not None:
@@ -677,7 +676,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                     self.hack_cloud_total_scat_aniso = np.zeros(opa_shape)
 
         else:
-            cloud_scat = give_scattering_opacity(nc.c/self.freq/1e-4, self.press*1e-6)
+            cloud_scat = give_scattering_opacity(nc.c / self.freq / 1e-4, self.press * 1e-6)
             self.continuum_opa_scat += cloud_scat
 
             if self.do_scat_emis:
@@ -756,19 +755,19 @@ class Radtrans(_read_opacities.ReadOpacities):
                                        self.cloud_specs_scat_opa,
                                        self.cloud_aniso)
             else:
-                cloud_abs_opa_tot,cloud_scat_opa_tot,cloud_red_fac_aniso_tot = \
-                fs.calc_hansen_opas(
-                    rho,
-                    self.rho_cloud_particles,
-                    self.cloud_mass_fracs,
-                    self.r_g,
-                    b_hans,
-                    self.cloud_rad_bins,
-                    self.cloud_radii,
-                    self.cloud_specs_abs_opa,
-                    self.cloud_specs_scat_opa,
-                    self.cloud_aniso
-                )
+                cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot = \
+                    fs.calc_hansen_opas(
+                        rho,
+                        self.rho_cloud_particles,
+                        self.cloud_mass_fracs,
+                        self.r_g,
+                        b_hans,
+                        self.cloud_rad_bins,
+                        self.cloud_radii,
+                        self.cloud_specs_abs_opa,
+                        self.cloud_specs_scat_opa,
+                        self.cloud_aniso
+                    )
         else:
             fseds = np.zeros(len(self.cloud_species))
             for i_spec, cloud in enumerate(self.cloud_species):
@@ -932,8 +931,8 @@ class Radtrans(_read_opacities.ReadOpacities):
                     else:
                         # Use a smaller wavelength range for the median optical depth
                         # The units of cloud_wlen are converted from micron to Angstroem
-                        wlen_select = (self.lambda_angstroem >= 1e4*cloud_wlen[0]) & \
-                                      (self.lambda_angstroem <= 1e4*cloud_wlen[1])
+                        wlen_select = (self.lambda_angstroem >= 1e4 * cloud_wlen[0]) & \
+                                      (self.lambda_angstroem <= 1e4 * cloud_wlen[1])
 
                     # Calculate the cloud-free optical depth per wavelength
                     w_gauss_photosphere = self.w_gauss[..., np.newaxis, np.newaxis]
@@ -946,7 +945,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                             (optical_depth[1:, :] + optical_depth[:-1, :]) * np.diff(self.freq)[..., np.newaxis],
                             axis=0) / (self.freq[-1] - self.freq[0]) / 2.
 
-                    optical_depth_cloud = np.sum(w_gauss_photosphere*total_tau_cloud[:, :, 0, :], axis=0)
+                    optical_depth_cloud = np.sum(w_gauss_photosphere * total_tau_cloud[:, :, 0, :], axis=0)
 
                     if median:
                         optical_depth_cloud_integ = np.median(optical_depth_cloud[wlen_select, :], axis=0)
@@ -979,10 +978,10 @@ class Radtrans(_read_opacities.ReadOpacities):
                         max_rescaling = 1e100
 
                         for f in self.fsed.keys():
-                            mr = 2.*(self.fsed[f]+1.)
+                            mr = 2. * (self.fsed[f] + 1.)
                             max_rescaling = min(max_rescaling, mr)
 
-                        self.scaling_physicality = self.cloud_scaling_factor/max_rescaling
+                        self.scaling_physicality = self.cloud_scaling_factor / max_rescaling
                         print(f"Scaling_physicality: {self.cloud_scaling_factor / max_rescaling}")
                     else:
                         self.scaling_physicality = None
@@ -1276,8 +1275,8 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.cloud_wlen = cloud_wlen
 
         if self.cloud_wlen is not None and (
-            self.cloud_wlen[0] < 1e-4*self.lambda_angstroem[0] or
-                self.cloud_wlen[1] > 1e-4*self.lambda_angstroem[-1]):
+                self.cloud_wlen[0] < 1e-4 * self.lambda_angstroem[0] or
+                self.cloud_wlen[1] > 1e-4 * self.lambda_angstroem[-1]):
             raise ValueError('The wavelength range of cloud_wlen should '
                              'lie within the wavelength range of '
                              'self.lambda_angstroem, which is slightly '
@@ -1303,27 +1302,27 @@ class Radtrans(_read_opacities.ReadOpacities):
         if R_pl is not None:
             try:
                 radius_hse = self.calc_radius_hydrostatic_equilibrium(temp,
-                                                mmw,
-                                                gravity,
-                                                self.press[-1] * 1e-6,
-                                                R_pl)
+                                                                      mmw,
+                                                                      gravity,
+                                                                      self.press[-1] * 1e-6,
+                                                                      R_pl)
 
                 rad_press = interp1d(self.press, radius_hse)
 
                 self.phot_radius = np.zeros(self.freq_len)
 
                 if self.mode == 'lbl' or self.test_ck_shuffle_comp:
-                    #self.total_tau[:, :, :1, :]
+                    # self.total_tau[:, :, :1, :]
                     # line_struc_kappas = np.zeros(
                     #                 (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
                     #             )
                     wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
                     for i_freq in range(self.freq_len):
-                        tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis = 0)
+                        tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis=0)
                         press_taup = interp1d(tau_p, self.press)
-                        #print(tau_p)
-                        self.phot_radius[i_freq] = rad_press(press_taup(2./3.))
-            except:
+                        # print(tau_p)
+                        self.phot_radius[i_freq] = rad_press(press_taup(2. / 3.))
+            except:  # TODO find what is expected here
                 self.phot_radius = -np.ones(self.freq_len)
 
         if not self.skip_RT_step:
@@ -1915,8 +1914,8 @@ class Radtrans(_read_opacities.ReadOpacities):
                                             gravity,
                                             P0,
                                             R_pl,
-                                            variable_gravity = True,
-                                            pressures = None):
+                                            variable_gravity=True,
+                                            pressures=None):
 
         if pressures is None:
             pressures = self.press
@@ -1924,7 +1923,7 @@ class Radtrans(_read_opacities.ReadOpacities):
             pressures = pressures * 1e6
         P0 = P0 * 1e6
 
-        rho = pressures*MMWs*nc.amu/nc.kB/temperatures
+        rho = pressures * MMWs * nc.amu / nc.kB / temperatures
         radius = fs.calc_radius(pressures,
                                 gravity,
                                 rho,
@@ -1941,10 +1940,9 @@ class Radtrans(_read_opacities.ReadOpacities):
                                               temperature,
                                               radii,
                                               rk4=True):
-
-        P0 = P0*1e6
+        P0 = P0 * 1e6
         vs = 1. / radii
-        R_pl_sq = R_pl ** 2
+        r_pl_sq = R_pl ** 2
 
         def integrand(press):
             temp = temperature(press)
@@ -1952,7 +1950,7 @@ class Radtrans(_read_opacities.ReadOpacities):
             if not np.isscalar(mu):
                 mu = mu[0]
 
-            integ = mu * nc.amu * gravity * R_pl_sq / nc.kB / temp
+            integ = mu * nc.amu * gravity * r_pl_sq / nc.kB / temp
             return integ
 
         pressures = [P0]
@@ -1961,6 +1959,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         chi1 = np.log(P0)
         for dv in dvs:
             k1 = integrand(press1)
+
             if rk4:
                 chi2 = chi1 + 0.5 * dv * k1
                 press2 = np.exp(chi2)
@@ -1974,24 +1973,26 @@ class Radtrans(_read_opacities.ReadOpacities):
                 chi1 = chi1 + 1. / 6. * (k1 + 2 * k2 + 2 * k3 + k4) * dv
             else:
                 chi1 = chi1 + dv * k1
+
             press1 = np.exp(chi1)
             pressures.append(press1)
 
-        return np.array(pressures)/1e6
+        return np.array(pressures) / 1e6
+
 
 def py_calc_cloud_opas(
-    rho, # (M,)
-    rho_p,  # (N,)
-    cloud_mass_fracs,  # (M, N)
-    r_g,  # (M, N)
-    sigma_n,
-    cloud_rad_bins,  # (P + 1,)
-    cloud_radii,  # (P,)
-    cloud_specs_abs_opa,  # (P, Q, N)
-    cloud_specs_scat_opa,  # (P, Q, N)
-    cloud_aniso,  # (P, Q, N)
+        rho,  # (M,)
+        rho_p,  # (N,)
+        cloud_mass_fracs,  # (M, N)
+        r_g,  # (M, N)
+        sigma_n,
+        cloud_rad_bins,  # (P + 1,)
+        cloud_radii,  # (P,)
+        cloud_specs_abs_opa,  # (P, Q, N)
+        cloud_specs_scat_opa,  # (P, Q, N)
+        cloud_aniso,  # (P, Q, N)
 ):
-    r""""
+    r"""
     This function reimplements calc_cloud_opas from fort_spec.f90. For some reason
     it runs faster in python than in fortran, so we'll use this from now on.
     This function integrates the cloud opacity throught the different layers of
@@ -1999,29 +2000,26 @@ def py_calc_cloud_opas(
 
     author: Francois Rozet
     """
-    N = (  # (M, N)
-        3.0
-        * cloud_mass_fracs
-        * rho[:, None]
-        / (4.0 * np.pi * rho_p * (r_g ** 3))
-        * np.exp(-4.5 * np.log(sigma_n) ** 2)
+    n = (  # (M, N)
+            3.0
+            * cloud_mass_fracs
+            * rho[:, None]
+            / (4.0 * np.pi * rho_p * (r_g ** 3))
+            * np.exp(-4.5 * np.log(sigma_n) ** 2)
     )
 
-    diff = np.log(cloud_radii[:,None,None]) - np.log(r_g)
+    diff = np.log(cloud_radii[:, None, None]) - np.log(r_g)
     dndr = (  # (P, M, N)
-        N
+        n
         / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
-        * np.exp(
-            -diff ** 2
-            / (2.0 * np.log(sigma_n) ** 2)
-        )
+        * np.exp(-diff ** 2 / (2.0 * np.log(sigma_n) ** 2))
     )
 
     integrand_scale = (  # (P, M, N)
-        (4.0 * np.pi / 3.0)
-        * cloud_radii[:, None, None] ** 3
-        * rho_p
-        * dndr
+            (4.0 * np.pi / 3.0)
+            * cloud_radii[:, None, None] ** 3
+            * rho_p
+            * dndr
     )
 
     integrand_abs = integrand_scale[:, None] * cloud_specs_abs_opa[:, :, None]

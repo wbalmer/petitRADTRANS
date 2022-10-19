@@ -9,11 +9,7 @@ import sys
 os.environ["OMP_NUM_THREADS"] = "1"
 # Read external packages
 import numpy as np
-import copy as cp
 
-import json
-import logging
-from scipy.stats import binned_statistic
 # Plotting
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
@@ -26,8 +22,8 @@ from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
 from petitRADTRANS.utils import running_mean
 from scipy.stats import binned_statistic
 
-from .rebin_give_width import rebin_give_width as rgw
-from .util import bin_species_exok
+from petitRADTRANS.retrieval.rebin_give_width import rebin_give_width as rgw
+from petitRADTRANS.retrieval.util import bin_species_exok
 
 
 class Retrieval:
@@ -1174,7 +1170,7 @@ class Retrieval:
         """
         This function builds a dictionary of parameters that can be passed to the
         model building functions. It requires a numpy array with the same length
-        as the number of free parameters, and a list of all of the parameter names
+        as the number of free parameters, and a list of all the parameter names
         in the order they appear in the array. The returned dictionary will contain
         all of these parameters, together with the fixed retrieval parameters.
 
