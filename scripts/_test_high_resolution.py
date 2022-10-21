@@ -15,11 +15,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import petitRADTRANS.nat_cst as nc
-from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
+from scripts.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     convolve_shift_rebin, generate_mock_observations, get_orbital_phases, \
     get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
-from scripts.model_containers import SpectralModel
+from scripts.model_containers import SpectralModelLegacy
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.retrieval.reprocessing import _remove_throughput_test, reprocessing_pipeline, pipeline_validity_test
 from petitRADTRANS.fort_rebin import fort_rebin as fr
@@ -411,7 +411,7 @@ def init_parameters(planet, line_species_str, mode,
     }
 
     star_data = get_PHOENIX_spec(planet.star_effective_temperature)
-    star_data[:, 1] = SpectralModel.radiosity_erg_hz2radiosity_erg_cm(
+    star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
         star_data[:, 1], nc.c / star_data[:, 0]
     )
 

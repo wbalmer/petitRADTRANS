@@ -21,7 +21,7 @@ max_number_of_tests = 3
 
 
 def init_run():
-    # Since our retrieval has already ran before, we'll set the mode to 'evaluate' so we can make some plots.
+    # Since our retrieval has already run before, we'll set the mode to 'evaluate' so we can make some plots.
     run_definition_simple = petitRADTRANS.retrieval.RetrievalConfig(
         retrieval_name="test",
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest

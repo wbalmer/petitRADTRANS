@@ -65,4 +65,3 @@ def cross_correlate_3d(matrix_1, matrix_2):
     matrix_2[ids] = matrix_mul[ids] / matrix_1[ids]
 
     return matrix_2
-

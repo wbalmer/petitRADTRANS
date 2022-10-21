@@ -5,7 +5,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import petitRADTRANS
-import petitRADTRANS.ccf.spectra_utils
+import petitRADTRANS.containers
+import petitRADTRANS.containers.planet
+import petitRADTRANS.containers.spectral_model
 import petitRADTRANS.fort_rebin
 import petitRADTRANS.nat_cst
 import petitRADTRANS.phoenix

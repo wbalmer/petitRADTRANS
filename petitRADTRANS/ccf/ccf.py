@@ -280,7 +280,6 @@ def shift_cross_correlate(wavelength_data, data, wavelength_model, model, veloci
     # Initialization
     n_detectors, n_integrations, n_spectral_pixels = np.shape(data)
     n_velocities = np.size(velocities_ccf)
-    ccf = np.zeros((n_detectors, n_integrations, n_velocities))
 
     # Shift the wavelengths
     wavelength_shift = np.zeros((n_velocities, np.size(wavelength_model)))

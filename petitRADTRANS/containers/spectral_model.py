@@ -12,15 +12,15 @@ import scipy.ndimage
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
-from petitRADTRANS.ccf.utils import dict2hdf5, hdf52dict, fill_object
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
-from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile
+from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, \
+    radiosity_erg_cm2radiosity_erg_hz, radiosity_erg_hz2radiosity_erg_cm
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-from petitRADTRANS.utils import gaussian_weights_running, remove_mask
+from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, remove_mask
 
 
 class RetrievalParameter:
@@ -160,6 +160,7 @@ class RetrievalParameter:
 
 
 class BaseSpectralModel:
+    # TODO warning when changing a Radtrans parameter
     # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
@@ -756,7 +757,7 @@ class BaseSpectralModel:
                 semi_major_axis=semi_major_axis
             )
 
-            star_spectral_radiances = BaseSpectralModel.radiosity_erg_cm2radiosity_erg_hz(
+            star_spectral_radiances = radiosity_erg_cm2radiosity_erg_hz(
                 star_spectral_radiosities, nc.c / radtrans.freq  # Hz to cm
             ) * 1e7 / np.pi  # W.m-2/um to erg.s-1.cm-2.sr-1.Hz-1
 
@@ -783,7 +784,7 @@ class BaseSpectralModel:
         )
 
         # Transform the outputs into the units of our data
-        spectral_radiosity = BaseSpectralModel.radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq) \
+        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         if is_observed:
@@ -806,7 +807,7 @@ class BaseSpectralModel:
 
         star_radiosities = fr.rebin_spectrum(star_wavelengths, star_radiosities, wavelengths)
 
-        star_radiosities = BaseSpectralModel.radiosity_erg_hz2radiosity_erg_cm(
+        star_radiosities = radiosity_erg_hz2radiosity_erg_cm(
             star_radiosities, BaseSpectralModel.um2hz(wavelengths)
         ) * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
@@ -1654,49 +1655,6 @@ class BaseSpectralModel:
             spectrum: the spectrum reduced by the pipeline
         """
         return spectrum
-
-    @staticmethod
-    def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
-        """
-        Convert a radiosity from erg.s-1.cm-2.sr-1/cm to erg.s-1.cm-2.sr-1/Hz at a given wavelength.
-        Steps:
-            [cm] = c[cm.s-1] / [Hz]
-            => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
-            => d[cm]/d[Hz] = c / [Hz]**2
-            integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
-            radiosity_erg_hz = radiosity_erg_cm * d[cm]/d[Hz]
-            => radiosity_erg_hz = radiosity_erg_cm * wavelength**2 / c
-
-        Args:
-            radiosity_erg_cm: (erg.s-1.cm-2.sr-1/cm)
-            wavelength: (cm)
-
-        Returns:
-            (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
-        """
-        return radiosity_erg_cm * wavelength ** 2 / nc.c
-
-    @staticmethod
-    def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
-        """
-        Convert a radiosity from erg.s-1.cm-2.sr-1/Hz to erg.s-1.cm-2.sr-1/cm at a given frequency.
-        Steps:
-            [cm] = c[cm.s-1] / [Hz]
-            => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
-            => d[cm]/d[Hz] = c / [Hz]**2
-            => d[Hz]/d[cm] = [Hz]**2 / c
-            integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
-            radiosity_erg_cm = radiosity_erg_hz * d[Hz]/d[cm]
-            => radiosity_erg_cm = radiosity_erg_hz * frequency**2 / c
-
-        Args:
-            radiosity_erg_hz: (erg.s-1.cm-2.sr-1/Hz)
-            frequency: (Hz)
-
-        Returns:
-            (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
-        """
-        return radiosity_erg_hz * frequency ** 2 / nc.c
 
     @staticmethod
     def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):

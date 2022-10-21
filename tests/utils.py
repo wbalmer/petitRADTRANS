@@ -136,6 +136,7 @@ def create_test_radtrans_config_file(filename):
                     'equilibrium_temperature': 1500.0  # (K)
                 },
                 'planetary_parameters': {
+                    'name': 'PSR B1257+12 b',  # actual planet has no link to below parameters
                     'reference_pressure': 0.01,  # (bar)
                     'radius': 1.838,  # (R_jup)
                     'surface_gravity': 1e1 ** 2.45,  # (cm.s-2)

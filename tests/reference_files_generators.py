@@ -161,7 +161,7 @@ def __save_transmission_spectrum(filename, atmosphere, plot_figure=False, figure
 def npz2dat(file, new_resolution_power=60.0, relative_error=0.05, mode='transmission'):
     """Converts a .npz spectrum file into a .dat file suitable for the petitRADTRANS.retrieval Data class.
 
-    The .dat file is outputted in the same directory than the .npz file.
+    The .dat file is outputted in the same directory as the .npz file.
 
     Args:
         file:
@@ -180,7 +180,7 @@ def npz2dat(file, new_resolution_power=60.0, relative_error=0.05, mode='transmis
     wavelength = npz_data['wavelength']
 
     if mode == 'emission':
-        flux = petitRADTRANS.ccf.spectra_utils.radiosity_erg_hz2radiosity_erg_cm(
+        flux = petitRADTRANS.physics.radiosity_erg_hz2radiosity_erg_cm(
             npz_data['spectral_radiosity'],
             petitRADTRANS.nat_cst.c * 1e4 / wavelength  # um to Hz
         )

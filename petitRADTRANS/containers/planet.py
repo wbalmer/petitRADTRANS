@@ -1,6 +1,6 @@
 """Planet object."""
-
 import os
+import warnings
 
 import h5py
 import numpy as np
@@ -8,11 +8,11 @@ import pyvo
 from astropy.table.table import Table
 
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.ccf.utils import calculate_uncertainty
+from petitRADTRANS.utils import calculate_uncertainty
 
 
 class Planet:
-    default_planet_models_directory = os.path.abspath(os.path.dirname(__file__) + os.path.sep + 'planet_models')  # TODO questionable
+    default_planet_models_directory = os.path.abspath(os.path.dirname(__file__) + os.path.sep + 'planet_models')  # TODO questionable, could make use of config pRT_outputs_path
 
     def __init__(
             self,
@@ -931,8 +931,8 @@ class Planet:
             planet_orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
                 observation, i.e. 90 degree: edge view, 0 degree: top view
             orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
-                planet position, i.e. if the planet orbital inclination is 0 degree, 0 degree: mid primary transit
-                point, 180 degree: mid secondary eclipse point
+                planet position, i.e. if the planet orbital inclination is 0 degree, 0 degree: mid-primary transit
+                point, 180 degree: mid-secondary eclipse point
 
         Returns:
 
@@ -967,7 +967,7 @@ class Planet:
         black planet and perfectly sharp and uniformly luminous star.
 
         Args:
-            time_from_mid_transit: (s) time from mid transit, 0 is the mid transit time, < 0 before and > 0 after
+            time_from_mid_transit: (s) time from mid-transit, 0 is the mid-transit time, < 0 before and > 0 after
             planet_radius: (cm) radius of the planet
             star_radius: (cm) radius of the star
             planet_orbital_velocity: (cm.s-1) planet velocity along its orbit.
@@ -1088,6 +1088,11 @@ class Planet:
         Returns:
             (cm.s-2) the surface gravity of the planet, and its upper and lower error
         """
+        if radius <= 0:
+            warnings.warn(f"unknown or invalid radius ({radius}), surface gravity not calculated")
+
+            return None, None, None
+
         surface_gravity = nc.G * mass / radius ** 2
 
         partial_derivatives = np.array([
@@ -1120,6 +1125,11 @@ class Planet:
         Returns:
             (cm.s-2) the surface gravity of the planet, and its upper and lower error
         """
+        if surface_gravity <= 0:
+            warnings.warn(f"unknown or invalid surface gravity ({surface_gravity}), radius not calculated")
+
+            return None, None, None
+
         radius = (nc.G * mass / surface_gravity) ** 0.5
 
         partial_derivatives = np.array([

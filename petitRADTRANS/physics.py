@@ -469,3 +469,47 @@ def PT_ret_model(rad_trans_params):
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
+
+
+def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
+    """
+    Convert a radiosity from erg.s-1.cm-2.sr-1/cm to erg.s-1.cm-2.sr-1/Hz at a given wavelength.
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
+        radiosity_erg_hz = radiosity_erg_cm * d[cm]/d[Hz]
+        => radiosity_erg_hz = radiosity_erg_cm * wavelength**2 / c
+
+    Args:
+        radiosity_erg_cm: (erg.s-1.cm-2.sr-1/cm)
+        wavelength: (cm)
+
+    Returns:
+        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+    """
+    return radiosity_erg_cm * wavelength ** 2 / nc.c
+
+
+def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
+    """Convert a radiosity from erg.s-1.cm-2.sr-1/Hz to erg.s-1.cm-2.sr-1/cm at a given frequency.
+
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        => d[Hz]/d[cm] = [Hz]**2 / c
+        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
+        radiosity_erg_cm = radiosity_erg_hz * d[Hz]/d[cm]
+        => radiosity_erg_cm = radiosity_erg_hz * frequency**2 / c
+
+    Args:
+        radiosity_erg_hz: (erg.s-1.cm-2.sr-1/Hz)
+        frequency: (Hz)
+
+    Returns:
+        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+    """
+    # TODO move to physics
+    return radiosity_erg_hz * frequency ** 2 / nc.c

@@ -5,7 +5,7 @@ import h5py
 import os.path
 
 from scripts._plot_functions import *
-from petitRADTRANS.ccf.ccf_utils import *
+from scripts.ccf_utils import *
 from scripts.model_containers import *
 
 species_color = {
@@ -166,12 +166,12 @@ def main():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
                 line_species_list=line_species_list,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -402,12 +402,12 @@ def main_tic():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
                 line_species_list=line_species_list,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix[id_model]
@@ -642,12 +642,12 @@ def main_wasp():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
                 line_species_list=line_species_list,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix[id_model]
@@ -838,12 +838,12 @@ def main_lp():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -1038,12 +1038,12 @@ def main_ltt2():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -1263,12 +1263,12 @@ def main_toi270():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -1547,12 +1547,12 @@ def main_ltt():
             if not all_models_exist:
                 if atmosphere is None:
                     # Load or generate atmosphere
-                    atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                    atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                         wlen_bords_micron=wlen_modes[wlen_mode],
                         pressures=pressures,
                         line_species_list=line_species_list,
-                        rayleigh_species=SpectralModel.default_rayleigh_species,
-                        continuum_opacities=SpectralModel.default_continuum_opacities,
+                        rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                        continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                         lbl_opacity_sampling=lbl_opacity_sampling,
                         do_scat_emis=do_scat_emis,
                         model_suffix=model_suffix[0]
@@ -1857,12 +1857,12 @@ def main_aumicc():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -2123,12 +2123,12 @@ def main_hd():
             if not all_models_exist:
                 if atmosphere is None:
                     # Load or generate atmosphere
-                    atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                    atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                         wlen_bords_micron=wlen_modes[wlen_mode],
                         pressures=pressures,
                         line_species_list=line_species_list,
-                        rayleigh_species=SpectralModel.default_rayleigh_species,
-                        continuum_opacities=SpectralModel.default_continuum_opacities,
+                        rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                        continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                         lbl_opacity_sampling=lbl_opacity_sampling,
                         do_scat_emis=do_scat_emis,
                         model_suffix=model_suffix[0]
@@ -2390,12 +2390,12 @@ def main_toi776():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -2620,12 +2620,12 @@ def main_toi():
             if not all_models_exist:
                 if atmosphere is None:
                     # Load or generate atmosphere
-                    atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                    atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                         wlen_bords_micron=wlen_modes[wlen_mode],
                         pressures=pressures,
                         line_species_list=line_species_list,
-                        rayleigh_species=SpectralModel.default_rayleigh_species,
-                        continuum_opacities=SpectralModel.default_continuum_opacities,
+                        rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                        continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                         lbl_opacity_sampling=lbl_opacity_sampling,
                         do_scat_emis=do_scat_emis,
                         model_suffix=model_suffix
@@ -2852,12 +2852,12 @@ def main_teff():
             if not all_models_exist:
                 if atmosphere is None:
                     # Load or generate atmosphere
-                    atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                    atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                         wlen_bords_micron=wlen_modes[wlen_mode],
                         pressures=pressures,
                         line_species_list=line_species_list,
-                        rayleigh_species=SpectralModel.default_rayleigh_species,
-                        continuum_opacities=SpectralModel.default_continuum_opacities,
+                        rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                        continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                         lbl_opacity_sampling=lbl_opacity_sampling,
                         do_scat_emis=do_scat_emis,
                         model_suffix=model_suffix
@@ -3064,12 +3064,12 @@ def main_tiso():
             if not all_models_exist:
                 if atmosphere is None:
                     # Load or generate atmosphere
-                    atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+                    atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                         wlen_bords_micron=wlen_modes[wlen_mode],
                         pressures=pressures,
                         line_species_list=line_species_list,
-                        rayleigh_species=SpectralModel.default_rayleigh_species,
-                        continuum_opacities=SpectralModel.default_continuum_opacities,
+                        rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                        continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                         lbl_opacity_sampling=lbl_opacity_sampling,
                         do_scat_emis=do_scat_emis,
                         model_suffix=model_suffix
@@ -3248,12 +3248,12 @@ def _test():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix
@@ -3431,12 +3431,12 @@ def _test_emission():
 
         if not all_models_exist:
             # Load or generate atmosphere
-            atmosphere, atmosphere_filename = SpectralModel.get_atmosphere_model(
+            atmosphere, atmosphere_filename = SpectralModelLegacy.get_atmosphere_model(
                 wlen_bords_micron=wlen_modes[wlen_mode],
                 pressures=pressures,
-                line_species_list=SpectralModel.default_line_species,
-                rayleigh_species=SpectralModel.default_rayleigh_species,
-                continuum_opacities=SpectralModel.default_continuum_opacities,
+                line_species_list=SpectralModelLegacy.default_line_species,
+                rayleigh_species=SpectralModelLegacy.default_rayleigh_species,
+                continuum_opacities=SpectralModelLegacy.default_continuum_opacities,
                 lbl_opacity_sampling=lbl_opacity_sampling,
                 do_scat_emis=do_scat_emis,
                 model_suffix=model_suffix

@@ -7,7 +7,7 @@ from warnings import warn
 
 import numpy as np
 
-from petitRADTRANS.ccf.utils import median_uncertainties, calculate_uncertainty
+from petitRADTRANS.utils import median_uncertainties, calculate_uncertainty
 
 
 def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):

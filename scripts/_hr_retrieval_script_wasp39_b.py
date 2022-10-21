@@ -20,6 +20,7 @@ from scripts.high_resolution_retrieval_HD_189733_b2 import *
 # from petitRADTRANS.ccf._high_resolution_retrieval2 import *
 from petitRADTRANS.retrieval import Retrieval
 from petitRADTRANS.retrieval.plotting import contour_corner
+from petitRADTRANS.radtrans import Radtrans
 
 
 # Arguments definition

@@ -40,6 +40,7 @@
         "equilibrium_temperature": 1500.0
     },
     "planetary_parameters": {
+        "name": "PSR B1257+12 b",
         "reference_pressure": 0.01,
         "radius": 1.838,
         "surface_gravity": 281.8382931264455,

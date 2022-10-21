@@ -8,11 +8,11 @@ import numpy as np
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
 import petitRADTRANS.nat_cst as nc
-from petitRADTRANS.ccf.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
+from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_transit_spectra, get_orbital_phases
 from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
-from petitRADTRANS.ccf.utils import calculate_reduced_chi2
+from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
 from petitRADTRANS.phoenix import get_PHOENIX_spec

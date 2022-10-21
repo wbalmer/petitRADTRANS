@@ -6,7 +6,6 @@ import numpy as np
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.ccf.utils import module_dir
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import guillot_global
@@ -181,7 +180,7 @@ class SimplePlanet(Planet):
         return surface_gravity * radius ** 2 / nc.G
 
 
-class SpectralModel:
+class SpectralModelLegacy:
     default_line_species = [
         'CH4_main_iso',
         'CO_all_iso',
@@ -202,6 +201,8 @@ class SpectralModel:
         'H2-H2',
         'H2-He'
     ]
+
+    module_dir = os.path.abspath('./')
 
     def __init__(self, planet_name, wavelength_boundaries, lbl_opacity_sampling, do_scat_emis,
                  t_int, metallicity, co_ratio, p_cloud, kappa_ir_z0=0.01, gamma=0.4, p_quench_c=None, haze_factor=1,
@@ -372,7 +373,7 @@ class SpectralModel:
 
         # Chemical equilibrium
         if use_equilibrium_chemistry:
-            mass_mixing_ratios_equilibrium = SpectralModel._init_equilibrium_chemistry(
+            mass_mixing_ratios_equilibrium = SpectralModelLegacy._init_equilibrium_chemistry(
                 pressures=pressures,
                 temperatures=temperatures,
                 co_ratio=co_ratio,
@@ -523,7 +524,7 @@ class SpectralModel:
         pressures = atmosphere.press * 1e-6  # bar to cgs
 
         if parameters['intrinsic_temperature'].value is not None:
-            temperatures = SpectralModel._init_temperature_profile_guillot(
+            temperatures = SpectralModelLegacy._init_temperature_profile_guillot(
                 pressures=pressures,
                 gamma=parameters['guillot_temperature_profile_gamma'].value,
                 surface_gravity=10 ** parameters['log10_surface_gravity'].value,
@@ -549,7 +550,7 @@ class SpectralModel:
             # Convert from log-abundance
             imposed_mass_mixing_ratios[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
 
-        mass_mixing_ratios = SpectralModel._init_mass_mixing_ratios(
+        mass_mixing_ratios = SpectralModelLegacy._init_mass_mixing_ratios(
             pressures=pressures,
             line_species=atmosphere.line_species,
             included_line_species=parameters['included_line_species'].value,
@@ -660,7 +661,7 @@ class SpectralModel:
 
     @staticmethod
     def _spectral_radiosity_model(atmosphere: Radtrans, parameters: dict):
-        temperatures, mass_mixing_ratios, mean_molar_mass = SpectralModel._init_model(
+        temperatures, mass_mixing_ratios, mean_molar_mass = SpectralModelLegacy._init_model(
             atmosphere=atmosphere,
             parameters=parameters
         )
@@ -679,14 +680,14 @@ class SpectralModel:
         )
 
         # Transform the outputs into the units of our data.
-        planet_radiosity = SpectralModel.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.freq)
+        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.freq)
         wlen_model = nc.c / atmosphere.freq * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
 
     @staticmethod
     def _transit_radius_model(atmosphere: Radtrans, parameters: dict):
-        temperatures, mass_mixing_ratios, mean_molar_mass = SpectralModel._init_model(
+        temperatures, mass_mixing_ratios, mean_molar_mass = SpectralModelLegacy._init_model(
             atmosphere=atmosphere,
             parameters=parameters
         )
@@ -788,7 +789,7 @@ class SpectralModel:
     def calculate_eclipse_depth(self, atmosphere: Radtrans, planet: Planet, star_radiosity_filename=None):
         if star_radiosity_filename is None:
             star_radiosity_filename = self.get_star_radiosity_filename(
-                planet.star_effective_temperature, path=module_dir
+                planet.star_effective_temperature, path=SpectralModelLegacy.module_dir
             )
 
         if not os.path.isfile(star_radiosity_filename):
@@ -854,7 +855,7 @@ class SpectralModel:
         # Don't take the first wavelength to avoid spike in convolution
         wavelength_stellar = \
             stellar_spectral_radiance[1:, 0]  # in cm
-        stellar_spectral_radiance = SpectralModel.radiosity_erg_hz2radiosity_erg_cm(
+        stellar_spectral_radiance = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
             stellar_spectral_radiance[1:, 1],
             nc.c / wavelength_stellar  # cm to Hz
         )
@@ -915,7 +916,7 @@ class SpectralModel:
     @staticmethod
     def _get_phoenix_star_spectral_radiosity(star_effective_temperature, wavelengths):
         star_data = get_PHOENIX_spec(star_effective_temperature)
-        star_data[:, 1] = SpectralModel.radiosity_erg_hz2radiosity_erg_cm(
+        star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
             star_data[:, 1], nc.c / star_data[:, 0]  # cm to Hz
         )
 
@@ -1237,7 +1238,7 @@ class SpectralModel:
                 model_suffix
             )
         else:
-            model.atmosphere_file = SpectralModel._get_hires_atmosphere_filename(
+            model.atmosphere_file = SpectralModelLegacy._get_hires_atmosphere_filename(
                 pressures, model.wavelength_boundaries, model.lbl_opacity_sampling, model_suffix
             )
 
@@ -1314,7 +1315,7 @@ class SpectralModel:
                              line_species_list=None, rayleigh_species=None, continuum_opacities=None,
                              lbl_opacity_sampling=1, do_scat_emis=False, save=False,
                              model_suffix=''):
-        atmosphere_filename = SpectralModel._get_hires_atmosphere_filename(
+        atmosphere_filename = SpectralModelLegacy._get_hires_atmosphere_filename(
             pressures, wlen_bords_micron, lbl_opacity_sampling, do_scat_emis, model_suffix
         )
 
@@ -1323,7 +1324,7 @@ class SpectralModel:
             with open(atmosphere_filename, 'rb') as f:
                 atmosphere = pickle.load(f)
         else:
-            atmosphere = SpectralModel.init_atmosphere(
+            atmosphere = SpectralModelLegacy.init_atmosphere(
                 pressures, wlen_bords_micron, line_species_list, rayleigh_species, continuum_opacities,
                 lbl_opacity_sampling, do_scat_emis
             )
@@ -1420,7 +1421,7 @@ def generate_model_grid(models, pressures,
             i += 1
             print(f"Model {i}/{len(models) * len(models[model])}...")
 
-            models[model][species] = SpectralModel.generate_from(
+            models[model][species] = SpectralModelLegacy.generate_from(
                 model=models[model][species],
                 pressures=pressures,
                 include_species=species,
@@ -1486,7 +1487,7 @@ def get_model_grid(planet_name, lbl_opacity_sampling, do_scat_emis, parameter_di
             i += 1
             print(f"Model {i}/{len(parameter_dicts) * len(species_list)}...")
 
-            models[parameter_dict.to_str()][species] = SpectralModel.get(
+            models[parameter_dict.to_str()][species] = SpectralModelLegacy.get(
                 planet_name=planet_name,
                 wavelength_boundaries=wavelength_boundaries,
                 lbl_opacity_sampling=lbl_opacity_sampling,
@@ -1561,7 +1562,7 @@ def init_model_grid(planet_name, lbl_opacity_sampling, do_scat_emis, parameter_d
         models[parameter_dict.to_str()] = {}
 
         for species in species_list:
-            models[parameter_dict.to_str()][species] = SpectralModel.species_init(
+            models[parameter_dict.to_str()][species] = SpectralModelLegacy.species_init(
                 include_species=species,
                 planet_name=planet_name,
                 wavelength_boundaries=wavelength_boundaries,

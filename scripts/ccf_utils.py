@@ -1,5 +1,5 @@
 """
-Useful functions for pre/post-processing CCF analysis.
+Useful functions for pre-/post-processing CCF analysis.
 Mostly deprecated.
 """
 import json
@@ -12,10 +12,10 @@ from scipy.stats import norm
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS import phoenix
 from petitRADTRANS import physics
-from petitRADTRANS.ccf._ccf_old import calculate_ccf_snr, ccf_analysis
+from scripts._ccf_old import calculate_ccf_snr, ccf_analysis
 from petitRADTRANS.cli.eso_etc_cli import download_snr_data, get_snr_data_file_name, output
 from scripts.mock_observation import convolve_rebin, simple_mock_observation
-from scripts.model_containers import module_dir, ParametersDict, SpectralModel
+from scripts.model_containers import ParametersDict, SpectralModelLegacy
 
 
 def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, star_distance, exposure_time,
@@ -30,7 +30,7 @@ def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, sta
     ))
     wavelength_stellar = wavelength_stellar[wh]
 
-    stellar_spectral_radiance = radiosity_erg_hz2radiosity_erg_cm(
+    stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
         stellar_spectral_radiance[wh, 1],
         nc.c / wavelength_stellar  # in Hz
     )
@@ -48,7 +48,7 @@ def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, sta
 def calculate_star_radiosity(wavelength_boundaries, star_effective_temperature, star_radius, star_distance):
     stellar_spectral_radiance = phoenix.get_PHOENIX_spec(star_effective_temperature)
     wavelength_stellar = stellar_spectral_radiance[:, 0]  # in cm
-    stellar_spectral_radiance = radiosity_erg_hz2radiosity_erg_cm(
+    stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
         stellar_spectral_radiance[:, 1],
         nc.c / wavelength_stellar
     )
@@ -384,7 +384,7 @@ def get_crires_snr_data(setting_key, setting_orders, star_apparent_magnitude, st
                         integration_time, airmass, star_apparent_magnitude_band='V', star_spectrum_file=None,
                         rewrite=False, directory=module_dir):
     if star_spectrum_file is None:
-        star_spectrum_file = SpectralModel.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
+        star_spectrum_file = SpectralModelLegacy.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
 
     snr_data_file = get_snr_data_file_name(
         instrument='crires',
@@ -405,10 +405,10 @@ def get_crires_snr_data(setting_key, setting_orders, star_apparent_magnitude, st
         if not os.path.exists(star_spectrum_file):
             print(f"file '{star_spectrum_file}' does not exist, generating...")
 
-            SpectralModel.generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature)
+            SpectralModelLegacy.generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature)
 
         json_data = download_snr_data(
-            request_file_name=os.path.join(directory, '../cli/eso_etc-form.json'),
+            request_file_name=os.path.join(directory, '../petitRADTRANS/cli/eso_etc-form.json'),
             star_spectrum_file_name=star_spectrum_file,
             star_apparent_magnitude=star_apparent_magnitude,
             star_effective_temperature=star_effective_temperature,
@@ -433,10 +433,11 @@ def get_crires_snr_data(setting_key, setting_orders, star_apparent_magnitude, st
     return snr_data
 
 
-def get_multiple_crires_snr_data(settings, star_apparent_magnitude, star_effective_temperature, exposure_time, integration_time,
-                                 airmass, star_apparent_magnitude_band='V', star_spectrum_file=None, rewrite=False):
+def get_multiple_crires_snr_data(settings, star_apparent_magnitude, star_effective_temperature, exposure_time,
+                                 integration_time, airmass, star_apparent_magnitude_band='V', star_spectrum_file=None,
+                                 rewrite=False):
     if star_spectrum_file is None:
-        star_spectrum_file = SpectralModel.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
+        star_spectrum_file = SpectralModelLegacy.get_star_radiosity_filename(star_effective_temperature, path=module_dir)
 
     snr_data = {}
 
@@ -690,25 +691,3 @@ def load_wavelength_settings(file):
         ], dtype=float) * wavelength_conversion_coefficient}
 
     return settings
-
-
-def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
-    """  # TODO use spectra_utils function instead
-    Convert a radiosity from erg.s-1.cm-2.sr-1/Hz to erg.s-1.cm-2.sr-1/cm at a given frequency.
-    Steps:
-        [cm] = c[cm.s-1] / [Hz]
-        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
-        => d[cm]/d[Hz] = c / [Hz]**2
-        => d[Hz]/d[cm] = [Hz]**2 / c
-        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
-        radiosity_erg_cm = radiosity_erg_hz * d[Hz]/d[cm]
-        => radiosity_erg_cm = radiosity_erg_hz * frequency**2 / c
-
-    Args:
-        radiosity_erg_hz: (erg.s-1.cm-2.sr-1/Hz)
-        frequency: (Hz)
-
-    Returns:
-        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
-    """
-    return radiosity_erg_hz * frequency ** 2 / nc.c
