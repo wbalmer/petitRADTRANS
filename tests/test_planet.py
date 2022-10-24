@@ -24,8 +24,7 @@ def test_planet_get():
         tmp_dir = tempfile.gettempdir()
         file = os.path.split(filename)[1]
         filename_tmp = os.path.join(tmp_dir, file)
-        shutil.copy2(filename, filename_tmp)
-        os.remove(filename)
+        shutil.move(filename, filename_tmp)
     else:
         filename_tmp = None
 
@@ -37,8 +36,7 @@ def test_planet_get():
     finally:
         if file_exists:
             print(f"Copying back file '{filename}'")
-            shutil.copy2(filename_tmp, filename)
-            os.unlink(filename_tmp)
+            shutil.move(filename_tmp, filename)
 
     vot_filename = filename.rsplit('.', 1)[0] + '.vot'
 
