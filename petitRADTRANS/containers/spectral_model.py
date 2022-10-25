@@ -476,7 +476,13 @@ class BaseSpectralModel:
 
     @staticmethod
     def calculate_bins_resolving_power(wavelengths):
-        """Calculate the resolving power of wavelengths bins
+        """Calculate the resolving power of wavelengths bins.
+        The "resolving power" of the bins is defined here as:
+            R = wavelengths / wavelength_steps
+        This is different from the "true" (/spectral) resolving power:
+            R = wavelengths / FWHM_LSF
+        where FWHM_LSF is the full width half maximum of the line spread function (aka Delta lambda)
+
         Args:
             wavelengths: wavelengths at the center of the bins
 
@@ -491,7 +497,6 @@ class BaseSpectralModel:
         taken_diffs_m = np.take(input_wavelengths_half_diff, np.arange(0, wavelengths_shape - 2, 1), axis=-1)
         taken_diffs_p = np.take(input_wavelengths_half_diff, np.arange(1, wavelengths_shape - 1, 1), axis=-1)
 
-        # resolving_power = wavelengths[1:-1] / (input_wavelengths_half_diff[:-1] + input_wavelengths_half_diff[1:])
         resolving_power = taken_wavelengths / (taken_diffs_m + taken_diffs_p)
         resolving_power = np.concatenate((
             [resolving_power[0]],
@@ -904,11 +909,17 @@ class BaseSpectralModel:
 
     @staticmethod
     def convolve(input_wavelengths, input_spectrum, new_resolving_power, **kwargs):
-        """Convolve a spectrum to a new resolving power, assuming near-constant input resolving power.
-        The spectrum is convolved using a Gaussian filter with a standard deviation ~R_in/R_new input wavelengths bins.
-        The input resolving power is given by:
-            lambda / Delta_lambda
-        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
+        """Convolve a spectrum to a new resolving power with a Gaussian filter.
+        The original spectrum must have a resolving power very large compared to the target resolving power.
+        The new resolving power is given in that case by:
+            new_resolving_power = input_wavelengths / FWHM_LSF  (FWHM_LSF <=> "Delta_lambda" in Wikipedia)
+        Therefore, the full width half maximum (FWHM) of the target line spread function (LSF) is given by:
+            FWHM_LSF = input_wavelengths / new_resolving_power
+        This FWHM is converted in terms of wavelength steps by:
+            FWHM_LSF_Delta = FWHM_LSF / Delta_input_wavelengths
+        where Delta_input_wavelengths is the difference between the edges of the bin.
+        And converted into a Gaussian standard deviation by:
+            sigma = FWHM_LSF_Delta / 2 * sqrt(2 * ln(2))
 
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
@@ -918,13 +929,12 @@ class BaseSpectralModel:
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
         """
-        # Compute resolving power of the model
-        # In petitRADTRANS, the wavelength grid is log-spaced, so the resolution is constant as a function of wavelength
-        input_resolving_power = np.mean(BaseSpectralModel.calculate_bins_resolving_power(input_wavelengths))
+        # Get input wavelengths over input wavelength steps
+        input_bins_resolving_power = np.mean(BaseSpectralModel.calculate_bins_resolving_power(input_wavelengths))
 
-        # Calculate the sigma to be used in the gauss filter in units of input wavelength bins
-        # Delta lambda of resolution element is the FWHM of the instrument's LSF (here: a gaussian)
-        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        # Calculate the sigma to be used in the Gaussian filter in units of input wavelength bins
+        # Conversion from FWHM to Gaussian sigma
+        sigma_lsf_gauss_filter = input_bins_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
 
         convolved_spectrum = scipy.ndimage.gaussian_filter1d(
             input=input_spectrum,
@@ -2038,28 +2048,32 @@ class SpectralModel(BaseSpectralModel):
     @staticmethod
     def _convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None,
                            **kwargs):
-        """Convolve a spectrum to a new resolving power, assuming near-constant input resolving power.
-        The spectrum is convolved using a Gaussian filter with a standard deviation ~R_in/R_new input wavelengths bins.
-        The input resolving power is given by:
-            lambda / Delta_lambda
-        where lambda is the center of a wavelength bin and Delta_lambda is the difference between the edges of the bin.
+        """Convolve a spectrum to a new resolving power with a Gaussian filter.
+        The original spectrum must have a resolving power very large compared to the target resolving power.
+        The new resolving power is given in that case by:
+            new_resolving_power = input_wavelengths / FWHM_LSF  (FWHM_LSF <=> "Delta_lambda" in Wikipedia)
+        Therefore, the full width half maximum (FWHM) of the target line spread function (LSF) is given by:
+            FWHM_LSF = input_wavelengths / new_resolving_power
+        This FWHM is converted in terms of wavelength steps by:
+            FWHM_LSF_Delta = FWHM_LSF / Delta_input_wavelengths
+        where Delta_input_wavelengths is the difference between the edges of the bin.
+        And converted into a Gaussian standard deviation by:
+            sigma = FWHM_LSF_Delta / 2 * sqrt(2 * ln(2))
 
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
             new_resolving_power: resolving power of output spectrum
-            input_resolving_power: if not None, skip its calculation using input_wavelengths
 
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
         """
-        # Compute resolving power of the model
-        # In petitRADTRANS, the wavelength grid is log-spaced, so the resolution is constant as a function of wavelength
+        # Get input wavelengths over input wavelength steps
         if input_resolving_power is None:
             input_resolving_power = np.mean(SpectralModel.calculate_bins_resolving_power(input_wavelengths))
 
-        # Calculate the sigma to be used in the gauss filter in units of input wavelength bins
-        # Delta lambda of resolution element is the FWHM of the instrument's LSF (here: a gaussian)
+        # Calculate the sigma to be used in the Gaussian filter in units of input wavelength bins
+        # Conversion from FWHM to Gaussian sigma
         sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
 
         convolved_spectrum = scipy.ndimage.gaussian_filter1d(
