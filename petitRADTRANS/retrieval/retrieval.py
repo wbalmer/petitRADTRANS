@@ -578,7 +578,7 @@ class Retrieval:
                         return -1e98
                     if np.isnan(spectrum_model).any():
                         return -1e98
-                    #print(np.mean(spectrum_model))
+                    print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting)
@@ -622,7 +622,7 @@ class Retrieval:
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
                                         self.plotting)
-        #print(f"LL: {log_likelihood+log_prior}")
+        print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
         if np.abs(log_likelihood + log_prior) < 1e-98:

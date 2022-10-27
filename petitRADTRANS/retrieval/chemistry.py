@@ -64,12 +64,22 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             msum += abund
     if not "C/O" in parameters.keys():
         # Whatever's left is H2 and
-        abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
-        abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
+        if 'H2' in parameters.keys():
+            abundances_interp['H2'] = 10**parameters['H2'].value * np.ones_like(pressures)
+            msum += 10**parameters['H2'].value
+        else:
+            abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
+            msum += abundances_interp['H2'][0]
+        if 'He' in  parameters.keys():
+            abundances_interp['He'] = 10**parameters['He'].value * np.ones_like(pressures)
+            msum += 10**parameters['He'].value
+        else:
+            abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
+            msum += abundances_interp['He'][0]
 
         # Imposing strict limit on msum to ensure H2 dominated composition
-        if msum > 0.1:
-            #print(f"Abundance sum > 1.0, msum={msum}")
+        if msum > 1.0001:
+            print(f"Abundance sum > 1.0, msum={msum}")
             return None,None,None,None
         MMW = calc_MMW(abundances_interp)
 
