@@ -74,21 +74,32 @@ def calculate_cross_correlation(wavelength_data, data, wavelength_model, model,
         extra_velocity_factor=extra_velocity_factor
     )
 
-    ccf = shift_cross_correlate(
-        wavelength_data=wavelength_data,
-        data=data,
-        wavelength_model=wavelength_model,
-        model=model,
-        velocities_ccf=velocities_ccf,
-        full=full
-    )
+    if full:
+        ccf, models_shift, wavelength_shift = shift_cross_correlate(
+            wavelength_data=wavelength_data,
+            data=data,
+            wavelength_model=wavelength_model,
+            model=model,
+            velocities_ccf=velocities_ccf,
+            full=full
+        )
+    else:
+        ccf = shift_cross_correlate(
+            wavelength_data=wavelength_data,
+            data=data,
+            wavelength_model=wavelength_model,
+            model=model,
+            velocities_ccf=velocities_ccf,
+            full=full
+        )
+
+        models_shift = None
+        wavelength_shift = None
 
     if normalize:
         ccf = normalize_cross_correlation(ccf)
 
     if full:
-        ccf, models_shift, wavelength_shift = ccf
-
         return ccf, velocities_ccf, models_shift, wavelength_shift
     else:
         return ccf, velocities_ccf
@@ -206,7 +217,7 @@ def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, mode
         wavelength_model:
         model:
         planet_max_radial_orbital_velocity:
-        line_spread_function_fwhm:
+        line_spread_function_fwhm: (cm.s-1)
         orbital_phases_ccf:
         planet_orbital_inclination:
         system_radial_velocity:
@@ -286,7 +297,7 @@ def shift_cross_correlate(wavelength_data, data, wavelength_model, model, veloci
     models_shift = np.zeros((n_detectors, n_velocities, n_spectral_pixels))
 
     if np.ndim(wavelength_data) == 3:  # time-dependent wavelengths
-        print(f"3D data wavelengths detected: assuming no time dependency (axis 1)")
+        print(f"3D data wavelengths detected: assuming no time (axis 1) dependency")
         wavelengths = copy.copy(wavelength_data[:, 0, :])
     else:
         wavelengths = copy.copy(wavelength_data)

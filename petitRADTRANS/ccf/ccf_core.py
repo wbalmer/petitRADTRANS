@@ -62,6 +62,7 @@ def cross_correlate_3d(matrix_1, matrix_2):
     ids = np.nonzero(matrix_1)  # prevent division by 0
 
     # Cross correlation
+    # result = matrix_1 @ matrix_2 / sqrt(matrix_1 @ matrix_1 * matrix_2 @ matrix_2)
     matrix_2[ids] = matrix_mul[ids] / matrix_1[ids]
 
     return matrix_2

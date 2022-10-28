@@ -8,11 +8,14 @@ import pyvo
 from astropy.table.table import Table
 
 from petitRADTRANS import nat_cst as nc
+from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.utils import calculate_uncertainty
 
 
 class Planet:
-    default_planet_models_directory = os.path.abspath(os.path.dirname(__file__) + os.path.sep + 'planet_models')  # TODO questionable, could make use of config pRT_outputs_path
+    default_planet_models_directory = os.path.abspath(
+        os.path.join(petitradtrans_config['Paths']['prt_input_data_path'], 'planet_data')
+    )
 
     def __init__(
             self,
@@ -656,11 +659,21 @@ class Planet:
     def get(cls, name):
         filename = cls.generate_filename(name)
 
+        return cls.get_from(name, filename)
+
+    @classmethod
+    def get_from(cls, name, filename):
         if not os.path.exists(filename):
             filename_vot = filename.rsplit('.', 1)[0] + '.vot'  # search for votable
 
             if not os.path.exists(filename_vot):
                 print(f"file '{filename_vot}' not found, downloading...")
+
+                directory = os.path.dirname(filename_vot)
+
+                if not os.path.isdir(directory):
+                    os.mkdir(directory)
+
                 cls.download_from_nasa_exoplanet_archive(name)
 
             # Save into HDF5 and remove the VO table

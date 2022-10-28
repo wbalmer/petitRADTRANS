@@ -23,6 +23,11 @@ from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, remove_mask
 
 
+# TODO c-k binned directly to user-provided wavelength grid
+# TODO Sanity checking on line_species list to abundances_dict
+# TODO fill_species parameter to turn of H2/He filling
+# TODO set fill species (choice of species)
+
 class RetrievalParameter:
     available_priors = [
         'log',
@@ -467,6 +472,7 @@ class BaseSpectralModel:
 
     @staticmethod
     def _explained_error(base_error_message, explanation_message):
+        # TODO deprecated in Python 3.11
         if explanation_message is None:
             explanation_message = ''
         else:
@@ -2242,6 +2248,7 @@ class SpectralModel(BaseSpectralModel):
             imposed_mass_mixing_ratios = {}
 
         # Chemical equilibrium mass mixing ratios
+        # TODO fix bug when all line species are imposed species
         if use_equilibrium_chemistry:
             # Calculate metallicity
             if metallicity is None:
