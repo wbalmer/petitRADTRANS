@@ -187,6 +187,9 @@ class ReadOpacities:
                             custom_file_names
                         )
 
+                    if np.all(self.line_grid_kappas_custom_PT[self.line_species[i_spec]] == -1):
+                        raise RuntimeError("molecular opacity loading failed, check above outputs to find the cause")
+
                     if self.mode == 'c-k':
                         # Initialize an empty array that has the same spectral entries as
                         # pRT object has nominally. Only fill those values where the k-tables

@@ -94,8 +94,9 @@ module fort_input
             logical :: custom_grid
 
             character(len=2) :: species_id
-            character(len=1500) :: path_names(opa_TP_grid_len)
+            character(len=1500) :: path_names(opa_TP_grid_len), filename
             character(len=4000) :: path_read_stream
+            logical :: file_exists
             integer :: species_name_inds(2,species_len)
             integer :: opa_file_names_inds(2,opa_TP_grid_len)
             double precision :: molparam
@@ -160,14 +161,26 @@ module fort_input
             do i_spec = 1, species_len
                 ! Get species file ID and molparam
                 if (mode == 'c-k') then
-                    open(unit=20,file=trim(adjustl(path))//'/opacities/lines/corr_k/' &
+                    filename = trim(adjustl(path))//'/opacities/lines/corr_k/' &
                          //trim(adjustl(species_names_tot(species_name_inds(1,i_spec): &
-                         species_name_inds(2,i_spec))))//'/molparam_id.txt')
+                         species_name_inds(2,i_spec))))//'/molparam_id.txt'
                 else if (mode == 'lbl') then
-                    open(unit=20,file=trim(adjustl(path))//'/opacities/lines/line_by_line/' &
+                    filename = trim(adjustl(path))//'/opacities/lines/line_by_line/' &
                          //trim(adjustl(species_names_tot(species_name_inds(1,i_spec): &
-                         species_name_inds(2,i_spec))))//'/molparam_id.txt')
+                         species_name_inds(2,i_spec))))//'/molparam_id.txt'
                 end if
+
+                inquire(file=trim(filename), exist=file_exists)
+
+                if (.not. file_exists) then  ! put all opacities values to -1 and abort read
+                    write(*, '("Cannot open file ''", A, "'': No such file or directory")') trim(filename)
+
+                    opa_grid_kappas = -1d0
+
+                    return
+                end if
+
+                open(unit=20,file=filename)
                 
                 write(*,*) ' Read line opacities of '//trim(adjustl(species_names_tot(species_name_inds(1, &
                   i_spec):species_name_inds(2,i_spec))))//'...'
