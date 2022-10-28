@@ -24,9 +24,6 @@ from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weig
 
 
 # TODO c-k binned directly to user-provided wavelength grid
-# TODO Sanity checking on line_species list to abundances_dict
-# TODO fill_species parameter to turn of H2/He filling
-# TODO set fill species (choice of species)
 
 class RetrievalParameter:
     available_priors = [
@@ -2182,7 +2179,7 @@ class SpectralModel(BaseSpectralModel):
                                      imposed_mass_mixing_ratios=None, heh2_ratio=12/37, c13c12_ratio=0.01,
                                      planet_mass=None, planet_radius=None, planet_surface_gravity=None,
                                      star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
-                                     use_equilibrium_chemistry=False, verbose=False, **kwargs):
+                                     use_equilibrium_chemistry=False, fill_atmosphere=False, verbose=False, **kwargs):
         """Initialize a model mass mixing ratios.
         Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
         their imposed value as long as the sum of the imposed values is lower or equal to 1. H2 and He are used as
@@ -2221,11 +2218,14 @@ class SpectralModel(BaseSpectralModel):
             alpha: power of the mass-metallicity relation
             beta: scaling factor of the mass-metallicity relation
             use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
+            fill_atmosphere: if True, the atmosphere will be filled with H2 and He (using h2h2_ratio)
+                if the sum of MMR is < 1 TODO use None and a dict of species instead of a flag
             verbose: if True, print additional information
 
         Returns:
             A dictionary containing the mass mixing ratios.
         """
+        # TODO should fill_atmosphere be True by default? Currently it means more work for the casual user.
         # Initialization
         mass_mixing_ratios = {}
         m_sum_imposed_species = np.zeros(np.shape(pressures))
@@ -2403,6 +2403,12 @@ class SpectralModel(BaseSpectralModel):
                 elif m_sum_total[i] < 1:
                     # Fill atmosphere with H2 and He
                     # TODO there might be a better filling species, N2?
+                    if not fill_atmosphere:
+                        warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
+                                      f"Set fill_atmosphere to True to automatically fill the atmosphere "
+                                      f"with H2 and He (with He MMR / H2 MMR = heh2_ratio), "
+                                      f"or manually adjust the imposed mass mixing ratios")
+
                     if h2_in_imposed_mass_mixing_ratios and he_in_imposed_mass_mixing_ratios:
                         if imposed_mass_mixing_ratios['H2'][i] > 0:
                             # Use imposed He/H2 ratio

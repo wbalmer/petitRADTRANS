@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.5.0-a28] - 2021-10-19
+## [2.5.0-a30] - 2021-10-28
 ### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.
@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Fixed
 - Hansen cloud particle distribution returning NaN if `b_hansen` set too low.
 - Retrieval not converging when using correlated-k.
+- Crash when trying to read a nonexistent opacity file.
 - Function `contour_corner` not working when not giving optional arguments `parameter_ranges` and `parameter_plot_indices`.
 - True values not plotted in function `contour_corner`.
 - Function `get_MM` not working with e- and H-.
