@@ -53,12 +53,12 @@ def co_added_retrieval(wavelength_instrument, reduced_mock_observations, true_wa
         pixels_per_resolution_element=2,
         instrument_resolving_power=true_parameters['instrument_resolving_power'].value,
         radial_velocity=radial_velocity,
-        kp=true_parameters['planet_max_radial_orbital_velocity'].value,
+        kp=true_parameters['planet_radial_velocity_amplitude'].value,
         error=error[0, 0, :]
     )
 
     log_l_tot, v_rest, kps = simple_co_added_ccf(
-        log_ls, orbital_phases, radial_velocity, true_parameters['planet_max_radial_orbital_velocity'].value,
+        log_ls, orbital_phases, radial_velocity, true_parameters['planet_radial_velocity_amplitude'].value,
         true_parameters['planet_orbital_inclination'].value, 3e5, 2
     )
 
@@ -70,7 +70,7 @@ def co_added_retrieval(wavelength_instrument, reduced_mock_observations, true_wa
         plt.plot([v_rest[0], v_rest[-1]], [kps[i_peak[0]], kps[i_peak[0]]], color='r')
         plt.vlines([v_rest[i_peak[1]]], ymin=[kps[0]], ymax=[kps[-1]], color='r')
         plt.title(f"Best Kp = {kps[i_peak[0]][0]:.3e} "
-                  f"(true = {true_parameters['planet_max_radial_orbital_velocity'].value:.3e}), "
+                  f"(true = {true_parameters['planet_radial_velocity_amplitude'].value:.3e}), "
                   f"best V_rest = {v_rest[i_peak[1]][0]:.3e} "
                   f"(true = {np.mean(radial_velocity):.3e})")
         plt.xlabel('V_rest (cm.s-1)')
@@ -111,7 +111,7 @@ def get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=N
     wlen_model, planet_radiosity = radiosity_model(prt_object, parameters)
 
     planet_velocities = Planet.calculate_planet_radial_velocity(
-        parameters['planet_max_radial_orbital_velocity'].value,
+        parameters['planet_radial_velocity_amplitude'].value,
         parameters['planet_orbital_inclination'].value,
         np.rad2deg(2 * np.pi * parameters['orbital_phases'].value)
     )
@@ -169,7 +169,7 @@ def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=F
     wlen_model, transit_radius = transit_radius_model(prt_object, parameters)
 
     planet_velocities = Planet.calculate_planet_radial_velocity(
-        parameters['planet_max_radial_orbital_velocity'].value,
+        parameters['planet_radial_velocity_amplitude'].value,
         parameters['planet_orbital_inclination'].value,
         np.rad2deg(2 * np.pi * parameters['orbital_phases'].value)
     )
@@ -450,7 +450,7 @@ def init_parameters(planet, line_species_str, mode,
             'star_effective_temperature': Param(star_effective_temperature),
             'Rstar': Param(star_radius),
             'semi_major_axis': Param(planet.orbit_semi_major_axis),
-            'planet_max_radial_orbital_velocity': Param(kp),
+            'planet_radial_velocity_amplitude': Param(kp),
             'system_observer_radial_velocities': Param(v_sys),
             'planet_rest_frame_shift': Param(0.0),
             'planet_orbital_inclination': Param(planet.orbital_inclination),
@@ -501,7 +501,7 @@ def init_parameters(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_max_radial_orbital_velocity=true_parameters['planet_max_radial_orbital_velocity'].value,
+            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -587,7 +587,7 @@ def init_parameters(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_max_radial_orbital_velocity=true_parameters['planet_max_radial_orbital_velocity'].value,
+            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -829,7 +829,7 @@ def init_parameters(planet, line_species_str, mode,
     print('Calculating true log L...')
     true_log_l, w2, r2 = pseudo_retrieval(
         parameters=true_parameters,
-        kps=[true_parameters['planet_max_radial_orbital_velocity'].value],
+        kps=[true_parameters['planet_radial_velocity_amplitude'].value],
         v_rest=[true_parameters['planet_rest_frame_shift'].value],
         model=model, reduced_mock_observations=reduced_mock_observations, error=error,
         true_parameters=true_parameters, radial_velocity=true_parameters['system_observer_radial_velocities'].value,
@@ -1043,7 +1043,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
 
     # retrieved_parameters = []
     retrieved_parameters = [
-        'planet_max_radial_orbital_velocity',
+        'planet_radial_velocity_amplitude',
         'planet_rest_frame_shift',
         # 'variable_throughput_coefficient'
     ]
@@ -1062,8 +1062,8 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
     def prior_kp(x):
         return uniform_prior(
             cube=x,
-            x1=0.75 * parameters['planet_max_radial_orbital_velocity'].value,
-            x2=1.25 * parameters['planet_max_radial_orbital_velocity'].value,
+            x1=0.75 * parameters['planet_radial_velocity_amplitude'].value,
+            x2=1.25 * parameters['planet_radial_velocity_amplitude'].value,
         )
 
     def prior_vr(x):
@@ -1530,7 +1530,7 @@ def pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations, 
         retrieval_models.append([])
 
         for kp_ in kps:
-            ppp['planet_max_radial_orbital_velocity'].value = kp_
+            ppp['planet_radial_velocity_amplitude'].value = kp_
 
             w, s = retrieval_model(model, ppp)
             wavelengths[-1].append(w)
@@ -1560,7 +1560,7 @@ def pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations, 
         plt.plot([v_rest[0], v_rest[-1]], [kps[i_peak[0]], kps[i_peak[0]]], color='r')
         plt.vlines([v_rest[i_peak[1]]], ymin=[kps[0]], ymax=[kps[-1]], color='r')
         plt.title(f"Best Kp = {kps[i_peak[0]][0]:.3e} "
-                  f"(true = {true_parameters['planet_max_radial_orbital_velocity'].value:.3e}), "
+                  f"(true = {true_parameters['planet_radial_velocity_amplitude'].value:.3e}), "
                   f"best V_rest = {v_rest[i_peak[1]][0]:.3e} "
                   f"(true = {np.mean(radial_velocity):.3e})")
         plt.xlabel('V_rest (cm.s-1)')

@@ -44,7 +44,7 @@ def init_spectral_model_line_by_line():
         temperature_profile_mode='guillot',
         temperature=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature'],  # K
         intrinsic_temperature=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
-        # metallicity= ,
+        metallicity=1.0,
         guillot_temperature_profile_gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
         guillot_temperature_profile_kappa_ir_z0=radtrans_parameters['temperature_guillot_2010_parameters'][
             'infrared_mean_opacity'],

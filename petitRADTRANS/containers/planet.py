@@ -935,12 +935,12 @@ class Planet:
         return value, key
 
     @staticmethod
-    def calculate_planet_radial_velocity(planet_max_radial_orbital_velocity, planet_orbital_inclination,
+    def calculate_planet_radial_velocity(planet_radial_velocity_amplitude, planet_orbital_inclination,
                                          orbital_longitude):
         """Calculate the planet radial velocity as seen by an observer.
 
         Args:
-            planet_max_radial_orbital_velocity: maximum radial velocity for an inclination angle of 90 degree
+            planet_radial_velocity_amplitude: maximum radial velocity for an inclination angle of 90 degree
             planet_orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
                 observation, i.e. 90 degree: edge view, 0 degree: top view
             orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
@@ -950,7 +950,7 @@ class Planet:
         Returns:
 
         """
-        kp = planet_max_radial_orbital_velocity * np.sin(np.deg2rad(planet_orbital_inclination))  # (cm.s-1)
+        kp = planet_radial_velocity_amplitude * np.sin(np.deg2rad(planet_orbital_inclination))  # (cm.s-1)
 
         return kp * np.sin(np.deg2rad(orbital_longitude))
 

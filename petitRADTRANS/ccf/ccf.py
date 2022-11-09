@@ -13,14 +13,14 @@ from petitRADTRANS.ccf.ccf_core import cross_correlate_3d, co_add_cross_correlat
 
 
 def calculate_co_added_cross_correlation(cross_correlation, orbital_phases_ccf, velocities_ccf,
-                                         system_radial_velocities, planet_max_radial_orbital_velocity, kp_factor=2.0,
+                                         system_radial_velocities, planet_radial_velocity_amplitude, kp_factor=2.0,
                                          planet_orbital_inclination=90.0,
                                          n_kp=None, n_vr=None):
     n_detectors = np.shape(cross_correlation)[0]
 
     co_added_velocities, kps, v_rest = co_added_ccf_velocity_space(
         system_radial_velocities=system_radial_velocities,
-        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         orbital_longitudes=orbital_phases_ccf * 360,  # phase to deg
         velocities_ccf=velocities_ccf,
         planet_orbital_inclination=planet_orbital_inclination,
@@ -62,12 +62,12 @@ def calculate_co_added_ccf_snr(co_added_cross_correlation, vr_space, vr_peak_wid
 
 
 def calculate_cross_correlation(wavelength_data, data, wavelength_model, model,
-                                planet_max_radial_orbital_velocity, line_spread_function_fwhm,
+                                planet_radial_velocity_amplitude, line_spread_function_fwhm,
                                 system_radial_velocity=0.0, pixels_per_resolution_element=2,
                                 kp_factor=1.0, extra_velocity_factor=0.25, normalize=True, full=False):
     velocities_ccf = ccf_velocity_space(
         system_radial_velocity=system_radial_velocity,
-        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         line_spread_function_fwhm=line_spread_function_fwhm,
         pixels_per_resolution_element=pixels_per_resolution_element,
         kp_factor=kp_factor,
@@ -105,12 +105,12 @@ def calculate_cross_correlation(wavelength_data, data, wavelength_model, model,
         return ccf, velocities_ccf
 
 
-def ccf_velocity_space(system_radial_velocity, planet_max_radial_orbital_velocity,
+def ccf_velocity_space(system_radial_velocity, planet_radial_velocity_amplitude,
                        line_spread_function_fwhm, pixels_per_resolution_element,
                        kp_factor=1.0, extra_velocity_factor=0.25):
     # Get min and max velocities based on the planet parameters
-    velocity_min = np.min(system_radial_velocity) - planet_max_radial_orbital_velocity * kp_factor
-    velocity_max = np.max(system_radial_velocity) + planet_max_radial_orbital_velocity * kp_factor
+    velocity_min = np.min(system_radial_velocity) - planet_radial_velocity_amplitude * kp_factor
+    velocity_max = np.max(system_radial_velocity) + planet_radial_velocity_amplitude * kp_factor
 
     # Add a margin to the boundaries
     velocity_interval = velocity_max - velocity_min
@@ -148,7 +148,7 @@ def co_added_ccf_analysis(co_added_cross_correlation, kp_space, vr_space, max_pe
     return ccf_tot_max, max_kp, max_v_rest, n_around_peak
 
 
-def co_added_ccf_velocity_space(system_radial_velocities, planet_max_radial_orbital_velocity,
+def co_added_ccf_velocity_space(system_radial_velocities, planet_radial_velocity_amplitude,
                                 orbital_longitudes, velocities_ccf,
                                 planet_orbital_inclination=90.0, kp_factor=2.0,
                                 n_kp=None, n_vr=None):
@@ -163,15 +163,15 @@ def co_added_ccf_velocity_space(system_radial_velocities, planet_max_radial_orbi
 
     # Get Kp space
     kps = np.linspace(
-        -planet_max_radial_orbital_velocity * kp_factor,
-        planet_max_radial_orbital_velocity * kp_factor,
+        -planet_radial_velocity_amplitude * kp_factor,
+        planet_radial_velocity_amplitude * kp_factor,
         n_kp
     )
 
     # Calculate the planet relative velocities in the Kp space
     planet_relative_velocities = system_radial_velocities + np.array([
         Planet.calculate_planet_radial_velocity(
-            planet_max_radial_orbital_velocity=kp,
+            planet_radial_velocity_amplitude=kp,
             planet_orbital_inclination=planet_orbital_inclination,
             orbital_longitude=orbital_longitudes  # phase to longitude (deg)
         ) for kp in kps
@@ -182,11 +182,11 @@ def co_added_ccf_velocity_space(system_radial_velocities, planet_max_radial_orbi
     v_planet_max = np.max(planet_relative_velocities)
 
     v_rest_min = np.max((
-        -planet_max_radial_orbital_velocity * kp_factor,
+        -planet_radial_velocity_amplitude * kp_factor,
         np.min(velocities_ccf) - v_planet_min
     ))
     v_rest_max = np.min((
-        planet_max_radial_orbital_velocity * kp_factor,
+        planet_radial_velocity_amplitude * kp_factor,
         np.max(velocities_ccf) - v_planet_max
     ))
     v_rest = np.linspace(v_rest_min, v_rest_max, n_vr)
@@ -202,7 +202,7 @@ def co_added_ccf_velocity_space(system_radial_velocities, planet_max_radial_orbi
 
 
 def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, model,
-                                   planet_max_radial_orbital_velocity, line_spread_function_fwhm,
+                                   planet_radial_velocity_amplitude, line_spread_function_fwhm,
                                    orbital_phases_ccf,
                                    planet_orbital_inclination=90.0,
                                    system_radial_velocity=0.0, sum_ccf=False, normalize_ccf=True, calculate_snr=False,
@@ -216,7 +216,7 @@ def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, mode
         data:
         wavelength_model:
         model:
-        planet_max_radial_orbital_velocity:
+        planet_radial_velocity_amplitude:
         line_spread_function_fwhm: (cm.s-1)
         orbital_phases_ccf:
         planet_orbital_inclination:
@@ -241,7 +241,7 @@ def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, mode
         data=data,
         wavelength_model=wavelength_model,
         model=model,
-        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         line_spread_function_fwhm=line_spread_function_fwhm,
         system_radial_velocity=system_radial_velocity,
         pixels_per_resolution_element=pixels_per_resolution_element,
@@ -261,7 +261,7 @@ def get_co_added_cross_correlation(wavelength_data, data, wavelength_model, mode
         orbital_phases_ccf=orbital_phases_ccf,
         velocities_ccf=velocities_ccf,
         system_radial_velocities=system_radial_velocity,
-        planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+        planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         kp_factor=kp_factor_co_added_ccf,
         planet_orbital_inclination=planet_orbital_inclination,
         n_kp=n_kp,

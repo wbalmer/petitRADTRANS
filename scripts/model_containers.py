@@ -576,7 +576,7 @@ class SpectralModelLegacy:
                              use_equilibrium_chemistry=False,
                              co_ratio=0.55, metallicity=1.0, carbon_pressure_quench=None,
                              star_effective_temperature=None, star_radius=None, star_spectral_radiosity=None,
-                             planet_max_radial_orbital_velocity=None, planet_orbital_inclination=None,
+                             planet_radial_velocity_amplitude=None, planet_orbital_inclination=None,
                              semi_major_axis=None,
                              planet_rest_frame_shift=0.0, orbital_phases=None, system_observer_radial_velocities=None,
                              wavelengths_instrument=None, instrument_resolving_power=None,
@@ -611,7 +611,7 @@ class SpectralModelLegacy:
             'log10_metallicity': Param(metallicity),
             'log10_surface_gravity': Param(surface_gravity),
             'orbital_phases': Param(orbital_phases),
-            'planet_max_radial_orbital_velocity': Param(planet_max_radial_orbital_velocity),
+            'planet_radial_velocity_amplitude': Param(planet_radial_velocity_amplitude),
             'planet_radius': Param(planet_radius),
             'planet_rest_frame_shift': Param(planet_rest_frame_shift),
             'planet_orbital_inclination': Param(planet_orbital_inclination),
@@ -872,7 +872,7 @@ class SpectralModelLegacy:
 
     def get_parameters_dict(self, planet: Planet, included_line_species='all'):
         # star_spectral_radiosity = self.get_phoenix_star_spectral_radiosity(planet)
-        planet_max_radial_orbital_velocity = planet.calculate_orbital_velocity(
+        planet_radial_velocity_amplitude = planet.calculate_orbital_velocity(
             planet.star_mass, planet.orbit_semi_major_axis
         )
 
@@ -895,7 +895,7 @@ class SpectralModelLegacy:
             star_effective_temperature=planet.star_effective_temperature,
             star_radius=planet.star_radius,
             # star_spectral_radiosity=star_spectral_radiosity,
-            planet_max_radial_orbital_velocity=planet_max_radial_orbital_velocity,
+            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
             planet_orbital_inclination=planet.orbital_inclination,
             semi_major_axis=planet.orbit_semi_major_axis,
             planet_rest_frame_shift=0.0,

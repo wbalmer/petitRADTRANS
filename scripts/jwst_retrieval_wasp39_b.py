@@ -290,7 +290,7 @@ def _get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=
     wlen_model, planet_radiosity = _radiosity_model(prt_object, parameters)
 
     planet_velocities = Planet.calculate_planet_radial_velocity(
-        parameters['planet_max_radial_orbital_velocity'].value,
+        parameters['planet_radial_velocity_amplitude'].value,
         parameters['planet_orbital_inclination'].value,
         np.rad2deg(2 * np.pi * parameters['orbital_phases'].value)
     )
@@ -422,7 +422,7 @@ def _pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations,
         retrieval_models.append([])
 
         for kp_ in kps:
-            ppp['planet_max_radial_orbital_velocity'].value = kp_
+            ppp['planet_radial_velocity_amplitude'].value = kp_
 
             w, s = retrieval_model(model, ppp)
             wavelengths[-1].append(w)
@@ -611,7 +611,7 @@ def init_mock_observations(planet, line_species_str, mode,
             'star_effective_temperature': Param(star_effective_temperature),
             'star_radius': Param(star_radius),
             'semi_major_axis': Param(planet.orbit_semi_major_axis),
-            'planet_max_radial_orbital_velocity': Param(0.0),
+            'planet_radial_velocity_amplitude': Param(0.0),
             'system_observer_radial_velocities': Param(0.0),
             'planet_rest_frame_shift': Param(0.0),
             'planet_orbital_inclination': Param(planet.orbital_inclination),
@@ -662,7 +662,7 @@ def init_mock_observations(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_max_radial_orbital_velocity=true_parameters['planet_max_radial_orbital_velocity'].value,
+            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -771,7 +771,7 @@ def init_mock_observations(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_max_radial_orbital_velocity=true_parameters['planet_max_radial_orbital_velocity'].value,
+            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -874,7 +874,7 @@ def init_mock_observations(planet, line_species_str, mode,
     print('Calculating true log L...')
     true_log_l, w2, r2 = _pseudo_retrieval(
         parameters=true_parameters,
-        kps=[true_parameters['planet_max_radial_orbital_velocity'].value],
+        kps=[true_parameters['planet_radial_velocity_amplitude'].value],
         v_rest=[true_parameters['planet_rest_frame_shift'].value],
         model=model, reduced_mock_observations=reduced_mock_observations, error=uncertainties, mode=mode,
         instrument_name=instrument_name
@@ -1135,7 +1135,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
 
     # retrieved_parameters = []
     retrieved_parameters = [
-        # 'planet_max_radial_orbital_velocity',
+        # 'planet_radial_velocity_amplitude',
         # 'planet_rest_frame_shift',
         'temperature'
         # 'variable_throughput_coefficient'
@@ -1155,8 +1155,8 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
     # def prior_kp(x):
     #     return uniform_prior(
     #         cube=x,
-    #         x1=0.75 * parameters['planet_max_radial_orbital_velocity'].value,
-    #         x2=1.25 * parameters['planet_max_radial_orbital_velocity'].value,
+    #         x1=0.75 * parameters['planet_radial_velocity_amplitude'].value,
+    #         x2=1.25 * parameters['planet_radial_velocity_amplitude'].value,
     #     )
     #
     # def prior_vr(x):

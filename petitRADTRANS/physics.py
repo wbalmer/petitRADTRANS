@@ -250,6 +250,18 @@ def guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
     ) * (1. - alpha * (1. / (1. + pressure / ptrans)))
 
 
+def hz2um(frequency):
+    """Convert frequencies into wavelengths
+
+    Args:
+        frequency: (Hz) the frequency to convert
+
+    Returns:
+        (um) the corresponding wavelengths
+    """
+    return nc.c / frequency * 1e4  # cm to um
+
+
 def make_press_temp(rad_trans_params):  # TODO pressure grid in input?
     """Function to make temp."""
     press_many = np.logspace(-8, 5, 260)
@@ -513,3 +525,17 @@ def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
     """
     # TODO move to physics
     return radiosity_erg_hz * frequency ** 2 / nc.c
+
+
+def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):
+    """Calculate the spectral irradiance of a spherical source on a target from its spectral radiosity.
+
+    Args:
+        spectral_radiosity: (M.L-1.T-3) spectral radiosity of the source
+        source_radius: (L) radius of the spherical source
+        target_distance: (L) distance from the source to the target
+
+    Returns:
+        The irradiance of the source on the target (M.L-1.T-3).
+    """
+    return spectral_radiosity * (source_radius / target_distance) ** 2

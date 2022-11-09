@@ -296,7 +296,7 @@ def generate_mock_observations(wavelength_model, planet_spectrum_model,
                                wavelength_instrument, instrument_snr=None, instrument_resolving_power=None,
                                planet_radius=None, star_radius=None, star_spectral_radiosity=None,
                                orbital_phases=None, system_observer_radial_velocities=None,
-                               planet_max_radial_orbital_velocity=0.0, planet_orbital_inclination=0.0,
+                               planet_radial_velocity_amplitude=0.0, planet_orbital_inclination=0.0,
                                mode='eclipse', add_noise=True, apply_snr_mask=False, number=1):
     """Generate mock observations from model spectra.
 
@@ -333,7 +333,7 @@ def generate_mock_observations(wavelength_model, planet_spectrum_model,
         system_observer_radial_velocities:
             (cm.s-1) Velocities of the star relative to the observer. In most cases, they are the barycentric + systemic
             radial velocities.
-        planet_max_radial_orbital_velocity:
+        planet_radial_velocity_amplitude:
             (cm.s-1) planet orbital velocity, assuming a circular orbit
         planet_orbital_inclination:
             (deg) orbital inclination of the planet, 0 degree corresponding to seeing the planet's orbit by the edge,
@@ -358,7 +358,7 @@ def generate_mock_observations(wavelength_model, planet_spectrum_model,
             orbital_phases = np.asarray([orbital_phases])
 
         planet_velocities = Planet.calculate_planet_radial_velocity(
-            planet_max_radial_orbital_velocity, planet_orbital_inclination, np.rad2deg(2 * np.pi * orbital_phases)
+            planet_radial_velocity_amplitude, planet_orbital_inclination, np.rad2deg(2 * np.pi * orbital_phases)
         )
 
     # Check types, sizes and dimensions
