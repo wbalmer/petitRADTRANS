@@ -776,13 +776,6 @@ class BaseSpectralModel:
         spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
-        if is_observed:  # TODO put that into modify_spectrum?
-            spectral_radiosity = radiosity2irradiance(
-                spectral_radiosity=spectral_radiosity,
-                source_radius=planet_radius,
-                target_distance=system_distance
-            )  # irradiance of the planet on the observer
-
         return wavelengths, spectral_radiosity
 
     @staticmethod
@@ -1123,7 +1116,7 @@ class BaseSpectralModel:
         wavelengths = copy.copy(self.wavelengths)
 
         # Modified spectrum
-        wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum_old(
+        wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=wavelengths,
             spectrum=spectrum,
             shift_wavelengths_function=self.shift_wavelengths,
@@ -1139,17 +1132,17 @@ class BaseSpectralModel:
             if update_parameters:
                 self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
 
-        if scale:
-            spectrum = self.scale_spectrum(
-                spectrum=spectrum,
-                **parameters
-            )
-
-        if instrumental_deformations is not None:
-            spectrum *= instrumental_deformations
-
-        if noise_matrix is not None:
-            spectrum += noise_matrix
+        # if scale:
+        #     spectrum = self.scale_spectrum(
+        #         spectrum=spectrum,
+        #         **parameters
+        #     )
+        #
+        # if instrumental_deformations is not None:
+        #     spectrum *= instrumental_deformations
+        #
+        # if noise_matrix is not None:
+        #     spectrum += noise_matrix
 
         # Reduced spectrum
         if reduce:
@@ -1382,10 +1375,12 @@ class BaseSpectralModel:
         star_spectrum = star_spectral_radiosities
         star_observed_spectrum = None
 
-        if rebin:
+        if rebin and telluric_transmittances is not None:
             wavelengths_0 = copy.deepcopy(output_wavelengths)
-        else:
+        elif telluric_transmittances is not None:
             wavelengths_0 = copy.deepcopy(wavelengths)
+        else:
+            wavelengths_0 = None
 
         # Shift from the planet rest frame to the star system rest frame
         if shift and star_spectral_radiosities is not None and mode == 'emission':
