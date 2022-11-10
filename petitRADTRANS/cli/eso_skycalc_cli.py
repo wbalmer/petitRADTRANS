@@ -2,14 +2,16 @@
 """
 
 import copy
-import os
-
-from skycalc_cli.skycalc import AlmanacQuery, SkyModel
-import numpy as np
 import json
+import os
 import tempfile
-import petitRADTRANS.nat_cst as nc
+
+import numpy as np
 from astropy.io import fits
+from skycalc_cli.skycalc import AlmanacQuery, SkyModel
+
+import petitRADTRANS.nat_cst as nc
+from petitRADTRANS.utils import savez_compressed_record
 
 
 def find_optimal_airmass_day(ra, dec, observatory='3060m',
@@ -360,8 +362,10 @@ def get_telluric_data(airmass=1.0, pwv_mode='pwv', season=0, time=0, pwv=3.5, ms
     sky_model.call()
 
     # Create a temporary file to dump the data into and read it later
-    # To read the fits, the file has to be opened with io.fits, which cannot work if the file is already opened here
-    # Thus f is closed here and not deleted immediately
+    # Data are fits-formatted and cannot be read as it, thus the data has to be saved into a .fits file first, then read
+    # with io.fits
+    # io.fits cannot work if the file is already opened for writing, so it needs to be:
+    # created, written, closed, re-opened with io.fits and read, before it can be deleted
     with tempfile.NamedTemporaryFile(delete=False) as f:
         f.write(sky_model.data)
 
@@ -372,3 +376,66 @@ def get_telluric_data(airmass=1.0, pwv_mode='pwv', season=0, time=0, pwv=3.5, ms
     os.unlink(f.name)
 
     return data
+
+
+def get_tellurics_npz(file, wavelength_range=None, rewrite=False, **kwargs):
+    """Get telluric transmittance and wavelength from a .npz file.
+    If the file doesn't exist, a request to the skycalc server is sent to retrieve the data.
+    While all the skycalc information is saved into the file, this function extracts only the wavelengths and
+    transmittances.
+    To prevent issues with large wavelength ranges, the request is split into 2.
+    # TODO splitting could be much smarter (no split for small ranges, multiple splits for very large ones)
+
+    Args:
+        file: file from which to load the telluric transmittance and corresponding wavelengths
+        wavelength_range: (um) list containing the min and max wavelengths
+        rewrite: if True, the file is rewritten even if it already exists
+        **kwargs: get_telluric_data arguments
+
+    Returns:
+        The wavelengths (um) and corresponding telluric transmittances
+    """
+    if not os.path.isfile(file) or rewrite:
+        if wavelength_range is None:
+            raise ValueError(f"argument 'wavelength_range' cannot be None: file '{file}' do not exists")
+
+        # Prevent the CLI to complain about requesting too much data by splitting the request into 2
+        wavelength_range_ = copy.deepcopy(wavelength_range)
+        wavelength_range_[-1] = np.diff(wavelength_range)[0] / 2 + wavelength_range[0]
+
+        telluric_data0 = get_telluric_data(
+            wmin=wavelength_range_[0] * 1e3,  # um to nm
+            wmax=wavelength_range_[1] * 1e3,  # um to nm
+            **kwargs
+        )
+
+        wavelength_range_[0] = np.max(telluric_data0['lam'][-2]) * 1e-3
+        wavelength_range_[-1] = wavelength_range[-1]
+
+        telluric_data1 = get_telluric_data(
+            wmin=wavelength_range_[0] * 1e3,  # um to nm
+            wmax=wavelength_range_[1] * 1e3,  # um to nm
+            **kwargs
+        )
+
+        wh = np.greater(telluric_data1['lam'], np.max(telluric_data0['lam']))
+        wavelength_range_ = np.concatenate((
+                telluric_data0['lam'],
+                telluric_data1['lam'][wh]
+            ))
+        telluric_data = np.recarray(wavelength_range_.shape, dtype=telluric_data0.dtype)
+
+        for key in telluric_data.dtype.names:
+            telluric_data[key] = np.concatenate((
+                telluric_data0[key],
+                telluric_data1[key][wh]
+            ))
+
+        savez_compressed_record(file, telluric_data)
+    else:
+        telluric_data = np.load(file)
+
+    wavelengths_telluric = telluric_data['lam'] * 1e-3  # nm to um
+    telluric_transmittance = telluric_data['trans']
+
+    return wavelengths_telluric, telluric_transmittance

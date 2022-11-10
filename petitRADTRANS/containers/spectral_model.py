@@ -400,23 +400,34 @@ class BaseSpectralModel:
             if spectrum.dtype == 'O' and np.ndim(spectrum) >= 2:
                 spectrum = np.moveaxis(spectrum, 0, 1)
         elif np.ndim(wavelengths) == 2:
-            spectrum_tmp = []
+            spectrum_tmp = []  # create a list to handle detectors with varying number of wavelengths
             wavelengths_tmp = None
 
-            for i, wavelength_shift in enumerate(wavelengths):
-                spectrum_tmp.append([])  # TODO bad!
-                wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
-                    input_wavelengths=wavelength_shift,
-                    input_spectrum=spectrum,
-                    **kwargs
-                )
+            if np.ndim(spectrum) == 1:
+                for i, wavelength_shift in enumerate(wavelengths):
+                    spectrum_tmp.append([])
+                    wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
+                        input_wavelengths=wavelength_shift,
+                        input_spectrum=spectrum,
+                        **kwargs
+                    )
+            elif np.ndim(spectrum) == 2:
+                for i, wavelength_shift in enumerate(wavelengths):
+                    spectrum_tmp.append([])
+                    wavelengths_tmp, spectrum_tmp[-1] = rebin_spectrum_function(
+                        input_wavelengths=wavelength_shift,
+                        input_spectrum=spectrum[i],
+                        **kwargs
+                    )
+            else:
+                raise ValueError(f"spectrum must have at most 2 dimensions, but has {np.ndim(spectrum)}")
 
             spectrum = np.array(spectrum_tmp)
 
             if np.ndim(spectrum) == 3 or spectrum.dtype == 'O':
                 spectrum = np.moveaxis(spectrum, 0, 1)
             elif np.ndim(spectrum) > 3:
-                raise ValueError(f"spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
+                raise ValueError(f"output spectrum must have at most 3 dimensions, but has {np.ndim(spectrum)}")
         else:
             raise ValueError(f"argument 'wavelength' must have at most 2 dimensions, "
                              f"but has {np.ndim(wavelengths)}")
@@ -650,9 +661,9 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
                                       mean_molar_masses_function,
-                                      star_spectral_radiosities_function, radial_velocity_amplitude_function,
-                                      planet_radial_velocities_function, relative_velocities_function,
-                                      **kwargs):
+                                      star_spectral_radiosities_function, planet_star_spectral_radiances_function,
+                                      radial_velocity_amplitude_function, planet_radial_velocities_function,
+                                      relative_velocities_function, **kwargs):
         """Calculate the temperature profile, the mass mixing ratios, the mean molar masses and other parameters
         required for spectral calculation.
 
@@ -663,6 +674,7 @@ class BaseSpectralModel:
             mass_mixing_ratios_function:
             mean_molar_masses_function:
             star_spectral_radiosities_function:
+            planet_star_spectral_radiances_function:
             radial_velocity_amplitude_function:
             planet_radial_velocities_function:
             relative_velocities_function:
@@ -685,10 +697,13 @@ class BaseSpectralModel:
         )
 
         if 'is_orbiting' in kwargs:
+            # TODO probably need to have wavelengths in argument as well
             if kwargs['is_orbiting']:
                 if 'star_spectral_radiosities' not in kwargs:
                     kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
                         star_spectral_radiosities_function(**kwargs)
+
+                kwargs['planet_star_spectral_radiances'] = planet_star_spectral_radiances_function(**kwargs)
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
@@ -778,14 +793,11 @@ class BaseSpectralModel:
         star_spectral_radiosities = star_data[:, 1]
         star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um
 
-        star_spectral_radiosities = fr.rebin_spectrum(star_spectrum_wavelengths, star_spectral_radiosities, wavelengths)
-
         return star_spectrum_wavelengths, star_spectral_radiosities
 
     @staticmethod
     def calculate_planet_star_spectral_radiances(star_spectral_radiosities, star_radius, semi_major_axis,
                                                  star_spectrum_wavelengths=None, wavelengths=None, **kwargs):
-        # TODO WIP
         planet_star_spectral_irradiances = radiosity2irradiance(
             spectral_radiosity=star_spectral_radiosities,
             source_radius=star_radius,
@@ -1033,6 +1045,7 @@ class BaseSpectralModel:
             'mass_mixing_ratios_function': self.calculate_mass_mixing_ratios,
             'mean_molar_masses_function': self.calculate_mean_molar_masses,
             'star_spectral_radiosities_function': self.calculate_star_spectral_radiosities,
+            'planet_star_spectral_radiances_function': self.calculate_planet_star_spectral_radiances,
             'radial_velocity_amplitude_function': self.calculate_radial_velocity_amplitude,
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
             'relative_velocities_function': self.calculate_relative_velocities
@@ -1132,7 +1145,6 @@ class BaseSpectralModel:
                 **parameters
             )
 
-        # TODO fix new modify_spectrum and scale
         if instrumental_deformations is not None:
             spectrum *= instrumental_deformations
 
@@ -1172,6 +1184,31 @@ class BaseSpectralModel:
         )
 
         return self.wavelengths, self.transit_radii
+
+    def get_telluric_transmittances(self, file, relative_velocities=None, rewrite=False, tellurics_resolving_power=1e6,
+                                    **kwargs):
+        from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
+
+        if relative_velocities is None:
+            relative_velocities = self.model_parameters['relative_velocities']
+
+        wavelengths_range = self.calculate_optimal_wavelengths_boundaries(
+            output_wavelengths=self.wavelengths,
+            shift_wavelengths_function=self.shift_wavelengths,
+            relative_velocities=-relative_velocities,
+            **kwargs
+        )
+
+        # Add one step at each end to guarantee that at least the required range is fetched for
+        wavelengths_range[0] -= wavelengths_range[0] / tellurics_resolving_power
+        wavelengths_range[1] += wavelengths_range[1] / tellurics_resolving_power
+
+        return get_tellurics_npz(
+            file=file,
+            wavelength_range=wavelengths_range,
+            rewrite=rewrite,
+            **kwargs
+        )
 
     def get_volume_mixing_ratios(self):
         volume_mixing_ratios = {}
@@ -1318,13 +1355,21 @@ class BaseSpectralModel:
         return new_spectrum_model
 
     @staticmethod
-    def modify_spectrum_pre(wavelengths, spectrum,
-                            shift=False, rebin=False, convolve=False, star_spectral_radiosities=None,
-                            telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
-                            shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
-                            is_observed=False, star_radius=None, system_distance=None, star_observed_spectrum=None,
-                            **kwargs):
-        # TODO remove
+    def modify_spectrum(wavelengths, spectrum, mode,
+                        scale=False, shift=False, convolve=False, rebin=False,
+                        telluric_transmittances_wavelengths=None, telluric_transmittances=None,
+                        instrumental_deformations=None, noise_matrix=None,
+                        output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
+                        star_spectrum_wavelengths=None, star_spectral_radiosities=None,
+                        is_observed=False, star_radius=None, system_distance=None,
+                        scale_function=None, shift_wavelengths_function=None, convolve_function=None,
+                        rebin_spectrum_function=None,
+                        **kwargs):
+        # TODO check emission spectrum
+        # Initialization
+        if scale_function is None:
+            scale_function = BaseSpectralModel.scale_spectrum
+
         if shift_wavelengths_function is None:
             shift_wavelengths_function = BaseSpectralModel.shift_wavelengths
 
@@ -1334,201 +1379,127 @@ class BaseSpectralModel:
         if rebin_spectrum_function is None:
             rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
 
-        if star_spectral_radiosities is not None and star_observed_spectrum is None:
-            star_spectrum = copy.deepcopy(star_spectral_radiosities)
-            wavelengths_star = copy.deepcopy(wavelengths)
-        else:
-            star_spectrum = None
-            wavelengths_star = None
+        star_spectrum = star_spectral_radiosities
+        star_observed_spectrum = None
 
-        if shift:
-            wavelengths = shift_wavelengths_function(
-                wavelengths_rest=wavelengths,
-                **kwargs
-            )
-
-            if star_spectrum is not None:
-                if not rebin:
-                    raise ValueError(f"argument 'rebin' must be True "
-                                     f"if 'shift' is True and 'star_spectrum' is not None: "
-                                     f"cannot add shifted star spectrum to shifted spectrum if the two are not"
-                                     f"re-binned on the same wavelength grid")
-
-                if 'relative_velocities' in kwargs:
-                    relative_velocities_tmp = copy.deepcopy(kwargs['relative_velocities'])
-                    del kwargs['relative_velocities']
-                    save_relative_velocities = True
-                else:
-                    relative_velocities_tmp = None
-                    save_relative_velocities = False
-
-                if 'system_observer_radial_velocities' in kwargs:
-                    system_observer_radial_velocities = copy.deepcopy(kwargs['system_observer_radial_velocities'])
-                    del kwargs['system_observer_radial_velocities']
-                    save_system_observer_radial_velocities = True
-                else:
-                    system_observer_radial_velocities = None
-                    save_system_observer_radial_velocities = False
-
-                wavelengths_star = shift_wavelengths_function(
-                    wavelengths_rest=wavelengths_star,
-                    relative_velocities=system_observer_radial_velocities,
-                    **kwargs
-                )
-
-                if save_relative_velocities:
-                    kwargs['relative_velocities'] = relative_velocities_tmp
-
-                if save_system_observer_radial_velocities:
-                    kwargs['system_observer_radial_velocities'] = system_observer_radial_velocities
-
-        # Re-binning should be done after convolution and multiplication by telluric transmittance,
-        # but telluric transmittances and the spectrum must be on the same wavelength grid anyway
         if rebin:
-            wavelengths, spectrum = BaseSpectralModel.__rebin_wrap(
-                wavelengths=wavelengths,
-                spectrum=spectrum,
-                rebin_spectrum_function=rebin_spectrum_function,
+            wavelengths_0 = copy.deepcopy(output_wavelengths)
+        else:
+            wavelengths_0 = copy.deepcopy(wavelengths)
+
+        # Shift from the planet rest frame to the star system rest frame
+        if shift and star_spectral_radiosities is not None and mode == 'emission':
+            wavelengths_shift_system = shift_wavelengths_function(
+                wavelengths_rest=wavelengths,
+                relative_velocities=planet_radial_velocities,
                 **kwargs
             )
 
-            if star_spectrum is not None:
-                _, star_spectrum = BaseSpectralModel.__rebin_wrap(
-                    wavelengths=wavelengths_star,
-                    spectrum=star_spectrum,
+            star_spectrum = np.zeros(wavelengths_shift_system.shape)
+
+            # Get a star spectrum for each exposure
+            for i, wavelength_shift in enumerate(wavelengths_shift_system):
+                _, star_spectrum[i] = BaseSpectralModel.__rebin_wrap(
+                    wavelengths=star_spectrum_wavelengths,
+                    spectrum=star_spectral_radiosities,
+                    output_wavelengths=wavelength_shift,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
 
-        # Star spectrum, telluric lines and convolution
-        if star_spectrum is not None and star_observed_spectrum is None:  # TODO fix star observed spectrum never being updated
-            # This case should be used for simulating data, or for models with simulated star spectrum
-            if is_observed:
-                star_spectrum = radiosity2irradiance(
+        # Calculate flux received by the observer
+        if is_observed and mode == 'emission':
+            # Calculate planet radiosity + star radiosity
+            if star_spectrum is not None:
+                spectrum = spectrum + star_spectrum
+
+                star_observed_spectrum = radiosity2irradiance(
                     spectral_radiosity=star_spectrum,
                     source_radius=star_radius,
                     target_distance=system_distance
                 )
 
+            spectrum = radiosity2irradiance(
+                spectral_radiosity=spectrum,
+                source_radius=star_radius,
+                target_distance=system_distance
+            )
+        else:
             star_observed_spectrum = star_spectrum
-            spectrum += star_observed_spectrum
 
-            if telluric_transmittances is not None:
-                spectrum *= telluric_transmittances
-
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-
-                star_observed_spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=star_observed_spectrum,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-        elif star_observed_spectrum is not None:  # assuming that the observed star spectrum is already convolved
-            # This case should be used for models with measured and reduced star spectrum
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-
-            spectrum += star_observed_spectrum
-
-            if telluric_transmittances is not None:
-                if convolve:
-                    warnings.warn(f"Adding telluric transmittances to a convolved spectrum with an observed star "
-                                  f"spectrum: telluric transmittances won't be convolved and model will be inaccurate")
-
-                spectrum *= telluric_transmittances
-        else:  # no star spectrum
-            if telluric_transmittances is not None:
-                spectrum *= telluric_transmittances
-
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-
-        if instrumental_deformations is not None:
-            spectrum *= instrumental_deformations
-
-        # TODO better noise integration
-        # if noise_matrix is not None:
-        #     spectrum += noise_matrix
-
-        return wavelengths, spectrum, star_observed_spectrum
-
-    def _modify_spectrum(self, wavelengths, spectrum, scale=False, shift=False, convolve=False, rebin=False,
-                         scale_function=None, shift_wavelengths_function=None, convolve_function=None,
-                         rebin_spectrum_function=None, **kwargs
-                         ):
-        if scale_function is None:
-            scale_function = self.scale_spectrum
-
-        if shift_wavelengths_function is None:
-            shift_wavelengths_function = self.shift_wavelengths
-
-        if convolve_function is None:
-            convolve_function = self.convolve
-
-        if rebin_spectrum_function is None:
-            rebin_spectrum_function = self.rebin_spectrum
-
-        return self.modify_spectrum(
-            wavelengths=wavelengths,
-            spectrum=spectrum,
-            scale=scale,
-            shift=shift,
-            convolve=convolve,
-            rebin=rebin,
-            scale_function=scale_function,
-            shift_wavelengths_function=shift_wavelengths_function,
-            convolve_function=convolve_function,
-            rebin_spectrum_function=rebin_spectrum_function,
-            **kwargs
-        )
-
-    @staticmethod
-    def modify_spectrum(wavelengths, spectrum,
-                        scale=False, shift=False, convolve=False, rebin=False, star_spectral_radiosities=None,
-                        telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
-                        scale_function=None, shift_wavelengths_function=None, convolve_function=None,
-                        rebin_spectrum_function=None,
-                        is_observed=False, star_radius=None, system_distance=None, star_observed_spectrum=None,
-                        **kwargs):
-        # TODO build a self&static pair and use the self function in get_spectrum instead of the static function
-        if scale_function is None:
-            scale_function = SpectralModel.scale_spectrum
-
-        if shift_wavelengths_function is None:
-            shift_wavelengths_function = SpectralModel.shift_wavelengths
-
-        if convolve_function is None:
-            convolve_function = SpectralModel.convolve
-
-        if rebin_spectrum_function is None:
-            rebin_spectrum_function = SpectralModel.rebin_spectrum
-
-        if shift:
-            pass
-
+        # Scale the spectrum
         if scale:
             spectrum = scale_function(
                 spectrum=spectrum,
                 star_radius=star_radius,
-
+                star_observed_spectrum=star_observed_spectrum,
+                mode=mode,
+                **kwargs
             )
+
+        # Shift from the planet rest frame to the observer rest frame
+        if shift:
+            wavelengths = shift_wavelengths_function(
+                wavelengths_rest=wavelengths,
+                relative_velocities=relative_velocities,
+                **kwargs
+            )
+
+            if np.ndim(spectrum) <= 1:  # generate 2D spectrum
+                spectrum = np.tile(spectrum, (wavelengths.shape[0], 1))
+
+        # Add telluric transmittance
+        if telluric_transmittances is not None:
+            telluric_transmittances_rebin = np.zeros(wavelengths.shape)
+
+            if telluric_transmittances_wavelengths is None:
+                telluric_transmittances_wavelengths = wavelengths_0
+
+            if np.ndim(wavelengths) == 1:
+                wavelengths_rebin = np.array([wavelengths])
+            else:
+                wavelengths_rebin = wavelengths
+
+            # Get a telluric transmittance for each exposure
+            for i, wavelength_shift in enumerate(wavelengths_rebin):
+                _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
+                    wavelengths=telluric_transmittances_wavelengths,
+                    spectrum=telluric_transmittances,
+                    output_wavelengths=wavelength_shift,
+                    rebin_spectrum_function=rebin_spectrum_function,
+                    **kwargs
+                )
+
+            spectrum = spectrum * telluric_transmittances_rebin
+
+        # Convolve the spectrum
+        if convolve:
+            spectrum = BaseSpectralModel.__convolve_wrap(
+                wavelengths=wavelengths,
+                convolve_function=convolve_function,
+                spectrum=spectrum,
+                **kwargs
+            )
+
+        # Rebin the spectrum
+        if rebin:
+            wavelengths, spectrum = BaseSpectralModel.__rebin_wrap(
+                wavelengths=wavelengths,
+                spectrum=spectrum,
+                output_wavelengths=output_wavelengths,
+                rebin_spectrum_function=rebin_spectrum_function,
+                **kwargs
+            )
+
+        # Add instrumental deformations
+        if instrumental_deformations is not None:
+            spectrum = spectrum * instrumental_deformations
+
+        # Add noise
+        if noise_matrix is not None:
+            spectrum = spectrum + noise_matrix
+
+        return wavelengths, spectrum, star_observed_spectrum
 
     @staticmethod
     def modify_spectrum_old(wavelengths, spectrum, mode,
@@ -1608,7 +1579,7 @@ class BaseSpectralModel:
 
             if star_spectrum is not None:
                 _, star_spectrum = BaseSpectralModel.__rebin_wrap(
-                    wavelengths=wavelengths_star,
+                    wavelengths=kwargs['star_spectrum_wavelengths'],
                     spectrum=star_spectrum,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
@@ -1827,14 +1798,11 @@ class BaseSpectralModel:
             )
 
     @staticmethod
-    def scale_spectrum(spectrum, star_radius, planet_radius=None, star_observed_spectrum=None,
+    def scale_spectrum(spectrum, star_radius, star_observed_spectrum=None,
                        mode='emission', **kwargs):
         if mode == 'emission':
-            if planet_radius is None or star_observed_spectrum is None:
+            if star_observed_spectrum is None:
                 missing = []
-
-                if planet_radius is None:  # TODO comment why planet_radius is necessary here (is it?)
-                    missing.append('planet_radius')
 
                 if star_observed_spectrum is None:
                     missing.append('star_observed_spectrum')
@@ -2463,8 +2431,9 @@ class SpectralModel(BaseSpectralModel):
     @staticmethod
     def calculate_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
                                       mean_molar_masses_function,
-                                      star_spectral_radiosities_function, radial_velocity_amplitude_function,
-                                      planet_radial_velocities_function, relative_velocities_function,
+                                      star_spectral_radiosities_function, planet_star_spectral_radiances_function,
+                                      radial_velocity_amplitude_function, planet_radial_velocities_function,
+                                      relative_velocities_function,
                                       wavelengths=None, pressures=None, line_species=None,
                                       metallicity_function=None,
                                       **kwargs):
@@ -2494,7 +2463,15 @@ class SpectralModel(BaseSpectralModel):
             if kwargs['is_orbiting']:
                 if 'star_spectral_radiosities' not in kwargs:
                     kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
-                        star_spectral_radiosities_function(wavelengths, **kwargs)
+                        star_spectral_radiosities_function(
+                            wavelengths=wavelengths,
+                            **kwargs
+                        )
+
+                kwargs['planet_star_spectral_radiances'] = planet_star_spectral_radiances_function(
+                    wavelengths=wavelengths,
+                    **kwargs
+                )
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
@@ -2610,6 +2587,7 @@ class SpectralModel(BaseSpectralModel):
             'mass_mixing_ratios_function': self.calculate_mass_mixing_ratios,
             'mean_molar_masses_function': self.calculate_mean_molar_masses,
             'star_spectral_radiosities_function': self.calculate_star_spectral_radiosities,
+            'planet_star_spectral_radiances_function': self.calculate_planet_star_spectral_radiances,
             'radial_velocity_amplitude_function': self.calculate_radial_velocity_amplitude,
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
             'relative_velocities_function': self.calculate_relative_velocities,
