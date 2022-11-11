@@ -148,7 +148,7 @@ class Data:
         self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
-        self.flux_error = None
+        # self.flux_error = None  # TODO why doing this? flux_error is already None by default
         self.scale = scale
         self.scale_err = scale_err
 

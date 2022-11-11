@@ -1006,25 +1006,31 @@ class BaseSpectralModel:
 
     def get_relative_velocities(self, system_observer_radial_velocities, planet_radial_velocity_amplitude=None,
                                 planet_rest_frame_velocity_shift=0.0, orbital_longitudes=None, is_orbiting=None,
-                                planet_radial_velocities=None, **kwargs):
+                                planet_radial_velocities=None, full=False, **kwargs):
         if orbital_longitudes is None:
             orbital_longitudes = self.model_parameters['orbital_longitudes']
 
         if is_orbiting is None:
             is_orbiting = self.model_parameters['is_orbiting']
 
-        self._calculate_relative_velocities_wrap(
-            radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
-            planet_radial_velocities_function=self.calculate_planet_radial_velocities,
-            relative_velocities_function=self.calculate_relative_velocities,
-            system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
-            is_orbiting=is_orbiting,
-            orbital_longitudes=orbital_longitudes,
-            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
-            planet_radial_velocities=planet_radial_velocities,
-            **kwargs
-        )
+        relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude = \
+            self._calculate_relative_velocities_wrap(
+                radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
+                planet_radial_velocities_function=self.calculate_planet_radial_velocities,
+                relative_velocities_function=self.calculate_relative_velocities,
+                system_observer_radial_velocities=system_observer_radial_velocities,
+                planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+                is_orbiting=is_orbiting,
+                orbital_longitudes=orbital_longitudes,
+                planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+                planet_radial_velocities=planet_radial_velocities,
+                **kwargs
+            )
+
+        if full:
+            return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude
+        else:
+            return relative_velocities
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None, **kwargs):
         if pressures is None:
@@ -1074,26 +1080,28 @@ class BaseSpectralModel:
         return self.wavelengths, self.spectral_radiosities
 
     def get_spectrum_model(self, radtrans: Radtrans, mode='emission', parameters=None, update_parameters=False,
-                           telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
+                           telluric_transmittances_wavelengths=None, telluric_transmittances=None,
+                           instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, convolve=False, rebin=False, reduce=False):
         if parameters is None:
             parameters = self.model_parameters
 
         if update_parameters:
+            parameters['mode'] = mode
+            parameters['telluric_transmittances_wavelengths'] = telluric_transmittances_wavelengths
+            parameters['telluric_transmittances'] = telluric_transmittances
+            parameters['instrumental_deformations'] = instrumental_deformations
+            parameters['noise_matrix'] = noise_matrix
+            parameters['scale'] = scale
+            parameters['shift'] = shift
+            parameters['convolve'] = convolve
+            parameters['rebin'] = rebin
+            parameters['reduce'] = reduce
+
             self.update_spectral_calculation_parameters(
                 radtrans=radtrans,
                 **parameters
             )
-
-            self.model_parameters['mode'] = mode
-            self.model_parameters['telluric_transmittances'] = telluric_transmittances
-            self.model_parameters['instrumental_deformations'] = instrumental_deformations
-            self.model_parameters['noise_matrix'] = noise_matrix
-            self.model_parameters['scale'] = scale
-            self.model_parameters['shift'] = shift
-            self.model_parameters['convolve'] = convolve
-            self.model_parameters['rebin'] = rebin
-            self.model_parameters['reduce'] = reduce
 
             parameters = copy.deepcopy(self.model_parameters)
 
@@ -1353,12 +1361,13 @@ class BaseSpectralModel:
                         telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                         instrumental_deformations=None, noise_matrix=None,
                         output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
-                        star_spectrum_wavelengths=None, star_spectral_radiosities=None,
+                        star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
                         is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
                         **kwargs):
         # TODO check emission spectrum
+        # TODO star observed spectrum will always be re-calculated in this configuration
         # Initialization
         if scale_function is None:
             scale_function = BaseSpectralModel.scale_spectrum
@@ -1373,9 +1382,8 @@ class BaseSpectralModel:
             rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
 
         star_spectrum = star_spectral_radiosities
-        star_observed_spectrum = None
 
-        if rebin and telluric_transmittances is not None:
+        if rebin and telluric_transmittances is not None:  # TODO test if it works
             wavelengths_0 = copy.deepcopy(output_wavelengths)
         elif telluric_transmittances is not None:
             wavelengths_0 = copy.deepcopy(wavelengths)
@@ -1456,14 +1464,27 @@ class BaseSpectralModel:
                 wavelengths_rebin = wavelengths
 
             # Get a telluric transmittance for each exposure
-            for i, wavelength_shift in enumerate(wavelengths_rebin):
-                _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
-                    wavelengths=telluric_transmittances_wavelengths,
-                    spectrum=telluric_transmittances,
-                    output_wavelengths=wavelength_shift,
-                    rebin_spectrum_function=rebin_spectrum_function,
-                    **kwargs
-                )
+            if np.ndim(telluric_transmittances) == 1:
+                for i, wavelength_shift in enumerate(wavelengths_rebin):
+                    _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
+                        wavelengths=telluric_transmittances_wavelengths,
+                        spectrum=telluric_transmittances,
+                        output_wavelengths=wavelength_shift,
+                        rebin_spectrum_function=rebin_spectrum_function,
+                        **kwargs
+                    )
+            elif np.ndim(telluric_transmittances) == 2:
+                for i, wavelength_shift in enumerate(wavelengths_rebin):
+                    _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
+                        wavelengths=telluric_transmittances_wavelengths[i],
+                        spectrum=telluric_transmittances[i],
+                        output_wavelengths=wavelength_shift,
+                        rebin_spectrum_function=rebin_spectrum_function,
+                        **kwargs
+                    )
+            else:
+                raise ValueError(f"telluric transmittances must have 1 or 2 dimensions, "
+                                 f"but have {np.ndim(telluric_transmittances)}")
 
             spectrum = spectrum * telluric_transmittances_rebin
 
@@ -1677,8 +1698,8 @@ class BaseSpectralModel:
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
                                             spectrum_model=None, mode='emission', update_parameters=False,
-                                            telluric_transmittances=None, instrumental_deformations=None,
-                                            noise_matrix=None,
+                                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
+                                            instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, convolve=False, rebin=False, reduce=False):
         # TODO Change model generating function template to not include pt_plot_mode
         # Convert from Parameter object to dictionary
@@ -1727,6 +1748,7 @@ class BaseSpectralModel:
             mode=mode,
             parameters=p,
             update_parameters=update_parameters,
+            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
             telluric_transmittances=telluric_transmittances,
             instrumental_deformations=instrumental_deformations,
             noise_matrix=noise_matrix,
@@ -2454,19 +2476,21 @@ class SpectralModel(BaseSpectralModel):
             **kwargs
         )
 
-        if 'is_orbiting' in kwargs:
-            if kwargs['is_orbiting']:
-                if 'star_spectral_radiosities' not in kwargs:
-                    kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
-                        star_spectral_radiosities_function(
-                            wavelengths=wavelengths,
-                            **kwargs
-                        )
+        # Calculate star radiosities
+        if 'mode' in kwargs:
+            if kwargs['mode'] == 'emission' and 'is_orbiting' in kwargs:
+                if kwargs['is_orbiting']:
+                    if 'star_spectral_radiosities' not in kwargs:
+                        kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
+                            star_spectral_radiosities_function(
+                                wavelengths=wavelengths,
+                                **kwargs
+                            )
 
-                kwargs['planet_star_spectral_radiances'] = planet_star_spectral_radiances_function(
-                    wavelengths=wavelengths,
-                    **kwargs
-                )
+                    kwargs['planet_star_spectral_radiances'] = planet_star_spectral_radiances_function(
+                        wavelengths=wavelengths,
+                        **kwargs
+                    )
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
