@@ -67,7 +67,7 @@ def init_spectral_model_line_by_line():
         # semi_major_axis=planet.orbit_semi_major_axis,  # cm
         # orbital_phases=orbital_phases,
         # system_observer_radial_velocities=planet.star_radial_velocity - barycentric_velocities * 1e5,  # cm.s-1
-        # planet_rest_frame_shift=0.0,  # cm.s-1
+        # planet_rest_frame_velocity_shift=0.0,  # cm.s-1
         # Reprocessing parameters
         # uncertainties=model_uncertainties,
         # airmass=airmasses,

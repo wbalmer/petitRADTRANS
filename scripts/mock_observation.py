@@ -160,7 +160,7 @@ def get_mock_secondary_eclipse_spectra(wavelength_model, spectrum_model, star_sp
                                        planet_radius, star_radius,
                                        wavelength_instrument, instrument_resolving_power,
                                        planet_velocities, system_observer_radial_velocities,
-                                       planet_rest_frame_shift=0.0):
+                                       planet_rest_frame_velocity_shift=0.0):
     if np.ndim(wavelength_instrument) == 1:
         wavelength_instrument = np.array([wavelength_instrument])
 
@@ -179,7 +179,7 @@ def get_mock_secondary_eclipse_spectra(wavelength_model, spectrum_model, star_sp
             wavelengths_detector,
             planet_velocities=planet_velocities
             + system_observer_radial_velocities
-            + planet_rest_frame_shift  # planet + system velocity
+            + planet_rest_frame_velocity_shift  # planet + system velocity
         )
 
         star_spectral_radiosity_[i, :, :] = convolve_shift_rebin(
@@ -187,7 +187,7 @@ def get_mock_secondary_eclipse_spectra(wavelength_model, spectrum_model, star_sp
             star_spectral_radiosity,
             instrument_resolving_power,
             wavelengths_detector,
-            planet_velocities=system_observer_radial_velocities + planet_rest_frame_shift
+            planet_velocities=system_observer_radial_velocities + planet_rest_frame_velocity_shift
         )
 
     planet_radiosity = np.moveaxis(planet_radiosity, 0, 1)  # TODO put these dimension operations into the rebin function
@@ -205,7 +205,7 @@ def get_mock_transit_spectra(wavelength_model, transit_radius_model,
                              star_radius,
                              wavelength_instrument, instrument_resolving_power,
                              planet_velocities, system_observer_radial_velocities,
-                             planet_rest_frame_shift=0.0):
+                             planet_rest_frame_velocity_shift=0.0):
     planet_transit_radius = convolve_shift_rebin(
         wavelength_model,
         transit_radius_model,
@@ -213,7 +213,7 @@ def get_mock_transit_spectra(wavelength_model, transit_radius_model,
         wavelength_instrument,
         planet_velocities=planet_velocities
         + system_observer_radial_velocities
-        + planet_rest_frame_shift  # planet + system velocity
+        + planet_rest_frame_velocity_shift  # planet + system velocity
     )
 
     # TODO add star spot/flare, planet self-emission?
@@ -421,7 +421,7 @@ def generate_mock_observations(wavelength_model, planet_spectrum_model,
                 instrument_resolving_power=instrument_resolving_power,
                 planet_velocities=planet_velocities,
                 system_observer_radial_velocities=system_observer_radial_velocities,
-                planet_rest_frame_shift=0.0
+                planet_rest_frame_velocity_shift=0.0
             )
     elif mode == 'transit':
         for i, detector_wavelengths in enumerate(wavelength_instrument):
@@ -433,7 +433,7 @@ def generate_mock_observations(wavelength_model, planet_spectrum_model,
                 instrument_resolving_power=instrument_resolving_power,
                 planet_velocities=planet_velocities,
                 system_observer_radial_velocities=system_observer_radial_velocities,
-                planet_rest_frame_shift=0.0
+                planet_rest_frame_velocity_shift=0.0
             )
     else:
         raise ValueError(f"Unknown mode '{mode}', must be 'transit' or 'eclipse'")

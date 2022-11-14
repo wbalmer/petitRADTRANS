@@ -271,7 +271,7 @@ def main(sim_id=0):
 #             mass_fractions=mass_mixing_ratios,
 #             orbital_phases=orbital_phases,
 #             system_observer_radial_velocities=0.0,
-#             planet_rest_frame_shift=0.0,
+#             planet_rest_frame_velocity_shift=0.0,
 #             wavelengths_instrument=wavelengths_instrument,
 #             instrument_resolving_power=instrument_resolving_power
 #         )

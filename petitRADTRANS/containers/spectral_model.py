@@ -190,7 +190,7 @@ class BaseSpectralModel:
                 orbital position parameters, listed below.
             - orbital_longitudes (deg) array of orbital longitudes
             - orbital_phases: array of orbital phases
-            - planet_rest_frame_shift: (cm.s-1) array of offsets to the calculated relative_velocities
+            - planet_rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
             - planet_radial_velocity_amplitude: (cm.s-1) max radial orbital velocity of the planet (Kp), can be calc.
         The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
         orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
