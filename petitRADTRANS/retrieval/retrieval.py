@@ -1415,7 +1415,7 @@ class Retrieval:
             # If the user has specified a resolution, rebin to that
             if not dd.photometry:
                 try:
-                    # Sometimes this fails, I'm not super sure why.
+                    # Sometimes this fails, I'm not super sure why. # TODO find why and fix
                     resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
                     ratio = resolution_data / self.rd.plot_kwargs["resolution"]
 

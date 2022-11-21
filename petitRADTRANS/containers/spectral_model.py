@@ -1004,14 +1004,26 @@ class BaseSpectralModel:
     def get_reprocessed_spectrum(self, spectrum, **kwargs):
         return self.pipeline(spectrum, **kwargs)
 
-    def get_relative_velocities(self, system_observer_radial_velocities, planet_radial_velocity_amplitude=None,
-                                planet_rest_frame_velocity_shift=0.0, orbital_longitudes=None, is_orbiting=None,
-                                planet_radial_velocities=None, full=False, **kwargs):
+    def get_relative_velocities(self, system_observer_radial_velocities=None, planet_radial_velocity_amplitude=None,
+                                planet_rest_frame_velocity_shift=None, orbital_longitudes=None, is_orbiting=None,
+                                planet_orbital_inclination=None, planet_radial_velocities=None, full=False, **kwargs):
+        if system_observer_radial_velocities is None:
+            system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
+
+        if planet_radial_velocity_amplitude is None:
+            planet_radial_velocity_amplitude = self.model_parameters['planet_radial_velocity_amplitude']
+
+        if planet_rest_frame_velocity_shift is None:
+            planet_rest_frame_velocity_shift = self.model_parameters['planet_rest_frame_velocity_shift']
+
         if orbital_longitudes is None:
             orbital_longitudes = self.model_parameters['orbital_longitudes']
 
         if is_orbiting is None:
             is_orbiting = self.model_parameters['is_orbiting']
+
+        if planet_orbital_inclination is None:
+            planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
 
         relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude = \
             self._calculate_relative_velocities_wrap(
@@ -1024,6 +1036,7 @@ class BaseSpectralModel:
                 orbital_longitudes=orbital_longitudes,
                 planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
                 planet_radial_velocities=planet_radial_velocities,
+                planet_orbital_inclination=planet_orbital_inclination,
                 **kwargs
             )
 
@@ -1031,6 +1044,51 @@ class BaseSpectralModel:
             return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude
         else:
             return relative_velocities
+
+    def get_retrieval_velocities(self, planet_radial_velocity_amplitude_range=None,
+                                 planet_rest_frame_velocity_shift_range=None,
+                                 system_observer_radial_velocities=None, orbital_longitudes=None,
+                                 planet_orbital_inclination=None, **kwargs):
+        if system_observer_radial_velocities is None:
+            system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
+
+        if planet_radial_velocity_amplitude_range is None:
+            planet_radial_velocity_amplitude_range = self.model_parameters['planet_radial_velocity_amplitude_range']
+
+        if planet_rest_frame_velocity_shift_range is None:
+            planet_rest_frame_velocity_shift_range = self.model_parameters['planet_rest_frame_velocity_shift_range']
+
+        if orbital_longitudes is None:
+            orbital_longitudes = self.model_parameters['orbital_longitudes']
+
+        if planet_orbital_inclination is None:
+            planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
+
+        velocities_min = np.min(self.get_relative_velocities(
+            system_observer_radial_velocities=system_observer_radial_velocities,
+            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
+            planet_rest_frame_velocity_shift=np.min(planet_rest_frame_velocity_shift_range),
+            orbital_longitudes=orbital_longitudes,
+            is_orbiting=True,
+            planet_orbital_inclination=planet_orbital_inclination,
+            planet_radial_velocities=None,
+            full=False,
+            **kwargs
+        ))
+
+        velocities_max = np.max(self.get_relative_velocities(
+            system_observer_radial_velocities=system_observer_radial_velocities,
+            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
+            planet_rest_frame_velocity_shift=np.max(planet_rest_frame_velocity_shift_range),
+            orbital_longitudes=orbital_longitudes,
+            is_orbiting=True,
+            planet_orbital_inclination=planet_orbital_inclination,
+            planet_radial_velocities=None,
+            full=False,
+            **kwargs
+        ))
+
+        return np.array([velocities_min, velocities_max])
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None, **kwargs):
         if pressures is None:
