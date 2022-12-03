@@ -557,7 +557,7 @@ class Radtrans(_read_opacities.ReadOpacities):
     def mix_opa_tot(self, abundances, mmw, gravity,
                     sigma_lnorm=None, fsed=None, Kzz=None,
                     radius=None,
-                    add_cloud_scat_as_abs=None,
+                    add_cloud_scat_as_abs=False,
                     dist="lognormal", a_hans=None,
                     b_hans=None,
                     give_absorption_opacity=None,
@@ -713,7 +713,7 @@ class Radtrans(_read_opacities.ReadOpacities):
 
     def calc_cloud_opacity(self, abundances, mmw, gravity, sigma_lnorm,
                            fsed=None, Kzz=None,
-                           radius=None, add_cloud_scat_as_abs=None,
+                           radius=None, add_cloud_scat_as_abs=False,
                            dist="lognormal", a_hans=None, b_hans=None):
         # Function to calculate cloud opacities
         # for defined atmospheric structure.
@@ -840,7 +840,7 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         self.continuum_opa_scat += cloud_abs_plus_scat_no_aniso - cloud_abs
 
-        if add_cloud_scat_as_abs is not None:
+        if add_cloud_scat_as_abs:
             if add_cloud_scat_as_abs:
                 self.continuum_opa += cloud_abs + 0.20 * (cloud_abs_plus_scat_no_aniso - cloud_abs)
             else:
@@ -1129,7 +1129,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                   gray_opacity=None, Pcloud=None,
                   kappa_zero=None,
                   gamma_scat=None,
-                  add_cloud_scat_as_abs=None,
+                  add_cloud_scat_as_abs=False,
                   Tstar=None, Rstar=None, semimajoraxis=None,
                   geometry='dayside_ave', theta_star=0,
                   hack_cloud_photospheric_tau=None,
@@ -1191,7 +1191,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                 add_cloud_scat_as_abs (Optional[bool]):
                     If ``True``, 20 % of the cloud scattering opacity will be
                     added to the absorption opacity, introduced to test for the
-                    effect of neglecting scattering.
+                    effect of neglecting scattering.  # TODO is it worth keeping?
                 Tstar (Optional[float]):
                     The temperature of the host star in K, used only if the
                     scattering is considered. If not specified, the direct
@@ -1299,7 +1299,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                          give_scattering_opacity=give_scattering_opacity)
         self.calc_opt_depth(gravity, cloud_wlen=cloud_wlen)
 
-        if R_pl is not None:
+        if R_pl is not None:  # TODO what is the purpose of that?
             try:
                 radius_hse = self.calc_radius_hydrostatic_equilibrium(temp,
                                                                       mmw,
@@ -1521,7 +1521,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                          kappa_zero=None,
                          gamma_scat=None,
                          contribution=False, gray_opacity=None,
-                         add_cloud_scat_as_abs=None,
+                         add_cloud_scat_as_abs=False,
                          variable_gravity=True,
                          dist="lognormal", b_hans=None, a_hans=None,
                          give_absorption_opacity=None,
@@ -1638,7 +1638,7 @@ class Radtrans(_read_opacities.ReadOpacities):
 
     def calc_rosse_planck(self, temp, abunds, gravity, mmw, sigma_lnorm=None, fsed=None, Kzz=None, radius=None,
                           contribution=False, gray_opacity=None, Pcloud=None, kappa_zero=None, gamma_scat=None,
-                          haze_factor=None, add_cloud_scat_as_abs=None, dist="lognormal", b_hans=None, a_hans=None):
+                          haze_factor=None, add_cloud_scat_as_abs=False, dist="lognormal", b_hans=None, a_hans=None):
         """ Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
             Args:

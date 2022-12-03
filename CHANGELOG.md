@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.5.0-a32] - 2022-11-10
+## [2.5.0-a33] - 2022-12-03
 ### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.
@@ -74,6 +74,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Module `setup` not working with PyPI.
 - Wavelength range in module `retrieval` not working in "photometry" mode.
 - Wrong docstrings in function `Radtrans.get_star_spectrum`.
+- Argument `add_cloud_scat_as_abs` being `None` by default instead of `False`.
 
 
 ---

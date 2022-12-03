@@ -722,10 +722,17 @@ class BaseSpectralModel:
     def calculate_spectral_radiosity_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios,
                                               planet_surface_gravity, mean_molar_mass,
                                               planet_star_spectral_radiances=None,
-                                              star_effective_temperature=None,
-                                              cloud_pressure=None, cloud_sigma=None,
-                                              cloud_particle_radii=None, planet_radius=None, system_distance=None,
-                                              is_observed=False,
+                                              star_effective_temperature=None, star_radius=None, semi_major_axis=None,
+                                              cloud_pressure=None, cloud_sigma=None, cloud_sedimentation_factor=None,
+                                              cloud_particle_radii=None, cloud_particle_size_distribution='lognormal',
+                                              cloud_hansen_a=None, cloud_hansen_b=None, eddy_diffusion_coefficient=None,
+                                              scattering_opacity_350nm=None, scattering_opacity_coefficient=None,
+                                              cloud_photospheric_optical_depth=None,
+                                              cloud_photospheric_wavelengths_boundaries=None, uniform_gray_opacity=None,
+                                              irradiation_geometry='dayside_ave', irradiation_inclination=0.0,
+                                              planet_radius=None, system_distance=None, is_observed=False,
+                                              calculate_contribution=False, add_cloud_scattering_as_absorption=False,
+                                              absorption_opacity_function=None, scattering_opacity_function=None,
                                               **kwargs):
         """Wrapper of Radtrans.calc_flux that output wavelengths in um and spectral radiosity in W.m-2/um.
         Args:
@@ -735,13 +742,31 @@ class BaseSpectralModel:
             planet_surface_gravity:
             mean_molar_mass:
             star_effective_temperature:
+            star_radius:
+            semi_major_axis:
             planet_star_spectral_radiances:
             cloud_pressure:
             cloud_sigma:
+            cloud_sedimentation_factor:
             cloud_particle_radii:
+            cloud_particle_size_distribution:
+            cloud_hansen_a:
+            cloud_hansen_b:
+            eddy_diffusion_coefficient:
+            scattering_opacity_350nm:
+            scattering_opacity_coefficient:
+            cloud_photospheric_optical_depth:
+            cloud_photospheric_wavelengths_boundaries:
+            uniform_gray_opacity:
+            irradiation_geometry:
+            irradiation_inclination:
             planet_radius:
             system_distance:
             is_observed:
+            calculate_contribution:
+            add_cloud_scattering_as_absorption:
+            absorption_opacity_function:
+            scattering_opacity_function:
 
         Returns:
 
@@ -761,11 +786,30 @@ class BaseSpectralModel:
             abunds=mass_mixing_ratios,
             gravity=planet_surface_gravity,
             mmw=mean_molar_mass,
-            Tstar=star_effective_temperature,
-            Pcloud=cloud_pressure,
-            stellar_intensity=planet_star_spectral_radiances,
+            R_pl=planet_radius,
             sigma_lnorm=cloud_sigma,
-            radius=cloud_particle_radii
+            fsed=cloud_sedimentation_factor,
+            Kzz=eddy_diffusion_coefficient,
+            radius=cloud_particle_radii,
+            contribution=calculate_contribution,
+            gray_opacity=uniform_gray_opacity,
+            Pcloud=cloud_pressure,
+            kappa_zero=scattering_opacity_350nm,
+            gamma_scat=scattering_opacity_coefficient,
+            add_cloud_scat_as_abs=add_cloud_scattering_as_absorption,
+            Tstar=star_effective_temperature,
+            Rstar=star_radius,
+            semimajoraxis=semi_major_axis,
+            geometry=irradiation_geometry,
+            theta_star=irradiation_inclination,
+            hack_cloud_photospheric_tau=cloud_photospheric_optical_depth,
+            dist=cloud_particle_size_distribution,
+            a_hans=cloud_hansen_a,
+            b_hans=cloud_hansen_b,
+            stellar_intensity=planet_star_spectral_radiances,
+            give_absorption_opacity=absorption_opacity_function,
+            give_scattering_opacity=scattering_opacity_function,
+            cloud_wlen=cloud_photospheric_wavelengths_boundaries,
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
             # TODO add the other arguments
         )
@@ -779,7 +823,7 @@ class BaseSpectralModel:
         return wavelengths, spectral_radiosity
 
     @staticmethod
-    def calculate_star_spectral_radiosities(wavelengths, star_effective_temperature, **kwargs):
+    def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
         # The PHOENIX data are loaded only when the module is imported
         star_data = get_PHOENIX_spec(star_effective_temperature)
 
@@ -824,7 +868,7 @@ class BaseSpectralModel:
     def calculate_transit_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
                                    planet_surface_gravity, reference_pressure, planet_radius,
                                    cloud_pressure=None, haze_factor=None, cloud_particle_size_distribution='lognormal',
-                                   cloud_particle_radii=None, cloud_particle_lognorm_width=None,
+                                   cloud_particle_radii=None, cloud_particle_log_normal_width=None,
                                    cloud_hansen_a=None, cloud_hansen_b=None,
                                    cloud_sedimentation_factor=None, eddy_diffusion_coefficient=None,
                                    scattering_opacity_350nm=None, scattering_opacity_coefficient=None,
@@ -847,7 +891,7 @@ class BaseSpectralModel:
             haze_factor:
             cloud_particle_size_distribution:
             cloud_particle_radii:
-            cloud_particle_lognorm_width:
+            cloud_particle_log_normal_width:
             cloud_hansen_a:
             cloud_hansen_b:
             cloud_sedimentation_factor:
@@ -871,7 +915,7 @@ class BaseSpectralModel:
             mmw=mean_molar_masses,
             P0_bar=reference_pressure,
             R_pl=planet_radius,
-            sigma_lnorm=cloud_particle_lognorm_width,
+            sigma_lnorm=cloud_particle_log_normal_width,
             fsed=cloud_sedimentation_factor,
             Kzz=eddy_diffusion_coefficient,
             radius=cloud_particle_radii,
@@ -1575,139 +1619,6 @@ class BaseSpectralModel:
         if noise_matrix is not None:
             spectrum = spectrum + noise_matrix
 
-        return wavelengths, spectrum, star_observed_spectrum
-
-    @staticmethod
-    def modify_spectrum_old(wavelengths, spectrum, mode,
-                            shift=False, rebin=False, convolve=False, star_spectral_radiosities=None,
-                            shift_wavelengths_function=None, convolve_function=None, rebin_spectrum_function=None,
-                            is_observed=False, star_radius=None, system_distance=None, star_observed_spectrum=None,
-                            **kwargs):
-        if shift_wavelengths_function is None:
-            shift_wavelengths_function = BaseSpectralModel.shift_wavelengths
-
-        if convolve_function is None:
-            convolve_function = BaseSpectralModel.convolve
-
-        if rebin_spectrum_function is None:
-            rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
-
-        if star_spectral_radiosities is not None and star_observed_spectrum is None:
-            star_spectrum = copy.deepcopy(star_spectral_radiosities)
-            wavelengths_star = copy.deepcopy(wavelengths)
-        else:
-            star_spectrum = None
-            wavelengths_star = None
-
-        if mode == 'transmission':
-            star_spectrum = None
-
-        if shift:
-            wavelengths = shift_wavelengths_function(
-                wavelengths_rest=wavelengths,
-                **kwargs
-            )
-
-            if star_spectrum is not None:
-                if not rebin:
-                    raise ValueError(f"argument 'rebin' must be True "
-                                     f"if 'shift' is True and 'star_spectrum' is not None: "
-                                     f"cannot add shifted star spectrum to shifted spectrum if the two are not"
-                                     f"re-binned on the same wavelength grid")
-
-                if 'relative_velocities' in kwargs:
-                    relative_velocities_tmp = copy.deepcopy(kwargs['relative_velocities'])
-                    del kwargs['relative_velocities']
-                    save_relative_velocities = True
-                else:
-                    relative_velocities_tmp = None
-                    save_relative_velocities = False
-
-                if 'system_observer_radial_velocities' in kwargs:
-                    system_observer_radial_velocities = copy.deepcopy(kwargs['system_observer_radial_velocities'])
-                    del kwargs['system_observer_radial_velocities']
-                    save_system_observer_radial_velocities = True
-                else:
-                    system_observer_radial_velocities = None
-                    save_system_observer_radial_velocities = False
-
-                wavelengths_star = shift_wavelengths_function(
-                    wavelengths_rest=wavelengths_star,
-                    relative_velocities=system_observer_radial_velocities,
-                    **kwargs
-                )
-
-                if save_relative_velocities:
-                    kwargs['relative_velocities'] = relative_velocities_tmp
-
-                if save_system_observer_radial_velocities:
-                    kwargs['system_observer_radial_velocities'] = system_observer_radial_velocities
-
-        # Re-binning should be done after convolution and multiplication by telluric transmittance,
-        # but telluric transmittances and the spectrum must be on the same wavelength grid anyway
-        if rebin:
-            wavelengths, spectrum = BaseSpectralModel.__rebin_wrap(
-                wavelengths=wavelengths,
-                spectrum=spectrum,
-                rebin_spectrum_function=rebin_spectrum_function,
-                **kwargs
-            )
-
-            if star_spectrum is not None:
-                _, star_spectrum = BaseSpectralModel.__rebin_wrap(
-                    wavelengths=kwargs['star_spectrum_wavelengths'],
-                    spectrum=star_spectrum,
-                    rebin_spectrum_function=rebin_spectrum_function,
-                    **kwargs
-                )
-
-        # Star spectrum, telluric lines and convolution
-        if star_spectrum is not None and star_observed_spectrum is None:  # TODO fix star observed spectrum never being updated
-            # This case should be used for simulating data, or for models with simulated star spectrum
-            if is_observed:
-                star_spectrum = radiosity2irradiance(
-                    spectral_radiosity=star_spectrum,
-                    source_radius=star_radius,
-                    target_distance=system_distance
-                )
-
-            star_observed_spectrum = star_spectrum
-            spectrum += star_observed_spectrum
-
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-
-                star_observed_spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=star_observed_spectrum,
-                    **kwargs
-                )
-        elif star_observed_spectrum is not None:  # assuming that the observed star spectrum is already convolved
-            # This case should be used for models with measured and reduced star spectrum
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
-
-            if mode == 'emission':
-                spectrum += star_observed_spectrum
-        else:  # no star spectrum
-            if convolve:
-                spectrum = BaseSpectralModel.__convolve_wrap(
-                    wavelengths=wavelengths,
-                    convolve_function=convolve_function,
-                    spectrum=spectrum,
-                    **kwargs
-                )
         return wavelengths, spectrum, star_observed_spectrum
 
     @staticmethod
@@ -2543,7 +2454,6 @@ class SpectralModel(BaseSpectralModel):
                     if 'star_spectral_radiosities' not in kwargs:
                         kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
                             star_spectral_radiosities_function(
-                                wavelengths=wavelengths,
                                 **kwargs
                             )
 
