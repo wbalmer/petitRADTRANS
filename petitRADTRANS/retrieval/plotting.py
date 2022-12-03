@@ -93,7 +93,7 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
 
 def contour_corner(sampledict,
                    parameter_names,
-                   output_file,
+                   output_file=None,
                    parameter_ranges=None,
                    parameter_plot_indices=None,
                    true_values=None,
@@ -312,7 +312,9 @@ def contour_corner(sampledict,
     if legend:
         fig.get_axes()[2].legend(handles=handles,
                                  loc='upper right')
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+
+    if output_file is not None:
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
 
     return fig
 

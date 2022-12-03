@@ -935,6 +935,19 @@ class Planet:
         return value, key
 
     @staticmethod
+    def calculate_full_transit_duration(total_transit_duration, planet_radius, star_radius, impact_parameter):
+        k = planet_radius / star_radius
+
+        return total_transit_duration * np.sqrt(
+            ((1 - k) ** 2 - impact_parameter ** 2)
+            / ((1 + k) ** 2 - impact_parameter ** 2)
+        )
+
+    @staticmethod
+    def calculate_impact_parameter(planet_orbit_semi_major_axis, planet_orbital_inclination, star_radius):
+        return planet_orbit_semi_major_axis * np.cos(np.deg2rad(planet_orbital_inclination)) / star_radius
+
+    @staticmethod
     def calculate_planet_radial_velocity(planet_radial_velocity_amplitude, planet_orbital_inclination,
                                          orbital_longitude):
         """Calculate the planet radial velocity as seen by an observer.

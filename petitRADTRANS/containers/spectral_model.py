@@ -1508,6 +1508,8 @@ class BaseSpectralModel:
 
             if np.ndim(spectrum) <= 1:  # generate 2D spectrum
                 spectrum = np.tile(spectrum, (wavelengths.shape[0], 1))
+        else:
+            wavelengths = np.array([wavelengths])
 
         # Add telluric transmittance
         if telluric_transmittances is not None:
