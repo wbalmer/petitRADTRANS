@@ -1,12 +1,15 @@
 astropy>=4.1
+corner
 exo-k>=1.0.1
 h5py>=2.10
 matplotlib>=3.3
+molmass
 mpi4py>=3.0
 numpy>=1.19
 pymultinest>=2.9
+pyvo
+requests
 scipy>=1.5
-molmass
 seaborn
-corner
+skycalc_cli
 typing;python_version<"3.5"

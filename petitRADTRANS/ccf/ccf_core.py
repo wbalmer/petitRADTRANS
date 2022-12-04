@@ -27,30 +27,62 @@ def co_add_cross_correlation(cross_correlation, velocities_ccf, co_added_velocit
 
 
 def cross_correlate(array_1, array_2):
-    array_1_2 = array_1 @ array_1
-    array_2_2 = array_2 @ array_2
-    array_mul = array_1 @ array_2
+    """Cross-correlate two 1-D arrays.
 
-    return array_mul / np.sqrt(array_1_2 * array_2_2)
+    Args:
+        array_1: first array
+        array_2: second array
+
+    Returns:
+        The cross-correlation values.
+    """
+    array_1_2 = np.dot(array_1, array_1)
+    array_2_2 = np.dot(array_2, array_2)
+    array_dot = np.dot(array_1, array_2)
+
+    return array_dot / np.sqrt(array_1_2 * array_2_2)
 
 
-def cross_correlate_3d(matrix_1, matrix_2):
-    matrix_mul = matrix_1 * matrix_2
+def cross_correlate_matrices(matrix_1, matrix_2):
+    """Cross-correlate two N-D arrays.
+    The cross-correlation is performed over the last dimension of the matrices. NaNs are ignored and replaced by zeros.
+    For matrices of shape e.g. (2, 3, 10, 1000), the result is a matrix of shape (2, 3, 10). This is equivalent, but
+    faster, to:
+    >>> ccf = np.zeros((2, 3, 10))
+    >>> for i in range(2):
+    ...     for j in range(3):
+    ...         for k in range(10):
+    ...             ccf[i, j, k] = cross_correlate(matrix_1[i, j, k, :], matrix_2[i, j, k, :])
 
-    # Ignore indices where both matrices are NaNs: any number times NaN will return NaN, hence matrix_mul can be used
-    ids = np.isnan(matrix_mul)
+    For 1-D arrays, cross_correlate is faster, but NaNs are not treated.
+    Arguments matrix_1 and matrix_2 can be 1-D arrays, in that case NaNs are treated then cross_correlate() is used. The
+    NaN treatment is rather slow, so cross_correlate is still faster if no NaN are in the arrays.
 
-    matrix_1[ids] = 0  # zeros won't add to the sum
-    matrix_2[ids] = 0
-    matrix_mul[ids] = 0
+    Args:
+        matrix_1: first matrix
+        matrix_2: second matrix
 
-    # Intermediate calculations
-    matrix_1 = matrix_1 ** 2
-    matrix_2 = matrix_2 ** 2
-    matrix_1 = np.sum(matrix_1, axis=-1)
-    matrix_2 = np.sum(matrix_2, axis=-1)
+    Returns:
+        The cross-correlation values.
+    """
+    matrix_dot = matrix_1 * matrix_2
 
-    matrix_mul = np.sum(matrix_mul, axis=-1)
+    # Ignore indices where both matrices are NaNs: any number times NaN will return NaN, hence matrix_dot can be used
+    indices = np.isnan(matrix_dot)
+
+    matrix_1[indices] = 0  # replace NaNs with zeros, zeros won't add to the sum
+    matrix_2[indices] = 0
+
+    if np.ndim(matrix_1) <= 1:  # for 1-D arrays, cut-off to the faster cross_correlate, after the NaN treatment
+        return cross_correlate(matrix_1, matrix_2)  # slightly inefficient as matrix_dot is not used
+
+    matrix_dot[indices] = 0
+
+    # Intermediate calculations, using einsum is ~2 times faster than np.sum(matrix ** 2, axis=-1)
+    matrix_1 = np.einsum(matrix_1, [Ellipsis, 0], matrix_1, [Ellipsis, 0])  # <=> np.sum(matrix_1 ** 2, axis=-1)
+    matrix_2 = np.einsum(matrix_2, [Ellipsis, 0], matrix_2, [Ellipsis, 0])  # <=> np.sum(matrix_2 ** 2, axis=-1)
+
+    matrix_dot = np.sum(matrix_dot, axis=-1)
 
     # Use matrix 1 to build the divisor in order to save RAM
     matrix_1 *= matrix_2
@@ -59,10 +91,10 @@ def cross_correlate_3d(matrix_1, matrix_2):
     # Use matrix 2 to store the result in order to save RAM
     matrix_2.fill(0.0)
 
-    ids = np.nonzero(matrix_1)  # prevent division by 0
+    indices = np.nonzero(matrix_1)  # prevent division by 0
 
     # Cross correlation
-    # result = matrix_1 @ matrix_2 / sqrt(matrix_1 @ matrix_1 * matrix_2 @ matrix_2)
-    matrix_2[ids] = matrix_mul[ids] / matrix_1[ids]
+    # result = matrix_1 . matrix_2 / sqrt(matrix_1 . matrix_1 * matrix_2 . matrix_2)
+    matrix_2[indices] = matrix_dot[indices] / matrix_1[indices]
 
     return matrix_2

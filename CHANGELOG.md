@@ -78,4 +78,4 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 
 ---
-No changelog before version 2.4.0.
+No changelog before version 2.5.0.

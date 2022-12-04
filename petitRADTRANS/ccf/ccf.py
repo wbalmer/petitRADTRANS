@@ -6,10 +6,10 @@ import copy
 
 import numpy as np
 
+from petitRADTRANS.ccf.ccf_core import cross_correlate_matrices, co_add_cross_correlation
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.physics import doppler_shift
-from petitRADTRANS.ccf.ccf_core import cross_correlate_3d, co_add_cross_correlation
 
 
 def calculate_co_added_cross_correlation(cross_correlation, orbital_phases_ccf, velocities_ccf,
@@ -324,7 +324,7 @@ def shift_cross_correlate(wavelength_data, data, wavelength_model, model, veloci
     model_ = np.moveaxis(np.tile(models_shift, (n_integrations, 1, 1, 1)), 0, 2)
 
     # Calculate cross correlation
-    ccf = np.moveaxis(cross_correlate_3d(
+    ccf = np.moveaxis(cross_correlate_matrices(
         matrix_1=data_,
         matrix_2=model_
     ), 1, 2)
