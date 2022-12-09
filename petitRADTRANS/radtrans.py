@@ -19,8 +19,6 @@ from petitRADTRANS import nat_cst as nc
 # from petitRADTRANS import phoenix
 from petitRADTRANS import pyth_input as pyi
 
-#from line_profiler_pycharm import profile
-
 class Radtrans(_read_opacities.ReadOpacities):
     r""" Class defining objects for carrying out spectral calculations for a
     given set of opacities
@@ -67,7 +65,6 @@ class Radtrans(_read_opacities.ReadOpacities):
             :math:`10^6` resolution. If not, this parameter must not be used.
     """
 
-    #@profile
     def __init__(
             self,
             line_species=None,
@@ -314,7 +311,6 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         return add_cloud_opacity
 
-    #profile
     def _init_line_opacities_parameters(self):
         if self.mode == 'c-k':
             if self.do_scat_emis and not self.test_ck_shuffle_comp:
@@ -433,7 +429,6 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         return freq, border_freqs, lambda_angstroem, border_lambda_angstroem, freq_len, g_len, arr_min
 
-    #@profile
     def _init_pressure_dependent_parameters(self, pressures):
         """ Setup opacity arrays at atmospheric structure dimensions,
         and set the atmospheric pressure array.
@@ -520,7 +515,6 @@ class Radtrans(_read_opacities.ReadOpacities):
             self.total_tau, self.line_abundances, self.cloud_mass_fracs, self.r_g = \
             self._init_pressure_dependent_parameters(pressures=P)
 
-    #@profile
     def interpolate_species_opa(self, temp):
         # Interpolate line opacities to given temperature structure.
         self.temp = temp
@@ -539,7 +533,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         else:
             self.line_struc_kappas = np.zeros_like(self.line_struc_kappas)
 
-    #@profile
     def interpolate_cia(self, key, mfrac):
         mu_part = np.sqrt(self.CIA_species[key]['weight'])
         factor = (mfrac/mu_part) ** 2 * self.mmw / nc.amu / (nc.L0**2) * self.press / nc.kB / self.temp
@@ -568,7 +561,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         else:
             raise ValueError('ERROR! pRT needs a rectangular CIA table.')
 
-    #@profile
     def mix_opa_tot(self, abundances, mmw, gravity,
                     sigma_lnorm=None, fsed=None, Kzz=None,
                     radius=None,
@@ -712,7 +704,6 @@ class Radtrans(_read_opacities.ReadOpacities):
             self.line_struc_kappas[:, :, 0, :] = \
                 np.sum(self.line_struc_kappas, axis=2)
 
-    #@profile
     def calc_cloud_opacity(self, abundances, mmw, gravity, sigma_lnorm,
                            fsed=None, Kzz=None,
                            radius=None, add_cloud_scat_as_abs=None,
@@ -832,7 +823,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         # This included scattering plus absorption
         self.cloud_total_opa_retrieval_check = cloud_abs_plus_scat_aniso
 
-    #@profile
     def add_rayleigh(self, abundances):
         # Add Rayleigh scattering cross-sections
         for spec in self.rayleigh_species:
@@ -846,7 +836,6 @@ class Radtrans(_read_opacities.ReadOpacities):
             if self.do_scat_emis:
                 self.continuum_opa_scat_emis = self.continuum_opa_scat_emis + add_term
 
-    #@profile
     def calc_opt_depth(self, gravity, cloud_wlen=None):
         # Calculate optical depth for the total opacity.
         if self.mode == 'lbl' or self.test_ck_shuffle_comp:
@@ -1012,7 +1001,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                 fs.calc_tau_g_tot_ck(gravity, self.press,
                                      self.line_struc_kappas)
 
-    #@profile
     def calc_RT(self, contribution):
         """Calculate the flux.
         """
@@ -1058,7 +1046,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                                                       self.mu, self.w_gauss_mu,
                                                       self.w_gauss, contribution)
 
-    #@profile
     def calc_tr_rad(self, P0_bar, R_pl, gravity, mmw,
                     contribution, variable_gravity):
         # Calculate the transmission spectrum
@@ -1095,7 +1082,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                     self.continuum_opa_scat, variable_gravity
                 )
 
-    #@profile
     def calc_flux(self, temp, abunds, gravity, mmw, R_pl = None, sigma_lnorm=None,
                   fsed=None, Kzz=None, radius=None,
                   contribution=False,
@@ -1318,7 +1304,6 @@ class Radtrans(_read_opacities.ReadOpacities):
             self.contr_em = None
             self.skip_RT_step = False
 
-    #profile
     def get_star_spectrum(self, Tstar, distance, Rstar=None):
         """Method to get the PHOENIX spectrum of the star and rebin it
         to the wavelength points. If Tstar is not explicitly written, the
@@ -1368,7 +1353,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         else:
             self.stellar_intensity = np.zeros_like(self.freq)
 
-    #profile
     def calc_transm(self, temp, abunds, gravity, mmw, P0_bar, R_pl,
                     sigma_lnorm=None,
                     fsed=None, Kzz=None, radius=None,
@@ -1610,7 +1594,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.calc_RT(contribution)
         self.calc_tr_rad(P0_bar, R_pl, gravity, mmw, contribution, variable_gravity)
 
-    #profile
     def calc_rosse_planck(self, temp, abunds, gravity, mmw, sigma_lnorm=None, fsed=None, Kzz=None, radius=None,
                           contribution=False, gray_opacity=None, Pcloud=None, kappa_zero=None, gamma_scat=None,
                           haze_factor=None, add_cloud_scat_as_abs=None, dist="lognormal", b_hans=None, a_hans=None):
@@ -1790,7 +1773,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                      label=spec,
                      **kwargs)
 
-    #profile
     def calc_tau_cloud(self, gravity):
         """ Method to calculate the optical depth of the clouds as function of
         frequency and pressure. The array with the optical depths is set to the
@@ -1954,7 +1936,6 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         return np.array(pressures)/1e6
 
-#@profile
 def py_calc_cloud_opas(
     rho, # (M,)
     rho_p,  # (N,)

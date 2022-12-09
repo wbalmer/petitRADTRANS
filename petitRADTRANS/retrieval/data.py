@@ -364,7 +364,6 @@ class Data:
                 index = (wlen_model >= self.wlen[0] * 0.99999999) & \
                         (wlen_model <= self.wlen[-1] * 1.00000001)
                 flux_rebinned = spectrum_model[index]
-                #print('Using pRT_grid!', self.name)
             else:
                 # Rebin to model observation
                 flux_rebinned = rebin_give_width(wlen_model,
