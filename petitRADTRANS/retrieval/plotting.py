@@ -319,6 +319,271 @@ def contour_corner(sampledict,
     return fig
 
 
+def contour_corner_large(sampledict,
+                         parameter_names,
+                         output_file=None,
+                         parameter_ranges=None,
+                         parameter_plot_indices=None,
+                         true_values=None,
+                         short_name=None,
+                         legend=False,
+                         prt_plot_style=True,
+                         plot_best_fit=False,
+                         use_labels_as_titles=True,
+                         **kwargs):
+    """
+    Use the corner package to plot the posterior distributions produced by pymultinest.
+
+    Args:
+        sampledict : dict
+            A dictionary of samples, each sample has shape (N_Samples,N_params). The keys of the
+            dictionary correspond to the names of each retrieval, and are the prefixes to the
+            post_equal_weights.dat files. These are passed as arguments to retrieve.py.
+            By default, this is only the current retrieval, and plots the posteriors for a single
+            retrieval. If multiple names are passed, they are overplotted on the same figure.
+        parameter_names : dict
+            A dictionary with keys for each retrieval name, as in sampledict. Each value of the
+            dictionary is the names of the parameters to beplotted, as set in the
+            run_definition file.
+        output_file : str
+            Output file name
+        parameter_ranges : dict
+            A dictionary with keys for each retrieval name as in sampledict. Each value
+            contains the ranges of parameters that have a range set with corner_range in the
+            parameter class. Otherwise the range is +/- 4 sigma
+        parameter_plot_indices : dict
+            A dictionary with keys for each retrieval name as in sampledict. Each value
+            contains the indices of the sample to plot, as set by the plot_in_corner
+            parameter of the parameter class
+        true_values : dict
+            A dictionary with keys for each retrieval name as in sampledict. Each value
+            contains the known values of the parameters.
+        short_name : dict
+            A dictionary with keys for each retrieval name as in sampledict. Each value
+            contains the names to be plotted in the corner plot legend. If non, uses the
+            retrieval names used as keys for sampledict
+        legend : bool
+            Turn the legend on or off
+        prt_plot_style : bool
+            Use the prt plot style, changes the colour scheme and fonts to match the rest of
+            the prt plots.
+        kwargs : dict
+            Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
+            the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
+            kwarg must be a dictionary with the arguments as keys and values as the values.
+    """
+    if parameter_ranges is None:
+        parameter_ranges = {}
+
+    if parameter_plot_indices is None:
+        parameter_plot_indices = {}
+
+    if prt_plot_style:
+        import matplotlib as mpl
+
+        mpl.rcParams.update(mpl.rcParamsDefault)
+        font = {'family': 'serif'}
+        xtick = {'top': True,
+                 'bottom': True,
+                 'direction': 'in'}
+
+        ytick = {'left': True,
+                 'right': True,
+                 'direction': 'in'}
+        xmin = {'visible': True}
+        ymin = {'visible': True}
+        mpl.rc('xtick', **xtick)
+        mpl.rc('xtick.minor', **xmin)
+        mpl.rc('ytick', **ytick)
+        mpl.rc('ytick.minor', **ymin)
+        mpl.rc('font', **font)
+
+        color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
+                      "#B429FF"]
+    else:
+        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
+
+        # from .plot_style import prt_colours
+    # color_list = prt_colours
+
+    range_list = []
+    handles = []
+    count = 0
+    fig = None
+
+    for key, samples in sampledict.items():
+        if prt_plot_style and count > len(color_list):
+            print("Not enough colors to continue plotting. Please add to the list.")
+            print("Outputting first " + str(count) + " retrievals.")
+            break
+
+        n_samples = len(samples)
+        s = n_samples
+
+        if key not in parameter_plot_indices:
+            parameter_plot_indices[key] = range(len(parameter_names[key]))
+        elif parameter_plot_indices[key] is None:  # same as in the case the key doesn't exists
+            parameter_plot_indices[key] = range(len(parameter_names[key]))
+
+        if key not in parameter_ranges:
+            parameter_ranges[key] = [None] * (max(parameter_plot_indices[key]) + 1)
+
+        data_list = []
+        labels_list = []
+
+        if use_labels_as_titles:
+            titles_list = None  # if titles is None, labels are automatically used
+        else:
+            titles_list = []
+
+        best_fit = None
+
+        if plot_best_fit:
+            best_fit = []
+            best_fit_ind = np.argmax(samples[:,-1])
+            for i in parameter_plot_indices[key]:
+                best_fit.append(samples[best_fit_ind][i])
+        for range_i, i in enumerate(parameter_plot_indices[key]):
+            data_list.append(samples[len(samples) - s:, i])
+            labels_list.append(parameter_names[key][i])
+
+            if not use_labels_as_titles:
+                titles_list.append(rf"p$_{i}$")  # there is no way to make titles disappear, so use a minimal one
+
+            if parameter_ranges[key][i] is None:
+                range_mean = np.mean(samples[len(samples) - s:, i])
+                range_std = np.std(samples[len(samples) - s:, i])
+                low = range_mean - 4 * range_std
+                high = range_mean + 4 * range_std
+
+                if count > 0:
+                    if low > range_list[range_i][0]:
+                        low = range_list[range_i][0]
+                    if high < range_list[range_i][1]:
+                        high = range_list[range_i][1]
+                    range_take = (low, high)
+                    range_list[range_i] = range_take
+                else:
+                    range_list.append((low, high))
+            else:
+                range_take = (parameter_ranges[key][i][0], parameter_ranges[key][i][1])
+                range_list.append(range_take)
+
+        if parameter_plot_indices is not None and true_values is not None:
+            truths_list = []
+
+            if plot_best_fit:
+                best_fit_ind = np.argmax(samples[:, -1])
+
+                for i in parameter_plot_indices[key]:
+                    truths_list.append(samples[best_fit_ind][i])
+            else:
+                for i in parameter_plot_indices[key]:
+                    truths_list.append(true_values[key][i])
+        else:
+            truths_list = None
+
+        # fig = plt.figure(figsize = (60,60),dpi=80)
+        label_kwargs = None
+        title_kwargs = None
+        hist_kwargs = None
+        hist2d_kwargs = {}
+        contour_kwargs = None
+        if "label_kwargs" in kwargs.keys():
+            label_kwargs = kwargs["label_kwargs"]
+        if "title_kwargs" in kwargs.keys():
+            title_kwargs = kwargs["title_kwargs"]
+        if "hist_kwargs" in kwargs.keys():
+            hist_kwargs = kwargs["hist_kwargs"]
+        if "hist2d_kwargs" in kwargs.keys():
+            hist2d_kwargs = kwargs["hist2d_kwargs"]
+        if "contour_kwargs" in kwargs.keys():
+            contour_kwargs = kwargs["contour_kwargs"]
+
+        if count == 0:
+            fig = corner.corner(data=np.array(data_list).T,
+                                bins=20,
+                                range=range_list,
+                                weights=None,
+                                color=color_list[count],
+                                hist_bin_factor=1,
+                                smooth=True,
+                                smooth1d=None,
+                                labels=labels_list,
+                                label_kwargs=label_kwargs,
+                                titles=titles_list,
+                                show_titles=True,
+                                title_fmt=".2f",
+                                title_kwargs=title_kwargs,
+                                truths=truths_list,
+                                truth_color='r',
+                                scale_hist=False,
+                                quantiles=[0.16, 0.5, 0.84],
+                                verbose=False,
+                                fig=None,
+                                max_n_ticks=5,
+                                top_ticks=False,
+                                use_math_text=False,
+                                reverse=False,
+                                labelpad=0.0,
+                                plot_contours=True,
+                                contour_kwargs=contour_kwargs,
+                                hist_kwargs=hist_kwargs,
+                                levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
+                                **hist2d_kwargs,
+                                )
+            count += 1
+        else:
+            corner.corner(data=np.array(data_list).T,
+                          bins=20,
+                          range=range_list,
+                          weights=None,
+                          color=color_list[count],
+                          hist_bin_factor=1,
+                          smooth=True,
+                          smooth1d=None,
+                          labels=labels_list,
+                          label_kwargs=label_kwargs,
+                          titles=titles_list,
+                          show_titles=True,
+                          title_fmt=".2f",
+                          title_kwargs=title_kwargs,
+                          truths=truths_list,
+                          truth_color='r',
+                          scale_hist=False,
+                          quantiles=[0.16, 0.5, 0.84],
+                          verbose=False,
+                          fig=None,
+                          max_n_ticks=5,
+                          top_ticks=False,
+                          use_math_text=False,
+                          reverse=False,
+                          labelpad=0.0,
+                          plot_contours=True,
+                          contour_kwargs=contour_kwargs,
+                          hist_kwargs=hist_kwargs,
+                          levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
+                          **hist2d_kwargs,
+                          )
+            count += 1
+
+        if short_name is None:
+            label = key
+        else:
+            label = short_name[key]
+
+        handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
+
+    if legend:
+        fig.get_axes()[2].legend(handles=handles,
+                                 loc='upper right')
+
+    if output_file is not None:
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+
+    return fig
+
+
 def nice_corner(samples,
                 parameter_names,
                 output_file,

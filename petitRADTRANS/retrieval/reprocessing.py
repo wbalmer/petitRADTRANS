@@ -3,6 +3,7 @@ Useful functions for data reduction.
 """
 import copy
 import sys
+import warnings
 from warnings import warn
 
 import numpy as np
@@ -449,7 +450,7 @@ def remove_noisy_wavelength_channels(spectrum, reduction_matrix, mean_subtract=F
 
 
 def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties=None, mask_threshold=1e-16,
-                              polynomial_fit_degree=2):
+                              polynomial_fit_degree=2, correct_uncertainties=True):
     """Remove telluric lines with a polynomial function.
     The telluric transmittance can be written as:
         T = exp(-airmass * optical_depth),
@@ -467,11 +468,19 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         uncertainties: uncertainties on the data
         mask_threshold: mask wavelengths where the Earth atmospheric transmittance estimate is below this value
         polynomial_fit_degree: degree of the polynomial fit of the Earth atmospheric transmittance
+        correct_uncertainties:
 
     Returns:
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
+    if spectrum.shape[1] <= polynomial_fit_degree + 1:
+        warnings.warn(f"not enough points in airmass axis ({spectrum.shape[1]}) "
+                      f"for a meaningful correction with the requested fit degree ({polynomial_fit_degree}). "
+                      f"At least {polynomial_fit_degree + 2} airmass axis points are required. "
+                      f"Increase the number of airmass axis points to decrease correction bias, "
+                      f"or decrease the polynomial fit degree.")
+
     spectral_data_corrected, reduction_matrix, pipeline_uncertainties = __init_pipeline_outputs(
         spectrum, reduction_matrix, uncertainties
     )
@@ -527,6 +536,22 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     if uncertainties is not None:
         pipeline_uncertainties /= np.abs(telluric_lines_fits)
 
+        if correct_uncertainties:
+            degrees_of_freedom = 1 + polynomial_fit_degree
+
+            # Count number of non-masked points minus degrees of freedom in each time axes
+            valid_points = airmass.size - np.sum(pipeline_uncertainties.mask, axis=1) - degrees_of_freedom
+            valid_points[np.less(valid_points, 0)] = 0
+
+            # Correct from fitting effect
+            # Uncertainties are assumed unbiased, but fitting induces a bias, so here the uncertainties are voluntarily
+            # biased (https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Weighted_sample_variance)
+            # This way the uncertainties truly reflect the standard deviation of the data
+            pipeline_uncertainties = np.moveaxis(pipeline_uncertainties, 0, 1)
+            pipeline_uncertainties *= np.sqrt(valid_points / airmass.size)
+            pipeline_uncertainties = np.ma.masked_less_equal(pipeline_uncertainties, 0)
+            pipeline_uncertainties = np.moveaxis(pipeline_uncertainties, 1, 0)
+
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
@@ -579,7 +604,7 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
 
 
 def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties=None, mask_threshold=1e-16,
-                          polynomial_fit_degree=2):
+                          polynomial_fit_degree=2, correct_uncertainties=True):
     """Remove variable throughput with a polynomial function.
 
     Args:
@@ -589,11 +614,19 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         uncertainties: uncertainties on the data
         mask_threshold: mask wavelengths where the Earth atmospheric transmittance estimate is below this value
         polynomial_fit_degree: degree of the polynomial fit of the Earth atmospheric transmittance
+        correct_uncertainties:
 
     Returns:
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
+    if spectrum.shape[2] <= polynomial_fit_degree + 1:
+        warnings.warn(f"not enough points in wavelengths axis ({spectrum.shape[2]}) "
+                      f"for a meaningful correction with the requested fit degree ({polynomial_fit_degree}). "
+                      f"At least {polynomial_fit_degree + 2} wavelengths axis points are required. "
+                      f"Increase the number of wavelengths axis points to decrease correction bias, "
+                      f"or decrease the polynomial fit degree.")
+
     spectral_data_corrected, reduction_matrix, pipeline_uncertainties = __init_pipeline_outputs(
         spectrum, reduction_matrix, uncertainties
     )
@@ -645,6 +678,22 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     if uncertainties is not None:
         pipeline_uncertainties /= np.abs(throughput_fits)
 
+        if correct_uncertainties:
+            degrees_of_freedom = 1 + polynomial_fit_degree
+
+            # Count number of non-masked points minus degrees of freedom in each wavelength axes
+            valid_points = wavelengths.size - np.sum(pipeline_uncertainties.mask, axis=2) - degrees_of_freedom
+            valid_points[np.less(valid_points, 0)] = 0
+
+            # Correct from fitting effect
+            # Uncertainties are assumed unbiased, but fitting induces a bias, so here the uncertainties are voluntarily
+            # biased (https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Weighted_sample_variance)
+            # This way the uncertainties truly reflect the standard deviation of the data
+            pipeline_uncertainties = np.moveaxis(pipeline_uncertainties, 2, 0)
+            pipeline_uncertainties *= np.sqrt(valid_points / wavelengths.size)
+            pipeline_uncertainties = np.ma.masked_less_equal(pipeline_uncertainties, 0)
+            pipeline_uncertainties = np.moveaxis(pipeline_uncertainties, 0, 2)
+
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
@@ -693,7 +742,8 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None):
 
 def reprocessing_pipeline(spectrum, uncertainties=None,
                           wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
-                          apply_throughput_removal=True, apply_telluric_lines_removal=True, full=False, **kwargs):
+                          apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
+                          full=False, **kwargs):
     """Removes the telluric lines and variable throughput of some data.
     If airmass is None, the Earth atmospheric transmittance is assumed to be time-independent, so telluric transmittance
     will be fitted using the weighted arithmetic mean. Otherwise, telluric transmittance are fitted with a polynomial.
@@ -707,6 +757,7 @@ def reprocessing_pipeline(spectrum, uncertainties=None,
         polynomial_fit_degree: degree of the polynomial fit of the Earth atmospheric transmittance
         apply_throughput_removal: if True, apply the throughput removal correction
         apply_telluric_lines_removal: if True, apply the telluric lines removal correction
+        correct_uncertainties:
         full: if True, return the reduced matrix and reduced uncertainties in addition to the reduced spectrum
 
     Returns:
@@ -748,7 +799,8 @@ def reprocessing_pipeline(spectrum, uncertainties=None,
                 wavelengths=wavelengths,
                 uncertainties=reduced_data_uncertainties,
                 mask_threshold=sys.float_info.min,
-                polynomial_fit_degree=2
+                polynomial_fit_degree=2,
+                correct_uncertainties=correct_uncertainties
             )
 
     if apply_telluric_lines_removal:
@@ -766,7 +818,8 @@ def reprocessing_pipeline(spectrum, uncertainties=None,
                 airmass=airmass,
                 uncertainties=reduced_data_uncertainties,
                 mask_threshold=tellurics_mask_threshold,
-                polynomial_fit_degree=polynomial_fit_degree
+                polynomial_fit_degree=polynomial_fit_degree,
+                correct_uncertainties=correct_uncertainties
             )
 
     if full:

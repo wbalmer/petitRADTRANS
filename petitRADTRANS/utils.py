@@ -44,7 +44,7 @@ def calculate_chi2(data, model, uncertainties):
 
 
 def calculate_reduced_chi2(data, model, uncertainties, degrees_of_freedom=0):
-    return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom - 1)
+    return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom)
 
 
 def calculate_uncertainty(derivatives, uncertainties, covariance_matrix=None):
