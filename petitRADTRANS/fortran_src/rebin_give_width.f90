@@ -17,7 +17,7 @@ subroutine rebin_give_width(nu_synth, flux_synth, nu_obs, bin_width, reb_synth_f
 
     if ((nu_synth(1) >= nu_obs(1) - bin_width(1) / 2d0) .or. &
         (nu_synth(len_synth) <= nu_obs(len_obs) + bin_width(len_obs) / 2d0)) then
-        stop 'rebin.f90 ERROR: extent of fine wavelength grid is too small!'
+        stop 'rebin.f90 ERROR: extent of fine wavelength grid is too small!'  ! TODO remove fortran stops and replace with error output
     end if
 
     ! Start interpolation

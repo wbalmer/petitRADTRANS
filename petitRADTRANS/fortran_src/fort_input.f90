@@ -330,7 +330,7 @@ module fort_input
                     write(*,*) 'ERROR! DENSITY FOR CLOUD SPECIES '//trim( &
                          adjustl(cloud_opa_names(i_cloud))) &
                          //'NOT FOUND!'
-                    stop
+                    stop  ! TODO remove fortran stops and replace with error output
                 end if
             end do
             
@@ -766,7 +766,7 @@ module fort_input
 
                 if ((curr_int == 1) .AND. (curr_wlen > wlen_min_read)) then
                     write(*,*) 'ERROR! Desired minimum wavelength is too small!'
-                    stop
+                    stop  ! TODO remove fortran stops and replace with error output
                 end if
 
                 ! look for minimum index, bracketing the desired range
@@ -796,7 +796,7 @@ module fort_input
                 write(*,*) 'ERROR! Desired wavelength range is too large,'
                 write(*,*) 'or not contained within the tabulated opacity' &
                 // ' wavelength range.'
-                stop
+                stop  ! TODO remove fortran stops and replace with error output
             end if
 
             arr_len = arr_max - arr_min + 1

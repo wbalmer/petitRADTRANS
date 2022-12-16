@@ -2558,7 +2558,7 @@ end subroutine quicksort_own_2d_swapped
 53      arr(:,l+1)=arr(:,j)
         arr(:,j)=a
         jstack=jstack+2
-        if(jstack.gt.NSTACK)STOP 'NSTACK too small in sort'
+        if(jstack.gt.NSTACK)STOP 'NSTACK too small in sort'  ! TODO remove fortran stops and replace with error output
         if(ir-i+1.ge.j-l)then
           istack(jstack)=ir
           istack(jstack-1)=i
@@ -2607,7 +2607,7 @@ subroutine tridag_own(a,b,c,res,solution,length)
 
   ! Test if b(1) == 0:
   if (b(1) .EQ. 0) then
-     stop "Error in tridag routine, b(1) must not be zero!"
+     stop "Error in tridag routine, b(1) must not be zero!"  ! TODO remove fortran stops and replace with error output
      end if
 
   ! Begin inversion

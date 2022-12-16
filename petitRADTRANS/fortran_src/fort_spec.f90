@@ -3551,7 +3551,7 @@ module fort_spec
 
             ! Test if b(1) == 0:
             if (abs(b(1)) < tiniest) then
-                stop "Error in tridag routine, b(1) must not be zero!"
+                stop "Error in tridag routine, b(1) must not be zero!"  ! TODO remove fortran stops and replace with error output
             end if
 
             ! Begin inversion
