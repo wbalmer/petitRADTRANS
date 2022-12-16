@@ -6,6 +6,9 @@ import h5py
 import numpy as np
 import pyvo
 from astropy.table.table import Table
+from astropy.time import Time
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
+import astropy.units as u
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.config import petitradtrans_config
@@ -986,6 +989,62 @@ class Planet:
         return f"{directory}{os.path.sep}planet_{name.replace(' ', '_')}.h5"
 
     @staticmethod
+    def get_astropy_coordinates(ra, dec,  site_name=None, latitude=None, longitude=None, height=None):
+        if site_name is not None:
+            observer_location = EarthLocation.of_site(site_name)
+        else:
+            observer_location = EarthLocation.from_geodetic(
+                lat=latitude * u.deg,
+                lon=longitude * u.deg,
+                height=height * u.m
+            )
+
+        target_coordinates = SkyCoord(
+            ra=ra * u.deg,
+            dec=dec * u.deg
+        )
+
+        return observer_location, target_coordinates
+
+    @staticmethod
+    def get_airmass(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
+                    time_format='mjd'):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        frame = AltAz(
+            obstime=Time(time, format=time_format),
+            location=observer_location
+        )
+
+        taget_altaz = target_coordinates.transform_to(frame)
+
+        return taget_altaz.secz
+
+    @staticmethod
+    def get_barycentric_velocities(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
+                                   time_format='mjd'):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        return target_coordinates.radial_velocity_correction(
+            obstime=Time(time, format=time_format),
+            location=observer_location
+        ).value
+
+    @staticmethod
     def get_simple_transit_curve(time_from_mid_transit, planet_radius, star_radius,
                                  planet_orbital_velocity=None, star_mass=None, orbit_semi_major_axis=None):
         """
@@ -1048,7 +1107,11 @@ class Planet:
         Returns:
             The orbital phases for the given time
         """
-        return np.mod(phase_start + times / orbital_period, 1.0)
+        phases = phase_start + times / orbital_period
+        add = np.zeros(times.size)
+        add[np.less(phases, 0)] = - 1
+
+        return add + np.mod(phase_start + times / orbital_period, 1.0)
 
     @staticmethod
     def download_from_nasa_exoplanet_archive(name):
