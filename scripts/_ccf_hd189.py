@@ -595,6 +595,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
     else:
         ccf_model = None
         model_wavelengths = None
+        radtrans = None
 
     true_parameters = copy.deepcopy(spectral_model.model_parameters)
 
@@ -733,6 +734,178 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         ccf_model_red, wavelengths_ref, spectral_model, spectral_model_ref, radtrans_ref
 
 
+def plot_ccf(ccf, x, y, true_coord=None):
+    plt.imshow(ccf, aspect='auto', origin='lower', extent=[x[0], x[-1], y[0], y[-1]])
+
+    if true_coord is not None:
+        plt.scatter(true_coord[0], true_coord[1], color='r', marker='+')
+
+
+def remove_mask(observed_spectra, observations_uncertainties):
+    print('Taking care of mask...')
+    data_ = []
+    error_ = []
+    mask_ = copy.copy(observed_spectra.mask)
+    lengths = []
+
+    for i in range(observed_spectra.shape[0]):
+        data_.append([])
+        error_.append([])
+
+        for j in range(observed_spectra.shape[1]):
+            data_[i].append(np.array(
+                observed_spectra[i, j, ~mask_[i, j, :]]
+            ))
+            error_[i].append(np.array(observations_uncertainties[i, j, ~mask_[i, j, :]]))
+            lengths.append(data_[i][j].size)
+
+    # Handle jagged arrays
+    if np.all(np.asarray(lengths) == lengths[0]):
+        data_ = np.asarray(data_)
+        error_ = np.asarray(error_)
+    else:
+        print("Array is jagged, generating object array...")
+        data_ = np.asarray(data_, dtype=object)
+        error_ = np.asarray(error_, dtype=object)
+
+    return data_, error_, mask_
+
+
+def simple_ccf(wavelength_data, data, wavelength_model, model,
+               lsf_fwhm, pixels_per_resolution_element, radial_velocity, kp,
+               relative_velocities=None, data_uncertainties=None):
+    n_detectors, n_integrations, n_spectral_pixels = np.shape(data)
+
+    radial_velocity_lag = ccf_radial_velocity(
+        v_sys=radial_velocity,
+        kp=kp,
+        lsf_fwhm=lsf_fwhm,
+        pixels_per_resolution_element=pixels_per_resolution_element,
+        kp_factor=1.0,
+        extra_factor=0.25
+    )
+
+    ccf_ = np.zeros((n_detectors, n_integrations, np.size(radial_velocity_lag)))
+
+    # Shift the wavelengths
+    models_shift = np.zeros((n_detectors, np.size(radial_velocity_lag), n_spectral_pixels))
+
+    if np.ndim(wavelength_data) == 3:  # Alex's time-dependent wavelengths
+        wavelengths_ = copy.copy(wavelength_data[:, 0, :])
+    else:
+        wavelengths_ = copy.copy(wavelength_data)
+
+    # Calculate Doppler shifted model wavelengths
+    if np.ndim(model) == 2:
+        print(f"2D model, assuming it was given for 0 cm.s-1 relative velocity...")
+        wavelength_shift = np.zeros((np.size(radial_velocity_lag), np.size(wavelength_model)))
+
+        for j in range(np.size(radial_velocity_lag)):
+            wavelength_shift[j, :] = doppler_shift(
+                wavelength_0=wavelength_model,
+                velocity=radial_velocity_lag[j]
+            )
+
+        model_flat = model.flatten()
+
+        # Rebin model to data wavelengths and shift
+        for i in range(n_detectors):
+            for k in range(np.size(radial_velocity_lag)):
+                models_shift[i, k, :] = \
+                    fr.rebin_spectrum(wavelength_shift[k, :], model_flat, wavelengths_[i, :])
+    elif np.ndim(model) == 3:
+        print(f"3D model, following input relative velocity...")
+        wavelength_shift = np.zeros((model.shape[1], np.size(radial_velocity_lag), np.size(wavelength_model)))
+        model_flat = np.zeros((model.shape[1], model.shape[0] * model.shape[2]))
+
+        for i in range(model.shape[1]):
+            for j in range(np.size(radial_velocity_lag)):
+                wavelength_shift[i, j, :] = doppler_shift(
+                    wavelength_0=wavelength_model,
+                    velocity=radial_velocity_lag[j] - relative_velocities[i]
+                )
+
+                model_flat[i] = model[:, i, :].flatten()
+
+        # Rebin model to data wavelengths and shift
+        for i in range(n_detectors):
+            for j, ws in enumerate(wavelength_shift):
+                for k in range(np.size(radial_velocity_lag)):
+                    models_shift[i, k, :] = \
+                        fr.rebin_spectrum(ws[k, :], model_flat[j], wavelengths_[i, :])
+    else:
+        raise ValueError(f"number of dimension for model must be 2 or 3, but is {np.ndim(model)}")
+
+    # Mask management
+    if hasattr(data, 'mask'):
+        data, data_uncertainties, mask = remove_mask(
+            data, data_uncertainties
+        )
+    else:
+        mask = np.zeros((n_detectors, len(radial_velocity_lag), n_spectral_pixels), dtype=bool)
+
+    # def xcorr(f_vec, g_vec, n):
+    #     # Compute variances of model and data
+    #     # N is kept for compatibility when using the old version
+    #     sf2 = (f_vec @ f_vec)
+    #     sg2 = (g_vec @ g_vec)
+    #     r = (f_vec @ g_vec)
+    #
+    #     return r / np.sqrt(sf2 * sg2)  # Data-model cross-correlation
+
+    # Perform cross correlation
+    for i in range(n_detectors):
+        for k in range(len(radial_velocity_lag)):
+            for j in range(n_integrations):
+                ccf_[i, j, k] = cross_correlate(data[i, j], models_shift[i, k, ~mask[i, j, :]])
+
+    return ccf_, models_shift, radial_velocity_lag
+
+
+def simple_co_added_ccf(ccf, velocities_ccf, orbital_phases_ccf, system_radial_velocities, kp, kp_factor=2, shape=None):
+    if shape is None:
+        shape = (ccf.shape[0], velocities_ccf.size, velocities_ccf.size)
+    elif np.size(shape) < 2:
+        raise ValueError(f"co added CCF shape must be of size 2")
+    elif np.size(shape) == 2:
+        shape = list(shape)
+        shape.insert(0, ccf.shape[0])
+        shape = tuple(shape)
+    elif np.size(shape) == 3 and shape[0] != ccf.shape[0]:
+        raise ValueError(f"co added CCF dimension 0 ({shape[0]}) must match CCF dimension 0 ({ccf.shape[0]})")
+
+    kps = np.linspace(
+        -kp * kp_factor, kp * kp_factor, shape[1]
+    )
+
+    v_kp_boundaries = (
+        kps[0] * np.sin(2.0 * np.pi * orbital_phases_ccf),
+        kps[-1] * np.sin(2.0 * np.pi * orbital_phases_ccf)
+    )
+
+    # Prevent out of bound integration
+    v_planet_min = np.min(system_radial_velocities + np.min(v_kp_boundaries))
+    v_planet_max = np.max(system_radial_velocities + np.max(v_kp_boundaries))
+    v_rest_min = np.min(velocities_ccf) - v_planet_min
+    v_rest_max = np.max(velocities_ccf) - v_planet_max
+    v_rest = np.linspace(v_rest_min, v_rest_max, shape[2])
+
+    # Defining matrix containing the co-added CCFs
+    ccf_tot = np.zeros(shape)
+
+    for i in range(ccf.shape[0]):
+        for ikp in range(kps.size):
+            planet_radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
+
+            for j in range(ccf.shape[1]):
+                radial_velocities_interp = v_rest + planet_radial_velocities[j]
+                ccf_interp = interp1d(velocities_ccf, ccf[i, j, :])
+
+                ccf_tot[i, ikp, :] += ccf_interp(radial_velocities_interp)
+
+    return ccf_tot, v_rest, kps
+
+
 def sysrem(n_data, n_spectra, data_in, errors_in):
     """
     SYSREM procedure by Alejandro Sanchez-Lopez, 26-09-17 2017
@@ -800,16 +973,11 @@ def sysrem(n_data, n_spectra, data_in, errors_in):
     return data_out, cor1
 
 
-def plot_ccf(ccf, x, y, true_coord=None):
-    plt.imshow(ccf, aspect='auto', origin='lower', extent=[x[0], x[-1], y[0], y[-1]])
-
-    if true_coord is not None:
-        plt.scatter(true_coord[0], true_coord[1], color='r', marker='+')
-
-
 def main():
     use_t23 = True  # use full eclipse transit time instead of total transit time
-    use_t1535 = True
+    use_t1535 = True  # use intermediate eclipse ("T_transit")
+    use_all_models = True  # use all reprocessed models instead of the one closest to 0 cm.s-1 relative velocity
+    use_alex_ttransit = True  # add orbital phase 27 to T1.53.5
     planet_name = 'HD 189733 b'
     planet = Planet.get(planet_name)
     # Overriding to Rosenthal et al. 2021
@@ -826,7 +994,7 @@ def main():
         mid_transit_time = \
         load_carmenes_data(
             os.path.join(module_dir, 'carmenes', planet_name.lower().replace(' ', '_')),
-            planet.orbital_period, mid_transit_jd=58004.425291
+            planet.orbital_period, mid_transit_jd=58004.4247  # 58004.425291  # previous value
         )
 
     if use_t23:
@@ -849,15 +1017,20 @@ def main():
     else:
         planet_transit_duration = planet.transit_duration
 
-    wh = np.where(np.logical_and(times >= mid_transit_time - planet_transit_duration / 2,
-                                 times <= mid_transit_time + planet_transit_duration / 2))[0]
+    if not use_alex_ttransit:
+        print(f"Select orbital phases...")
+        exposure_selection = np.where(np.logical_and(times >= mid_transit_time - planet_transit_duration / 2,
+                                                     times <= mid_transit_time + planet_transit_duration / 2))[0]
+    else:
+        print(f"Select Alex's orbital phases...")
+        exposure_selection = np.array([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27])
 
-    wavelengths_instrument = wavelengths_instrument[:, wh, :]
-    orbital_phases = orbital_phases[wh]
-    berv = berv[wh]
-    observations = observations[:, wh, :]
-    uncertainties = uncertainties[:, wh, :]
-    airmass = airmass[wh]
+    wavelengths_instrument = wavelengths_instrument[:, exposure_selection, :]
+    orbital_phases = orbital_phases[exposure_selection]
+    berv = berv[exposure_selection]
+    observations = observations[:, exposure_selection, :]
+    uncertainties = uncertainties[:, exposure_selection, :]
+    airmass = airmass[exposure_selection]
 
     kp = planet.calculate_orbital_velocity(planet.star_mass, planet.orbit_semi_major_axis)
     v_sys = planet.star_radial_velocity - berv * 1e5
@@ -869,7 +1042,7 @@ def main():
     ) as f:
         reduced_data = f[0].data
 
-    data_shape = copy.copy(reduced_data.shape)
+    data_shape = reduced_data.shape
     reduced_data = np.moveaxis(
         np.reshape(
             np.moveaxis(reduced_data, 0, 2), (data_shape[1], int(data_shape[2] / 2), int(data_shape[0] * 2)), order='F'
@@ -877,9 +1050,10 @@ def main():
         2,
         0
     )
-    reduced_data_alex = reduced_data[:, wh[0], :]
+    reduced_data_alex = reduced_data[:, exposure_selection[0], :]
 
     # Get models and reduce data
+    # Get CCF rest velocity grid
     ccf_velocities = ccf_radial_velocity(
         v_sys=v_sys,
         kp=kp,
@@ -889,6 +1063,7 @@ def main():
         extra_factor=0.25
     )
 
+    # Get spectral models
     reduced_data, ccf_model_pre, model_wavelengths, true_parameters, mock_observations, mock_observations_nn, \
         ccf_model_ref_pre, wavelengths_ref, spectral_model, spectral_model_ref, radtrans = get_model(
             planet=planet,
@@ -921,33 +1096,42 @@ def main():
     else:
         reduced_data_untouched = None
 
-    ccf_model = ccf_model_ref_pre  # no need to use norm_sys since the model is already reduced
-    wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]  # search where the orbital phase is colsest to 0 to get a model where kp~0, not ideal
+    ccf_model = ccf_model_ref_pre  # no need to use norm_sys since the model is already reprocessed
+
+    # Reprocessed model selection
+    if not use_all_models:
+        # Search where the orbital phase is closest to 0 to get a model where kp~0, not ideal
+        wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]
+        ccf_model_ = ccf_model[:, wh_0, :]
+    else:
+        ccf_model_ = copy.deepcopy(ccf_model)
 
     # Calculate CCF
     ccf, ccf_models, rvs = simple_ccf(
-        wavelengths_instrument,
-        reduced_data,
-        wavelengths_ref.flatten(),
-        ccf_model[:, wh_0, :].flatten(),
+        wavelength_data=wavelengths_instrument,
+        data=reduced_data,
+        wavelength_model=wavelengths_ref.flatten(),
+        model=ccf_model_,
         lsf_fwhm=2.6e5,  # cm.s-1
         pixels_per_resolution_element=2,  # v_rest step is lsf_fwhm / pixels_per_resolution_element
         radial_velocity=v_sys,
         kp=kp,
-        data_uncertainties=uncertainties
+        data_uncertainties=uncertainties,
+        relative_velocities=spectral_model_ref.model_parameters['relative_velocities']
     )
 
     if use_alex_detector_selection:
         ccf_untouched, _, _ = simple_ccf(
-            wavelengths_instrument,
-            reduced_data_untouched,
-            wavelengths_ref.flatten(),
-            ccf_model[:, wh_0, :].flatten(),
+            wavelength_data=wavelengths_instrument,
+            data=reduced_data_untouched,
+            wavelength_model=wavelengths_ref.flatten(),
+            model=ccf_model_,
             lsf_fwhm=2.6e5,  # cm.s-1
             pixels_per_resolution_element=2,  # v_rest step is lsf_fwhm / pixels_per_resolution_element
             radial_velocity=v_sys,
             kp=kp,
-            data_uncertainties=uncertainties
+            data_uncertainties=uncertainties,
+            relative_velocities=spectral_model_ref.model_parameters['relative_velocities']
         )
     else:
         ccf_untouched = None
@@ -1003,159 +1187,15 @@ def main():
                 use_peak=True
             )
 
-    # Plots
-    plt.imshow(ccf_tot[0], aspect='auto', origin='lower',
-               extent=np.array([v_rests[0], v_rests[-1], kps[0], kps[-1]]) * 1e-5)
-    plt.colorbar(label='collapsed CCF')
-    plt.vlines(0, np.min(kps) * 1e-5, np.max(kps) * 1e-5, color='r', alpha=0.3)
-    plt.hlines(kp * 1e-5, np.min(v_rests) * 1e-5, np.max(v_rests) * 1e-5, color='r', alpha=0.3)
-    plt.scatter(max_v_rest_peak * 1e-5, max_kp_peak * 1e-5, color='r', marker='+')
-    plt.contour(v_rests * 1e-5, kps * 1e-5, ccf_tot[0], levels=[max_percentage_area * np.max(ccf_tot[0])],
-                colors='r', alpha=0.3)
-    plt.xlabel(r'$V_r$ (km$\cdot$s$^{-1}$)')
-    plt.ylabel(r'$K_p$ (km$\cdot$s$^{-1}$)')
-    plt.title(f"TT mask threshold: {tellurics_mask_threshold}, SNR = {max_sn_sn:.3f}")
-
-
-def remove_mask(observed_spectra, observations_uncertainties):
-    print('Taking care of mask...')
-    data_ = []
-    error_ = []
-    mask_ = copy.copy(observed_spectra.mask)
-    lengths = []
-
-    for i in range(observed_spectra.shape[0]):
-        data_.append([])
-        error_.append([])
-
-        for j in range(observed_spectra.shape[1]):
-            data_[i].append(np.array(
-                observed_spectra[i, j, ~mask_[i, j, :]]
-            ))
-            error_[i].append(np.array(observations_uncertainties[i, j, ~mask_[i, j, :]]))
-            lengths.append(data_[i][j].size)
-
-    # Handle jagged arrays
-    if np.all(np.asarray(lengths) == lengths[0]):
-        data_ = np.asarray(data_)
-        error_ = np.asarray(error_)
-    else:
-        print("Array is jagged, generating object array...")
-        data_ = np.asarray(data_, dtype=object)
-        error_ = np.asarray(error_, dtype=object)
-
-    return data_, error_, mask_
-
-
-def simple_ccf(wavelength_data, data, wavelength_model, model,
-               lsf_fwhm, pixels_per_resolution_element, radial_velocity, kp,
-               data_uncertainties=None):
-    n_detectors, n_integrations, n_spectral_pixels = np.shape(data)
-
-    radial_velocity_lag = ccf_radial_velocity(
-        v_sys=radial_velocity,
-        kp=kp,
-        lsf_fwhm=lsf_fwhm,
-        pixels_per_resolution_element=pixels_per_resolution_element,
-        kp_factor=1.0,
-        extra_factor=0.25
-    )
-
-    ccf_ = np.zeros((n_detectors, n_integrations, np.size(radial_velocity_lag)))
-
-    # Shift the wavelengths
-    wavelength_shift = np.zeros((np.size(radial_velocity_lag), np.size(wavelength_model)))
-    models_shift = np.zeros((n_detectors, np.size(radial_velocity_lag), n_spectral_pixels))
-
-    if np.ndim(wavelength_data) == 3:  # Alex's time-dependent wavelengths
-        wavelengths_ = copy.copy(wavelength_data[:, 0, :])
-    else:
-        wavelengths_ = copy.copy(wavelength_data)
-
-    # Calculate Doppler shifted model wavelengths
-    for j in range(np.size(radial_velocity_lag)):
-        wavelength_shift[j, :] = doppler_shift(
-            wavelength_0=wavelength_model,
-            velocity=radial_velocity_lag[j]
-        )
-
-    # Rebin model to data wavelengths and shift
-    for i in range(n_detectors):
-        for k in range(np.size(radial_velocity_lag)):
-            models_shift[i, k, :] = \
-                fr.rebin_spectrum(wavelength_shift[k, :], model, wavelengths_[i, :])
-
-    # Mask management
-    if hasattr(data, 'mask'):
-        data, data_uncertainties, mask = remove_mask(
-            data, data_uncertainties
-        )
-    else:
-        mask = np.zeros((n_detectors, len(radial_velocity_lag), n_spectral_pixels), dtype=bool)
-
-    # def xcorr(f_vec, g_vec, n):
-    #     # Compute variances of model and data
-    #     # N is kept for compatibility when using the old version
-    #     sf2 = (f_vec @ f_vec)
-    #     sg2 = (g_vec @ g_vec)
-    #     r = (f_vec @ g_vec)
-    #
-    #     return r / np.sqrt(sf2 * sg2)  # Data-model cross-correlation
-
-    # Perform cross correlation
-    for i in range(n_detectors):
-        for k in range(len(radial_velocity_lag)):
-            for j in range(n_integrations):
-                ccf_[i, j, k] = cross_correlate(data[i, j], models_shift[i, k, ~mask[i, j, :]])
-
-    return ccf_, models_shift, radial_velocity_lag
-
-
-def simple_co_added_ccf(ccf, velocities_ccf, orbital_phases_ccf, system_radial_velocities, kp, kp_factor=2, shape=None):
-    if shape is None:
-        shape = (ccf.shape[0], velocities_ccf.size, velocities_ccf.size)
-    elif np.size(shape) < 2:
-        raise ValueError(f"co added CCF shape must be of size 2")
-    elif np.size(shape) == 2:
-        shape = list(shape)
-        shape.insert(0, ccf.shape[0])
-        shape = tuple(shape)
-    elif np.size(shape) == 3 and shape[0] != ccf.shape[0]:
-        raise ValueError(f"co added CCF dimension 0 ({shape[0]}) must match CCF dimension 0 ({ccf.shape[0]})")
-
-    kps = np.linspace(
-        -kp * kp_factor, kp * kp_factor, shape[1]
-    )
-
-    v_kp_boundaries = (
-        kps[0] * np.sin(2.0 * np.pi * orbital_phases_ccf),
-        kps[-1] * np.sin(2.0 * np.pi * orbital_phases_ccf)
-    )
-
-    # Prevent out of bound integration
-    v_planet_min = np.min(system_radial_velocities + np.min(v_kp_boundaries))
-    v_planet_max = np.max(system_radial_velocities + np.max(v_kp_boundaries))
-    v_rest_min = np.min(velocities_ccf) - v_planet_min
-    v_rest_max = np.max(velocities_ccf) - v_planet_max
-    v_rest = np.linspace(v_rest_min, v_rest_max, shape[2])
-
-    # Defining matrix containing the co-added CCFs
-    ccf_tot = np.zeros(shape)
-
-    for i in range(ccf.shape[0]):
-        for ikp in range(kps.size):
-            planet_radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
-
-            for j in range(ccf.shape[1]):
-                radial_velocities_interp = v_rest + planet_radial_velocities[j]
-                ccf_interp = interp1d(velocities_ccf, ccf[i, j, :])
-
-                try:
-                    ccf_tot[i, ikp, :] += ccf_interp(radial_velocities_interp)
-                except ValueError as err:
-                    print(planet_radial_velocities[j], np.min(v_rest), np.max(v_rest), kps[ikp], np.max(kps), np.min(kps))
-                    print(np.min(radial_velocities_interp), np.min(velocities_ccf))
-                    print(np.max(radial_velocities_interp), np.max(velocities_ccf))
-                    raise ValueError(err)
-
-    return ccf_tot, v_rest, kps
+        # Plots
+        plt.imshow(ccf_tot[0], aspect='auto', origin='lower',
+                   extent=np.array([v_rests[0], v_rests[-1], kps[0], kps[-1]]) * 1e-5)
+        plt.colorbar(label='collapsed CCF')
+        plt.vlines(0, np.min(kps) * 1e-5, np.max(kps) * 1e-5, color='r', alpha=0.3)
+        plt.hlines(kp * 1e-5, np.min(v_rests) * 1e-5, np.max(v_rests) * 1e-5, color='r', alpha=0.3)
+        plt.scatter(max_v_rest_peak * 1e-5, max_kp_peak * 1e-5, color='r', marker='+')
+        plt.contour(v_rests * 1e-5, kps * 1e-5, ccf_tot[0], levels=[max_percentage_area * np.max(ccf_tot[0])],
+                    colors='r', alpha=0.3)
+        plt.xlabel(r'$V_r$ (km$\cdot$s$^{-1}$)')
+        plt.ylabel(r'$K_p$ (km$\cdot$s$^{-1}$)')
+        plt.title(f"TT mask threshold: {tellurics_mask_threshold}, SNR = {max_sn_sn:.3f}")
