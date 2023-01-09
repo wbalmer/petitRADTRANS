@@ -171,44 +171,50 @@ def _init_parser():
 parser = _init_parser()
 
 
-def load_orange_simulation_dat(directory, base_name, extension='dat'):
-    wavelengths = np.array([])
-    data = np.array([])
+def get_orange_simulation_model(directory, base_name,
+                                additional_data_directory,
+                                extension='dat', reduce=False, **kwargs):
+    kwargs_ = copy.deepcopy(kwargs)
+    orange_simulation_file = os.path.join(directory, 'orange_hd_189733_b_transmission.npz')
 
-    i = 0
-    filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
+    if not os.path.isfile(orange_simulation_file):
+        wavelengths, data = load_orange_simulation_dat(
+            directory=directory,
+            base_name=base_name,
+            extension=extension
+        )
 
-    while os.path.isfile(filename):
-        file_data = np.loadtxt(filename)
-        wavelengths = np.append(wavelengths, file_data[:, 0])
-        data = np.append(data, file_data[:, 1])
+        np.savez_compressed(file=orange_simulation_file, wavelengths=wavelengths, data=data)
+    else:
+        data = np.load(orange_simulation_file)
 
-        i += 1
-        filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
+        wavelengths = data['wavelengths']
+        data = data['data']
 
-    wavelengths_id_sorted = np.argsort(wavelengths)
-    wavelengths = wavelengths[wavelengths_id_sorted]
-    data = data[wavelengths_id_sorted]
+    telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
+        load_orange_tellurics(
+            data_dir=additional_data_directory,
+            wavelengths_instrument=kwargs_['output_wavelengths'],
+            airmasses=kwargs_['airmass'],
+            resolving_power=kwargs_['new_resolving_power']
+        )
 
-    wavelengths, wavelengths_id_unique = np.unique(wavelengths, return_index=True)
-    data = data[wavelengths_id_unique]
+    if 'telluric_transmittances_wavelengths' in kwargs_:
+        kwargs_['telluric_transmittances_wavelengths'] = telluric_transmittances_wavelengths
 
-    data = np.sqrt(data / np.pi)  # area to radius
+    if 'telluric_transmittances' in kwargs_:
+        kwargs_['telluric_transmittances'] = telluric_transmittances
 
-    return wavelengths, data
+    wavelengths, model, _ = SpectralModel.modify_spectrum(
+        wavelengths=wavelengths,
+        spectrum=data,
+        **kwargs_
+    )
 
+    if reduce:
+        model, _, _ = SpectralModel.pipeline(model, **kwargs_)
 
-def load_variable_throughput_brogi(file, times_size, wavelengths_size):
-    variable_throughput = np.load(file)
-
-    variable_throughput = np.max(variable_throughput[0], axis=1)
-    variable_throughput = variable_throughput / np.max(variable_throughput)
-
-    xp = np.linspace(0, 1, np.size(variable_throughput))
-    x = np.linspace(0, 1, times_size)
-    variable_throughput = np.interp(x, xp, variable_throughput)
-
-    return np.tile(variable_throughput, (wavelengths_size, 1)).T
+    return wavelengths, model
 
 
 def load_additional_data(data_dir, wavelengths_instrument, airmasses, times, resolving_power, simulate_snr=True):
@@ -282,6 +288,109 @@ def load_additional_data(data_dir, wavelengths_instrument, airmasses, times, res
     ).filled(0.0)
 
     return variable_throughput,  wavelengths_telluric, telluric_transmittance, simulated_snr
+
+
+def load_orange_simulation_dat(directory, base_name, extension='dat'):
+    wavelengths = np.array([])
+    data = np.array([])
+
+    i = 0
+    filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
+
+    while os.path.isfile(filename):
+        file_data = np.loadtxt(filename)
+        wavelengths = np.append(wavelengths, file_data[:, 0])
+        data = np.append(data, file_data[:, 1])
+
+        i += 1
+        filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
+
+    wavelengths_id_sorted = np.argsort(wavelengths)
+    wavelengths = wavelengths[wavelengths_id_sorted]
+    data = data[wavelengths_id_sorted]
+
+    wavelengths, wavelengths_id_unique = np.unique(wavelengths, return_index=True)
+    data = data[wavelengths_id_unique]
+
+    data = np.sqrt(data / np.pi)  # area to radius
+
+    return wavelengths, data
+
+
+def load_orange_tellurics(data_dir, wavelengths_instrument, airmasses, resolving_power, simulate_snr=True):
+    # Tellurics
+    telluric_transmittance_file = \
+        os.path.join(data_dir, f"transmission_carmenes_orange.npz")
+
+    print(f"Loading transmittance from file '{telluric_transmittance_file}'...")
+    wavelength_range_rebin = SpectralModel.calculate_optimal_wavelengths_boundaries(
+        output_wavelengths=wavelengths_instrument,
+        shift_wavelengths_function=SpectralModel.shift_wavelengths,
+        relative_velocities=None  # telluric lines are not shifted
+    )
+
+    # Ensure that all the necessary wavelengths are fetched for
+    # Skycalc returns all wavelengths within the wavelengths boundaries, not including the boundaries themselves
+    wavelength_range_rebin[0] -= wavelength_range_rebin[0] / 1e6  # 1e6 is the default resolving power of Skycalc
+    wavelength_range_rebin[-1] += wavelength_range_rebin[-1] / 1e6
+
+    wavelengths_telluric, telluric_transmittance_0 = get_tellurics_npz(
+        telluric_transmittance_file, wavelength_range_rebin
+    )
+
+    # SNR
+    if simulate_snr:
+        # Convolve telluric transmittances to correctly reproduce the effect on SNR
+        telluric_transmittance_snr_0 = SpectralModel.convolve(
+            input_wavelengths=wavelengths_telluric,
+            input_spectrum=telluric_transmittance_0,
+            new_resolving_power=resolving_power,
+            constance_tolerance=1e300
+        )
+
+        telluric_transmittance_snr_0 = np.ma.masked_less_equal(telluric_transmittance_snr_0, 0.0)
+        telluric_transmittance_snr_0 = SpectralModel.rebin_spectrum(
+            input_wavelengths=wavelengths_telluric,
+            input_spectrum=telluric_transmittance_snr_0,
+            output_wavelengths=wavelengths_instrument
+        )[1]
+
+        telluric_transmittance_snr_0 = np.tile(telluric_transmittance_snr_0, (airmasses.size, 1, 1))
+        telluric_transmittance_snr_0 = np.moveaxis(telluric_transmittance_snr_0, 0, 1)
+
+        telluric_transmittance_snr = np.ma.masked_less(
+            np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance_snr_0, 1, 2)) * airmasses), 2, 1),
+            0.0
+        ).filled(0.0)
+
+        simulated_snr = np.sqrt(np.ma.masked_less_equal(telluric_transmittance_snr, 0.0)).filled(0.0)
+    else:
+        simulated_snr = None
+
+    # Add airmass
+    print('Adding airmass effect to transmittances...')
+    telluric_transmittance = np.tile(telluric_transmittance_0, (airmasses.size, 1))
+    wavelengths_telluric = np.tile(wavelengths_telluric, (airmasses.size, 1))
+
+    telluric_transmittance = np.ma.masked_less(
+        np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance, 0, 1)) * airmasses), 1, 0),
+        0.0
+    ).filled(0.0)
+
+    return wavelengths_telluric, telluric_transmittance, simulated_snr
+
+
+def load_variable_throughput_brogi(file, times_size, wavelengths_size):
+    variable_throughput = np.load(file)
+
+    variable_throughput = np.max(variable_throughput[0], axis=1)
+    variable_throughput = variable_throughput / np.max(variable_throughput)
+
+    xp = np.linspace(0, 1, np.size(variable_throughput))
+    x = np.linspace(0, 1, times_size)
+    variable_throughput = np.interp(x, xp, variable_throughput)
+
+    return np.tile(variable_throughput, (wavelengths_size, 1)).T
 
 
 def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_uncertainties,
@@ -1282,6 +1391,7 @@ def plot_corner_comparison(true_parameters, retrieval_directory):
 def plot_init(retrieved_parameters, expected_retrieval_directory, sm):
     sd = static_get_sample(expected_retrieval_directory)
     true_values = []
+    true_values_dict = {}
 
     for p in sd:
         if p not in sm.model_parameters and 'log10_' not in p:
@@ -1302,19 +1412,21 @@ def plot_init(retrieved_parameters, expected_retrieval_directory, sm):
             sd[key] *= value['figure_coefficient']
             true_values[i] *= value['figure_coefficient']
 
-    return sd, true_values
+        true_values_dict[key] = true_values[i]
+
+    return sd, true_values_dict
 
 
 def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_directory, image_format, split_at=5):
     update_figure_font_size(11)
 
-    parameter_ranges, fig_names, _ = get_parameter_range(sd, sm, retrieved_parameters)
+    parameter_ranges, fig_labels, fig_titles, _ = get_parameter_range(sd, sm, retrieved_parameters)
 
     contour_corner(
-        {'': np.array(list(sd.values())).T[:, :split_at]}, {'': fig_names[:split_at]},
+        {'': np.array(list(sd.values())).T[:, :split_at]}, {'': fig_labels[:split_at]},
         os.path.join(r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\HD_189733_b_CARMENES',
                      f'corner_mock_mplus_ttt0.5_1.pdf'),
-        parameter_plot_indices={'': np.arange(0, len(fig_names[:split_at]))},
+        parameter_plot_indices={'': np.arange(0, len(fig_labels[:split_at]))},
         parameter_ranges={'': parameter_ranges[:split_at]},
         true_values={'': true_values[:split_at]},
         prt_plot_style=False,
@@ -1322,10 +1434,10 @@ def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_direc
     plt.savefig(os.path.join(figure_directory, 'corner_mock_mplus_ttt0.5_1' + '.' + image_format))
 
     contour_corner(
-        {'': np.array(list(sd.values())).T[:, split_at:]}, {'': fig_names[split_at:]},
+        {'': np.array(list(sd.values())).T[:, split_at:]}, {'': fig_labels[split_at:]},
         os.path.join(r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\HD_189733_b_CARMENES',
                      f'corner_mock_mplus_ttt0.5_2.pdf'),
-        parameter_plot_indices={'': np.arange(0, len(fig_names[split_at:]))},
+        parameter_plot_indices={'': np.arange(0, len(fig_labels[split_at:]))},
         parameter_ranges={'': parameter_ranges[split_at:]},
         true_values={'': true_values[split_at:]},
         prt_plot_style=False,
@@ -1333,22 +1445,46 @@ def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_direc
     plt.savefig(os.path.join(figure_directory, 'corner_mock_mplus_ttt0.5_2' + '.' + image_format))
 
 
-def plot_result_corner(result_directory, sm, retrieved_parameters, figure_directory, figure_name, image_format='pdf'):
+def plot_result_corner(result_directory, sm, retrieved_parameters,
+                       figure_directory, figure_name, image_format='pdf', true_values=None, save=True, **kwargs):
     sd = static_get_sample(result_directory)
-    parameter_ranges, fig_names, coefficients = get_parameter_range(sd, sm, retrieved_parameters)
+    parameter_ranges, fig_labels, fig_titles, coefficients = get_parameter_range(sd, sm, retrieved_parameters)
+
+    if true_values is not None:
+        if isinstance(true_values, dict):
+            if list(true_values.keys())[0] != '':
+                true_values = [true_values[key] for key in sd]
+                true_values = {'': true_values}
+            else:
+                true_values = {'': true_values}
+        else:
+            true_values = {'': true_values}
+
+    if 'hist2d_kwargs' in kwargs:
+        kwargs['hist2d_kwargs']['titles'] = fig_titles
+    else:
+        kwargs['hist2d_kwargs'] = {'titles': fig_titles}
 
     update_figure_font_size(11)
 
     contour_corner(
         sampledict={'': np.array(list(sd.values())).T * coefficients},
-        parameter_names={'': fig_names},
+        parameter_names={'': fig_labels},
         output_file=None,
         parameter_plot_indices={'': np.arange(0, len(parameter_ranges))},
         parameter_ranges={'': parameter_ranges},
-        true_values=None,
+        true_values=true_values,
         prt_plot_style=False,
+        **kwargs
     )
-    plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
+
+    figure_size = plt.gcf().get_size_inches()
+
+    if np.max(figure_size) > 19.2:
+        plt.gcf().set_size_inches(19.2, 19.2)
+
+    if save:
+        plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
 
 
 def plot_corner(retrieved_parameters, sd, sm, true_values, figure_directory, image_format, save=False):
@@ -1486,7 +1622,8 @@ def plot_all_figures(retrieved_parameters,
     sd, true_values = plot_init(
         retrieved_parameters,
         retrieval_directory +
-        r'\HD_189733_b_transmission_R_Kp_Vr_Rp_g_tiso_CH4_CO_H2O_H2S_NH3_pc_strict_sim_1000lp',
+        r'\HD_189733_b_transmission_'
+        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
         sm
     )
 
@@ -1639,15 +1776,18 @@ def plot_all_figures(retrieved_parameters,
     plot_validity(sm, radtrans, figure_directory, image_format)
 
     # Expected retrieval corner plot
-    plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_directory, image_format)
-
     plot_result_corner(
         result_directory=retrieval_directory +
-        r'\HD_189733_b_transmission_R_Kp_Vr_tiso_CH4_CO_H2O_H2S_NH3_strict_1000lp',
+                         r'\HD_189733_b_transmission_'
+                         r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
         sm=sm,
         retrieved_parameters=retrieved_parameters,
         figure_directory=figure_directory,
-        figure_name='corner_R_Kp_Vr_tiso_CH4_CO_H2O_H2S_NH3_strict_1000lp'
+        figure_name='corner_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        save=True
     )
 
 
@@ -1966,6 +2106,7 @@ def get_contribution_density(spectral_model: SpectralModel, radtrans, wavelength
 def get_parameter_range(sd, sm, retrieved_parameters):
     parameter_ranges = []
     parameter_titles = []
+    parameter_labels = []
     coefficients = []
 
     for key, dictionary in retrieved_parameters.items():
@@ -2002,12 +2143,17 @@ def get_parameter_range(sd, sm, retrieved_parameters):
 
         parameter_ranges.append([low, high])
 
-        if 'figure_name' in dictionary:
-            parameter_titles.append(dictionary['figure_name'])
+        if 'figure_label' in dictionary:
+            parameter_labels.append(dictionary['figure_label'])
         else:
-            parameter_titles.append(key)
+            parameter_labels.append(key)
 
-    return parameter_ranges, parameter_titles, np.array(coefficients)
+        if 'figure_title' in dictionary:
+            parameter_titles.append(dictionary['figure_title'])
+        else:
+            parameter_titles.append(None)
+
+    return parameter_ranges, parameter_labels, parameter_titles, np.array(coefficients)
 
 
 def get_species_string(string):
@@ -2096,80 +2242,94 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
+    retrieve_mock_3d = False
+
     retrieved_parameters_ref = {
         'new_resolving_power': {
             'prior_parameters': [1e4, 2e5],
             'prior_type': 'uniform',
-            'figure_name': 'Resolving power',
+            'figure_title': r'$\mathcal{R}$',
+            'figure_label': 'Resolving power',
             'retrieval_name': 'R'
         },
         'planet_radial_velocity_amplitude': {
             'prior_parameters': np.array([0.8, 1.25]),  # Kp must be close to the true value to help the retrieval
             'prior_type': 'uniform',
-            'figure_name': r'$K_p$ (km$\cdot$s$^{-1}$)',
+            'figure_title': r'$K_p$',
+            'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
             'figure_coefficient': 1e-5,
             'retrieval_name': 'Kp'
         },
         'planet_rest_frame_velocity_shift': {
             'prior_parameters': [-30e5, 30e5],
             'prior_type': 'uniform',
-            'figure_name': r'$V_r$ (km$\cdot$s$^{-1}$)',
+            'figure_title': r'$V_r$',
+            'figure_label': r'$V_r$ (km$\cdot$s$^{-1}$)',
             'figure_coefficient': 1e-5,
             'retrieval_name': 'V0'
         },
         'planet_radius': {
             'prior_parameters': np.array([0.8, 1.25]),
             'prior_type': 'uniform',
-            'figure_name': r'$R_p$ (km)',
+            'figure_title': r'$R_p$',
+            'figure_label': r'$R_p$ (km)',
             'figure_coefficient': 1e-5,
             'retrieval_name': 'Rp'
         },
         'log10_planet_surface_gravity': {
             'prior_parameters': [2.5, 4.0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
+            'figure_title': r'$[g]$',
+            'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
             'retrieval_name': 'g'
         },
         'temperature': {
             'prior_parameters': [300, 3000],
             'prior_type': 'uniform',
-            'figure_name': r'T (K)',
+            'figure_title': r'T',
+            'figure_label': r'T (K)',
             'retrieval_name': 'tiso'
         },
         'CH4_hargreaves_main_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(CH$_4$) MMR',
+            'figure_title': r'[CH$_4$]',
+            'figure_label': r'$\log_{10}$(CH$_4$) MMR',
             'retrieval_name': 'CH4'
         },
         'CO_all_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(CO) MMR',
+            'figure_title': r'[CO]',
+            'figure_label': r'$\log_{10}$(CO) MMR',
             'retrieval_name': 'CO'
         },
         'H2O_main_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(H$_2$O) MMR',
+            'figure_title': r'[H$_2$O]',
+            'figure_label': r'$\log_{10}$(H$_2$O) MMR',
             'retrieval_name': 'H2O'
         },
         'H2S_main_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(H$_2$S) MMR',
+            'figure_title': r'[H2S]',
+            'figure_label': r'$\log_{10}$(H2S) MMR',
             'retrieval_name': 'H2S'
         },
         'HCN_main_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(HCN) MMR',
+            'figure_title': r'[HCN]',
+            'figure_label': r'$\log_{10}$(HCN) MMR',
             'retrieval_name': 'HCN'
         },
         'NH3_main_iso': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}$(NH$_3$) MMR',
+            'figure_title': r'[NH$_3$]',
+            'figure_label': r'$\log_{10}$(NH$_3$) MMR',
             'retrieval_name': 'NH3'
         },
         'mean_molar_masses_offset': {
@@ -2180,25 +2340,29 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
         'log10_cloud_pressure': {
             'prior_parameters': [-10, 2],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}(P_c)$ (bar)',
+            'figure_title': r'[$P_c$]',
+            'figure_label': r'$\log_{10}(P_c)$ ([bar])',
             'retrieval_name': 'Pc'
         },
         'log10_haze_factor': {
             'prior_parameters': [-3, 3],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}(h_x)$',
+            'figure_title': r'[$h_x$]',
+            'figure_label': r'$\log_{10}(h_x)$',
             'retrieval_name': 'hx'
         },
         'log10_scattering_opacity_350nm': {
             'prior_parameters': [-6, 2],
             'prior_type': 'uniform',
-            'figure_name': r'$\log_{10}(\kappa_0)$',
+            'figure_title': r'[$\kappa_0$]',
+            'figure_label': r'$\log_{10}(\kappa_0)$',
             'retrieval_name': 'k0'
         },
         'scattering_opacity_coefficient': {
             'prior_parameters': [-12, 1],
             'prior_type': 'uniform',
-            'figure_name': r'$\gamma$',
+            'figure_title': r'$\gamma$',
+            'figure_label': r'$\gamma$',
             'retrieval_name': 'gams'
         },
     }
@@ -2300,8 +2464,6 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
                 times=times,
                 resolving_power=resolving_power
             )
-
-        #simu_3d = np.load('../')
 
         wavelengths_instrument, observed_spectra, uncertainties, instrument_snr, instrumental_deformations, \
             telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr, orbital_phases, airmasses, \
@@ -2486,26 +2648,47 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
 
     if retrieve_mock_observations:
         if rank == 0:
-            print("Initializing simulated data...")
+            if retrieve_mock_3d:
+                print("Reprocessing simulated 3D data...")
+            else:
+                print("Initializing simulated data...")
 
         comm.barrier()
 
-        wavelengths_instrument, reprocessed_data = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=noise_matrix,
-            scale=scale,
-            shift=shift,
-            convolve=convolve,
-            rebin=rebin,
-            reduce=True
-        )
+        if retrieve_mock_3d:
+            wavelengths_instrument, reprocessed_data = get_orange_simulation_model(
+                directory=os.path.join(additional_data_directory, 'carmenes', 'hd_189733_b', 'simu_orange'),
+                additional_data_directory=additional_data_directory,
+                base_name='range',
+                mode=mode,
+                telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+                telluric_transmittances=telluric_transmittances,
+                instrumental_deformations=instrumental_deformations,
+                noise_matrix=noise_matrix,
+                scale=scale,
+                shift=shift,
+                convolve=convolve,
+                rebin=rebin,
+                reduce=True,
+                **spectral_model.model_parameters
+            )
+        else:
+            wavelengths_instrument, reprocessed_data = spectral_model.get_spectrum_model(
+                radtrans=radtrans,
+                mode=mode,
+                update_parameters=True,
+                telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+                telluric_transmittances=telluric_transmittances,
+                # telluric_transmittances=None,
+                instrumental_deformations=instrumental_deformations,
+                # instrumental_deformations=deformation_matrix,
+                noise_matrix=noise_matrix,
+                scale=scale,
+                shift=shift,
+                convolve=convolve,
+                rebin=rebin,
+                reduce=True
+            )
 
         reprocessed_data_uncertainties = copy.deepcopy(spectral_model.model_parameters['reduced_uncertainties'])
         plot_true_values = True
@@ -2610,7 +2793,7 @@ def _main():
     use_t1535 = True
     planet_name = 'HD 189733 b'
     output_directory = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
-                                       + '/../../../work/run_outputs/petitRADTRANS')
+                                       + '../../../../../work/run_outputs/petitRADTRANS')
     additional_data_directory = os.path.join(output_directory, 'data')
     # output_dir = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
     #                              + '../../../../run_outputs/petitRADTRANS/simulation_retrievals/CARMENES')

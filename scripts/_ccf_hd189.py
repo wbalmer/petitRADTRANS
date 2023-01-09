@@ -800,10 +800,13 @@ def simple_ccf(wavelength_data, data, wavelength_model, model,
         print(f"2D model, assuming it was given for 0 cm.s-1 relative velocity...")
         wavelength_shift = np.zeros((np.size(radial_velocity_lag), np.size(wavelength_model)))
 
+        if relative_velocities is None:
+            relative_velocities = 0
+
         for j in range(np.size(radial_velocity_lag)):
             wavelength_shift[j, :] = doppler_shift(
                 wavelength_0=wavelength_model,
-                velocity=radial_velocity_lag[j]
+                velocity=radial_velocity_lag[j] - relative_velocities
             )
 
         model_flat = model.flatten()
@@ -973,6 +976,117 @@ def sysrem(n_data, n_spectra, data_in, errors_in):
     return data_out, cor1
 
 
+def main_alex():
+    # syn_spec is your model, which I plug into a matrix called mat_cc
+    # (which includes both in and out-of-transit=1.
+    # We do not really care about OOT but it's just to be able to use the rest of my old code since it does not matter
+    # anyway)
+
+    # Calculate relative velocities
+    v_cc = data['K_p'] * np.sin(2. * np.pi * phase) + data['V_sys'] - data['berv'] + data['V_rest']
+
+    # Fill
+    mat_cc = np.zeros((46, 2040))
+
+    for n in range(n_spectra):
+        if n in in_transit:
+            mat_cc[n, :] = syn_spec[h, n - in_transit[0], :]
+        else:
+            mat_cc[n, :] = 1.
+
+    syn_mat_res, good, mask = pipeline_carmenes(phase, wave_carmenes, mat_cc, sig)
+
+    # Undo the shift to bring back to vacuum wvls
+    mat_back = np.zeros((len(v_cc), len(wave_carmenes)))
+    for i in range(len(v_cc)):
+        mat_back[i, :] = np.interp(wave_carmenes,
+                                   wave_carmenes * (1. - v_cc[i] / 3e5),
+                                   syn_mat_res[i, :])
+
+    mean_step_v = 1.3  # Step for CCF lags
+
+    # Define interval
+    ccf_v_interval = 308.  # km/s
+    ccf_v_step = np.round(mean_step_v, 1)
+    ccf_iterations = int(2 * ccf_v_interval / ccf_v_step + 1)
+    v_ccf = np.zeros(ccf_iterations)
+    for i in range(ccf_iterations):
+        v_ccf[i] = -ccf_v_interval + float(i) * ccf_v_step
+
+    ccf_values = np.zeros((ccf_iterations, n_spectra, data['n_orders']), float)
+
+    ccf_values[:, :, h] = ccf(lag=v_ccf, n_spectra=n_spectra, obs=mat_res,
+                              ccf_iterations=ccf_iterations, wave=wave_carmenes,
+                              wave_CC=wave_carmenes, ccf_values=ccf_values[:, :, h],  # h runs over CCDs
+                              template=mat_back)
+
+    # Subtracting the median value to each row (gets rid of broad S/N differences)
+    for n in range(n_spectra):
+        ccf_values[:, n, h] -= np.median(ccf_values[:, n, h])
+
+    # Merge orders
+    ccf_merged = np.sum(ccf_values, 2)
+
+    # For the shifts in Kp to the Kp-dependent planet rest-frame, I put expected V-pixel at central position. Pixels_lef_right is a stupid name for the actual number of pixels we take around expected_v_pixel
+    for kp in kp_range:
+        # Calculate planetary velocities during the night
+        v_planet = kp * np.sin(2. * np.pi * phase) + data['V_sys'] - data['berv'] + data['V_rest']
+        for i in in_transit:
+            v_aux = np.arange(v_planet[i] - pixels_left_right * ccf_v_step,
+                              v_planet[i] + pixels_left_right * ccf_v_step,
+                              ccf_v_step)
+            v_aux = np.append(v_aux, v_planet[i] +
+                              pixels_left_right * ccf_v_step)
+            if len(v_aux) == len(v_wind) + 1:
+                v_aux = v_aux[0:-1]
+
+            # Locate the pixel where the planetary signal should be
+            ccf_values_shift[:, cont, np.int(kp + (n_kp - 1) / 2 - 1)] = np.interp(v_aux, v_ccf, ccf_merged[:, i])
+            cont += 1
+
+    ccf_tot = np.sum(ccf_values_shift, 1)
+
+    # Maximum Vrest for std calculations and plots
+    max_ccf_v = 255.2
+    plot_step = 50.
+    pixels_left_right = int(max_ccf_v / ccf_v_step)
+
+    # Vrest grid for the plots
+    v_wind = ccf_v_step * (np.arange(2 * pixels_left_right + 1) - \
+                           float(pixels_left_right))
+
+    # Calculate S/N
+    ccf_tot_sn = np.copy(ccf_tot)
+    max_sn = 0
+    max_kp = 0
+    max_v_wind = 0
+    exclude = 15
+
+    for kp in kp_range:
+        # Finding the maximum in the CCF, wherever it may be located:
+        aux = np.array(np.where(ccf_tot[:, kp + np.int((n_kp - 1) / 2)] == \
+                                np.amax(ccf_tot[:, np.int(kp + (n_kp - 1) / 2)]))[0])
+        # print(v_wind[aux])
+
+        # Select the v_rest range far from "detected" signal
+        std_pts_a = np.array(np.where(v_wind < \
+                                      (v_wind[aux] - exclude)))[0]
+        std_pts_b = np.array(np.where(v_wind > \
+                                      (v_wind[aux] + exclude)))[0]
+        std_pts = np.concatenate((std_pts_a, std_pts_b))
+
+        # Compute the S/N
+        ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] = (ccf_tot[:, \
+                                                      np.int(kp + (n_kp - 1) / 2)] - np.mean(ccf_tot[std_pts, \
+            np.int(kp + (n_kp - 1) / 2)])) / np.std(ccf_tot[std_pts, \
+            np.int(kp + (n_kp - 1) / 2)])
+        if np.amax(ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)]) > max_sn:
+            max_sn = np.amax(ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)])
+            max_kp = np.int(kp + (n_kp - 1) / 2)
+            max_v_wind = v_wind[np.array(np.where( \
+                ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] == max_sn))]
+
+
 def main():
     use_t23 = True  # use full eclipse transit time instead of total transit time
     use_t1535 = True  # use intermediate eclipse ("T_transit")
@@ -1103,8 +1217,10 @@ def main():
         # Search where the orbital phase is closest to 0 to get a model where kp~0, not ideal
         wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]
         ccf_model_ = ccf_model[:, wh_0, :]
+        relative_velocities = spectral_model_ref.model_parameters['relative_velocities'][wh_0]
     else:
         ccf_model_ = copy.deepcopy(ccf_model)
+        relative_velocities = spectral_model_ref.model_parameters['relative_velocities']
 
     # Calculate CCF
     ccf, ccf_models, rvs = simple_ccf(
@@ -1117,7 +1233,7 @@ def main():
         radial_velocity=v_sys,
         kp=kp,
         data_uncertainties=uncertainties,
-        relative_velocities=spectral_model_ref.model_parameters['relative_velocities']
+        relative_velocities=relative_velocities
     )
 
     if use_alex_detector_selection:
@@ -1160,7 +1276,9 @@ def main():
         # Beware: this is a step of uttermost importance! Carefully chose the first guess, sometimes even *1* bad CCD is enough to completely mess uo an otherwise good selection
         # detector_selection = np.array([3, 9, 25, 26, 46, 47])  # works with telluric threshold = 0.5
         #detector_selection = np.array([4, 6, 12, 25, 26, 46, 47])  # chosen by adding them one by one and looking at the collapsed CCF
-        detector_selection = np.array([3, 9, 25, 26, 46, 47])  # TT0.5, start for T14
+        # detector_selection = np.array([3, 9, 25, 26, 46, 47])  # TT0.5, start for T14
+        # detector_selection = np.array([3, 9, 25, 26, 46, 54])  # TT0.5, new start for T14
+        detector_selection = np.array([11, 18, 19, 25, 26, 32, 33, 34])  # start for bad
         #detector_selection = np.array([3,  7,  9, 13, 25, 28, 29, 46, 54])  # TT0.5, T1535 (from T14, but added 54)
         #detector_selection = np.array([1,  3,  9, 14, 25, 28, 29, 30, 46, 54])  # TT0.5, T23 (from T1535)
         #detector_selection = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28,

@@ -18,6 +18,9 @@ from scripts.mock_observation import convolve_rebin, simple_mock_observation
 from scripts.model_containers import ParametersDict, SpectralModelLegacy
 
 
+module_dir = os.path.abspath('./')
+
+
 def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, star_distance, exposure_time,
                        telescope_mirror_radius, telescope_throughput, instrument_resolving_power,
                        pixel_per_resolution_element=2):
