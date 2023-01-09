@@ -177,7 +177,6 @@ def contour_corner(sampledict,
         # from .plot_style import prt_colours
     # color_list = prt_colours
 
-    range_list = []
     handles = []
     count = 0
     fig = None
@@ -201,12 +200,16 @@ def contour_corner(sampledict,
 
         data_list = []
         labels_list = []
-        best_fit = None
+
         if plot_best_fit:
             best_fit = []
             best_fit_ind = np.argmax(samples[:,-1])
+
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
+
+        range_list = []
+
         for range_i, i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples) - s:, i])
             labels_list.append(parameter_names[key][i])
@@ -244,12 +247,12 @@ def contour_corner(sampledict,
         else:
             truths_list = None
 
-        # fig = plt.figure(figsize = (60,60),dpi=80)
         label_kwargs = None
         title_kwargs = None
         hist_kwargs = None
         hist2d_kwargs = {}
         contour_kwargs = None
+
         if "label_kwargs" in kwargs.keys():
             label_kwargs = kwargs["label_kwargs"]
         if "title_kwargs" in kwargs.keys():
@@ -287,7 +290,7 @@ def contour_corner(sampledict,
                           smooth=True,
                           title_fmt=".2f",
                           title_kwargs=title_kwargs,
-                          show_titles=True,
+                          show_titles=False,
                           range=range_list,
                           color=color_list[count],
                           labels=labels_list,
@@ -443,6 +446,9 @@ def contour_corner_large(sampledict,
             best_fit_ind = np.argmax(samples[:,-1])
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
+
+        range_list = []
+
         for range_i, i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples) - s:, i])
             labels_list.append(parameter_names[key][i])

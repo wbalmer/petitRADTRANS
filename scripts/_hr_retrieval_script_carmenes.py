@@ -1446,34 +1446,57 @@ def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_direc
 
 
 def plot_result_corner(result_directory, sm, retrieved_parameters,
-                       figure_directory, figure_name, image_format='pdf', true_values=None, save=True, **kwargs):
-    sd = static_get_sample(result_directory)
-    parameter_ranges, fig_labels, fig_titles, coefficients = get_parameter_range(sd, sm, retrieved_parameters)
+                       figure_directory, figure_name, image_format='pdf', true_values=None, figure_font_size=8,
+                       save=True, **kwargs):
+    if np.ndim(result_directory) > 0:
+        sd = []
+        sample_dict = {}
+
+        for i, directory in enumerate(result_directory):
+            sd.append(static_get_sample(directory))
+            sample_dict[f'{i}'] = np.array(list(sd[i].values())).T
+    else:
+        sd = [static_get_sample(result_directory)]
+        sample_dict = {'': np.array(list(sd[0].values())).T}
+
+    parameter_names_dict = {}
+    parameter_plot_indices_dict = {}
+    parameter_ranges_dict = {}
+    true_values_dict = {}
+
+    fig_titles = None
+
+    for i, sample in enumerate(sample_dict):
+        parameter_ranges, fig_labels, fig_titles, coefficients = get_parameter_range(sd[i], sm, retrieved_parameters)
+        sample_dict[sample] *= coefficients
+        parameter_plot_indices_dict[sample] = np.arange(0, len(parameter_ranges))
+        parameter_ranges_dict[sample] = parameter_ranges
+        parameter_names_dict[sample] = fig_labels
 
     if true_values is not None:
         if isinstance(true_values, dict):
             if list(true_values.keys())[0] != '':
                 true_values = [true_values[key] for key in sd]
-                true_values = {'': true_values}
-            else:
-                true_values = {'': true_values}
-        else:
-            true_values = {'': true_values}
+
+        for sample in sample_dict:
+            true_values_dict[sample] = true_values
+    else:
+        true_values_dict = None
 
     if 'hist2d_kwargs' in kwargs:
         kwargs['hist2d_kwargs']['titles'] = fig_titles
     else:
         kwargs['hist2d_kwargs'] = {'titles': fig_titles}
 
-    update_figure_font_size(11)
+    update_figure_font_size(figure_font_size)
 
     contour_corner(
-        sampledict={'': np.array(list(sd.values())).T * coefficients},
-        parameter_names={'': fig_labels},
+        sampledict=sample_dict,
+        parameter_names=parameter_names_dict,
         output_file=None,
-        parameter_plot_indices={'': np.arange(0, len(parameter_ranges))},
-        parameter_ranges={'': parameter_ranges},
-        true_values=true_values,
+        parameter_plot_indices=parameter_plot_indices_dict,
+        parameter_ranges=parameter_ranges_dict,
+        true_values=true_values_dict,
         prt_plot_style=False,
         **kwargs
     )
@@ -1615,7 +1638,7 @@ def plot_all_figures(retrieved_parameters,
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp\simulated_data_model.h5'
+        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_sim_1000lp\simulated_data_model.h5'
     )
     radtrans = sm.get_radtrans()
 
@@ -1623,7 +1646,7 @@ def plot_all_figures(retrieved_parameters,
         retrieved_parameters,
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
+        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_sim_1000lp',
         sm
     )
 
@@ -1646,7 +1669,7 @@ def plot_all_figures(retrieved_parameters,
             resolving_power=sm.model_parameters['new_resolving_power']
         )
 
-    detector_selection = np.array([1, 3, 9, 14, 25, 28, 29, 30, 46, 54])  # strictt1535
+    detector_selection = np.array([ 1,  3,  7,  8,  9, 14, 25, 28, 29, 30, 46, 54])  # strictt15353
     ccd_id = np.asarray(detector_selection == 46).nonzero()[0][0]
     planet = Planet.get('HD 189733 b')
 
@@ -1779,14 +1802,30 @@ def plot_all_figures(retrieved_parameters,
     plot_result_corner(
         result_directory=retrieval_directory +
                          r'\HD_189733_b_transmission_'
-                         r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
+                         r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_sim_1000lp',
         sm=sm,
         retrieved_parameters=retrieved_parameters,
         figure_directory=figure_directory,
-        figure_name='corner_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt1535_t1535_t23_sim_1000lp',
+        figure_name='corner_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_sim_1000lp',
         label_kwargs={'fontsize': 10},
         title_kwargs={'fontsize': 8},
         true_values=true_values,
+        figure_font_size=8,
+        save=True
+    )
+
+    plot_result_corner(
+        result_directory=retrieval_directory +
+                         r'\HD_189733_b_transmission_'
+                         r'R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_1000lp',
+        sm=sm,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_strictt15353_t1535_t23_1000lp',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        figure_font_size=8,
         save=True
     )
 
@@ -2378,7 +2417,9 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
         'strict2': np.array([7, 9, 13, 25, 26, 29, 46, 47, 54]),
         'strict2_alt': np.array([7, 9, 13, 25, 30, 46]),
         'strictt14': np.array([3, 7, 9, 13, 25, 28, 29, 46]),
+        'strictt143': np.array([3,  6,  7,  9, 13, 25, 26, 29, 46, 54]),
         'strictt1535': np.array([1, 3, 9, 14, 25, 28, 29, 30, 46, 54]),
+        'strictt15353': np.array([1, 3, 7, 8, 9, 14, 25, 28, 29, 30, 46, 54]), # using T_mid = 58004.4247, corrected for V_rest
         'strict23': np.array([1, 2, 7, 12, 13, 17, 20, 21, 24, 25, 26, 28, 29, 30, 46, 48, 52, 54]),
         'nh3d': np.array([1, 6, 7, 9, 10, 12, 13, 25, 26, 28, 29, 30, 46, 47, 49, 52, 54]),  # (nh3d)
         'nh3h2sd': np.array([1, 6, 7, 9, 10, 12, 13, 25, 26, 28, 29, 30, 32, 33, 46, 47, 49, 52, 54]),  # (nh3h2sd)
@@ -2833,8 +2874,11 @@ def _main():
         'CO_all_iso',
         'H2O_main_iso',
         'H2S_main_iso',
+        'HCN_main_iso',
         'NH3_main_iso',
-        'log10_cloud_pressure'
+        'log10_cloud_pressure',
+        'log10_scattering_opacity_350nm',
+        'scattering_opacity_coefficient'
     ]
 
     main(
