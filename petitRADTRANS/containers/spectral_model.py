@@ -12,7 +12,7 @@ from petitRADTRANS.fort_rebin import fort_rebin as fr
 import scipy.ndimage
 
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
@@ -2621,7 +2621,7 @@ class SpectralModel(BaseSpectralModel):
             if hasattr(kwargs['uncertainties'], 'mask'):
                 spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
 
-        return reprocessing_pipeline(spectrum=spectrum, full=True, **kwargs)
+        return preparing_pipeline(spectrum=spectrum, full=True, **kwargs)
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
         pressures = radtrans.press * 1e-6  # cgs to bar

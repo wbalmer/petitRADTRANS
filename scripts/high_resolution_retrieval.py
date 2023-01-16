@@ -12,7 +12,7 @@ import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline, pipeline_validity_test
+from petitRADTRANS.retrieval.preparing import preparing_pipeline, pipeline_validity_test
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
@@ -282,7 +282,7 @@ def _get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=
     spectrum_model0.mask = copy.copy(parameters['data'].value.mask)
 
     if apply_pipeline:
-        spectrum_model = reprocessing_pipeline(
+        spectrum_model = preparing_pipeline(
             spectrum=spectrum_model0,
             wavelengths=parameters['wavelengths_instrument'].value,
             airmass=parameters['airmass'].value,
@@ -339,7 +339,7 @@ def _get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=
     spectrum_model0.mask = copy.copy(parameters['data'].value.mask)
 
     if apply_pipeline:
-        spectrum_model = reprocessing_pipeline(
+        spectrum_model = preparing_pipeline(
             spectrum=spectrum_model0,
             wavelengths=parameters['wavelengths_instrument'].value,
             airmass=parameters['airmass'].value,
@@ -819,7 +819,7 @@ def init_mock_observations(planet, line_species_str, mode,
         print("Mock observations consistency check OK")
 
     print('Data reduction...')
-    reduced_mock_observations, reduction_matrix, reduced_uncertainties = reprocessing_pipeline(
+    reduced_mock_observations, reduction_matrix, reduced_uncertainties = preparing_pipeline(
         spectrum=mock_observations,
         uncertainties=uncertainties,
         wavelengths=wavelengths_instrument,
@@ -856,7 +856,7 @@ def init_mock_observations(planet, line_species_str, mode,
 
     ts = copy.copy(true_spectra)
     ts = np.ma.masked_where(mock_observations.mask, ts)
-    fmt, mr0t, _ = reprocessing_pipeline(
+    fmt, mr0t, _ = preparing_pipeline(
         ts, airmass=airmass,
         wavelengths=wavelengths_instrument,
         uncertainties=true_parameters['data_uncertainties'].value, full=True,
@@ -865,13 +865,13 @@ def init_mock_observations(planet, line_species_str, mode,
     )
     w, r = retrieval_model(model, true_parameters)
 
-    fmtd, mr0td, _ = reprocessing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass,
-                                           wavelengths=wavelengths_instrument,
-                                           uncertainties=true_parameters['data_uncertainties'].value,
-                                           apply_throughput_removal=apply_throughput_removal,
-                                           apply_telluric_lines_removal=apply_telluric_lines_removal,
-                                           full=True)
-    fs, mr, _ = reprocessing_pipeline(
+    fmtd, mr0td, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass,
+                                        wavelengths=wavelengths_instrument,
+                                        uncertainties=true_parameters['data_uncertainties'].value,
+                                        apply_throughput_removal=apply_throughput_removal,
+                                        apply_telluric_lines_removal=apply_telluric_lines_removal,
+                                        full=True)
+    fs, mr, _ = preparing_pipeline(
         spectrum=ts * true_parameters['deformation_matrix'].value + noise,
         uncertainties=true_parameters['data_uncertainties'].value,
         wavelengths=wavelengths_instrument,

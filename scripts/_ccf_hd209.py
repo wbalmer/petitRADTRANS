@@ -12,7 +12,7 @@ from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from scripts.load_spectral_matrix import construct_spectral_matrix
 
 
@@ -593,7 +593,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
     true_parameters = copy.deepcopy(spectral_model.model_parameters)
 
     print('Data reduction...')
-    reduced_data, reduction_matrix, reduced_uncertainties = reprocessing_pipeline(
+    reduced_data, reduction_matrix, reduced_uncertainties = preparing_pipeline(
         spectrum=observations,
         uncertainties=uncertainties,
         wavelengths=wavelengths_instrument,

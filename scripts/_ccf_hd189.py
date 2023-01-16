@@ -12,7 +12,7 @@ from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline, remove_throughput_fit, remove_telluric_lines_fit
+from petitRADTRANS.retrieval.preparing import preparing_pipeline, remove_throughput_fit, remove_telluric_lines_fit
 from scripts.high_resolution_retrieval_carmenes import load_carmenes_data
 
 
@@ -643,7 +643,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             polynomial_fit_degree=2
         )
     else:
-        reduced_data, reduction_matrix, reduced_uncertainties = reprocessing_pipeline(
+        reduced_data, reduction_matrix, reduced_uncertainties = preparing_pipeline(
             spectrum=observations,
             uncertainties=uncertainties,
             wavelengths=wavelengths_instrument,
@@ -1087,6 +1087,74 @@ def main_alex():
                 ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] == max_sn))]
 
 
+def reprocessing_pipeline_carmenes(phase, wave, mat, noise):
+    ##Step1. Normalisation
+    result1 = np.zeros_like(mat)
+    error1 = np.zeros_like(noise)
+
+    for n in range(len(phase)):
+        fit_coeffs = np.polynomial.Polynomial.fit(x=wave, y=mat[n, :], deg=2,
+                                                  w=noise[n, :]).convert().coef
+        result1[n, :] = mat[n, :] / fit_coeffs[0] + fit_coeffs[1] * wave + fit_coeffs[2] * wave ** 2.
+        # Assuming the fit has no error
+        error1[n, :] = result1[n, :] * np.sqrt((noise[n, :] / mat[n, :]) ** 2.)
+
+    # Masking now before correction to avoid fit explosion. I do it this ugly way but anyway
+    mask = []
+    n_spectra = len(phase)
+    n_data = len(wave)
+
+    for n in range(n_spectra):
+        for k in range(n_data):
+            if result1[n, k] < 0.5:
+                result1[:, k] = 1.
+                mask.append(k)
+
+    mask = np.sort(np.asarray(mask))
+
+    if mask.shape != (0,):
+        result1[:, mask] = 1
+
+    # Brogi extra step
+    telluric_spec = np.zeros_like(wave)
+    result2 = np.zeros_like(result1)
+    error2 = np.zeros_like(error1)
+    telluric_fit_log = np.zeros_like(wave)
+
+    for k in range(n_data):
+        telluric_spec[k] = np.median(result1[:, k])
+
+    for n in range(n_spectra):
+        c1 = np.polyfit(telluric_spec, np.log(result1[n, :]), 2)
+        telluric_fit_log = np.polyval(c1, telluric_spec)
+        result2[n, :] = result1[n, :] / np.exp(telluric_fit_log)
+        error2[n, :] = result2[n, :] * np.sqrt((error1[n, :] / result1[n, :]) ** 2.)
+
+    # Step2
+    result2 = np.zeros_like(result1)
+    error2 = np.zeros_like(error1)
+    # Second correction in each spectral pixel
+    x = np.asarray(range(n_spectra))
+
+    for k in range(n_data):
+        if np.sum(result1[:, k]) != n_spectra:  # Avoiding masks, which are set to 1
+            fit_coeffs = np.polynomial.Polynomial.fit(x=x,
+                                                      y=np.log(result1[:, k]),
+                                                      deg=2,
+                                                      w=1. / error1[:, k]).convert().coef
+
+            result2[:, k] = result1[:, k] / np.exp(fit_coeffs[0] + fit_coeffs[1] * x + fit_coeffs[2] * x ** 2.)
+            error2[:, k] = result2[:, k] * np.sqrt((error1[:, k] / result1[:, k]) ** 2.)
+        else:
+            result2[:, k] = result1[:, k]  # we dont care, it will not be used
+            error2[:, k] = error1[:, k]  # we dont care, it will not be used
+
+    if mask.shape != (0,):  # Just a remasking, for extra safety
+        result2[:, mask] = 1
+
+    return result2, error2, mask
+
+
 def main():
     use_t23 = True  # use full eclipse transit time instead of total transit time
     use_t1535 = True  # use intermediate eclipse ("T_transit")
@@ -1196,7 +1264,7 @@ def main():
         )
 
     if use_alex_detector_selection:
-        reduced_data_untouched, _, _ = reprocessing_pipeline(
+        reduced_data_untouched, _, _ = preparing_pipeline(
             spectrum=observations,
             uncertainties=uncertainties,
             wavelengths=wavelengths_instrument,

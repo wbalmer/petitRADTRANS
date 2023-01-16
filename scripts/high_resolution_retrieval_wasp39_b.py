@@ -12,7 +12,7 @@ import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
@@ -307,7 +307,7 @@ def _get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=
     spectrum_model0.mask = copy.copy(parameters['data'].value.mask)
 
     if apply_pipeline:
-        spectrum_model = reprocessing_pipeline(
+        spectrum_model = preparing_pipeline(
             spectrum=spectrum_model0,
             airmass=parameters['airmass'].value,
             uncertainties=parameters['data_uncertainties'].value
@@ -361,7 +361,7 @@ def _get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=
     spectrum_model0.mask = copy.copy(parameters['data_mask'].value)
 
     if apply_pipeline:
-        spectrum_model = reprocessing_pipeline(
+        spectrum_model = preparing_pipeline(
             spectrum=spectrum_model0,
             airmass=parameters['airmass'].value,
             uncertainties=parameters['data_uncertainties'].value,
@@ -855,7 +855,7 @@ def init_mock_observations(planet, line_species_str, mode,
         print("Mock observations consistency check OK")
 
     print('Data reduction...')
-    reduced_mock_observations, reduction_matrix, reduced_uncertainties = reprocessing_pipeline(
+    reduced_mock_observations, reduction_matrix, reduced_uncertainties = preparing_pipeline(
         spectrum=mock_observations,
         uncertainties=uncertainties,
         airmass=airmass,

@@ -11,7 +11,7 @@ import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.retrieval.reprocessing import reprocessing_pipeline
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
@@ -294,7 +294,7 @@ def _get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=
     spectrum_model0.mask = copy.copy(parameters['data_mask'].value)
 
     if apply_pipeline:
-        spectrum_model = reprocessing_pipeline(
+        spectrum_model = preparing_pipeline(
             spectrum=spectrum_model0,
             airmass=parameters['airmass'].value,
             uncertainties=parameters['data_uncertainties'].value,
@@ -824,7 +824,7 @@ def init_mock_observations(planet, line_species_str, mode,
         print("Mock observations consistency check OK")
 
     print('Data reduction...')
-    reduced_mock_observations, reduction_matrix, reduced_uncertainties = reprocessing_pipeline(
+    reduced_mock_observations, reduction_matrix, reduced_uncertainties = preparing_pipeline(
         spectrum=mock_observations,
         uncertainties=uncertainties,
         wavelengths=wavelengths_instrument,
@@ -872,7 +872,7 @@ def init_mock_observations(planet, line_species_str, mode,
     if isinstance(mock_observations, np.ma.core.masked_array):
         ts = np.ma.masked_where(mock_observations.mask, ts)
 
-    fmt, mr0t, _ = reprocessing_pipeline(
+    fmt, mr0t, _ = preparing_pipeline(
         ts, airmass=airmass, uncertainties=true_parameters['data_uncertainties'].value, full=True,
         apply_throughput_removal=True, apply_telluric_lines_removal=True
     )
@@ -881,15 +881,15 @@ def init_mock_observations(planet, line_species_str, mode,
     if line_species_str != ['CO_main_iso', 'CO_36', 'CH4_main_iso', 'H2O_main_iso']:
         print("Skipping pipeline validity checks")
     else:
-        fmtd, mr0td, _ = reprocessing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass,
-                                               uncertainties=true_parameters['data_uncertainties'].value,
-                                               apply_throughput_removal=True,
-                                               apply_telluric_lines_removal=True,
-                                               full=True)
-        fs, mr, _ = reprocessing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
-                                          apply_throughput_removal=True,
-                                          apply_telluric_lines_removal=True,
-                                          uncertainties=true_parameters['data_uncertainties'].value, full=True)
+        fmtd, mr0td, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass,
+                                            uncertainties=true_parameters['data_uncertainties'].value,
+                                            apply_throughput_removal=True,
+                                            apply_telluric_lines_removal=True,
+                                            full=True)
+        fs, mr, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
+                                       apply_throughput_removal=True,
+                                       apply_telluric_lines_removal=True,
+                                       uncertainties=true_parameters['data_uncertainties'].value, full=True)
 
         # Check pipeline validity
         assert np.allclose(r, ts * mr0t, atol=1e-12, rtol=1e-12)
