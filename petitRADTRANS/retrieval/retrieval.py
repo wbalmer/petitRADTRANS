@@ -567,11 +567,16 @@ class Retrieval:
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
-                    wlen_model, spectrum_model = \
+                    retVal = \
                         dd.model_generating_function(dd.pRT_object,
                                                     self.parameters,
                                                     self.PT_plot_mode,
                                                     AMR = self.rd.AMR)
+                    if len(retVal) == 3:
+                        wlen_model, spectrum_model, additional_logl = retVal
+                    else:
+                        wlen_model, spectrum_model = retVal
+                        additional_logl = 0.
                     # Sanity checks on outputs
                     if spectrum_model is None:
                         return -1e98
@@ -580,7 +585,8 @@ class Retrieval:
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting,
-                                            self.parameters)
+                                            self.parameters) + \
+                                      additional_logl
                 else:
                     # Get the PT profile
                     if name == self.rd.plot_kwargs["take_PTs_from"]:
@@ -621,7 +627,8 @@ class Retrieval:
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
                                         self.plotting,
-                                        self.parameters)
+                                        self.parameters) + \
+                                          additional_logl
         #print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
@@ -823,10 +830,14 @@ class Retrieval:
                                             self.retrieval_name + "/" + \
                                             ret_name + "_best_fit_model_full.npy").T
                 return bf_wlen,bf_spectrum
-            bf_wlen, bf_spectrum = self.get_full_range_model(self.best_fit_params,
+            retVal = self.get_full_range_model(self.best_fit_params,
                                                              model_generating_func = None,
                                                              ret_name = ret_name,
                                                              contribution = contribution)
+            if len(retVal) == 2:
+                bf_wlen, bf_spectrum = retVal
+            else:
+                bf_wlen, bf_spectrum, __ = retVal
 
         # Add to the dictionary.
         self.best_fit_specs[ret_name]= [bf_wlen,bf_spectrum]
@@ -1085,10 +1096,15 @@ class Retrieval:
             for rint in rands:
                 samp = samples[rint,:-1]
                 params = self.build_param_dict(samp,parameters_read)
-                wlen,model = duse.model_generating_function(pRT_Object,
+                retVal = duse.model_generating_function(pRT_Object,
                                                             params,
                                                             False,
                                                             self.rd.AMR)
+                if len(retVal) == 2:
+                    wlen, model = retVal
+                else:
+                    wlen, model, __ = retVal
+
                 tfit = teff_calc(wlen,model,params["D_pl"],params["R_pl"])
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
@@ -1318,7 +1334,10 @@ class Retrieval:
         lims = ax.get_xlim()
         lim_y = ax.get_ylim()
         lim_y = [lim_y[0],lim_y[1]*1.12]
-        ax.set_ylim(lim_y)
+        if self.rd.plot_kwargs.get('flux_lim') is not None:
+            ax.set_ylim(self.rd.plot_kwargs.get('flux_lim'))
+        else:
+            ax.set_ylim(lim_y)
 
         # weird scaling to get axis to look ok on log plots
         if self.rd.plot_kwargs["xscale"] == 'log':

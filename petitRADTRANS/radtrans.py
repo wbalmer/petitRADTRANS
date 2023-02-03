@@ -1736,6 +1736,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                   mass_fraction=None,
                   CO=0.55,
                   FeH=0.,
+                  return_opacities = False,
                   **kwargs):
         import matplotlib.pyplot as plt
 
@@ -1767,11 +1768,20 @@ class Radtrans(_read_opacities.ReadOpacities):
             for spec in species:
                 plt_weights[spec] = mass_fraction[spec]
 
-        for spec in species:
-            plt.plot(wlen_micron,
-                     plt_weights[spec] * opas[spec],
-                     label=spec,
-                     **kwargs)
+        if return_opacities:
+            rets = {}
+            for spec in species:
+                rets[spec] = [wlen_micron,
+                         plt_weights[spec] * opas[spec]]
+            return rets
+        else:
+            for spec in species:
+                plt.plot(wlen_micron,
+                         plt_weights[spec] * opas[spec],
+                         label=spec,
+                         **kwargs)
+
+
 
     def calc_tau_cloud(self, gravity):
         """ Method to calculate the optical depth of the clouds as function of

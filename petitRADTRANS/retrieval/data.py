@@ -56,7 +56,7 @@ class Data:
         scale : bool
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the retrieval.
         wlen_bins : numpy.ndarray
-            Set the wavelength bins to bin the pRT model to the data. Defaults to the data bins.
+            Set the wavelength bin width to bin the pRT model to the data. Defaults to the data bins.
         photometry : bool
             Set to True if using photometric data.
         photometric_transformation_function : method
@@ -380,6 +380,17 @@ class Data:
 
 
         diff = (flux_rebinned - self.flux*self.scale_factor)
+
+        '''
+        def line_b_error_scaling(parameters):
+            b_val = -np.inf
+            if parameters is not None:
+                if f'uncertainty_scaling_b_{self.name}' in parameters.keys():
+                    b_val = parameters[f'uncertainty_scaling_b_{self.name}'].value
+                elif f'uncertainty_scaling_b' in parameters.keys():
+                    b_val = parameters['uncertainty_scaling_b'].value
+            return 10**b
+        '''
 
         param_names = list(parameters.keys())
         tentotheb_scaling = False
