@@ -406,7 +406,7 @@ Hence we will first have to rebin the ExoCross results to the
 petitCODE/petitRADTRANS grid. To this end, please download the
 petitRADTRANS high resolution grid (`wlen_petitRADTRANS.dat`_).
 
-.. _`wlen_petitRADTRANS.dat`: https://www.dropbox.com/s/2lyo8ot3nq4rx43/wlen_petitRADTRANS.dat?dl=0
+.. _`wlen_petitRADTRANS.dat`: https://keeper.mpdl.mpg.de/f/357e92d4e0bb4aca9039/?dl=1
 
 Next, rebin all ExoCross opacity files to that wavelength file, like
 shown below, using Python, here for simplicity we use the NaH opacity file
