@@ -253,6 +253,8 @@ class ReadOpacities:
                                 (freqs_chubb >= self.freq_full[-1] * (1. - 1e-10))
                     retVal[:, index_fill, 0, :] = k_table2[:, index_use, :]
 
+                    retVal[retVal < 0.] = 0.
+
                     # Divide by mass to go from cross-sections to opacities, the latter
                     # is what pRT requires.
                     exomol_mass = float(f['mol_mass'][0])
@@ -316,6 +318,9 @@ class ReadOpacities:
           cloud_aniso, cloud_lambdas, cloud_rad_bins, cloud_radii \
           = fi.read_in_cloud_opacities(self.path,tot_str_names,tot_str_modes, \
                             len(self.cloud_species),self.N_cloud_lambda_bins)
+
+        cloud_specs_abs_opa[cloud_specs_abs_opa < 0.] = 0.
+        cloud_specs_scat_opa[cloud_specs_scat_opa < 0.] = 0.
 
         self.rho_cloud_particles = \
           np.array(rho_cloud_particles,dtype='d',order='F')

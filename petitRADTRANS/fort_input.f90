@@ -231,6 +231,8 @@ subroutine read_in_molecular_opacities(path,species_names_tot,freq_len,g_len,spe
               curr_cb_int = (i_kg-1)/g_len+1
               curr_N_g_int = i_kg - (curr_cb_int-1)*g_len
               read(20) opa_grid_kappas(curr_N_g_int,curr_cb_int,i_spec,i_file)
+              opa_grid_kappas(curr_N_g_int,curr_cb_int,i_spec,i_file) = &
+                      MAX(opa_grid_kappas(curr_N_g_int,curr_cb_int,i_spec,i_file),0d0)
            end do
            close(20)
         end if
@@ -883,6 +885,7 @@ subroutine read_kappa(arr_min, arr_len, file_path, kappa)
   read(49, pos = (arr_min-1)*8+1) kappa(1)
   do i_lamb = 2, arr_len
      read(49) kappa(i_lamb)
+     kappa(i_lamb) = MAX(kappa(i_lamb), 0d0)
   end do
 
   close(49)
