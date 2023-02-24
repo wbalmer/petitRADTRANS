@@ -62,6 +62,7 @@ ___________
 - Doriann Blain
 - Eleonora Alei
 - Tomas Stolker
+- Nick Wogan
 
 Contributors
 ________________

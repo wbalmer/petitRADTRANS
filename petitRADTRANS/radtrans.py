@@ -493,7 +493,6 @@ class Radtrans(_read_opacities.ReadOpacities):
         return np.array(xn)
 
     # Preparing structures
-    #@profile
     def setup_opa_structure(self, P):
         # TODO remove this function, now useless
         """ Setup opacity arrays at atmospheric structure dimensions,

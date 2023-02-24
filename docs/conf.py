@@ -25,9 +25,9 @@ copyright = u'2019-2023, Paul Molli\u00E8re'
 author = u'Paul Molli\u00E8re'
 
 # The short X.Y version
-version = '2.4'
+version = '2.5'
 # The full version, including alpha/beta/rc tags
-release = '2.4.12'
+release = '2.5.0'
 
 
 # -- General configuration ---------------------------------------------------
