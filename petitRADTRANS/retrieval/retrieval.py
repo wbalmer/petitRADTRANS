@@ -431,7 +431,10 @@ class Retrieval:
                         out = self.parameters[key].corner_transform(out)
                     if out is None:
                         continue
-                    summary.write(f"    {key} = {out:.3f}\n")
+                    if not hasattr(out, '__call__'):
+                        summary.write(f"    {key} = {out:.3f}\n")
+                    else:
+                        summary.write(f"    {key} = is function!\n")
 
     def setup_data(self,scaling=10,width = 3):
         """
