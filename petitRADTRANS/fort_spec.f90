@@ -2242,9 +2242,9 @@ subroutine feautrier_rad_trans(border_freqs, &
    DOUBLE PRECISION                :: I_star_calc(N_g,N_mu,struc_len,freq_len_p_1-1)
    DOUBLE PRECISION                :: conv_val, conv_test_variable, conv_test_variable_old
   ! tridag variables
-  DOUBLE PRECISION                :: a(struc_len,N_mu,N_g,freq_len_p_1-1), &
-          b(struc_len,N_mu,N_g,freq_len_p_1-1), &
-          c(struc_len,N_mu,N_g,freq_len_p_1-1), &
+  DOUBLE PRECISION                :: a(struc_len,N_mu), &
+          b(struc_len,N_mu), &
+          c(struc_len,N_mu), &
           r(struc_len), &
           planck(struc_len), plancks(struc_len, freq_len_p_1-1)
   DOUBLE PRECISION                :: f1,f2,f3, deriv1, deriv2, I_plus, I_minus
@@ -2339,16 +2339,32 @@ subroutine feautrier_rad_trans(border_freqs, &
 
   end do
 
+  do k = 1, struc_len
+      do i = 1, freq_len_p_1-1
+          do l = 1, N_g
+              if (photon_destruct(l,i,k) < 1d-10) THEN
+                  photon_destruct(l,i,k) = 1d-10
+              end if
+          end do
+      end do
+  end do
 
-  ! Calculate a, b, c: the three "bands" of the tri-diagonal matrix of the Feautrier method.
-  ! Calcute lambda_loc: the local accelerated lambda operator.
-  ! Before these were calculated in every scattering iteration.
-  ! Now it is much faster.
-  ! But it allocates quite large arrays (a,b,c).
-  ! Problem for high-res spectra?
-  ! Change to doing things in smaller wavelength chunks at high-res, ultimately?
+  ! Calculate RT, using Feautrier's method.
   do i = 1, freq_len_p_1-1
+
+      J_bol_a = 0d0
+
+      I_GCM(:,i) = 0d0
+
+      r = plancks(:, i)
+      planck = plancks(:, i)
+
       do l = 1, N_g
+
+          J_planet_scat(l,i,:) = 0d0
+
+          ! Calculate a, b, c: the three "bands" of the tri-diagonal matrix of the Feautrier method.
+          ! Calcute lambda_loc: the local accelerated lambda operator.
           do j = 1, N_mu
 
              ! Own boundary treatment
@@ -2362,9 +2378,9 @@ subroutine feautrier_rad_trans(border_freqs, &
                 f1 = inv_del_tau_min
              end if
 
-             b(1,j,l,i) = 1d0 + 2d0 * f1 * (1d0 + f1)
-             c(1,j,l,i) = -2d0*f1**2d0
-             a(1,j,l,i) = 0d0
+             b(1,j) = 1d0 + 2d0 * f1 * (1d0 + f1)
+             c(1,j) = -2d0*f1**2d0
+             a(1,j) = 0d0
 
              ! Calculate the local approximate lambda iterator
              lambda_loc(l,i,1) = lambda_loc(l,i,1) + &
@@ -2396,9 +2412,9 @@ subroutine feautrier_rad_trans(border_freqs, &
                    f3 = inv_del_tau_min
                 end if
 
-                b(k,j,l,i) = 1d0 + f1*(f2+f3)
-                c(k,j,l,i) = -f1*f2
-                a(k,j,l,i) = -f1*f3
+                b(k,j) = 1d0 + f1*(f2+f3)
+                c(k,j) = -f1*f2
+                a(k,j) = -f1*f3
 
                 ! Calculate the local approximate lambda iterator
                 lambda_loc(l,i,k) = lambda_loc(l,i,k) + &
@@ -2417,44 +2433,20 @@ subroutine feautrier_rad_trans(border_freqs, &
                 f1 = inv_del_tau_min
              end if
 
-             b(struc_len,j,l,i) = 1d0
-             c(struc_len,j,l,i) = 0d0
-             a(struc_len,j,l,i) = 0d0
+             b(struc_len,j) = 1d0
+             c(struc_len,j) = 0d0
+             a(struc_len,j) = 0d0
 
              ! Calculate the local approximate lambda iterator
              lambda_loc(l,i,struc_len) = lambda_loc(l,i,struc_len) + &
                   w_gauss_mu(j)/(1d0 + 2d0*f1**2d0)
 
           end do
-      end do
-  end do
 
-  do k = 1, struc_len
-      do i = 1, freq_len_p_1-1
-          do l = 1, N_g
-              if (photon_destruct(l,i,k) < 1d-10) THEN
-                  photon_destruct(l,i,k) = 1d-10
-              end if
-          end do
-      end do
-  end do
-
-  ! Calculate RT, using Feautrier's method.
-  do i = 1, freq_len_p_1-1
-
-      J_bol_a = 0d0
-
-      I_GCM(:,i) = 0d0
-
-      r = plancks(:, i)
-      planck = plancks(:, i)
-
-      do l = 1, N_g
-
-          J_planet_scat(l,i,:) = 0d0
-
+          ! Do the RT, iterate the scattering source function.
           do i_iter_scat = 1, iter_scat
 
+              ! Variables for checking for convergence
               conv_test_variable_old = conv_test_variable
 
               if (i_iter_scat .EQ. 1) then
@@ -2463,6 +2455,7 @@ subroutine feautrier_rad_trans(border_freqs, &
                    r = source
               end if
 
+              ! Loop over directions
               do j = 1, N_mu
 
                   ! r(struc_len) = I_J(struc_len) = 0.5[I_plus + I_minus]
@@ -2490,9 +2483,10 @@ subroutine feautrier_rad_trans(border_freqs, &
                   !sum to get I_J
                   r(struc_len)=0.5*(I_plus + I_minus)
 
-                  call tridag_own(a(:,j,l,i), &
-                                  b(:,j,l,i), &
-                                  c(:,j,l,i), &
+                  ! Solve the Feautrier problem
+                  call tridag_own(a(:,j), &
+                                  b(:,j), &
+                                  c(:,j), &
                                   r, &
                                   I_J(:,j), &
                                   struc_len)
@@ -2537,12 +2531,14 @@ subroutine feautrier_rad_trans(border_freqs, &
               J_planet_scat(l,i,:) = J_bol_g
 
 
+              ! Check for convergence
               conv_val = ABS((conv_test_variable-conv_test_variable_old)/conv_test_variable)
               if ((conv_val < 1d-3) .AND. (i_iter_scat > 9)) then
                   source_save(l,i,:) = source
                   exit
               end if
 
+             ! Update the source function using results from the current iteration.
              r = plancks(:, i)
              source = (photon_destruct(l,i,:)*r+(1d0-photon_destruct(l,i,:))* &
                    (J_star_ini(l,i,:)+J_planet_scat(l,i,:)-lambda_loc(l,i,:)*source)) / &
@@ -2553,8 +2549,8 @@ subroutine feautrier_rad_trans(border_freqs, &
               source_planet_scat_n1 = source_planet_scat_n
               source_planet_scat_n  = source
 
+              ! Accelerate the source function convergence with Ng acceleration
               if (mod(i_iter_scat,4) == 0) then
-                 !write(*,*) 'Ng acceleration!'
                  call NG_source_approx(source_planet_scat_n,source_planet_scat_n1, &
                       source_planet_scat_n2,source_planet_scat_n3,source, &
                       1,1,struc_len)
@@ -2562,11 +2558,12 @@ subroutine feautrier_rad_trans(border_freqs, &
 
           end do
 
+          ! Calculate the flux at the top of the atmosphere
           do j = 1, N_mu
               flux(i) = flux(i) - I_H(1,j)*mu(j) &
                    * 4d0*pi * w_gauss_ck(l) * w_gauss_mu(j)
           end do
-          ! Save angle-dependent surface flux
+          ! Save angle-dependent surface flux, in case GCM postprocessing is desired
           if (GCM_read) then
               do j = 1, N_mu
                   I_GCM(j,i) = I_GCM(j,i) - 2d0*I_H(1,j)*w_gauss_ck(l)
@@ -2577,11 +2574,8 @@ subroutine feautrier_rad_trans(border_freqs, &
 
   end do
 
-  !write(*,*) 'i_iter_scat', i_iter_scat
-
   ! Calculate the contribution function.
   ! Copied from flux_ck, here using "source" as the source function
-  ! (before it was the Planck function).
 
   contr_em = 0d0
   if (contribution) then
