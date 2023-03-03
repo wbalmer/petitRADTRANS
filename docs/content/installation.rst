@@ -72,7 +72,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
 
 .. code-block:: bash
 		
-   git clone git@gitlab.com:mauricemolli/petitRADTRANS.git
+   git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder
 - Type the following in the terminal ``python setup.py install``, and press

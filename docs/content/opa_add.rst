@@ -147,7 +147,7 @@ downloaded here: `wlen_petitRADTRANS.dat`_
             t = str(int(file.split('/')[-1].split('_')[3]))
             p = str(file.split('/')[-1].split('_')[4].split('.bin')[0].replace('n','-').replace('p',' '))
             p = p[:2] + '.' + p[2:]
-            p = str(np.round(1e1**float(p), 6))
+            p = str(np.round(1e1**float(p), 10))
             print (t,p)
 
             # Wavenumber points from range given in the file names
