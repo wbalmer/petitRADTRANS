@@ -8,7 +8,6 @@ import warnings
 
 import h5py
 import numpy as np
-from petitRADTRANS.fort_rebin import fort_rebin as fr
 import scipy.ndimage
 
 from petitRADTRANS import nat_cst as nc
@@ -21,7 +20,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, remove_mask
+from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, rebin_spectrum, remove_mask
 
 
 # TODO c-k binned directly to user-provided wavelength grid
@@ -594,7 +593,7 @@ class BaseSpectralModel:
 
     @staticmethod
     def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function,
-                                                 relative_velocities=None, **kwargs):
+                                                 relative_velocities=None, rebin_range_margin_power=6, **kwargs):
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(output_wavelengths, 'dtype'):
             if output_wavelengths.dtype != 'O':
@@ -639,8 +638,8 @@ class BaseSpectralModel:
         rebin_required_interval[1] = np.max((rebin_required_interval_shifted[1], rebin_required_interval[1]))
 
         # Satisfy re-bin requirement by increasing the range by the smallest possible significant value
-        rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - sys.float_info.dig)
-        rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - sys.float_info.dig)
+        rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - rebin_range_margin_power)
+        rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - rebin_range_margin_power)
 
         return rebin_required_interval
 
@@ -844,9 +843,14 @@ class BaseSpectralModel:
         planet_star_spectral_radiances = planet_star_spectral_irradiances / np.pi  # W.m-2/um to W.m-2.sr-1/um
 
         if star_spectrum_wavelengths is not None:  # otherwise, assume that the star spectral radiosities are re-binned
-            planet_star_spectral_radiances = fr.rebin_spectrum(
-                star_spectrum_wavelengths, planet_star_spectral_radiances, wavelengths
+            planet_star_spectral_radiances = rebin_spectrum(
+                input_wavelengths=star_spectrum_wavelengths,
+                input_spectrum=planet_star_spectral_radiances,
+                rebinned_wavelengths=wavelengths
             )
+
+            if planet_star_spectral_radiances < 0:
+                raise ValueError(f"something went wrong")
 
         return planet_star_spectral_radiances
 
@@ -1460,7 +1464,7 @@ class BaseSpectralModel:
     @staticmethod
     def modify_spectrum(wavelengths, spectrum, mode,
                         scale=False, shift=False, convolve=False, rebin=False,
-                        telluric_transmittances_wavelengths=None, telluric_transmittances=None,
+                        telluric_transmittances_wavelengths=None, telluric_transmittances=None, airmass=None,
                         instrumental_deformations=None, noise_matrix=None,
                         output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
                         star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
@@ -1482,6 +1486,10 @@ class BaseSpectralModel:
 
         if rebin_spectrum_function is None:
             rebin_spectrum_function = BaseSpectralModel.rebin_spectrum
+
+        if output_wavelengths is not None:
+            if np.ndim(output_wavelengths) <= 1:
+                output_wavelengths = np.array([output_wavelengths])
 
         star_spectrum = star_spectral_radiosities
 
@@ -1555,6 +1563,9 @@ class BaseSpectralModel:
         else:
             wavelengths = np.array([wavelengths])
 
+            if np.ndim(spectrum) <= 1:  # generate 2D spectrum
+                spectrum = np.array([spectrum])
+
         # Add telluric transmittance
         if telluric_transmittances is not None:
             telluric_transmittances_rebin = np.zeros(wavelengths.shape)
@@ -1577,7 +1588,17 @@ class BaseSpectralModel:
                         rebin_spectrum_function=rebin_spectrum_function,
                         **kwargs
                     )
+
+                # Add airmass effect
+                if airmass is not None:
+                    telluric_transmittances_rebin = np.moveaxis(
+                        np.ma.exp(np.ma.log(np.moveaxis(telluric_transmittances_rebin, 0, 1)) * airmass),
+                        1, 0
+                    )
             elif np.ndim(telluric_transmittances) == 2:
+                warnings.warn(f"using 2D telluric transmittances is not recommended for precise modelling, "
+                              f"consider using 1D telluric transmittances and providing for airmass at each exposure")
+
                 for i, wavelength_shift in enumerate(wavelengths_rebin):
                     _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
                         wavelengths=telluric_transmittances_wavelengths[i],
@@ -1637,14 +1658,26 @@ class BaseSpectralModel:
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths, **kwargs):
         if np.ndim(output_wavelengths) <= 1 and isinstance(output_wavelengths, np.ndarray):
-            return output_wavelengths, fr.rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths)
+            rebinned_spectrum = rebin_spectrum(
+                input_wavelengths=input_wavelengths,
+                input_spectrum=input_spectrum,
+                rebinned_wavelengths=output_wavelengths
+            )
+
+            return output_wavelengths, rebinned_spectrum
         else:
             if np.ndim(output_wavelengths) == 2 and isinstance(output_wavelengths, np.ndarray):
                 spectra = []
                 lengths = []
 
                 for wavelengths in output_wavelengths:
-                    spectra.append(fr.rebin_spectrum(input_wavelengths, input_spectrum, wavelengths))
+                    rebinned_spectrum = rebin_spectrum(
+                        input_wavelengths=input_wavelengths,
+                        input_spectrum=input_spectrum,
+                        rebinned_wavelengths=wavelengths
+                    )
+
+                    spectra.append(rebinned_spectrum)
                     lengths.append(spectra[-1].size)
 
                 if np.all(np.array(lengths) == lengths[0]):
@@ -1876,24 +1909,11 @@ class SpectralModel(BaseSpectralModel):
         )
 
     @staticmethod
-    def _calculate_metallicity_wrap(planet_mass=None, planet_radius=None, planet_surface_gravity=None,
+    def _calculate_metallicity_wrap(planet_mass=None,
                                     star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                     verbose=False, **kwargs):
         if verbose:
             print(f"metallicity set to None, calculating it using scaled metallicity...")
-
-        if planet_mass is None:
-            if planet_radius is None or planet_surface_gravity is None:
-                raise ValueError(f"both planet radius ({planet_radius}) "
-                                 f"and surface gravity ({planet_surface_gravity}) "
-                                 f"are required to calculate planet mass")
-            elif planet_radius <= 0:
-                raise ValueError(f"cannot calculate planet mass from surface gravity with a radius <= 0")
-
-            planet_mass = Planet.surface_gravity2mass(
-                surface_gravity=planet_surface_gravity,
-                radius=planet_radius
-            )[0]
 
         metallicity = SpectralModel.calculate_scaled_metallicity(
             planet_mass=planet_mass,
@@ -2208,8 +2228,6 @@ class SpectralModel(BaseSpectralModel):
                 metallicity = SpectralModel._calculate_metallicity_wrap(
                     metallicity=metallicity,
                     planet_mass=planet_mass,
-                    planet_radius=planet_radius,
-                    planet_surface_gravity=planet_surface_gravity,
                     star_metallicity=star_metallicity,
                     atmospheric_mixing=atmospheric_mixing,
                     alpha=alpha,
@@ -2424,7 +2442,13 @@ class SpectralModel(BaseSpectralModel):
                                       relative_velocities_function,
                                       wavelengths=None, pressures=None, line_species=None,
                                       metallicity_function=None,
+                                      mass2surface_gravity_function=None, surface_gravity2mass_function=None,
                                       **kwargs):
+        if kwargs['planet_mass'] is None:
+            kwargs['planet_mass'] = surface_gravity2mass_function(**kwargs)
+        elif kwargs['planet_surface_gravity'] is None:
+            kwargs['planet_surface_gravity'] = mass2surface_gravity_function(**kwargs)
+
         if kwargs['metallicity'] is None:
             kwargs['metallicity'] = metallicity_function(**kwargs)
 
@@ -2581,6 +2605,8 @@ class SpectralModel(BaseSpectralModel):
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
             'relative_velocities_function': self.calculate_relative_velocities,
             'metallicity_function': self._calculate_metallicity_wrap,
+            'mass2surface_gravity_function': self.mass2surface_gravity,
+            'surface_gravity2mass_function': self.surface_gravity2mass,
         }
 
         # Put all used functions arguments default value into the model parameters
@@ -2603,6 +2629,23 @@ class SpectralModel(BaseSpectralModel):
         )
 
     @staticmethod
+    def mass2surface_gravity(planet_mass, planet_radius, verbose=False, **kwargs):
+        if verbose:
+            print(f"planet_surface_gravity set to None, calculating it using surface gravity and radius...")
+
+        if planet_radius is None or planet_mass is None:
+            raise ValueError(f"both planet radius ({planet_radius}) "
+                             f"and planet mass ({planet_mass}) "
+                             f"are required to calculate planet surface gravity")
+        elif planet_radius <= 0:
+            raise ValueError(f"cannot calculate surface gravity from planet mass with a radius <= 0")
+
+        return Planet.mass2surface_gravity(
+            mass=planet_mass,
+            radius=planet_radius
+        )[0]
+
+    @staticmethod
     def pipeline(spectrum, **kwargs):
         """Interface with simple_pipeline.
 
@@ -2622,6 +2665,23 @@ class SpectralModel(BaseSpectralModel):
                 spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
 
         return preparing_pipeline(spectrum=spectrum, full=True, **kwargs)
+
+    @staticmethod
+    def surface_gravity2mass(planet_surface_gravity, planet_radius, verbose=False, **kwargs):
+        if verbose:
+            print(f"planet_mass set to None, calculating it using surface gravity and radius...")
+
+        if planet_radius is None or planet_surface_gravity is None:
+            raise ValueError(f"both planet radius ({planet_radius}) "
+                             f"and surface gravity ({planet_surface_gravity}) "
+                             f"are required to calculate planet mass")
+        elif planet_radius <= 0:
+            raise ValueError(f"cannot calculate planet mass from surface gravity with a radius <= 0")
+
+        return Planet.surface_gravity2mass(
+            surface_gravity=planet_surface_gravity,
+            radius=planet_radius
+        )[0]
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
         pressures = radtrans.press * 1e-6  # cgs to bar

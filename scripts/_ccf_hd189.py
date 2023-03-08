@@ -4,7 +4,6 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from petitRADTRANS.fort_rebin import fort_rebin as fr
 from scipy.interpolate import interp1d
 
 import petitRADTRANS.nat_cst as nc
@@ -13,8 +12,8 @@ from petitRADTRANS.ccf.ccf_core import cross_correlate
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.preparing import preparing_pipeline, remove_throughput_fit, remove_telluric_lines_fit
+from petitRADTRANS.utils import rebin_spectrum
 from scripts.high_resolution_retrieval_carmenes import load_carmenes_data
-
 
 module_dir = os.path.abspath(r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data')
 
@@ -668,8 +667,8 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
 
         for i, detector_wavelengths in enumerate(wavelengths_instrument[:, 0, :]):
             telluric_transmittance[i, :, :] = np.ones((reduced_data.shape[1], reduced_data.shape[2])) * \
-                                              fr.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
-                                                                detector_wavelengths)
+                                              rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
+                                                             detector_wavelengths)
 
         print('Adding variable throughput...')
         variable_throughput = np.load(variable_throughput)
@@ -815,7 +814,7 @@ def simple_ccf(wavelength_data, data, wavelength_model, model,
         for i in range(n_detectors):
             for k in range(np.size(radial_velocity_lag)):
                 models_shift[i, k, :] = \
-                    fr.rebin_spectrum(wavelength_shift[k, :], model_flat, wavelengths_[i, :])
+                    rebin_spectrum(wavelength_shift[k, :], model_flat, wavelengths_[i, :])
     elif np.ndim(model) == 3:
         print(f"3D model, following input relative velocity...")
         wavelength_shift = np.zeros((model.shape[1], np.size(radial_velocity_lag), np.size(wavelength_model)))
@@ -835,7 +834,7 @@ def simple_ccf(wavelength_data, data, wavelength_model, model,
             for j, ws in enumerate(wavelength_shift):
                 for k in range(np.size(radial_velocity_lag)):
                     models_shift[i, k, :] = \
-                        fr.rebin_spectrum(ws[k, :], model_flat[j], wavelengths_[i, :])
+                        rebin_spectrum(ws[k, :], model_flat[j], wavelengths_[i, :])
     else:
         raise ValueError(f"number of dimension for model must be 2 or 3, but is {np.ndim(model)}")
 
@@ -977,6 +976,50 @@ def sysrem(n_data, n_spectra, data_in, errors_in):
 
 
 def main_alex():
+    def ccf(lag, n_spectra, obs, ccf_iterations, wave, wave_CC,
+            ccf_values, template):
+
+        # CC a synthetic spectrum with data.
+
+        for m in range(ccf_iterations):
+            for i in range(n_spectra):
+                syn_spec_shifted = np.interp(wave, wave_CC *
+                                             (1. + lag[m] / 3e5), template[i, :])
+                # Keep only values not masked (!= 1)
+                keep = list()
+                keep = np.array(np.where(obs[i, :] != 1)[0, :])
+                # print(keep.shape)
+                # if m == 0 and i == 0: print(keep)
+                aux_obs = obs[:, keep]
+                aux_model = syn_spec_shifted[keep]
+                xd = aux_model - np.mean(aux_model)
+                yd = aux_obs[i, :] - np.mean(aux_obs[i, :])
+                cross = np.sum(yd * xd)
+                ccf_values[m, i] = cross / np.sqrt(np.sum(xd ** 2)
+                                                   * np.sum(yd ** 2))
+        return ccf_values
+
+    def mask_nan(self, n_spectra, n_orders, n_data, spec, sig, wave_all):
+        """
+         Masking Nan values in the data
+        """
+        # Look for points to correct
+        for i in range(n_spectra):
+            for j in range(n_orders):
+                nans = np.array(np.where(np.isfinite(
+                    spec[i, :, j]) == False))[0, :]
+                no_nans = np.array(np.where(np.isfinite(
+                    spec[i, :, j]) == True))[0, :]
+                # print str(nans)
+                # print str(no_nans)
+                if nans.shape != (0,):
+                    for n in range(len(nans)):
+                        spec[i, nans[n], j] = \
+                            np.median(spec[i, no_nans, j])
+                        sig[i, nans[n], j] = \
+                            np.median(sig[i, no_nans, j])
+        return spec, sig
+
     # syn_spec is your model, which I plug into a matrix called mat_cc
     # (which includes both in and out-of-transit=1.
     # We do not really care about OOT but it's just to be able to use the rest of my old code since it does not matter
@@ -1052,7 +1095,7 @@ def main_alex():
     pixels_left_right = int(max_ccf_v / ccf_v_step)
 
     # Vrest grid for the plots
-    v_wind = ccf_v_step * (np.arange(2 * pixels_left_right + 1) - \
+    v_wind = ccf_v_step * (np.arange(2 * pixels_left_right + 1) -
                            float(pixels_left_right))
 
     # Calculate S/N
@@ -1076,14 +1119,14 @@ def main_alex():
         std_pts = np.concatenate((std_pts_a, std_pts_b))
 
         # Compute the S/N
-        ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] = (ccf_tot[:, \
-                                                      np.int(kp + (n_kp - 1) / 2)] - np.mean(ccf_tot[std_pts, \
-            np.int(kp + (n_kp - 1) / 2)])) / np.std(ccf_tot[std_pts, \
+        ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] = (ccf_tot[:,
+                                                      np.int(kp + (n_kp - 1) / 2)] - np.mean(ccf_tot[std_pts,
+            np.int(kp + (n_kp - 1) / 2)])) / np.std(ccf_tot[std_pts,
             np.int(kp + (n_kp - 1) / 2)])
         if np.amax(ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)]) > max_sn:
             max_sn = np.amax(ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)])
             max_kp = np.int(kp + (n_kp - 1) / 2)
-            max_v_wind = v_wind[np.array(np.where( \
+            max_v_wind = v_wind[np.array(np.where(
                 ccf_tot_sn[:, np.int(kp + (n_kp - 1) / 2)] == max_sn))]
 
 
@@ -1158,8 +1201,8 @@ def reprocessing_pipeline_carmenes(phase, wave, mat, noise):
 def main():
     use_t23 = True  # use full eclipse transit time instead of total transit time
     use_t1535 = True  # use intermediate eclipse ("T_transit")
-    use_all_models = True  # use all reprocessed models instead of the one closest to 0 cm.s-1 relative velocity
-    use_alex_ttransit = True  # add orbital phase 27 to T1.53.5
+    use_all_models = False  # use all reprocessed models instead of the one closest to 0 cm.s-1 relative velocity
+    use_alex_ttransit = False  # add orbital phase 27 to T1.53.5
     planet_name = 'HD 189733 b'
     planet = Planet.get(planet_name)
     # Overriding to Rosenthal et al. 2021
@@ -1176,7 +1219,7 @@ def main():
         mid_transit_time = \
         load_carmenes_data(
             os.path.join(module_dir, 'carmenes', planet_name.lower().replace(' ', '_')),
-            planet.orbital_period, mid_transit_jd=58004.4247  # 58004.425291  # previous value
+            planet.orbital_period, mid_transit_jd=58004.42319302507  # 58004.425291  # previous value
         )
 
     if use_t23:
@@ -1195,7 +1238,6 @@ def main():
         if use_t1535:
             print(f"Adding exposures of half-eclipses")
             planet_transit_duration += (planet.transit_duration - planet_transit_duration) / 2
-
     else:
         planet_transit_duration = planet.transit_duration
 
@@ -1306,8 +1348,8 @@ def main():
 
     if use_alex_detector_selection:
         ccf_untouched, _, _ = simple_ccf(
-            wavelength_data=wavelengths_instrument,
-            data=reduced_data_untouched,
+            wavelength_data=wavelengths_instrument[-1],
+            data=reduced_data_untouched[-1],
             wavelength_model=wavelengths_ref.flatten(),
             model=ccf_model_,
             lsf_fwhm=2.6e5,  # cm.s-1
@@ -1343,13 +1385,13 @@ def main():
         detector_list = np.linspace(0, wavelengths_instrument.shape[0] - 1, wavelengths_instrument.shape[0], dtype=int)
         # Beware: this is a step of uttermost importance! Carefully chose the first guess, sometimes even *1* bad CCD is enough to completely mess uo an otherwise good selection
         # detector_selection = np.array([3, 9, 25, 26, 46, 47])  # works with telluric threshold = 0.5
-        #detector_selection = np.array([4, 6, 12, 25, 26, 46, 47])  # chosen by adding them one by one and looking at the collapsed CCF
+        # detector_selection = np.array([4, 6, 12, 25, 26, 46, 47])  # chosen by adding them one by one and looking at the collapsed CCF
         # detector_selection = np.array([3, 9, 25, 26, 46, 47])  # TT0.5, start for T14
         # detector_selection = np.array([3, 9, 25, 26, 46, 54])  # TT0.5, new start for T14
         detector_selection = np.array([11, 18, 19, 25, 26, 32, 33, 34])  # start for bad
-        #detector_selection = np.array([3,  7,  9, 13, 25, 28, 29, 46, 54])  # TT0.5, T1535 (from T14, but added 54)
-        #detector_selection = np.array([1,  3,  9, 14, 25, 28, 29, 30, 46, 54])  # TT0.5, T23 (from T1535)
-        #detector_selection = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28,
+        # detector_selection = np.array([3,  7,  9, 13, 25, 28, 29, 46, 54])  # TT0.5, T1535 (from T14, but added 54)
+        # detector_selection = np.array([1,  3,  9, 14, 25, 28, 29, 30, 46, 54])  # TT0.5, T23 (from T1535)
+        # detector_selection = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28,
         #                               29, 30, 31, 32, 33, 34, 35, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54])
 
         # Find best detector selection and calculate collapsed CCF
@@ -1385,3 +1427,170 @@ def main():
         plt.xlabel(r'$V_r$ (km$\cdot$s$^{-1}$)')
         plt.ylabel(r'$K_p$ (km$\cdot$s$^{-1}$)')
         plt.title(f"TT mask threshold: {tellurics_mask_threshold}, SNR = {max_sn_sn:.3f}")
+
+
+def figure_slide():
+    detector_selection = np.array(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 42,
+         43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54]) - 1
+    n_exposures = 19
+    uncertainties_ref = np.vstack((
+        np.ma.ones((1, wavelengths_instrument.shape[1], wavelengths_instrument.shape[2])) * uncertainties[0, :, :],
+        uncertainties,
+        np.ma.ones((1, wavelengths_instrument.shape[1], wavelengths_instrument.shape[2])) * uncertainties[-1, :, :],
+    ))
+    uncertainties_ref = np.ma.masked_array(uncertainties_ref)
+    uncertainties_ref[1:-1] = np.ma.masked_where(uncertainties.mask, uncertainties_ref[1:-1])
+    uncertainties_ref[0] = np.ma.masked_where(uncertainties[0].mask, uncertainties_ref[0])
+    uncertainties_ref[-1] = np.ma.masked_where(uncertainties[-1].mask, uncertainties_ref[-1])
+    uncertainties_ref.set_fill_value(0)
+
+    observations = np.ma.masked_where(uncertainties.mask, observations)
+
+    wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]
+    relative_velocities = spectral_model_ref.model_parameters['relative_velocities'][wh_0]
+    _, ccf_model_red = spectral_model_ref.get_spectrum_model(
+        radtrans=radtrans,
+        mode='transmission',
+        update_parameters=True,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
+    ccf_tots = []
+    kpss = []
+    vrss = []
+    rvs_mask_between = np.array([0, 0])
+    print(f"RV masked between {rvs_mask_between}")
+    print(ccf_model_red.shape)
+
+    for i in range(15):
+        print(f"{i + 1}/{len(orbital_phases) - n_exposures}")
+        print(f" Preparing model...")
+        ccf_m = np.ma.masked_array(ccf_model_red)
+        ccf_m.mask = np.zeros(ccf_m.shape, dtype=bool)
+        ccf_m.mask[1:-1] = copy.deepcopy(observations.mask)
+        ccf_m = np.ma.masked_where(uncertainties_ref.mask, ccf_m)
+        ccf_model__, reduction_matrix__, reduced_uncertainties__ = preparing_pipeline(
+            spectrum=ccf_m[:, i:i + n_exposures, :],
+            uncertainties=uncertainties_ref[:, i:i + n_exposures, :],
+            wavelengths=wavelengths_ref,
+            airmass=airmass[i:i + n_exposures],
+            tellurics_mask_threshold=tellurics_mask_threshold,
+            full=True,
+            polynomial_fit_degree=2,
+            apply_throughput_removal=True,
+            apply_telluric_lines_removal=True
+        )
+
+        print(f" Preparing data...")
+        observations = np.ma.masked_where(uncertainties.mask, observations)
+        reduced_data, reduction_matrix, reduced_uncertainties = preparing_pipeline(
+            spectrum=observations[:, i:i + n_exposures, :],
+            uncertainties=uncertainties[:, i:i + n_exposures, :],
+            wavelengths=wavelengths_instrument[:, i:i + n_exposures, :],
+            airmass=airmass[i:i + n_exposures],
+            tellurics_mask_threshold=tellurics_mask_threshold,
+            full=True,
+            polynomial_fit_degree=2,
+            apply_throughput_removal=True,
+            apply_telluric_lines_removal=True
+        )
+        wh_0 = np.where(np.abs(orbital_phases[i:i + n_exposures]) == np.min(np.abs(orbital_phases)))[0][0]
+        ccf_model__ = ccf_model__[:, wh_0, :]
+        print(f" CCF...")
+        ccf, ccf_models, rvs = simple_ccf(
+            wavelength_data=wavelengths_instrument[1:-1, i:i + n_exposures, :],
+            data=reduced_data[1:-1, :, :],
+            wavelength_model=wavelengths_ref.flatten(),
+            model=ccf_model__,
+            lsf_fwhm=2.6e5,  # cm.s-1
+            pixels_per_resolution_element=2,  # v_rest step is lsf_fwhm / pixels_per_resolution_element
+            radial_velocity=v_sys[i:i + n_exposures],
+            kp=kp,
+            data_uncertainties=uncertainties[1:-1, i:i + n_exposures, :],
+            relative_velocities=relative_velocities
+        )
+        ccf_norm = np.transpose(np.transpose(ccf) - np.transpose(np.nanmedian(ccf, axis=2)))
+        ccf_norm = np.ma.masked_invalid(ccf_norm)
+        ccf_norm_select = copy.copy(ccf_norm)
+        ccf_norm_select_tmp = ccf_norm_select[detector_selection]
+        ccf_norm_select_sum = np.ma.sum(ccf_norm_select_tmp, axis=0)
+
+        rvs_keep = np.nonzero(np.logical_not(
+            np.logical_and(rvs > rvs_mask_between[0], rvs < rvs_mask_between[1])
+        ))
+        rvs_ = rvs[rvs_keep]
+        ccf_norm_select_sum_ = np.array([ccf_norm_select_sum[:, rvs_keep[0]]])
+        print(np.shape(ccf_norm_select_sum), rvs.shape)
+        ccf_tot, v_rests, kps = simple_co_added_ccf(
+            ccf_norm_select_sum_, rvs_, orbital_phases[i:i + n_exposures],
+            v_sys[i:i + n_exposures], kp)
+        ccf_tots.append(ccf_tot)
+        kpss.append(kps)
+        vrss.append(v_rests)
+
+    ccf_tot_sns = []
+    max_sns = []
+    max_ccs = []
+    max_kps = []
+    max_v_rests = []
+
+    for i, ct in enumerate(ccf_tots):
+        print(i)
+        # Calculate S/N
+        ccf_tot_sn = np.zeros(ct.shape)
+        exclude = 15.6  # exclusion region in km/s (+/-):
+        max_sn = 0
+        max_cc = 0
+
+        for k, ccf_tot_kp in enumerate(ct[0]):
+            # Finding the maximum in the CCF, wherever it may be located:
+            aux = np.argmax(ccf_tot_kp)
+
+            # Select the v_rest range far from "detected" signal
+            std_pts_a = np.where(vrss[i] < (vrss[i][aux] - exclude))[0]
+            std_pts_b = np.where(vrss[i] > (vrss[i][aux] + exclude))[0]
+            std_pts = np.concatenate((std_pts_a, std_pts_b))
+
+            # Compute the S/N
+            ccf_tot_sn[0, k, :] = ccf_tot_kp / np.std(ccf_tot_kp[std_pts])
+
+            id_max = np.argmax(ccf_tot_sn[0, k, :])
+
+            if ccf_tot_kp[id_max] > max_cc:
+                max_sn = ccf_tot_sn[0, k, id_max]
+                max_cc = ct[0, k, id_max]
+                max_kp = kpss[i][k]
+                max_v_rest = vrss[i][id_max]
+
+        ccf_tot_sns.append(ccf_tot_sn)
+        max_sns.append(max_sn)
+        max_ccs.append(max_cc)
+        max_kps.append(max_kp)
+        max_v_rests.append(max_v_rest)
+
+    fig, axes = plt.subplots(4, sharex='col', figsize=(6.4, 4 * 1.6))
+
+    axes[0].plot(max_ccs, ls='', marker='+')
+    axes[0].scatter(7, max_ccs[7], marker='+', color='r', s=80, linewidth=3)
+    axes[1].plot(max_sns, ls='', marker='+')
+    axes[1].scatter(7, max_sns[7], marker='+', color='r', s=80, linewidth=3)
+    axes[2].plot(np.array(max_kps) * 1e-5, ls='', marker='+')
+    axes[2].scatter(7, max_kps[7] * 1e-5, marker='+', color='r', s=80, linewidth=3)
+    axes[3].plot(np.array(max_v_rests) * 1e-5, ls='', marker='+')
+    axes[3].scatter(7, max_v_rests[7] * 1e-5, marker='+', color='r', s=80, linewidth=3)
+
+    axes[2].plot([0, 14], [152, 152], color='k', ls=':')
+    axes[3].plot([0, 14], [-5, -5], color='k', ls=':')
+    axes[0].set_ylabel('Max co-added CCF (A.U.)')
+    axes[1].set_ylabel('Peak SNR')
+    axes[2].set_ylabel(r'Peak $K_p$ (km$\cdot$s$^{-1}$)')
+    axes[3].set_ylabel(r'Peak $V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)')
+    axes[3].set_xlabel(r'Starting exposure')
+    axes[3].set_xticks(np.arange(15))
+    plt.tight_layout()

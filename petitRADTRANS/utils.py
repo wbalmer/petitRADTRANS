@@ -6,6 +6,8 @@ import warnings
 import h5py
 import numpy as np
 
+from petitRADTRANS.fort_rebin import fort_rebin as fr
+
 
 def box_car_conv(array, points):
     res = np.zeros_like(array)
@@ -329,6 +331,28 @@ def read_abunds(path):
     return ret
 
 
+def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
+    """Re-bin the spectrum using the Fortran rebin_spectrum function, and catch errors occurring there.
+    The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
+
+    Args:
+        input_wavelengths: wavelengths of the input spectrum
+        input_spectrum: spectrum to re-bin
+        rebinned_wavelengths: wavelengths to re-bin the spectrum to. Must be contained within input_wavelengths
+
+    Returns:
+        The re-binned spectrum on the re-binned wavelengths
+    """
+    rebinned_spectrum = fr.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
+
+    if np.all(rebinned_spectrum == -1):
+        raise ValueError(f"something went wrong during re-binning (rebin.f90), check the previous messages")
+    elif np.any(rebinned_spectrum < 0):
+        raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs")
+
+    return rebinned_spectrum
+
+
 def remove_mask(data, data_uncertainties):
     """Remove masked values of 3D data and linked uncertainties. TODO generalize this
     An array of objects is created if the resulting array is jagged.
@@ -357,13 +381,13 @@ def remove_mask(data, data_uncertainties):
             lengths.append(data_[i][j].size)
 
     # Handle jagged arrays
-    if np.all(np.asarray(lengths) == lengths[0]):
-        data_ = np.asarray(data_)
-        error_ = np.asarray(error_)
+    if np.all(np.array(lengths) == lengths[0]):
+        data_ = np.array(data_)
+        error_ = np.array(error_)
     else:
         print("Array is jagged, generating object array...")
-        data_ = np.asarray(data_, dtype=object)
-        error_ = np.asarray(error_, dtype=object)
+        data_ = np.array(data_, dtype=object)
+        error_ = np.array(error_, dtype=object)
 
     return data_, error_, mask_
 
