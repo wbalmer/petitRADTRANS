@@ -85,6 +85,7 @@ class Data:
                  wlen_range_micron = None,
                  scale = False,
                  scale_err = False,
+                 offset_bool = False,
                  wlen_bins = None,
                  photometry = False,
                  photometric_transformation_function = None,
@@ -139,8 +140,10 @@ class Data:
         self.flux_error = None
         self.scale = scale
         self.scale_err = scale_err
-
+        self.offset_bool = offset_bool
         self.scale_factor = 1.0
+        self.offset = 0.0
+        self.bval = -np.inf
 
         # Bins and photometry
         self.wlen_bins = wlen_bins
@@ -238,6 +241,9 @@ class Data:
         self.wlen = obs[:,0]
         self.flux = obs[:,1]
         self.flux_error = obs[:,2]
+        self.covariance = np.diag(self.flux_error**2)
+        self.inv_cov = np.linalg.inv(self.covariance)
+        sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
     def load_jwst(self,path):
         """
@@ -287,6 +293,11 @@ class Data:
                 self.flux_error = np.sqrt(self.covariance.diagonal())
         except:
             self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
+            self.covariance = np.diag(self.flux_error**2)
+            self.inv_cov = np.linalg.inv(self.covariance)
+
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
 
     def set_distance(self,distance):
         """
@@ -327,12 +338,16 @@ class Data:
             self.flux_error = np.sqrt(self.covariance.diagonal())
         else:
             self.flux_error *= scale
+            self.covariance = np.diag(self.flux_error)
+            self.inv_cov = np.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
         self.distance = new_dist
         return scale
 
     def get_chisq(self, wlen_model, \
                   spectrum_model, \
-                  plotting):
+                  plotting,
+                  parameters = None):
         """
         Calculate the chi square between the model and the data.
 
@@ -354,8 +369,8 @@ class Data:
         # Convolve to data resolution
         if self.data_resolution is not None:
             spectrum_model = self.convolve(wlen_model,
-                                           spectrum_model,
-                                           self.data_resolution)
+                                    spectrum_model,
+                                    self.data_resolution)
 
         if not self.photometry:
             # Rebin to model observation
@@ -371,15 +386,23 @@ class Data:
             if isinstance(flux_rebinned,(tuple,list)):
                 flux_rebinned = flux_rebinned[0]
 
+        if self.scale:
+            diff = (flux_rebinned - self.flux*self.scale_factor)
+        else:
+            diff = (flux_rebinned - self.flux)
 
-        diff = (flux_rebinned - self.flux*self.scale_factor)
         f_err = self.flux_error
         if self.scale_err:
-            f_err = self.flux_error*self.scale_factor
+            f_err *=self.scale_factor
+        if not self.bval==-np.inf:
+            f_err = np.sqrt(f_err**2 + 10**self.bval)
+
         logL=0.0
         if self.covariance is not None:
-            #logL += -1*np.sum((diff/np.sqrt(self.covariance.diagonal()))**2)/2.
-            logL += -0.5*np.dot(diff, np.dot(self.inv_cov, diff))
+            inv_cov = self.inv_cov
+            if self.scale_err:
+                inv_cov = self.scale_factor * self.inv_cov
+            logL += -0.5*np.dot(diff, np.dot(inv_cov, diff))
             logL += -0.5 * self.log_covariance_determinant
         else:
             logL += -0.5*np.sum( (diff / f_err)**2. )
@@ -395,6 +418,39 @@ class Data:
                 plt.show()
             print(self.name,logL)
         return logL
+
+    # TODO: do we want to pass the whole parameter dict,
+    # or just set a class variable for b in the likelihood function?
+    def line_b_uncertainty_scaling(self, parameters):
+        """
+        This function implements the 10^b scaling from Line 2015, which allows
+        for us to account for underestimated uncertainties:
+
+        We modify the standard error on the data point by the factor 10^b to account for
+        underestimated uncertainties and/or unknown missing forward model physics
+        (Foreman-Mackey et al. 2013, Hogg et al. 2010, Tremain et al. 2002), e.g., imperfect fits.
+        This results in a more generous estimate of the parameter uncertainties. Note that this
+        is similar to inflating the error bars post-facto in order to achieve reduced chi-squares
+        of unity, except that this approach is more formal because uncertainties in this parameter
+        are properly marginalized into the other relevant parameters. Generally, the factor 10^b
+        takes on values that fall between the minimum and maximum of the square of the data uncertainties.
+
+        Args:
+            parameters: Dict
+                Dictionary of Parameters, should contain key 'uncertianty_scaling_b'.
+                This can be done for all data sets, or specified with a tag at the end of
+                the key to apply different factors to different datasets.
+        Returns:
+            10**b: float
+                10**b error bar scaling factor.
+        """
+        b_val = -np.inf
+        if parameters is not None:
+            if f'uncertainty_scaling_b_{self.name}' in parameters.keys():
+                b_val = parameters[f'uncertainty_scaling_b_{self.name}'].value
+            elif f'uncertainty_scaling_b' in parameters.keys():
+                b_val = parameters['uncertainty_scaling_b'].value
+        return 10**b
 
     def convolve(self, \
                  input_wavelength, \

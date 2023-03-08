@@ -73,7 +73,7 @@ class Retrieval:
                  pRT_plot_style = True):
 
         self.rd = run_definition
-        print(f"Starting retrieval {self.rd.retrieval_name}")
+        sys.stdout.write(f"Starting retrieval {self.rd.retrieval_name}")
         if len(self.rd.line_species) < 1:
             logging.warning("There are no line species present in the run definition!")
 
@@ -563,8 +563,12 @@ class Retrieval:
         for name,dd in self.data.items():
             # Only calculate spectra within a given
             # wlen range once
-            if dd.scale:
+            if dd.scale or dd.scale_err:
                 dd.scale_factor = self.parameters[name + "_scale_factor"].value
+            if dd.offset_bool:
+                dd.offset = self.parameters[name + "_offset"].value
+            if name + "_b" in self.parameters.keys():
+                dd.bval = self.parameters[name + "_b"].value
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
