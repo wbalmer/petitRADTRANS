@@ -420,7 +420,7 @@ class Retrieval:
                     samples_use = self.samples[self.retrieval_name]
                     parameters_read = self.param_dict[self.retrieval_name]
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
+                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
                     # Get best-fit index
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    𝛘^{2} = {self.chi2}\n")
@@ -582,7 +582,7 @@ class Retrieval:
                         return -1e98
                     if np.isnan(spectrum_model).any():
                         return -1e98
-                    print(np.mean(spectrum_model))
+                    #print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting)
@@ -626,7 +626,7 @@ class Retrieval:
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
                                         self.plotting)
-        print(f"LL: {log_likelihood+log_prior}")
+        #print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
         if np.abs(log_likelihood + log_prior) < 1e-98:
@@ -923,8 +923,8 @@ class Retrieval:
         """
         _, best_fit_index = self.get_best_fit_likelihood(samples)
         logL =  self.get_chi2(samples[best_fit_index])
-        print(f"Best fit 𝛘^2 = {logL:.2f}")
-        return logL
+        print(f"Best fit 𝛘^2 = {2*logL:.2f}")
+        return 2*logL
 
     def get_chi2(self,sample):
         """
@@ -939,6 +939,8 @@ class Retrieval:
         for name, dd in self.data.items():
             if dd.covariance is not None:
                 add = 0.5 * dd.log_covariance_determinant
+                if dd.scale_err:
+                    add *= dd.scale_factor
             else:
                 add = 0.5*np.sum(np.log(2.0*np.pi*dd.flux_error**2.))
             norm += add
@@ -1210,7 +1212,7 @@ class Retrieval:
                      samples_use,
                      parameters_read,
                      model_generating_func = None,
-                     figsize = (20,10)):
+                     figsize = (16,10)):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1350,7 +1352,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}',
+                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False):.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
@@ -1408,7 +1410,6 @@ class Retrieval:
         ax.tick_params(axis='both', which='minor',
                        bottom=True, top=True, left=True, right=True,
                        direction='in',length=5)
-        ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"])
 
         # Fancy ticks for lower pane
         ax_r.tick_params(axis="both",direction="in",length=10,bottom=True, top=True, left=True, right=True)
@@ -1435,11 +1436,13 @@ class Retrieval:
         ax_r.tick_params(axis='both', which='minor',
                          bottom=True, top=True, left=True, right=True,
                          direction='in',length=5)
-        ax_r.set_ylabel(r"Residuals [$\sigma$]")
-        ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
-        ax.legend(loc='upper center',ncol = len(self.data.keys())+1).set_zorder(1002)
-        plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_spec.pdf')
+
+        ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"],fontsize=32)
+        ax_r.set_ylabel(r"Residuals [$\sigma$]",fontsize=32)
+        ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"],fontsize=32)
+        ax.legend(loc='upper center',ncol = len(self.data.keys())+1,fontsize=24).set_zorder(1002)
+        fig.align_ylabels()
+        plt.savefig(self.output_dir + 'evaluate_'+self.rd.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_spec.pdf', bbox_inches = 'tight')
         self.evaluate_sample_spectra = check
         return fig, ax, ax_r
 
@@ -1547,7 +1550,7 @@ class Retrieval:
             ax.plot(bf_wlen,
                     bf_spectrum,
                     marker = None,
-                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}",
+                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False):.2f}",
                     linewidth=3,
                     alpha = 0.5,
                     color = colours[i])
@@ -1557,8 +1560,8 @@ class Retrieval:
             #                        resolution = self.rd.plot_kwargs["resolution"],
             #                        scaling = self.rd.plot_kwargs["y_axis_scaling"])
 
-        ax.set_xlabel('Wavelength [micron]')
-        ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"])
+        ax.set_xlabel('Wavelength [micron]',fontsize = 32)
+        ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"],fontsize = 32)
         ax.legend(loc='best')
         plt.savefig(path + self.retrieval_name  +'_sampled.pdf',bbox_inches = 'tight')
         return fig, ax
@@ -1633,7 +1636,8 @@ class Retrieval:
         # Set up the figure
         fig,ax = plt.subplots(figsize=figsize)
         len_samp = len(samples_use)
-
+        np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_pressures", pressures)
+        np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_temps", temps_sort)
         # Plot the PT regions
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[0, :], \
@@ -1648,7 +1652,7 @@ class Retrieval:
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.95/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.95/2.)), :], \
-                        color = 'orange', label = '$1\sigma$',
+                        color = 'orange', label = '$2\sigma$',
                         zorder = -1)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.68/2.)), :], \
@@ -1733,9 +1737,10 @@ class Retrieval:
                                 zorder = 1)
 
             ax.plot(contr_em_weigh*(tlims[1]-tlims[0])+tlims[0],
-                pressures, '--',
+                pressures,
+                linestyle = (0, (1, 5)),
                 color = 'black',
-                linewidth = 1.,
+                linewidth = 2.,
                 label='Spectrally weighted contribution',
                 zorder = 1.5)
         self.rd.AMR = amr
@@ -1745,13 +1750,15 @@ class Retrieval:
         except:
             ax.set_ylim([pressures[-1]*1.03, pressures[0]/1.03])
 
-        # If we want to overplot an input spectrum
+        # If we want to overplot an input PT profile
         if true_press is not None:
             ax.plot(true_temps,
                     true_press,
                     color = 'k',
-                    linewidth = 2,
-                    label = "Ground Truth")
+                    linewidth = 4,
+                    linestyle = '--',
+                    label = "Ground Truth",
+                    zorder = 20)
 
         # Labelling and output
         ax.set_xlabel('Temperature [K]')
@@ -1836,7 +1843,7 @@ class Retrieval:
         return fig
 
     def plot_data(self):
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize = (10,6))
         for name, dd in self.rd.data.items():
             if dd.photometry:
                 wlen = np.mean(dd.width_photometry)
@@ -1844,7 +1851,9 @@ class Retrieval:
                 wlen = dd.wlen
             ax.errorbar(wlen, dd.flux, yerr = dd.flux_error, label = name, marker = 'o')
         ax.legend()
-        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
+        ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
+        ax.set_ylabel(self.rd.plot_kwargs["spec_ylabel"])
+        plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf", bbox_inches = 'tight')
 
     def plot_contribution(self,
                           samples_use,
@@ -1852,7 +1861,7 @@ class Retrieval:
                           model_generating_func = None,
                           log_scale_contribution = False,
                           n_contour_levels = 30,
-                          figsize = (12,7)
+                          figsize = (11,6)
                           ):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
@@ -1947,16 +1956,21 @@ class Retrieval:
         im = ax.contourf(X,
                          Y,
                          plot_cont,
-                         cmap = plt.cm.hot_r,
+                         cmap = plt.cm.RdPu,
                          levels = n_contour_levels,
                          vmin = np.min(plot_cont)+np.std(plot_cont),
                          vmax = np.max(plot_cont)-0.15*np.max(plot_cont))
-        ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
-        ax.set_ylabel("Pressure [bar]")
+        ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"], fontsize="24")
+        ax.set_ylabel("Pressure [bar]", fontsize="24")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
         ax.set_yscale("log")
+
+        ax.tick_params(axis='both', which='major', labelsize=14)
+        ax.tick_params(axis='both', which='minor', labelsize=10)
+
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
-        plt.colorbar(im, ax = ax, label = label)
+        cb = plt.colorbar(im, ax = ax)
+        cb.set_label(label=label,size=20)
         plt.tight_layout()
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_contribution.pdf',
                     bbox_inches = 'tight')
@@ -1974,7 +1988,7 @@ class Retrieval:
                         species_to_plot = None,
                         contribution = False,
                         sample_posteriors=False,
-                        figsize = (12,7)):
+                        figsize = (12,6)):
         print("\nPlotting Abundances profiles")
         if self.prt_plot_style:
             import petitRADTRANS.retrieval.plot_style as ps
@@ -2135,16 +2149,20 @@ class Retrieval:
             ax.plot(contr_em_weigh*(
                 3 - 1e-7)\
                 +1e-7,
-                pressures, '--',
+                pressures,
+                linestyle = (0, (1, 5)),
                 color = 'black',
-                linewidth = 1.,
+                linewidth = 2.,
                 zorder = 1.5,
                 label='Contribution')
 
-        ax.set_xlabel("Mass Fraction Abundance")
-        ax.set_ylabel("Pressure [bar]")
+        ax.set_xlabel("Mass Fraction Abundance", fontsize="24")
+        ax.set_ylabel("Pressure [bar]", fontsize="24")
         ax.set_yscale('log')
         ax.set_xscale('log')
+        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.tick_params(axis='both', which='minor', labelsize=12)
+
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
         ax.set_axisbelow(False)

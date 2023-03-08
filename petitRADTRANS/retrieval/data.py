@@ -287,10 +287,10 @@ class Data:
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
-            #try:
-            #    self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
-            #except:
-            self.flux_error = np.sqrt(self.covariance.diagonal())
+            try:
+                self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
+            except:
+                self.flux_error = np.sqrt(self.covariance.diagonal())
         except:
             self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
             self.covariance = np.diag(self.flux_error**2)
@@ -368,7 +368,7 @@ class Data:
             import matplotlib.pyplot as plt
         # Convolve to data resolution
         if self.data_resolution is not None:
-            spectrum_model = convolve(wlen_model,
+            spectrum_model = self.convolve(wlen_model,
                                     spectrum_model,
                                     self.data_resolution)
 
@@ -386,17 +386,16 @@ class Data:
             if isinstance(flux_rebinned,(tuple,list)):
                 flux_rebinned = flux_rebinned[0]
 
-        b_val = -np.inf
-        if parameters is not None:
-            b_val = line_b_uncertainty_scaling(parameters)
-
-        diff = (flux_rebinned - self.flux*self.scale_factor)
+        if self.scale:
+            diff = (flux_rebinned - self.flux*self.scale_factor)
+        else:
+            diff = (flux_rebinned - self.flux)
 
         f_err = self.flux_error
         if self.scale_err:
             f_err *=self.scale_factor
-        if not b_val==-np.inf:
-            f_err = np.sqrt(f_err**2 + 10**b_val)
+        if not self.bval==-np.inf:
+            f_err = np.sqrt(f_err**2 + 10**self.bval)
 
         logL=0.0
         if self.covariance is not None:
@@ -427,7 +426,7 @@ class Data:
 
     # TODO: do we want to pass the whole parameter dict,
     # or just set a class variable for b in the likelihood function?
-    def line_b_uncertainty_scaling(self,parameters):
+    def line_b_uncertainty_scaling(self, parameters):
         """
         This function implements the 10^b scaling from Line 2015, which allows
         for us to account for underestimated uncertainties:
@@ -458,42 +457,43 @@ class Data:
                 b_val = parameters['uncertainty_scaling_b'].value
         return 10**b
 
-def convolve(input_wavelength, \
-                input_flux, \
-                instrument_res):
-    """
-    This function convolves a model spectrum to the instrumental wavelength
-    using the provided data_resolution
-    Args:
-        input_wavelength : numpy.ndarray
-            The wavelength grid of the model spectrum
-        input_flux : numpy.ndarray
-            The flux as computed by the model
-        instrument_res : float
-            :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
+    def convolve(self, \
+                 input_wavelength, \
+                 input_flux, \
+                 instrument_res):
+        """
+        This function convolves a model spectrum to the instrumental wavelength
+        using the provided data_resolution
+        Args:
+            input_wavelength : numpy.ndarray
+                The wavelength grid of the model spectrum
+            input_flux : numpy.ndarray
+                The flux as computed by the model
+            instrument_res : float
+                :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
 
-    Returns:
-        flux_LSF
-            The convolved spectrum.
-    """
+        Returns:
+            flux_LSF
+                The convolved spectrum.
+        """
 
-    # From talking to Ignas: delta lambda of resolution element
-    # is FWHM of the LSF's standard deviation, hence:
-    sigma_LSF = 1./instrument_res/(2.*np.sqrt(2.*np.log(2.)))
+        # From talking to Ignas: delta lambda of resolution element
+        # is FWHM of the LSF's standard deviation, hence:
+        sigma_LSF = 1./instrument_res/(2.*np.sqrt(2.*np.log(2.)))
 
-    # The input spacing of petitRADTRANS is 1e3, but just compute
-    # it to be sure, or more versatile in the future.
-    # Also, we have a log-spaced grid, so the spacing is constant
-    # as a function of wavelength
-    spacing = np.mean(2.*np.diff(input_wavelength)/ \
-                        (input_wavelength[1:]+input_wavelength[:-1]))
+        # The input spacing of petitRADTRANS is 1e3, but just compute
+        # it to be sure, or more versatile in the future.
+        # Also, we have a log-spaced grid, so the spacing is constant
+        # as a function of wavelength
+        spacing = np.mean(2.*np.diff(input_wavelength)/ \
+                          (input_wavelength[1:]+input_wavelength[:-1]))
 
-    # Calculate the sigma to be used in the gauss filter in units
-    # of input wavelength bins
-    sigma_LSF_gauss_filter = sigma_LSF/spacing
+        # Calculate the sigma to be used in the gauss filter in units
+        # of input wavelength bins
+        sigma_LSF_gauss_filter = sigma_LSF/spacing
 
-    flux_LSF = gaussian_filter(input_flux, \
-                                sigma = sigma_LSF_gauss_filter, \
-                                mode = 'nearest')
+        flux_LSF = gaussian_filter(input_flux, \
+                                   sigma = sigma_LSF_gauss_filter, \
+                                   mode = 'nearest')
 
-    return flux_LSF
+        return flux_LSF
