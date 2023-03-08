@@ -204,6 +204,12 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
     mean_spectrum_time = np.ma.average(spectrum, axis=1, weights=weights)
     mean_spectrum_time = np.ma.masked_array(mean_spectrum_time)  # ensure that it is a masked array
 
+    if np.ndim(mean_spectrum_time.mask) == 0:
+        mean_spectrum_time.mask = np.zeros(mean_spectrum_time.shape, dtype=bool)
+
+    if np.ndim(spectral_data_corrected.mask) == 0:
+        spectral_data_corrected.mask = np.zeros(spectral_data_corrected.shape, dtype=bool)
+
     # Correction
     if isinstance(spectral_data_corrected, np.ma.core.MaskedArray):
         for i, data in enumerate(spectrum):
