@@ -401,10 +401,15 @@ class Data:
         logL=0.0
         if self.covariance is not None:
             inv_cov = self.inv_cov
+            log_covariance_determinant = self.log_covariance_determinant
+
+
             if self.scale_err:
-                inv_cov = self.scale_factor * self.inv_cov
+                cov = self.scale_factor**2 * self.covariance
+                inv_cov =  np.linalg.inv(cov)
+                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
             logL += -0.5*np.dot(diff, np.dot(inv_cov, diff))
-            logL += -0.5 * self.log_covariance_determinant
+            logL += -0.5 * log_covariance_determinant
         else:
             logL += -0.5*np.sum( (diff / f_err)**2. )
             logL += -0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
