@@ -145,8 +145,8 @@ class Retrieval:
 
     def run(self,
             sampling_efficiency = 0.8,
-            const_efficiency_mode = True,
-            n_live_points = 4000,
+            const_efficiency_mode = False,
+            n_live_points = 400,
             log_z_convergence = 0.5,
             step_sampler = False,
             warmstart_max_tau=0.5,
@@ -420,7 +420,7 @@ class Retrieval:
                     samples_use = self.samples[self.retrieval_name]
                     parameters_read = self.param_dict[self.retrieval_name]
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index])
+                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
                     # Get best-fit index
                     self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    𝛘^{2} = {self.chi2}\n")
@@ -582,7 +582,7 @@ class Retrieval:
                         return -1e98
                     if np.isnan(spectrum_model).any():
                         return -1e98
-                    #print(np.mean(spectrum_model))
+                    print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
                                             self.plotting)
@@ -626,7 +626,7 @@ class Retrieval:
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
                                         self.plotting)
-        #print(f"LL: {log_likelihood+log_prior}")
+        print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
         if np.abs(log_likelihood + log_prior) < 1e-98:
@@ -674,16 +674,6 @@ class Retrieval:
             return self.samples, self.param_dict
 
         # pymultinest
-        for name in self.corner_files:
-            samples = np.genfromtxt(output_dir +'out_PMN/'+ \
-                                    name+ \
-                                    '_post_equal_weights.dat')
-
-            parameters_read = json.load(open(output_dir + 'out_PMN/'+ \
-                                        name+ \
-                                        '_params.json'))
-            self.samples[name] = samples
-            self.param_dict[name] = parameters_read
         for name in ret_names:
             samples = np.genfromtxt(output_dir +'out_PMN/'+ \
                                     name+ \
@@ -694,6 +684,17 @@ class Retrieval:
                                         '_params.json'))
             self.samples[name] = samples
             self.param_dict[name] = parameters_read
+        for name in self.corner_files:
+            samples = np.genfromtxt(output_dir +'out_PMN/'+ \
+                                    name+ \
+                                    '_post_equal_weights.dat')
+
+            parameters_read = json.load(open(output_dir + 'out_PMN/'+ \
+                                        name+ \
+                                        '_params.json'))
+            self.samples[name] = samples
+            self.param_dict[name] = parameters_read
+
         return self.samples, self.param_dict
 
     def get_best_fit_params(self,best_fit_params,parameters_read):
@@ -1139,7 +1140,7 @@ class Retrieval:
                                                             params,
                                                             False,
                                                             self.rd.AMR)
-                tfit = teff_calc(wlen,model,params["D_pl"],params["R_pl"])
+                tfit = teff_calc(wlen,model,params["D_pl"].value,params["R_pl"].value)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff",np.array(teffs))
@@ -1205,7 +1206,11 @@ class Retrieval:
         print("Done!")
         return
 
-    def plot_spectra(self,samples_use,parameters_read,model_generating_func = None):
+    def plot_spectra(self,
+                     samples_use,
+                     parameters_read,
+                     model_generating_func = None,
+                     figsize = (20,10)):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1239,7 +1244,7 @@ class Retrieval:
         print("\nPlotting Best-fit spectrum")
         fig, axes = plt.subplots(nrows=2, ncols=1, sharex='col', sharey=False,
                                gridspec_kw={'height_ratios': [2.5, 1],'hspace':0.1},
-                               figsize=(20, 10))
+                               figsize=figsize)
         ax = axes[0] # Normal Spectrum axis
         ax_r = axes[1] # residual axis
 
@@ -1345,7 +1350,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen, \
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index]):.2f}',
+                label = f'Best Fit Model, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}',
                 linewidth=4,
                 alpha = 0.5,
                 color = 'r')
@@ -1485,6 +1490,7 @@ class Retrieval:
         if ret_names is None:
             ret_names = [self.retrieval_name]
         if colours is None:
+            import petitRADTRANS.retrieval.plot_style as ps
             colours = ps.prt_colours
         if len(colours) < len(ret_names):
             print("You must have at least as many colours as retrievals to plot!")
@@ -1508,12 +1514,13 @@ class Retrieval:
                                 do_scat_emis = self.rd.scattering)
 
         fig,ax = plt.subplots(figsize = (16,10))
+        np.random.seed(0)
+
         for i,ret_name in enumerate(ret_names):
             parameters_use =  cp.copy(parameter_dict[ret_name])
             samples_use = cp.copy(sample_dict[ret_name])
             path = self.output_dir + 'evaluate_'+ret_name + "/"
             inds = np.random.uniform(low = 0, high = len(samples_use),size = self.rd.plot_kwargs["nsample"]).astype(int)
-            np.random.seed(0)
             for ind in inds:
                 if os.path.exists(path + "posterior_sampled_spectra_"+str(ind).zfill(5)):
                     wlen, model = np.load(path + "posterior_sampled_spectra_"+str(ind).zfill(5)+".npy")
@@ -1540,7 +1547,7 @@ class Retrieval:
             ax.plot(bf_wlen,
                     bf_spectrum,
                     marker = None,
-                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index]):.2f}",
+                    label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True):.2f}",
                     linewidth=3,
                     alpha = 0.5,
                     color = colours[i])
@@ -1556,7 +1563,13 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name  +'_sampled.pdf',bbox_inches = 'tight')
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution = False):
+    def plot_PT(self,
+                sample_dict,
+                parameters_read,
+                contribution = False,
+                true_press = None,
+                true_temps = None,
+                figsize = (12,7)):
         """
         Plot the PT profile with error contours
 
@@ -1581,9 +1594,11 @@ class Retrieval:
             self.run_mode = 'evaluate'
         self.PT_plot_mode = True
 
+        # Choose what samples we want to use
         samples_use = cp.copy(sample_dict[self.retrieval_name])
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
+        # This is probably obsolete
         i_p = 0
         for pp in self.parameters:
             if self.parameters[pp].is_free_parameter:
@@ -1591,49 +1606,76 @@ class Retrieval:
                     if parameters_read[i_s] == self.parameters[pp].name:
                         samples_use[:,i_p] = sample_dict[self.retrieval_name][:, i_s]
                 i_p += 1
+
+        # Let's set up a standardized pressure array, regardless of AMR stuff.
         amr = self.rd.AMR
-        #self.rd.AMR = False
+        self.rd.AMR = False
         temps = []
+
+        # Store old pressure array so that we can put it back later.
+        p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
+        p_global_keel = self.rd.p_global
+
+        temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
+                        np.log10(self.rd.plot_kwargs["press_limits"][0]),
+                        100)
+        self.rd.p_global = temp_pres
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+
+        # Get all of the temperature arrays we need
         for i_s in range(len(samples_use)):
             pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
             temps.append(t)
-        print(pressures.shape)
+
         temps = np.array(temps)
         temps_sort = np.sort(temps, axis=0)
-        fig,ax = plt.subplots(figsize=(16, 10))
+
+        # Set up the figure
+        fig,ax = plt.subplots(figsize=figsize)
         len_samp = len(samples_use)
 
+        # Plot the PT regions
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[0, :], \
                         x2 = temps_sort[-1, :], \
-                        color = 'cyan', label = 'all',
-                        zorder = 1)
+                        color = 'cyan', label = 'All',
+                        zorder = -3)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.997/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.997/2.)), :], \
-                        color = 'brown', label = '3 sig',
-                        zorder = 2)
+                        color = 'brown', label = '$3\sigma$',
+                        zorder = -2)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.95/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.95/2.)), :], \
-                        color = 'orange', label = '2 sig',
-                        zorder = 3)
+                        color = 'orange', label = '$1\sigma$',
+                        zorder = -1)
         ax.fill_betweenx(pressures, \
                         x1 = temps_sort[int(len_samp*(0.5-0.68/2.)), :], \
                         x2 = temps_sort[int(len_samp*(0.5+0.68/2.)), :], \
-                        color = 'red', label = '1 sig',
-                        zorder = 4)
+                        color = 'red', label = '$1\sigma$',
+                        zorder = 0)
+
+        # Plot limits
         if self.rd.plot_kwargs["temp_limits"] is not None:
             tlims = self.rd.plot_kwargs["temp_limits"]
             ax.set_xlim(self.rd.plot_kwargs["temp_limits"])
         else:
             tlims = (np.min(temps)*0.97,np.max(temps)*1.03)
             ax.set_xlim(tlims)
+
+        # Check if we're weighting by the contribution function.
         if contribution:
             self.PT_plot_mode = False
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
-                                                                        contribution = True)
+                                                                        contribution = True,
+                                                                        save = True)
+            if bf_contribution.shape[0] != pressures.shape[0]:
+                bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
+                                                                            parameters_read,
+                                                                            contribution = True,
+                                                                            save = False)
             nu = nc.c/bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
@@ -1678,24 +1720,24 @@ class Retrieval:
             from scipy.interpolate import interp1d
             contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
 
-            yborders = pressures
+            yborders = np.logspace(np.log10(pressures[0]), np.log10(pressures[-1]), 1000)
             for i_p in range(len(yborders)-1):
                 mean_press = (yborders[i_p+1]+yborders[i_p])/2.
-                #print(1.-contr_em_weigh_intp(mean_press))
                 ax.fill_between(tlims,
                                 yborders[i_p+1],
                                 yborders[i_p],
                                 color = 'white',
                                 linewidth = 0,
-                                alpha = max(min(1.-contr_em_weigh_intp(mean_press), 0.95),0.01),
-                                zorder = 5)
+                                alpha = max(min(1.- 1.2*contr_em_weigh_intp(mean_press), 0.85),0.005),
+                                aa = True,
+                                zorder = 1)
 
             ax.plot(contr_em_weigh*(tlims[1]-tlims[0])+tlims[0],
                 pressures, '--',
                 color = 'black',
                 linewidth = 1.,
                 label='Spectrally weighted contribution',
-                zorder = 8)
+                zorder = 1.5)
         self.rd.AMR = amr
         ax.set_yscale('log')
         try:
@@ -1703,11 +1745,27 @@ class Retrieval:
         except:
             ax.set_ylim([pressures[-1]*1.03, pressures[0]/1.03])
 
+        # If we want to overplot an input spectrum
+        if true_press is not None:
+            ax.plot(true_temps,
+                    true_press,
+                    color = 'k',
+                    linewidth = 2,
+                    label = "Ground Truth")
+
+        # Labelling and output
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
-        ax.legend(loc='best')
+        ax.set_axisbelow(False)
+        ax.tick_params(zorder =10)
+
+        ax.legend(loc='best',fontsize = 18)
         plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf',
                     bbox_inches = 'tight')
+        # Reset all of the arrays to how they were.
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e-6)
+        self.rd.AMR = amr
+        self.rd.p_global = p_global_keel
         return fig, ax
 
     def plot_corner(self,sample_dict,parameter_dict,parameters_read, plot_best_fit = True, true_values = None, **kwargs):
@@ -1788,7 +1846,14 @@ class Retrieval:
         ax.legend()
         plt.savefig(self.output_dir +"evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
-    def plot_contribution(self,samples_use,parameters_read,model_generating_func = None,log_scale_contribution = False, n_contour_levels = 30):
+    def plot_contribution(self,
+                          samples_use,
+                          parameters_read,
+                          model_generating_func = None,
+                          log_scale_contribution = False,
+                          n_contour_levels = 30,
+                          figsize = (12,7)
+                          ):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
         between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1826,16 +1891,39 @@ class Retrieval:
         # First get the fit for each dataset for the residual plots
         #self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
+
+                # Let's set up a standardized pressure array, regardless of AMR stuff.
+        amr = self.rd.AMR
+        self.rd.AMR = False
+        temps = []
+
+        # Store old pressure array so that we can put it back later.
+        p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
+        p_global_keel = self.rd.p_global
+
+        temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
+                        np.log10(self.rd.plot_kwargs["press_limits"][0]),
+                        100)
+        self.rd.p_global = temp_pres
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+        self.PT_plot_mode = True
+        pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
+        self.PT_plot_mode = False
+
         bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
-                                                                        contribution = True)
+                                                                        contribution = True,
+                                                                        save = True)
+        if bf_contribution.shape[0] != pressures.shape[0]:
+            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
+                                                                        parameters_read,
+                                                                        contribution = True,
+                                                                        save = False)
         index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
         bf_contribution[index] = 1e-16
         bf_contribution = np.ma.masked_where(bf_contribution <= 2e-16, bf_contribution)
 
-        self.PT_plot_mode = True
-        pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
-        self.PT_plot_mode = False
+
 
 
         pressure_weights = np.diff(np.log10(pressures))
@@ -1846,7 +1934,7 @@ class Retrieval:
         weights = weights.reshape(len(weights), 1)
 
         X, Y = np.meshgrid(bf_wlen, pressures)
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize = figsize)
         ticker = None
         if log_scale_contribution:
             plot_cont = np.log10(bf_contribution* self.rd.plot_kwargs["y_axis_scaling"]/weights)
@@ -1859,10 +1947,10 @@ class Retrieval:
         im = ax.contourf(X,
                          Y,
                          plot_cont,
-                         cmap = plt.cm.BuPu,
+                         cmap = plt.cm.hot_r,
                          levels = n_contour_levels,
-                         vmin = np.min(plot_cont),
-                         vmax = np.max(plot_cont))
+                         vmin = np.min(plot_cont)+np.std(plot_cont),
+                         vmax = np.max(plot_cont)-0.15*np.max(plot_cont))
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])
@@ -1870,28 +1958,121 @@ class Retrieval:
         ax.set_ylim(pressures[-1]*1.03, pressures[0]/1.03)
         plt.colorbar(im, ax = ax, label = label)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_contribution.pdf')
-        return bf_contribution
+        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_contribution.pdf',
+                    bbox_inches = 'tight')
 
-    def plot_abundances(self,samples_use,parameters_read, species_to_plot = None, contribution = False):
+        # Reset all of the arrays to how they were.
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e-6)
+        self.rd.AMR = amr
+        self.rd.p_global = p_global_keel
+
+        return fig, ax, bf_contribution
+
+    def plot_abundances(self,
+                        samples_use,
+                        parameters_read,
+                        species_to_plot = None,
+                        contribution = False,
+                        sample_posteriors=False,
+                        figsize = (12,7)):
         print("\nPlotting Abundances profiles")
+        if self.prt_plot_style:
+            import petitRADTRANS.retrieval.plot_style as ps
         # Get best-fit index
         logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
+
+        amr = self.rd.AMR
+        self.rd.AMR = False
+        # Get pressure array
+        # Store old pressure array so that we can put it back later.
+        p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
+        p_global_keel = self.rd.p_global
+
+        temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
+                        np.log10(self.rd.plot_kwargs["press_limits"][0]),
+                        100)
+        self.rd.p_global = temp_pres
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
         self.PT_plot_mode = True
-        pressures, temps = self.log_likelihood(samples_use[best_fit_index , :-1], 0, 0)
+        pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         self.PT_plot_mode = False
 
-        abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
-        # Compute spectrum for each chem case
-        fig,ax = plt.subplots(figsize = (12,7))
+        # Check if we're only plotting a few species
         if species_to_plot is None:
             species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
-        for spec in species_to_plot:
-            ax.plot(abundances[spec],pressures,label=spec.split('_')[0])
+
+        # Set up colours - abundances usually have a lot of species,
+        # so let's use the default matplotlib colour scheme rather
+        # than the pRT colours.
+        prop_cycle = plt.rcParams['axes.prop_cycle']
+        colors = prop_cycle.by_key()['color']
+
+        # Figure
+        fig,ax = plt.subplots(figsize = figsize)
+
+        # Check to see if we're plotting contour regions
+        if sample_posteriors:
+            abundances = {}
+            for species in species_to_plot:
+                abundances[species] = []
+
+            # Go through EVERY sample to find the abundance distribution.
+            # Very slow.
+            for sample in samples_use:
+                abund_dict, MMW = self.get_abundances(sample[:-1], parameters_read)
+                for species in species_to_plot:
+                    abundances[species].append(abund_dict[species])
+
+            # Plot median and 1sigma contours
+            for i,species in enumerate(species_to_plot):
+                medians = np.median(np.array(abundances[species]),axis=0)
+                stds = np.std(np.array(abundances[species]),axis=0)
+                ax.plot(medians,
+                        pressures,
+                        label=species.split('_')[0],
+                        color = colors[i%len(colors)],
+                        zorder = 0,
+                        linewidth = 2)
+                ax.plot(medians-stds,
+                    pressures,
+                    color = colors[i%len(colors)],
+                    linewidth = 0.4,
+                    zorder = 0)
+                ax.plot(medians+stds,
+                    pressures,
+                    color = colors[i%len(colors)],
+                    linewidth = 0.4,
+                    zorder = 0)
+
+                ax.fill_betweenx(pressures,
+                                    x1 = medians-stds,
+                                    x2=medians+stds,
+                                color = colors[i%len(colors)],
+                                alpha = 0.15,
+                                zorder = -1)
+        else:
+            # Plot only the best fit abundances.
+            # Default to this for speed.
+            abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
+            for i,spec in enumerate(species_to_plot):
+                ax.plot(abundances[spec],
+                        pressures,
+                        label=spec.split('_')[0],
+                        color = colors[i%len(colors)],
+                        zorder = 0,
+                        linewidth = 2)
+
+        # Check to see if we're weighting by the emission contribution.
         if contribution:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                                         parameters_read,
-                                                                        contribution = True)
+                                                                        contribution = True,
+                                                                        save = True)
+            if bf_contribution.shape[0] != pressures.shape[0]:
+                bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
+                                                                            parameters_read,
+                                                                            contribution = True,
+                                                                            save = False)
             nu = nc.c/bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
@@ -1936,17 +2117,18 @@ class Retrieval:
             from scipy.interpolate import interp1d
             contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
 
-            yborders = pressures
+            yborders = np.logspace(np.log10(pressures[0]), np.log10(pressures[-1]), 1000)
             for i_p in range(len(yborders)-1):
                 mean_press = (yborders[i_p+1]+yborders[i_p])/2.
-                #print(1.-contr_em_weigh_intp(mean_press))
+                # Note: The max(min()) thing works backwards to what you'd probably expect
                 ax.fill_between([1e-7,3],
                                 yborders[i_p+1],
                                 yborders[i_p],
                                 color = 'white',
-                                alpha = min(1.-contr_em_weigh_intp(mean_press), 0.9),
-                                linewidth=0,
-                                zorder = 100)
+                                linewidth = 0,
+                                alpha = max(min(1.- 1.2*contr_em_weigh_intp(mean_press), 0.85),0.005),
+                                aa = True,
+                                zorder = 1)
 
             #plt.plot(temp, p, color = 'white', linewidth = 3.)
             #plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
@@ -1956,14 +2138,26 @@ class Retrieval:
                 pressures, '--',
                 color = 'black',
                 linewidth = 1.,
-                zorder = 120,
+                zorder = 1.5,
                 label='Contribution')
+
         ax.set_xlabel("Mass Fraction Abundance")
         ax.set_ylabel("Pressure [bar]")
         ax.set_yscale('log')
         ax.set_xscale('log')
         ax.invert_yaxis()
         ax.set_xlim(1e-7,3)
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =14)
+        ax.set_axisbelow(False)
+        ax.tick_params(zorder =2)
+        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =18)
         plt.tight_layout()
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf')
+        if not sample_posteriors:
+            plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf',
+                        bbox_inches = 'tight')
+        else:
+            plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_sampled_abundance_profiles.pdf',
+                        bbox_inches = 'tight')
+        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e-6)
+        self.rd.AMR = amr
+        self.rd.p_global = p_global_keel
+        return fig,ax
