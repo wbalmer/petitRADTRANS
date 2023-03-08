@@ -73,7 +73,7 @@ class Retrieval:
                  pRT_plot_style = True):
 
         self.rd = run_definition
-        print(f"Starting retrieval {self.rd.retrieval_name}")
+        sys.stdout.write(f"Starting retrieval {self.rd.retrieval_name}")
         if len(self.rd.line_species) < 1:
             logging.warning("There are no line species present in the run definition!")
 
@@ -569,7 +569,6 @@ class Retrieval:
                 dd.offset = self.parameters[name + "_offset"].value
             if name + "_b" in self.parameters.keys():
                 dd.bval = self.parameters[name + "_b"].value
-
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
