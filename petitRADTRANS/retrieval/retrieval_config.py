@@ -422,6 +422,8 @@ class RetrievalConfig:
                  wlen_range_micron=None,
                  external_pRT_reference=None,
                  opacity_mode='c-k',
+                 wlen_bins=None,
+                 pRT_grid=False,
                  pRT_object=None,
                  wlen=None,
                  flux=None,
@@ -464,6 +466,8 @@ class RetrievalConfig:
                 recommended to set the model_resolution parameter. In general,
                 'c-k' mode is recommended for retrievals of everything other than
                 high-resolution (R>40000) spectra.
+            pRT_grid: bool
+                Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
         self.data[name] = Data(name, path,
                                model_generating_function=model_generating_function,
@@ -475,6 +479,8 @@ class RetrievalConfig:
                                wlen_range_micron=wlen_range_micron,
                                external_pRT_reference=external_pRT_reference,
                                opacity_mode=opacity_mode,
+                               wlen_bins=wlen_bins,
+                               pRT_grid=pRT_grid,
                                pRT_object=pRT_object,
                                wlen=wlen,
                                flux=flux,

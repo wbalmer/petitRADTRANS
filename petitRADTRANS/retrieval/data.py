@@ -61,7 +61,7 @@ class Data:
         scale : bool
             Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the retrieval.
         wlen_bins : numpy.ndarray
-            Set the wavelength bins to bin the pRT model to the data. Defaults to the data bins.
+            Set the wavelength bin width to bin the pRT model to the data. Defaults to the data bins.
         photometry : bool
             Set to True if using photometric data.
         photometric_transformation_function : method
@@ -70,6 +70,8 @@ class Data:
             and output a single photometric point (and optionally flux error).
         photometric_bin_edges : Tuple, numpy.ndarray
             The edges of the photometric bin in micron. [low,high]
+        pRT_grid: bool
+            Set to true if data has been binned to pRT R = 1,000 c-k grid.
         opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
             or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -94,6 +96,7 @@ class Data:
                  photometric_transformation_function=None,
                  photometric_bin_edges=None,
                  opacity_mode='c-k',
+                 pRT_grid=False,
                  pRT_object=None,
                  wlen=None,
                  flux=None,
@@ -171,6 +174,8 @@ class Data:
 
         self.photometry_range = wlen_range_micron
         self.width_photometry = photometric_bin_edges
+
+        self.pRT_grid = pRT_grid
 
         # Read in data
         if path_to_observations is not None:
@@ -345,7 +350,8 @@ class Data:
 
     def get_chisq(self, wlen_model,
                   spectrum_model,
-                  plotting):
+                  plotting,
+                  parameters):
         """
         Calculate the chi square between the model and the data.
 
@@ -368,11 +374,17 @@ class Data:
                                            self.data_resolution)
 
         if not self.photometry:
-            # Rebin to model observation
-            flux_rebinned = rebin_give_width(wlen_model,
-                                             spectrum_model,
-                                             self.wlen,
-                                             self.wlen_bins)
+
+            if self.pRT_grid:
+                index = (wlen_model >= self.wlen[0] * 0.99999999) & \
+                        (wlen_model <= self.wlen[-1] * 1.00000001)
+                flux_rebinned = spectrum_model[index]
+            else:
+                # Rebin to model observation
+                flux_rebinned = rebin_give_width(wlen_model,
+                                                 spectrum_model,
+                                                 self.wlen,
+                                                 self.wlen_bins)
         else:
             flux_rebinned = \
                 self.photometric_transformation_function(wlen_model,
@@ -382,10 +394,28 @@ class Data:
                 flux_rebinned = flux_rebinned[0]
 
         diff = (flux_rebinned - self.flux * self.scale_factor)
-        f_err = self.flux_error
+
+        param_names = list(parameters.keys())
+        tentotheb_scaling = False
+        b_val = -np.inf
+
+        for param_name in param_names:
+            if 'Mike_Line_b' in param_name:
+                tentotheb_scaling = True
+                if param_name == 'Mike_Line_b':
+                    b_val = parameters['Mike_Line_b'].value
+                else:
+                    id = param_name.split('Mike_Line_b')[-1][1:]
+                    if id in self.name:
+                        b_val = parameters[param_name].value
+
 
         if self.scale_err:
             f_err = self.flux_error * self.scale_factor
+        elif tentotheb_scaling is not None:
+            f_err = np.sqrt(self.flux_error ** 2 + 10 ** b_val)
+        else:
+            f_err = self.flux_error
 
         log_l = 0.0
 

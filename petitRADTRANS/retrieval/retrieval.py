@@ -147,7 +147,7 @@ class Retrieval:
 
     def run(self,
             sampling_efficiency=0.8,
-            const_efficiency_mode=True,
+            const_efficiency_mode=False,
             n_live_points=4000,
             log_z_convergence=0.5,
             step_sampler=False,
@@ -471,7 +471,7 @@ class Retrieval:
                 summary.write(f"    chi^2 = {self.chi2}\n")
 
                 for key, value in self.best_fit_params.items():
-                    if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
+                    if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
 
                     out = value.value
@@ -633,11 +633,16 @@ class Retrieval:
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
-                    wlen_model, spectrum_model = \
+                    retVal = \
                         dd.model_generating_function(dd.pRT_object,
                                                      self.parameters,
                                                      self.PT_plot_mode,
                                                      AMR=self.rd.AMR)
+                    if len(retVal) == 3:
+                        wlen_model, spectrum_model, additional_logl = retVal
+                    else:
+                        wlen_model, spectrum_model = retVal
+                        additional_logl = 0.
 
                     # Sanity checks on outputs
                     if spectrum_model is None:
@@ -675,9 +680,11 @@ class Retrieval:
                     else:
                         if np.ndim(dd.flux) == 1:
                             # Convolution and rebin are cared of in get_chisq
-                            log_likelihood += dd.get_chisq(wlen_model,
-                                                           spectrum_model[~dd.mask],
-                                                           self.plotting)
+                            log_likelihood += dd.get_chisq(
+                                wlen_model,
+                                spectrum_model[~dd.mask],
+                                self.plotting
+                            ) + additional_logl
                         elif np.ndim(dd.flux) == 2:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
                             # Second dimension of data must be a function of wavelength
@@ -749,7 +756,7 @@ class Retrieval:
                             wlen_model,
                             spectrum_model,
                             self.plotting
-                        )
+                        ) + additional_logl
 
         if log_likelihood + log_prior < -9e98:
             return -1e98
@@ -998,13 +1005,18 @@ class Retrieval:
                                                + ret_name + "_best_fit_model_full.npy").T
                 return bf_wlen, bf_spectrum
 
-            bf_wlen, bf_spectrum = self.get_full_range_model(
+            retVal = self.get_full_range_model(
                 self.best_fit_params,
                 model_generating_func=None,
                 ret_name=ret_name,
                 contribution=contribution
             )
             bf_contribution = None  # prevent eventual reference before assignment
+
+            if len(retVal) == 2:
+                bf_wlen, bf_spectrum = retVal
+            else:
+                bf_wlen, bf_spectrum, _ = retVal
 
         # Add to the dictionary.
         self.best_fit_specs[ret_name] = [bf_wlen, bf_spectrum]
@@ -1104,7 +1116,7 @@ class Retrieval:
             norm += add
 
         print(f"Best fit 𝛘^2 = {-log_l - norm:.2f}")
-        return -log_l - norm
+        return (-log_l - norm) * 2
 
     def get_reduced_chi2(self, samples):
         """
@@ -1277,10 +1289,15 @@ class Retrieval:
             for rint in rands:
                 samp = samples[rint, :-1]
                 params = self.build_param_dict(samp, parameters_read)
-                wlen, model = duse.model_generating_function(prt_object,
+                retVal = duse.model_generating_function(prt_object,
                                                              params,
                                                              False,
                                                              self.rd.AMR)
+                if len(retVal) == 2:
+                    wlen, model = retVal
+                else:
+                    wlen, model, __ = retVal
+
                 tfit = teff_calc(wlen, model, params["D_pl"], params["R_pl"])
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
@@ -1529,15 +1546,25 @@ class Retrieval:
         lims = ax.get_xlim()
         lim_y = ax.get_ylim()
         lim_y = [lim_y[0], lim_y[1] * 1.12]
-        ax.set_ylim(lim_y)
+
+        if self.rd.plot_kwargs.get('flux_lim') is not None:
+            ax.set_ylim(self.rd.plot_kwargs.get('flux_lim'))
+        else:
+            ax.set_ylim(lim_y)
 
         # weird scaling to get axis to look ok on log plots
         if self.rd.plot_kwargs["xscale"] == 'log':
             lims = [lims[0] * 1.09, lims[1] * 1.02]
         else:
             lims = [bf_wlen[0] * 0.98, bf_wlen[-1] * 1.02]
-        ax.set_xlim(lims)
-        ax_r.set_xlim(lims)
+
+        if self.rd.plot_kwargs.get('wavelength_lim') is not None:
+            ax.set_xlim(self.rd.plot_kwargs.get('wavelength_lim'))
+            ax_r.set_xlim(self.rd.plot_kwargs.get('wavelength_lim'))
+        else:
+            ax.set_xlim(lims)
+            ax_r.set_xlim(lims)
+
         ax_r.set_ylim(ymin=-yabs_max, ymax=yabs_max)
         ax_r.fill_between(lims, -1, 1, color='dimgrey', alpha=0.4, zorder=-10)
         ax_r.fill_between(lims, -3, 3, color='darkgrey', alpha=0.3, zorder=-9)

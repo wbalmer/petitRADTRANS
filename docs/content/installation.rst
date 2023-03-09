@@ -72,7 +72,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
 
 .. code-block:: bash
 		
-   git clone git@gitlab.com:mauricemolli/petitRADTRANS.git
+   git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder
 - Type the following in the terminal ``python setup.py install``, and press
@@ -83,41 +83,134 @@ _____________________
 
 The installation of pRT on Apple machines with the M1 chip requires Intel emulation with Rosetta.
 
-First make sure that Rosetta is installed. Then go to the Terminal icon at the Applications, right click, choose "Get Info", and select the "Open using Rosetta" box. It is also possible to first duplicate the shortcut, to have both a regular shortcut and one with the Rosetta support.
+.. code-block:: bash
 
-Now open the Rosetta Terminal and check that you are indeed using the Inter emulator:
+   softwareupdate --install-rosetta
+
+Now go to the Applications folder and find the iTerm icon. Make a copy of this application and name the new copy as something like "iTerm_Rosetta". Right click iTerm_Rosetta, choose "Get Info", and select the "Open using Rosetta" box. To test that you are indeed using the Intel emulator, type the following in your iTerm_Rosetta:
 
 .. code-block:: bash
 
    arch
 
-This command should return ``i386``. Next, it is easiest to install `Homebrew <https://brew.sh>`_:
+This command should return ``i386``.
+
+Next, install homebrew with Rosetta:
 
 .. code-block:: bash
 
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-With the Intel emulation, Homebrew is installed at ``/usr/local/bin/brew`` instead of the M1 location at ``/opt/homebrew/bin/brew``. It is therefore possible to work with two Homebrew installations if needed.
-
-Now install ``gfortran`` with the Homebrew version that uses the Intel emulation:
+With the Intel emulation, Homebrew should be installed at ``/usr/local/bin/brew``. Add the following to your ``.bash_profile``
 
 .. code-block:: bash
 
-   /usr/local/bin/brew install gfortran
+   alias brew_i386="/usr/local/bin/brew"
 
-In case a regular M1 installation of Homebrew is used in parallel, then it is important that the correct ``gfortran`` compiler is used when installing pRT. Optionally, it could help to uninstall ``gfortran`` from the M1 installation of Homebrew:
+In the future, you will use `brew_i386` as an alternative of `brew` with the Intel emulation.
 
-.. code-block:: bash
-
-   /opt/homebrew/bin/brew uninstall gfortran
-
-Next, activate your favorite Python installation/environment and install NumPy:
+For completeness only, you might also install Homebrew in your M1 terminal, which should be then installed at ``/opt/homebrew/bin/brew``. Add the following to your ``.bash_profile``
 
 .. code-block:: bash
 
-   pip install numpy
+   alias brew="/opt/homebrew/bin/brew"
 
-And finally install pRT:
+Now we will install ``miniconda3`` in Rosetta, but before that, we will have to modify ``.bash_profile`` so we could handle the ``conda`` between M1 and Rosetta separately. Here I assume you already installed ``anaconda`` in your M1 terminal, so the following block should be in your ``.bash_profile``:
+
+.. code-block:: bash
+
+   # >>> conda initialize >>>
+   # !! Contents within this block are managed by 'conda init' !!
+   __conda_setup="$('/Users/xxxx/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+   if [ $? -eq 0 ]; then
+      eval "$__conda_setup"
+   else
+      if [ -f "/Users/xxxx/anaconda3/etc/profile.d/conda.sh" ]; then
+          . "/Users/xxxx/anaconda3/etc/profile.d/conda.sh"
+      else
+          export PATH="/Users/xxxx/anaconda3/bin:$PATH"
+      fi
+  fi
+  unset __conda_setup
+  # <<< conda initialize <<<
+
+Note that the "xxxx" here should be your username. Let's cut these few lines and paste them into a separate file ``.init_conda_arm64.sh`` in the home directory. We will come back to handle this file later.
+
+Now let's install ``miniconda3`` in Rosetta. First, type the following line in iTerm_Rosetta:
+
+.. code-block:: bash
+
+   curl -L https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh > Miniconda3-latest-MacOSX-x86_64.sh
+
+Then type the following and follow instructions to proceed with the installation:
+
+.. code-block:: bash
+
+   bash Miniconda3-latest-MacOSX-x86_64.sh
+
+Once the installation succeed, you will see that the following several new lines have been added to ``.bash_profile``:
+
+.. code-block:: bash
+
+   # >>> conda initialize >>>
+   # !! Contents within this block are managed by 'conda init' !!
+   __conda_setup="$('/Users/xxxx/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+   if [ $? -eq 0 ]; then
+       eval "$__conda_setup"
+   else
+       if [ -f "/Users/xxxx/miniconda3/etc/profile.d/conda.sh" ]; then
+           . "/Users/xxxx/miniconda3/etc/profile.d/conda.sh"
+       else
+           export PATH="/Users/xxxx/miniconda3/bin:$PATH"
+       fi
+   fi
+   unset __conda_setup
+   # <<< conda initialize <<<
+
+Let's cut these few lines again and paste them into a separate file ``.init_conda_x86_64.sh`` in the home directory. In the same iTerm_Rosetta, type the following:
+
+.. code-block:: bash
+
+   conda config --add channels defaults
+   conda config --add channels bioconda
+   conda config --add channels conda-forge
+
+Okay, now we are ready to go ahead mofify ``.bash_profile`` to handle two versions of ``conda`` between M1 and Rosetta terminals. Add the following lines to your ``.bash_profile``:
+
+.. code-block:: bash
+
+   # <<<<<< Added by TR 20220405 <<
+   arch_name="$(uname -m)"
+
+   if [ "${arch_name}" = "x86_64" ]; then
+       echo "Running on Rosetta using miniconda3"
+       source ~/.init_conda_x86_64.sh
+   elif [ "${arch_name}" = "arm64" ]; then
+       echo "Running on ARM64 using anaconda"
+       source ~/.init_conda_arm64.sh
+   else
+       echo "Unknown architecture: ${arch_name}"
+   fi
+   # <<<<<<<< end <<<<<<<
+
+Now, when you open iTerm / iTerm_Rosetta, you will instantly know which ``conda`` version is being used.
+
+Next, we should install the following packages in ``miniconda3``:
+
+.. code-block:: bash
+
+   conda install ipython
+   conda install numpy
+   conda install jupyter
+   conda install -c conda-forge pymultinest
+
+Then, we install ``gfortran`` in iTerm_Rosetta:
+
+.. code-block:: bash
+
+   brew_i386 install gfortran
+
+Everything is ready now, so we should simply install pRT as follow:
 
 .. code-block:: bash
 

@@ -498,8 +498,9 @@ class Radtrans(_read_opacities.ReadOpacities):
                 the atmospheric pressure (1-d numpy array, sorted in increasing
                 order), in units of bar. Will be converted to cgs internally.
         """
-        if P[1] < P[0]:
-            raise ValueError('pRT needs pressures sorted from small to large!')
+        if len(P) > 2:
+            if P[1] < P[0]:
+                raise ValueError('pRT needs pressures sorted from small to large!')
 
         self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
             self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
@@ -1092,14 +1093,25 @@ class Radtrans(_read_opacities.ReadOpacities):
         # Calculate the transmission spectrum
         if ((self.mode == 'lbl') or self.test_ck_shuffle_comp) \
                 and (int(len(self.line_species)) > 1):
-            self.transm_rad, self.radius_hse = fs.calc_transm_spec(
-                self.line_struc_kappas[:, :, :1, :], self.temp,
-                self.press, gravity, mmw, P0_bar, R_pl,
-                self.w_gauss, self.scat,
-                self.continuum_opa_scat, variable_gravity
+
+            self.transm_rad, self.radius_hse = self.py_calc_transm_spec(
+                mmw,
+                gravity,
+                P0_bar,
+                R_pl,
+                variable_gravity,
+                high_res=True
             )
 
+            # TODO: contribution function calculation with python-only implementation
             if contribution:
+                self.transm_rad, self.radius_hse = fs.calc_transm_spec(
+                    self.line_struc_kappas[:, :, :1, :], self.temp,
+                    self.press, gravity, mmw, P0_bar, R_pl,
+                    self.w_gauss, self.scat,
+                    self.continuum_opa_scat, variable_gravity
+                )
+
                 self.contr_tr, self.radius_hse = fs.calc_transm_spec_contr(
                     self.line_struc_kappas[:, :, :1, :], self.temp,
                     self.press, gravity, mmw, P0_bar, R_pl,
@@ -1107,14 +1119,25 @@ class Radtrans(_read_opacities.ReadOpacities):
                     self.continuum_opa_scat, variable_gravity
                 )
         else:
-            self.transm_rad, self.radius_hse = fs.calc_transm_spec(
-                self.line_struc_kappas, self.temp,
-                self.press, gravity, mmw, P0_bar, R_pl,
-                self.w_gauss, self.scat,
-                self.continuum_opa_scat, variable_gravity
+
+            self.transm_rad, self.radius_hse = self.py_calc_transm_spec(
+                mmw,
+                gravity,
+                P0_bar,
+                R_pl,
+                variable_gravity
             )
 
+            # TODO: contribution function calculation with python-only implementation
             if contribution:
+
+                self.transm_rad, self.radius_hse = fs.calc_transm_spec(
+                    self.line_struc_kappas, self.temp,
+                    self.press, gravity, mmw, P0_bar, R_pl,
+                    self.w_gauss, self.scat,
+                    self.continuum_opa_scat, variable_gravity
+                )
+
                 self.contr_tr, self.radius_hse = fs.calc_transm_spec_contr(
                     self.line_struc_kappas, self.temp,
                     self.press, gravity, mmw, P0_bar, R_pl,
@@ -1778,6 +1801,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                   mass_fraction=None,
                   CO=0.55,
                   FeH=0.,
+                  return_opacities=False,
                   **kwargs):
         import matplotlib.pyplot as plt
 
@@ -1809,11 +1833,24 @@ class Radtrans(_read_opacities.ReadOpacities):
             for spec in species:
                 plt_weights[spec] = mass_fraction[spec]
 
-        for spec in species:
-            plt.plot(wlen_micron,
-                     plt_weights[spec] * opas[spec],
-                     label=spec,
-                     **kwargs)
+        if return_opacities:
+            rets = {}
+
+            for spec in species:
+                rets[spec] = [
+                    wlen_micron,
+                    plt_weights[spec] * opas[spec]
+                ]
+
+            return rets
+        else:
+            for spec in species:
+                plt.plot(
+                    wlen_micron,
+                    plt_weights[spec] * opas[spec],
+                    label=spec,
+                    **kwargs
+                )
 
     def calc_tau_cloud(self, gravity):
         """ Method to calculate the optical depth of the clouds as function of
@@ -1979,6 +2016,119 @@ class Radtrans(_read_opacities.ReadOpacities):
 
         return np.array(pressures) / 1e6
 
+    def py_calc_transm_spec(self,
+                                mmw,
+                                gravity,
+                                P0_bar,
+                                R_pl,
+                                variable_gravity,
+                                high_res = False):
+        """ Method to calculate the planetary transmission spectrum.
+
+            Args:
+                mmw:
+                    Mean molecular weight in units of amu.
+                    (1-d numpy array, same length as pressure array).
+                gravity (float):
+                    Atmospheric gravitational acceleration at reference pressure and radius in units of
+                    dyne/cm^2
+                P0_bar (float):
+                    Reference pressure in bar.
+                R_pl (float):
+                    Reference pressure in cm.
+                variable_gravity (bool):
+                    If true, gravity in the atmosphere will vary proportional to 1/r^2, where r is the planet
+                    radius.
+                high_res (bool):
+                    If true function assumes that pRT is running in lbl mode.
+
+            Returns:
+                * transmission radius in cm (1-d numpy array, as many elements as wavelengths)
+                * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
+                layers)
+        """
+
+        # How many layers are there?
+        struc_len = len(self.press)
+
+        # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric
+        # structure (temperature, pressure, mmw), gravity, reference pressure and radius.
+        radius = self.calc_radius_hydrostatic_equilibrium(self.temp,
+                                                     mmw,
+                                                     gravity,
+                                                     P0_bar,
+                                                     R_pl,
+                                                     variable_gravity=variable_gravity)
+
+        radius = np.array(radius, dtype='d', order='F')
+        neg_rad = radius < 0.
+        radius[neg_rad] = radius[~neg_rad][0]
+
+        # Calculate the density
+        # TODO: repalace values here with nc.amu and nc.kB.
+        # Currently it is kept at the values of the Fortran implementation, such that
+        # unit tests are still being passed.
+                               # nc.amu        # nc.kB
+        rho = self.press * mmw * 1.66053892e-24 / 1.3806488e-16 / self.temp
+        # Bring in right shape for matrix operations later.
+        rho = rho.reshape(1, 1, 1, struc_len)
+        rho = np.array(rho, dtype='d', order='F')
+
+        # Bring continuum scattering opacities in right shape for matrix operations later.
+        # Reminder: when calling this function, continuum absorption opacities have already
+        # been added to line_struc_kappas.
+        continuum_opa_scat = self.continuum_opa_scat.reshape(1, self.freq_len, 1, struc_len)
+
+        # Calculate the inverse mean free paths
+        if high_res:
+            alpha_t2 = self.line_struc_kappas[:,:,:1,:] * rho
+            alpha_t2 += continuum_opa_scat * rho
+        else:
+            alpha_t2 = self.line_struc_kappas * rho
+            alpha_t2[:, :, :1, :] += continuum_opa_scat * rho
+
+        # Calculate average mean free path between neighboring layers for later integration
+        # Factor 1/2 is omitted because it cancels with effective planet area integration below.
+        alpha_t2[:, :, :, 1:] = alpha_t2[:, :, :, :-1] + alpha_t2[:, :, :, 1:]
+
+        # Prepare matrix for delta path lengths during optical depth integration
+        diffS = np.zeros((struc_len, struc_len), order = 'F')
+
+
+        # Calculate matrix of delta path lengths
+        Rik = radius.reshape(1, struc_len) ** 2. - radius.reshape(struc_len, 1) ** 2.
+        Rik[Rik < 0.] = 0.
+        Rik = np.sqrt(Rik)
+        diffS[1:, 1:] = - Rik[1:, 1:] + Rik[1:, :-1]
+
+        # Calculate optical depths
+        t_graze = np.einsum('ijkl,ml', alpha_t2, diffS, optimize=True)
+        # Calculate transmissions
+        t_graze = np.exp(-t_graze)
+        # Integrate over correlated-k's g-coordinate (self.wgauss == np.array([1.]) for lbl mode)
+        t_graze = np.einsum('ijkl,i', t_graze, self.w_gauss, optimize=True)
+
+        # Multiply transmissions of all absorber species in c-k mode (this will have no effect in lbl mode)
+        t_graze = np.swapaxes(t_graze, 0, 1)
+        t_graze = np.swapaxes(t_graze, 1, 2)
+        t_graze = np.prod(t_graze, axis=0)
+
+        # Prepare planet area integration: this is the transparency.
+        t_graze = 1. - t_graze
+
+        # Annulus radius increments
+        diffr = -np.diff(radius).reshape(struc_len - 1, 1)
+        radreshape = radius.reshape(struc_len, 1)
+
+        # Integrate effective area, omit 2 pi omitted:
+        # 2 cancels with 1/2 of average inverse mean free path above.
+        # pi cancels when calculating the radius from the area below.
+        transm = np.sum(diffr * (t_graze[1:, :] * radreshape[1:, :] + \
+                                 t_graze[:-1, :] * radreshape[:-1, :]), axis=0)
+        # Transform area to transmission radius.
+        transm = np.sqrt(transm + radius[-1] ** 2.)
+
+        return transm, radius
 
 def py_calc_cloud_opas(
         rho,  # (M,)
@@ -1995,7 +2145,7 @@ def py_calc_cloud_opas(
     r"""
     This function reimplements calc_cloud_opas from fort_spec.f90. For some reason
     it runs faster in python than in fortran, so we'll use this from now on.
-    This function integrates the cloud opacity throught the different layers of
+    This function integrates the cloud opacity through the different layers of
     the atmosphere to get the total optical depth, scattering and anisotropic fraction.
 
     author: Francois Rozet
