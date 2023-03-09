@@ -435,7 +435,6 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
-        print('chi2 logl:', log_l)
 
         return log_l
 
