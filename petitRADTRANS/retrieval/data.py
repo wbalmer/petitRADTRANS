@@ -374,7 +374,6 @@ class Data:
                                            self.data_resolution)
 
         if not self.photometry:
-
             if self.pRT_grid:
                 index = (wlen_model >= self.wlen[0] * 0.99999999) & \
                         (wlen_model <= self.wlen[-1] * 1.00000001)
@@ -409,7 +408,6 @@ class Data:
                     if id in self.name:
                         b_val = parameters[param_name].value
 
-
         if self.scale_err:
             f_err = self.flux_error * self.scale_factor
         elif tentotheb_scaling is not None:
@@ -437,6 +435,7 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
+        print('chi2 logl:', log_l)
 
         return log_l
 

@@ -616,6 +616,7 @@ class Retrieval:
 
         log_likelihood = 0.
         log_prior = 0.
+        additional_logl = 0.
 
         i_p = 0  # parameter count
 
@@ -642,7 +643,6 @@ class Retrieval:
                         wlen_model, spectrum_model, additional_logl = retVal
                     else:
                         wlen_model, spectrum_model = retVal
-                        additional_logl = 0.
 
                     # Sanity checks on outputs
                     if spectrum_model is None:
@@ -683,7 +683,8 @@ class Retrieval:
                             log_likelihood += dd.get_chisq(
                                 wlen_model,
                                 spectrum_model[~dd.mask],
-                                self.plotting
+                                self.plotting,
+                                self.parameters
                             ) + additional_logl
                         elif np.ndim(dd.flux) == 2:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -755,7 +756,8 @@ class Retrieval:
                         log_likelihood += dede.get_chisq(
                             wlen_model,
                             spectrum_model,
-                            self.plotting
+                            self.plotting,
+                            self.parameters
                         ) + additional_logl
 
         if log_likelihood + log_prior < -9e98:
@@ -2061,7 +2063,7 @@ class Retrieval:
                          y,
                          plot_cont,
                          n_contour_levels,
-                         cmap=plt.cm.magma)
+                         cmap='magma')
         ax.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.set_ylabel("Pressure [bar]")
         ax.set_xscale(self.rd.plot_kwargs["xscale"])

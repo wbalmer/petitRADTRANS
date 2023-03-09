@@ -251,7 +251,7 @@ class ReadOpacities:
                         ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
                         #ret_val[:, :, 0, :] = k_table2[:, :, :]
 
-                        retVal[retVal < 0.] = 0.
+                        ret_val[ret_val < 0.] = 0.
 
                         # Divide by mass to go from cross-sections to opacities, the latter
                         # is what pRT requires.
