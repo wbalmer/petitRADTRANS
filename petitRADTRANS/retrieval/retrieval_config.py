@@ -476,7 +476,7 @@ class RetrievalConfig:
         The photometry file must be a csv file and have the following structure:
         name, lower wavelength bound [um], upper wavelength boundary[um], flux [W/m2/micron], flux error [W/m2/micron]
 
-        Photometric data requires a transformation function to conver a spectrum into synthetic photometry.
+        Photometric data requires a transformation function to convert a spectrum into synthetic photometry.
         You must provide this function yourself, or have the species package installed.
         If using species, the name in the data file must be of the format instrument/filter.
 

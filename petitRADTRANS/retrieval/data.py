@@ -159,7 +159,7 @@ class Data:
                 logging.error("You must include the photometric bin size if photometry is True!")
                 sys.exit(9)
         self.photometry_range = wlen_range_micron
-        self.width_photometry = photometric_bin_edges
+        self.width_photometry = photometric_bin_edges # TODO change name, is confusing
 
         self.pRT_grid = pRT_grid
 
