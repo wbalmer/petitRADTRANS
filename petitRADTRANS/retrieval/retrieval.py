@@ -563,10 +563,12 @@ class Retrieval:
                 i_p += 1
 
         for name,dd in self.data.items():
-            # Only calculate spectra within a given
-            # wlen range once
             if dd.scale:
                 dd.scale_factor = self.parameters[name + "_scale_factor"].value
+
+        for name,dd in self.data.items():
+            # Only calculate spectra within a given
+            # wlen range once
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
@@ -620,8 +622,6 @@ class Retrieval:
             # calculate log_likelihood
             for de_name,dede in self.data.items():
                 if dede.external_pRT_reference is not None:
-                    if dede.scale:
-                        dd.scale_factor = self.parameters[de_name + "_scale_factor"].value
                     if dede.external_pRT_reference == name:
                         if spectrum_model is None:
                             return -1e99
@@ -1584,6 +1584,17 @@ class Retrieval:
                         color = 'red', label = '1 sig',
                         zorder = 3)
 
+        '''
+        np.savetxt('//Users/molliere/Downloads/pRT_PT_envelopes.txt',
+                   (pressures,
+                    temps_sort[int(len_samp*(0.5-0.997/2.)), :],
+                    temps_sort[int(len_samp * (0.5-0.95 / 2.)),:],
+                    temps_sort[int(len_samp * (0.5 - 0.68 / 2.)), :],
+                    temps_sort[int(len_samp * 0.5), :],
+                    temps_sort[int(len_samp * (0.5 + 0.68 / 2.)), :],
+                    temps_sort[int(len_samp * (0.5+0.95 / 2.)), :],
+                    temps_sort[int(len_samp*(0.5+0.997/2.)), :]))
+        '''
         if contribution:
             self.PT_plot_mode = False
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
@@ -1654,6 +1665,12 @@ class Retrieval:
                 linewidth = 1.,
                 label='Spectrally weighted contribution',
                 zorder = 5)
+
+            '''
+            np.savetxt('//Users/molliere/Downloads/pRT_spec_contribution.txt',
+                       ((pressures,
+                        contr_em_weigh)))
+            '''
 
         ax.set_yscale('log')
         try:
