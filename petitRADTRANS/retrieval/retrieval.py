@@ -1480,9 +1480,15 @@ class Retrieval:
             if os.path.exists(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)):
                 wlen, model = np.load(path + "posterior_sampled_spectra_"+str(int(i_sample+1)).zfill(5)+".npy")
             else:
+                print('Generating sampled spectrum ', i_sample, '/', self.rd.plot_kwargs["nsample"], '...')
+                print('Generating sampled spectrum ', i_sample, '/', self.rd.plot_kwargs["nsample"], '...')
                 parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
                 parameters["contribution"] = Parameter("contribution", False, value = False)
-                wlen, model = self.get_full_range_model(parameters, pRT_object = atmosphere)
+                retVal = self.get_full_range_model(parameters, pRT_object = atmosphere)
+                if len(retVal) == 2:
+                    wlen, model = retVal
+                else:
+                    wlen, model, __ = retVal
             if downsample_factor != None:
                 npoints = int(len(wlen))
                 model = nc.running_mean(model,downsample_factor)[::downsample_factor]
@@ -1491,7 +1497,8 @@ class Retrieval:
                 np.save(path + "posterior_sampled_spectra_"+
                                 str(int(i_sample+1)).zfill(5),
                                 np.column_stack((wlen, model)))
-            ax.plot(wlen,model, color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"] + 0.1, linewidth = 0.2, marker = None)
+            ax.plot(wlen,model * self.rd.plot_kwargs["y_axis_scaling"],
+                    color = "#00d2f3", alpha = 1/self.rd.plot_kwargs["nsample"] + 0.1, linewidth = 0.2, marker = None)
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
         # Setup best fit spectrum
@@ -1501,7 +1508,7 @@ class Retrieval:
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                        parameters_read)
         ax.plot(bf_wlen,
-                bf_spectrum,
+                bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                 marker = None,
                 label = f"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}",
                 linewidth=4,
