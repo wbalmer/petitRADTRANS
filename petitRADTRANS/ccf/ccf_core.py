@@ -6,13 +6,13 @@ from scipy.interpolate import interp1d
 
 
 def co_add_cross_correlation(cross_correlation, velocities_ccf, co_added_velocities):
-    n_integrations = np.shape(cross_correlation)[0]
+    n_co_additions = np.shape(cross_correlation)[0]
 
     if np.ndim(co_added_velocities) != 3:
-        raise ValueError(f"rest velocities must have 3 dimensions, but has {np.ndim(co_added_velocities)}")
-    elif np.shape(co_added_velocities)[1] != n_integrations:
-        raise ValueError(f"size of rest velocities dimension 1 must be the size of cross correlation dimension 0 "
-                         f"({n_integrations}), but is of shape {np.shape(co_added_velocities)}")
+        raise ValueError(f"co-added velocities must have 3 dimensions, but has {np.ndim(co_added_velocities)}")
+    elif np.shape(co_added_velocities)[1] != n_co_additions:
+        raise ValueError(f"size of co-added velocities dimension 1 must be the size of cross correlation dimension 0 "
+                         f"({n_co_additions}), but is of shape {np.shape(co_added_velocities)}")
 
     co_added_ccf = np.zeros((np.shape(co_added_velocities)[0], np.shape(co_added_velocities)[2]))  # (Kp, Vr)
 
@@ -20,7 +20,7 @@ def co_add_cross_correlation(cross_correlation, velocities_ccf, co_added_velocit
     ccf_interpolation_fs = [interp1d(velocities_ccf, ccf) for ccf in cross_correlation]
 
     for i, v_rest in enumerate(co_added_velocities):
-        for j in range(n_integrations):
+        for j in range(n_co_additions):
             co_added_ccf[i, :] += ccf_interpolation_fs[j](v_rest[j, :])  # sum every integration at a given Kp
 
     return co_added_ccf

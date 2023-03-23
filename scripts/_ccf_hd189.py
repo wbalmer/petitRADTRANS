@@ -775,6 +775,7 @@ def simple_ccf(wavelength_data, data, wavelength_model, model,
                relative_velocities=None, data_uncertainties=None):
     n_detectors, n_integrations, n_spectral_pixels = np.shape(data)
 
+    # Get rest velocity grid
     radial_velocity_lag = ccf_radial_velocity(
         v_sys=radial_velocity,
         kp=kp,

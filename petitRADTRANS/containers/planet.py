@@ -952,7 +952,7 @@ class Planet:
 
     @staticmethod
     def calculate_planet_radial_velocity(planet_radial_velocity_amplitude, planet_orbital_inclination,
-                                         orbital_longitude):
+                                         orbital_longitude, **kwargs):
         """Calculate the planet radial velocity as seen by an observer.
 
         Args:

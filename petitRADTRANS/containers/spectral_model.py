@@ -190,7 +190,7 @@ class BaseSpectralModel:
             - orbital_longitudes (deg) array of orbital longitudes
             - orbital_phases: array of orbital phases
             - planet_rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
-            - planet_radial_velocity_amplitude: (cm.s-1) max radial orbital velocity of the planet (Kp), can be calc.
+            - planet_radial_velocity_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
         The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
         orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
         velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
@@ -563,7 +563,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_radial_velocity_amplitude(star_mass, semi_major_axis, **kwargs):
         """
-        Calculate the planet orbital radial velocity amplitude (aka K_p).
+        Calculate the planet orbital radial velocity semi-amplitude (aka K_p).
 
         Args:
             star_mass: (g) mass of the star
@@ -571,7 +571,7 @@ class BaseSpectralModel:
             **kwargs: used to store unnecessary parameters
 
         Returns:
-            (cm.s-1) the planet max radial orbital velocity
+            (cm.s-1) the planet radial velocity semi-amplitude
         """
         return Planet.calculate_orbital_velocity(
             star_mass=star_mass,
