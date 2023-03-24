@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.6.0-a37] - 2023-03-09
+## [2.6.0-a38] - 2023-03-23
 ### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.

@@ -157,7 +157,7 @@ def calculate_co_added_ccf_snr(co_added_cross_correlation, rest_velocities, vr_p
     return co_added_cross_correlation_snr
 
 
-def ccf_analysis(wavelength_data, data, wavelength_model, model, velocities_ccf=None,
+def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_ccf=None,
                  model_velocities=None, normalize_ccf=True, calculate_ccf_snr=True, ccf_sum_axes=None,
                  planet_radial_velocity_amplitude=None, system_observer_radial_velocities=None, orbital_phases=None,
                  planet_orbital_inclination=90.0, line_spread_function_fwhm=None, pixels_per_resolution_element=2,
@@ -168,9 +168,9 @@ def ccf_analysis(wavelength_data, data, wavelength_model, model, velocities_ccf=
     If velocities_ccf is not provided, one will be calculated using planetary and instrumental parameters.
 
     Args:
-        wavelength_data: wavelengths of the data
+        wavelengths_data: wavelengths of the data
         data: data
-        wavelength_model: wavelengths of the model
+        wavelengths_model: wavelengths of the model
         model: model
         velocities_ccf: (cm.s-1) 1D array containing the values of the CCF rest velocities
         model_velocities: (cm.s-1) rest frame velocities of the model, one per model exposure
@@ -225,9 +225,9 @@ def ccf_analysis(wavelength_data, data, wavelength_model, model, velocities_ccf=
         co_added_ccf_peak_width = 3 * line_spread_function_fwhm / pixels_per_resolution_element
 
     ccfs, ccf_models, ccf_model_wavelengths = cross_correlate_data_model(
-        wavelength_data=wavelength_data,
+        wavelengths_data=wavelengths_data,
         data=data,
-        wavelength_model=wavelength_model,
+        wavelengths_model=wavelengths_model,
         model=model,
         velocities_ccf=velocities_ccf,
         model_velocities=model_velocities,
@@ -287,7 +287,7 @@ def ccf_analysis(wavelength_data, data, wavelength_model, model, velocities_ccf=
             v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths
 
 
-def cross_correlate_data_model(wavelength_data, data, wavelength_model, model, velocities_ccf=None,
+def cross_correlate_data_model(wavelengths_data, data, wavelengths_model, model, velocities_ccf=None,
                                model_velocities=None, normalize_ccf=True):
     """Cross correlate a model with data.
     The data must have at least 2 dimensions, with the last 3 corresponding to: (..., CCD, exposure, wavelength).
@@ -301,9 +301,9 @@ def cross_correlate_data_model(wavelength_data, data, wavelength_model, model, v
     The wavelengths of the model must follow the same rules as for the wavelengths of the data.
 
     Args:
-        wavelength_data: wavelengths of the data
+        wavelengths_data: wavelengths of the data
         data: data
-        wavelength_model: wavelengths of the model
+        wavelengths_model: wavelengths of the model
         model: model
         velocities_ccf: (cm.s-1) 1D array containing the values of the CCF rest velocities
         model_velocities: (cm.s-1) rest frame velocities of the model, one per model exposure
@@ -314,14 +314,14 @@ def cross_correlate_data_model(wavelength_data, data, wavelength_model, model, v
     """
     # Input checks
     _check_spectrum_wavelengths_rules(
-        wavelengths=wavelength_data,
+        wavelengths=wavelengths_data,
         spectrum=data,
         wavelength_name='wavelength_data',
         spectra_name='data'
     )
 
     _check_spectrum_wavelengths_rules(
-        wavelengths=wavelength_model,
+        wavelengths=wavelengths_model,
         spectrum=model,
         wavelength_name='wavelength_model',
         spectra_name='model'
@@ -345,14 +345,14 @@ def cross_correlate_data_model(wavelength_data, data, wavelength_model, model, v
 
     # Doppler-shift the model to the CCF rest velocities
     ccf_model_wavelengths = get_ccf_model_wavelengths(
-        wavelengths_model=wavelength_model,
+        wavelengths_model=wavelengths_model,
         velocities_ccf=velocities_ccf,
         relative_velocities=model_velocities
     )
 
     ccf_models = get_ccf_models(
         data=data,
-        wavelengths_data=wavelength_data,
+        wavelengths_data=wavelengths_data,
         model=model,
         ccf_model_wavelengths=ccf_model_wavelengths
     )
@@ -515,8 +515,13 @@ def get_ccf_model_wavelengths(wavelengths_model, velocities_ccf, relative_veloci
     if relative_velocities is None:
         relative_velocities = 0
 
+    shape_others = ()
+
     if np.ndim(wavelengths_model) >= 2:
         n_exposures = np.shape(wavelengths_model)[-2]
+
+        if np.ndim(wavelengths_model) >= 3:
+            shape_others = np.shape(wavelengths_model)[:-1]
 
         if np.ndim(relative_velocities) == 0:
             relative_velocities = np.ones(n_exposures) * relative_velocities
@@ -539,7 +544,7 @@ def get_ccf_model_wavelengths(wavelengths_model, velocities_ccf, relative_veloci
 
     # Insert velocity dimension
     wavelengths_model_shifted = np.zeros(
-        np.shape(wavelengths_model)[:-1] + (n_exposures, n_velocities, np.shape(wavelengths_model)[-1])
+        shape_others + (n_exposures, n_velocities, np.shape(wavelengths_model)[-1])
     )
 
     # Create views for efficient operation

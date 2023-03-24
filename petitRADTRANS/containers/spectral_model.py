@@ -571,7 +571,7 @@ class BaseSpectralModel:
             **kwargs: used to store unnecessary parameters
 
         Returns:
-            (cm.s-1) the planet radial velocity semi-amplitude
+            (cm.s-1) the planet orbital radial velocity semi-amplitude
         """
         return Planet.calculate_orbital_velocity(
             star_mass=star_mass,

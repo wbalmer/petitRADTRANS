@@ -110,8 +110,8 @@ def init_run():
         path=reference_filenames['mock_observation_transmission'],
         model_generating_function=retrieval_model_spec_iso,
         opacity_mode='c-k',
-        data_resolution=radtrans_parameters['mock_observation_parameters']['resolution_power'],
-        model_resolution=radtrans_parameters['mock_observation_parameters']['resolution_power'] * 2
+        data_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'],
+        model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
     )
 
     # Plot parameters
