@@ -353,10 +353,6 @@ class Data:
         if plotting:
             import matplotlib.pyplot as plt
         # Convolve to data resolution
-        if self.data_resolution is not None:
-            spectrum_model = self.convolve(wlen_model,
-                                           spectrum_model,
-                                           self.data_resolution)
 
         if not self.photometry:
 
@@ -365,6 +361,12 @@ class Data:
                         (wlen_model <= self.wlen[-1] * 1.00000001)
                 flux_rebinned = spectrum_model[index]
             else:
+
+                if self.data_resolution is not None:
+                    spectrum_model = self.convolve(wlen_model,
+                                                   spectrum_model,
+                                                   self.data_resolution)
+
                 # Rebin to model observation
                 flux_rebinned = rebin_give_width(wlen_model,
                                                  spectrum_model,
