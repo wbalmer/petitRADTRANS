@@ -626,10 +626,12 @@ class Retrieval:
                 i_p += 1
 
         for name, dd in self.data.items():
-            # Only calculate spectra within a given
-            # wlen range once
             if dd.scale:
                 dd.scale_factor = self.parameters[name + "_scale_factor"].value
+
+        for name,dd in self.data.items():
+            # Only calculate spectra within a given
+            # wlen range once
 
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
@@ -743,9 +745,6 @@ class Retrieval:
             # Calculate log likelihood
             for de_name, dede in self.data.items():
                 if dede.external_pRT_reference is not None:
-                    if dede.scale:
-                        dd.scale_factor = self.parameters[de_name + "_scale_factor"].value
-
                     if dede.external_pRT_reference == name:
                         if spectrum_model is None:
                             return -1e99
@@ -897,7 +896,8 @@ class Retrieval:
                              model_generating_func=None,
                              ret_name=None,  # TODO remove unused parameter
                              contribution=False,
-                             pRT_object=None):
+                             pRT_object=None,
+                             pRT_reference=None):
         # Find the boundaries of the wavelength range to calculate
         wmin = 99999.0
         wmax = 0.0
@@ -913,6 +913,8 @@ class Retrieval:
         # Set up the pRT object
         if pRT_object is not None:
             atmosphere = pRT_object
+        elif pRT_reference is not None:
+            atmosphere = self.data[pRT_reference].pRT_object
         else:
             atmosphere = Radtrans(line_species=cp.copy(self.rd.line_species),
                                   rayleigh_species=cp.copy(self.rd.rayleigh_species),
@@ -939,7 +941,8 @@ class Retrieval:
         # get the spectrum
         return mg_func(atmosphere, parameters, PT_plot_mode=False, AMR=self.rd.AMR)
 
-    def get_best_fit_model(self, best_fit_params, parameters_read, ret_name=None, contribution=False):
+    def get_best_fit_model(self, best_fit_params, parameters_read, ret_name=None, contribution=False,
+                           pRT_reference=None, refresh=True):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
         range of the retrieval, to be used in plots.
@@ -953,6 +956,14 @@ class Retrieval:
                 If plotting a fit from a different retrieval, input the retrieval name to be included.
             contribution : bool
                 # TODO complete docstring
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
 
         Returns:
             bf_wlen : numpy.ndarray
@@ -976,9 +987,9 @@ class Retrieval:
             self.best_fit_params["pressure_simple"] = self.parameters["pressure_simple"]
 
         if contribution:
-            if os.path.exists(self.output_dir + "evaluate_"
-                              + self.retrieval_name + "/"
-                              + ret_name + "_best_fit_model_contribution.npy"):
+            if not refresh and os.path.exists(self.output_dir + "evaluate_"
+                                              + self.retrieval_name + "/"
+                                              + ret_name + "_best_fit_model_contribution.npy"):
                 print("Loading best fit spectrum and contribution from file")
                 bf_contribution = np.load(self.output_dir + "evaluate_"
                                           + self.retrieval_name + "/"
@@ -992,15 +1003,16 @@ class Retrieval:
             bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
                                                                               model_generating_func=None,
                                                                               ret_name=ret_name,
-                                                                              contribution=contribution)
+                                                                              contribution=contribution,
+                                                                              pRT_reference=pRT_reference)
             np.save(self.output_dir + "evaluate_"
                     + self.retrieval_name + "/"
                     + ret_name + "_best_fit_model_contribution",
                     bf_contribution)
         else:
-            if os.path.exists(self.output_dir + "evaluate_"
-                              + self.retrieval_name + "/"
-                              + ret_name + "_best_fit_model_full.npy"):
+            if not refresh and os.path.exists(self.output_dir + "evaluate_"
+                                              + self.retrieval_name + "/"
+                                              + ret_name + "_best_fit_model_full.npy"):
                 print("Loading best fit spectrum from file")
                 bf_wlen, bf_spectrum = np.load(self.output_dir + "evaluate_"
                                                + self.retrieval_name + "/"
@@ -1011,7 +1023,8 @@ class Retrieval:
                 self.best_fit_params,
                 model_generating_func=None,
                 ret_name=ret_name,
-                contribution=contribution
+                contribution=contribution,
+                pRT_reference=pRT_reference
             )
             bf_contribution = None  # prevent eventual reference before assignment
 
@@ -1373,7 +1386,8 @@ class Retrieval:
 
         return
 
-    def plot_spectra(self, samples_use, parameters_read, model_generating_func=None):
+    def plot_spectra(self, samples_use, parameters_read, model_generating_func=None, pRT_reference=None,
+                     refresh=True):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -1388,6 +1402,14 @@ class Retrieval:
                 (pRT_object, params, pt_plot_mode, AMR, resolution)
                 and will return the wavlength and flux arrays as calculated by petitRadTrans.
                 If no argument is given, it uses the method of the first dataset included in the retrieval.
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
 
         Returns:
             fig : matplotlib.figure
@@ -1426,7 +1448,9 @@ class Retrieval:
         bf_wlen, bf_spectrum = self.get_best_fit_model(
             samples_use[best_fit_index, :-1],  # set of parameters with the lowest log-likelihood (best-fit)
             parameters_read,  # name of the parameters
-            model_generating_func
+            model_generating_func,
+            pRT_reference=pRT_reference,
+            refresh=refresh
         )
 
         # Iterate through each dataset, plotting the data and the residuals
@@ -1643,7 +1667,8 @@ class Retrieval:
         self.evaluate_sample_spectra = check
         return fig, ax, ax_r
 
-    def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False):
+    def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
+                     pRT_reference=None, refresh=True):
         """
         Plot a set of randomly sampled output spectra for each dataset in
         the retrieval.
@@ -1667,6 +1692,14 @@ class Retrieval:
                 data.
             save_outputs : bool
                 # TODO complete docstring
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
         """
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
@@ -1700,9 +1733,22 @@ class Retrieval:
             if os.path.exists(path + "posterior_sampled_spectra_" + str(int(i_sample + 1)).zfill(5)):
                 wlen, model = np.load(path + "posterior_sampled_spectra_" + str(int(i_sample + 1)).zfill(5) + ".npy")
             else:
+                print(f"Generating sampled spectrum {i_sample} / {self.rd.plot_kwargs['nsample']}...")
+
                 parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
                 parameters["contribution"] = Parameter("contribution", False, value=False)
-                wlen, model = self.get_full_range_model(parameters, pRT_object=atmosphere)
+                retVal = self.get_full_range_model(parameters, pRT_object=atmosphere)
+
+                wlen = None
+                model = None
+
+                if len(retVal) == 2:
+                    wlen, model = retVal
+                elif len(retVal) == 3:
+                    wlen, model, __ = retVal
+                else:
+                    ValueError(f"expected 2 or 3 values to unpack from full range model, "
+                               f"but got {len(retVal)}")
 
             if downsample_factor is not None:
                 model = running_mean(model, downsample_factor)[::downsample_factor]
@@ -1712,7 +1758,8 @@ class Retrieval:
                 np.save(path + "posterior_sampled_spectra_" +
                         str(int(i_sample + 1)).zfill(5),
                         np.column_stack((wlen, model)))
-            ax.plot(wlen, model, color="#00d2f3", alpha=1 / self.rd.plot_kwargs["nsample"] + 0.1, linewidth=0.2,
+            ax.plot(wlen, model * self.rd.plot_kwargs["y_axis_scaling"],
+                    color="#00d2f3", alpha=1 / self.rd.plot_kwargs["nsample"] + 0.1, linewidth=0.2,
                     marker=None)
         log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
@@ -1720,10 +1767,15 @@ class Retrieval:
         # First get the fit for each dataset for the residual plots
         # self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
-        bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],
-                                                       parameters_read)
+        bf_wlen, bf_spectrum = self.get_best_fit_model(
+            samples_use[best_fit_index, :-1],
+            parameters_read,
+            pRT_reference=pRT_reference,
+            refresh=refresh
+        )
+
         ax.plot(bf_wlen,
-                bf_spectrum,
+                bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                 marker=None,
                 label=rf"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}",
                 linewidth=4,
@@ -1741,7 +1793,7 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False):
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = True):
         """
         Plot the PT profile with error contours
 
@@ -1754,6 +1806,11 @@ class Retrieval:
             contribution : bool
                 Weight the opacity of the pt profile by the emission contribution function,
                 and overplot the contribution curve.
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
 
         Returns:
             fig : matplotlib.figure
@@ -1813,9 +1870,12 @@ class Retrieval:
 
         if contribution:
             self.PT_plot_mode = False
-            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],
-                                                                            parameters_read,
-                                                                            contribution=True)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
+                samples_use[best_fit_index, :-1],
+                parameters_read,
+                contribution=True,
+                refresh=refresh
+            )
             nu = nc.c / bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
@@ -1989,7 +2049,7 @@ class Retrieval:
         plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
     def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, log_scale_contribution=False,
-                          n_contour_levels=30):
+                          n_contour_levels=30, refresh=True):
         """
         Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
         between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
@@ -2008,6 +2068,11 @@ class Retrieval:
                 # TODO complete docstring
             n_contour_levels : int
                 # TODO complete docstring
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
 
         Returns:
             fig : matplotlib.figure
@@ -2032,9 +2097,12 @@ class Retrieval:
         # First get the fit for each dataset for the residual plots
         # self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         # Then get the full wavelength range
-        bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],
-                                                                        parameters_read,
-                                                                        contribution=True)
+        bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
+            samples_use[best_fit_index, :-1],
+            parameters_read,
+            contribution=True,
+            refresh=refresh
+        )
 
         index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
         bf_contribution[index] = 1e-16
@@ -2094,9 +2162,13 @@ class Retrieval:
         for spec in species_to_plot:
             ax.plot(abundances[spec], pressures, label=spec.split('_')[0])
         if contribution:
-            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(samples_use[best_fit_index, :-1],
-                                                                            parameters_read,
-                                                                            contribution=True)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
+                samples_use[best_fit_index, :-1],
+                parameters_read,
+                contribution=True,
+                refresh=refresh
+            )
+
             nu = nc.c / bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
