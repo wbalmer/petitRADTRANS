@@ -190,7 +190,9 @@ Then you just need to start the conversion:
 		convert()
 
 Finally, these input files need to be converted to petitRADTRANS
-k-tables. This is done in an analogous way as explained in Section
+k-tables if you are interested in getting low-resolution (mode = `c-k`) opacities.
+If you want to get high-resolution opacities (mode = `lbl`) you still need to convert the files
+to pRT's streamed binary format. Both of these operations are done in an analogous way as explained in Section
 :ref:`EXtopPRT` below. When doing this, note that you can omit the step rebinning the cross-section
 files to the petitRADTRANS wavelength grid, because this was already
 done in ``convert()`` above!
