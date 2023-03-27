@@ -19,6 +19,8 @@ reference_filenames = {
         'config_test_radtrans',
     'guillot_2010':
         'radtrans_guillot_2010_temperature_profile_ref',
+    'co_added_cross_correlation':
+        'co_added_cross_correlation_ref',
     'correlated_k_transmission':
         'radtrans_correlated_k_transmission_ref',
     'correlated_k_transmission_cloud_power_law':

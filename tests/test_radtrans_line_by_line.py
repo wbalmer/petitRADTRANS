@@ -366,4 +366,13 @@ def test_line_by_line_spectral_model_transmission_ccf():
             planet_radial_velocity_function=None
         )
 
-    # TODO test CCF values
+    # Comparison
+    compare_from_reference_file(
+        reference_file=reference_filenames['co_added_cross_correlation'],
+        comparison_dict={
+            'rest_velocities': v_rest,
+            'orbital_radial_velocity_amplitudes': kps,
+            'co_added_cross_correlations': co_added_cross_correlations
+        },
+        relative_tolerance=relative_tolerance
+    )
