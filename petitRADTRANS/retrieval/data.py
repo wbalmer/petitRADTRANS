@@ -241,6 +241,9 @@ class Data:
         self.wlen = obs[:,0]
         self.flux = obs[:,1]
         self.flux_error = obs[:,2]
+        self.update_covariance_from_flux_error()
+
+    def update_covariance_from_flux_error(self):
         self.covariance = np.diag(self.flux_error**2)
         self.inv_cov = np.linalg.inv(self.covariance)
         sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
@@ -367,12 +370,12 @@ class Data:
         if plotting:
             import matplotlib.pyplot as plt
         # Convolve to data resolution
-        if self.data_resolution is not None:
-            spectrum_model = self.convolve(wlen_model,
-                                    spectrum_model,
-                                    self.data_resolution)
 
         if not self.photometry:
+            if self.data_resolution is not None:
+                spectrum_model = self.convolve(wlen_model,
+                                        spectrum_model,
+                                        self.data_resolution)
             # Rebin to model observation
             flux_rebinned = rebin_give_width(wlen_model,
                                              spectrum_model,
@@ -405,7 +408,7 @@ class Data:
 
             if self.scale_err:
                 cov = self.scale_factor**2 * self.covariance
-                inv_cov =  np.linalg.inv(cov)
+                inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
             logL += -0.5*np.dot(diff, np.dot(inv_cov, diff))
             logL += -0.5 * log_covariance_determinant

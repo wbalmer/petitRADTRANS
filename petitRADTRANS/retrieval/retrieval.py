@@ -617,7 +617,7 @@ class Retrieval:
             for de_name,dede in self.data.items():
                 if dede.external_pRT_reference is not None:
                     if dede.scale:
-                        dd.scale_factor = self.parameters[de_name + "_scale_factor"].value
+                        dede.scale_factor = self.parameters[de_name + "_scale_factor"].value
                     if dede.external_pRT_reference == name:
                         if spectrum_model is None:
                             return -1e99
