@@ -629,7 +629,7 @@ class Retrieval:
             if dd.scale:
                 dd.scale_factor = self.parameters[name + "_scale_factor"].value
 
-        for name,dd in self.data.items():
+        for name, dd in self.data.items():
             # Only calculate spectra within a given
             # wlen range once
 
@@ -645,6 +645,7 @@ class Retrieval:
                         wlen_model, spectrum_model, additional_logl = retVal
                     else:
                         wlen_model, spectrum_model = retVal
+                        additional_logl = 0.
 
                     # Sanity checks on outputs
                     if spectrum_model is None:
