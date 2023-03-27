@@ -5,8 +5,11 @@ import corner
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+from matplotlib import colors
 from scipy.stats import binned_statistic
 from petitRADTRANS import nat_cst as nc
+import scicomap as sc
+import holoviews as hv
 from .data import Data
 
 def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val = None):
@@ -159,11 +162,12 @@ def contour_corner(sampledict, \
 
         color_list = ['#009FB8','#FF695C', '#6171FF', '#FFBB33', '#70FF92', "#FF1F69", "#52AC25", '#E574FF', "#FF261D", "#B429FF" ]
     else:
-        color_list = [None,None,None,None,None] #TODO get the default cmap
+        colors = hv.Cycle().values#prt_colours
+        color_list = [colors[0], colors[2], colors[7], colors[3], colors[5], colors[1], colors[6]]
         mpl.rcParams.update(mpl.rcParamsDefault)
 
         #from .plot_style import prt_colours
-    color_list = ["dodgerblue","deeppink","darkviolet"]#prt_colours
+    #color_list = colors=['tab:blue','midnightblue']#["tab:blue", "tab:orange", "tab:green"]
     tcolor = 'k'
     N_samples = []
     range_list = []
@@ -216,7 +220,7 @@ def contour_corner(sampledict, \
                 range_list.append(range_take)
         if true_values:
             best_fit = true_values
-            tcolor = 'red'
+            tcolor = 'k'
             #print(best_fit)
         #fig = plt.figure(figsize = (60,60),dpi=80)
         label_kwargs = None
@@ -230,14 +234,29 @@ def contour_corner(sampledict, \
             title_kwargs = kwargs["title_kwargs"]
         if "hist_kwargs" in kwargs.keys():
             hist_kwargs = kwargs["hist_kwargs"]
+            if '#' in color_list[count]:
+                value = color_list[count].lstrip('#')
+                lv = len(value)
+                color = tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+                hist_kwargs["facecolor"] =  (color[0]/255,color[1]/255,color[2]/255,0.5)
+            else:
+                hist_kwargs["facecolor"] = color_list[count]
+
         if "hist2d_kwargs" in kwargs.keys():
             hist2d_kwargs = kwargs["hist2d_kwargs"]
+            #hist2d_kwargs["color"] = color_list[count]
+            hist2d_kwargs["fill_contours"] = True
+            hist2d_kwargs["plot_density"] = True
+            hist2d_kwargs["points"] = False
+            hist2d_kwargs["no_fill_contours"] = False
+
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
-
+            contour_kwargs["colors"] = color_list[count]
+        for i,label in enumerate(labels_list):
+            labels_list[i] = label +'\n'
         if count == 0:
             fig = corner.corner(np.array(data_list).T,
-                                #fig = fig,
                                 smooth=True,
                                 title_fmt = ".2f",
                                 show_titles = True,
@@ -246,14 +265,14 @@ def contour_corner(sampledict, \
                                 label_kwargs = label_kwargs,
                                 range = range_list,
                                 color = color_list[count],
-                                quantiles=[0.16, 0.5, 0.84],
+                                quantiles=[],
                                 hist2d_kwargs = hist2d_kwargs,
                                 plot_contours = True,
                                 contour_kwargs = contour_kwargs,
                                 hist_kwargs = hist_kwargs,
                                 levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
-                                truths=best_fit,
-                                truth_color=tcolor
+                                #truths=best_fit,
+                                #truth_color=tcolor
                                 )
             if len(list(sampledict.keys()))==1:
                 plt.savefig(output_file, bbox_inches='tight')
@@ -267,7 +286,7 @@ def contour_corner(sampledict, \
                           show_titles = False,
                           range = range_list,
                           color = color_list[count],
-                          quantiles=[0.16, 0.5, 0.84],
+                          quantiles=[],#0.16, 0.5, 0.84
                           labels = labels_list,
                           label_kwargs = label_kwargs,
                           hist2d_kwargs = hist2d_kwargs,
@@ -276,7 +295,7 @@ def contour_corner(sampledict, \
                           hist_kwargs = hist_kwargs,
                           levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
                           truths=best_fit,
-                          truth_color='red'
+                          truth_color=tcolor
                           )
         #if dimensions == 1:
         #    plt.tight_layout(h_pad=0, w_pad=0)
@@ -286,12 +305,16 @@ def contour_corner(sampledict, \
             label = short_name[key]
         handles.append(Line2D([0], [0], marker = 'o',color=color_list[count], label = label,markersize = 15))
         count += 1
+    corner.overplot_lines(fig, best_fit, color="k", linewidth = 2.5)
 
     #fig.subplots_adjust( wspace=0.005, hspace=0.005)
     if legend:
         fig.get_axes()[2].legend(handles = handles,
                                  loc = 'upper right' ,
-                                 fontsize = 24)
+                                 fontsize = 20)
+    for ax in fig.get_axes():
+        ax.tick_params(axis='both', which='major', labelsize=14)
+        ax.tick_params(axis='both', which='minor', labelsize=10)
     plt.savefig(output_file,dpi=300, bbox_inches='tight')
     if prt_plot_style:
         import petitRADTRANS.retrieval.plot_style

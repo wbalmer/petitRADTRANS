@@ -938,9 +938,17 @@ class Retrieval:
         norm = 0
         for name, dd in self.data.items():
             if dd.covariance is not None:
-                add = 0.5 * dd.log_covariance_determinant
-                if dd.scale_err:
-                    add *= dd.scale_factor
+                sf = 1
+                if self.best_fit_params:
+                    if dd.scale_err:
+                        sf*=self.best_fit_params[f"{name}_scale_factor"].value
+                    _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                    add = 0.5 * log_det
+                else:
+                    if dd.scale_err:
+                        sf*=dd.scale_factor
+                    _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                    add = 0.5 * log_det
             else:
                 add = 0.5*np.sum(np.log(2.0*np.pi*dd.flux_error**2.))
             norm += add
@@ -982,9 +990,18 @@ class Retrieval:
                                  spectrum_model,
                                  False)
             if dd.covariance is not None:
-                add = 0.5 * dd.log_covariance_determinant
+                if self.best_fit_params:
+                    if dd.scale_err:
+                        sf*=self.best_fit_params[f"{name}_scale_factor"].value
+                    _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                    add = 0.5 * log_det
+                else:
+                    if dd.scale_err:
+                        sf*=dd.scale_factor
+                    _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                    add = 0.5 * log_det
             else:
-                add = 0.5*np.sum(np.log(2*np.pi*dd.flux_error**2.))
+                add = 0.5*np.sum(np.log(2.0*np.pi*dd.flux_error**2.))
             norm += add
         if subtract_n_parameters:
             for name, pp in self.parameters.items():
@@ -1293,10 +1310,12 @@ class Retrieval:
                 wlen_bins = dd.wlen_bins
 
             # If the data has an arbitrary retrieved scaling factor
-            scale = dd.scale_factor
+            scale = 1
+            if dd.scale:
+                scale *= self.best_fit_params[f"{name}_scale_factor"].value
             errscale = 1.0
             if dd.scale_err:
-                errscale = dd.scale_factor
+                errscale = self.best_fit_params[f"{name}_scale_factor"].value
             if not dd.photometry:
                 best_fit_binned = rgw(self.best_fit_specs[self.retrieval_name][0], \
                                         self.best_fit_specs[self.retrieval_name][1], \
