@@ -368,10 +368,6 @@ class Data:
                 The log likelihood of the model given the data.
         """
         # Convolve to data resolution
-        if self.data_resolution is not None:
-            spectrum_model = self.convolve(wlen_model,
-                                           spectrum_model,
-                                           self.data_resolution)
 
         if not self.photometry:
             if self.pRT_grid:
@@ -379,6 +375,12 @@ class Data:
                         (wlen_model <= self.wlen[-1] * 1.00000001)
                 flux_rebinned = spectrum_model[index]
             else:
+
+                if self.data_resolution is not None:
+                    spectrum_model = self.convolve(wlen_model,
+                                                   spectrum_model,
+                                                   self.data_resolution)
+
                 # Rebin to model observation
                 flux_rebinned = rebin_give_width(wlen_model,
                                                  spectrum_model,
