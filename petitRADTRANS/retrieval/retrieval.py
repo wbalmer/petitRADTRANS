@@ -2146,7 +2146,7 @@ class Retrieval:
 
         return bf_contribution
 
-    def plot_abundances(self, samples_use, parameters_read, species_to_plot=None, contribution=False):
+    def plot_abundances(self, samples_use, parameters_read, species_to_plot=None, contribution=False, refresh=True):
         print("\nPlotting Abundances profiles")
         # Get best-fit index
         log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
