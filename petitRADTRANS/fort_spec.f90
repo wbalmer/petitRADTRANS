@@ -1533,7 +1533,7 @@ subroutine get_rg_N(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
   INTEGER, intent(in)  :: struc_len, N_cloud_spec
   DOUBLE PRECISION, intent(in) :: gravity, rho(struc_len), rho_p(N_cloud_spec), temp(struc_len), &
        MMW(struc_len), frain(N_cloud_spec), cloud_mass_fracs(struc_len,N_cloud_spec), &
-       sigma_n, Kzz(struc_len)
+       sigma_n, Kzz(struc_len)  ! TODO remove cloud_mass_fracs, which is never used in that function
   DOUBLE PRECISION, intent(out) :: r_g(struc_len,N_cloud_spec)
   ! Internal
   INTEGER, parameter :: N_fit = 100

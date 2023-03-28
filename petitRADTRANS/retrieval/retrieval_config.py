@@ -38,32 +38,35 @@ class RetrievalConfig:
     """
 
     def __init__(self,
-                 retrieval_name = "retrieval_name",
-                 run_mode = "retrieval",
-                 AMR = False,
-                 scattering = False,
-                 distribution = "lognormal",
-                 pressures = None,
-                 write_out_spec_sample = False):
+                 retrieval_name="retrieval_name",
+                 run_mode="retrieval",
+                 AMR=False,
+                 scattering=False,
+                 distribution="lognormal",
+                 pressures=None,
+                 write_out_spec_sample=False):
 
-        self.retrieval_name =  retrieval_name
+        self.retrieval_name = retrieval_name
 
         if run_mode == 'retrieve':
-            run_mode = 'retrieval'
+            run_mode = 'retrieval'  # TODO please no.
+
         self.run_mode = run_mode
+
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
             sys.exit(1)
         self.AMR = AMR
+
         if pressures is not None:
             self.p_global = pressures
         else:
-            self.p_global = np.logspace(-6,3,100)
+            self.p_global = np.logspace(-6, 3, 100)
 
         self.scattering = scattering
         self.distribution = distribution
-        self.parameters = {} #: Dictionary of the parameters passed to the model generating function
-        self.data = {} #: Dictionary of the datasets used in the retrieval.
+        self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
+        self.data = {}  #: Dictionary of the datasets used in the retrieval.
         self.instruments = []
         self.line_species = []
         self.cloud_species = []
@@ -74,17 +77,16 @@ class RetrievalConfig:
         self._plot_defaults()
         self.write_out_spec_sample = write_out_spec_sample
 
-        self.add_parameter("pressure_scaling",False,value = 1)
-        self.add_parameter("pressure_width",False,value = 1)
-        self.add_parameter("pressure_simple",False,value = self.p_global.shape[0])
-
+        self.add_parameter("pressure_scaling", False, value=1)
+        self.add_parameter("pressure_width", False, value=1)
+        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
 
     def _plot_defaults(self):
         ##################################################################
         # Define axis properties of spectral plot if run_mode == 'evaluate'
         ##################################################################
         self.plot_kwargs["spec_xlabel"] = 'Wavelength [micron]'
-        self.plot_kwargs["spec_ylabel"] =  "Flux [W/m2/micron]"
+        self.plot_kwargs["spec_ylabel"] = "Flux [W/m2/micron]"
         self.plot_kwargs["y_axis_scaling"] = 1.0
         self.plot_kwargs["xscale"] = 'log'
         self.plot_kwargs["yscale"] = 'linear'
@@ -99,7 +101,7 @@ class RetrievalConfig:
         self.plot_kwargs["temp_limits"] = [150, 3000]
         self.plot_kwargs["press_limits"] = [1e2, 1e-5]
 
-    def _setup_pres(self, scaling = 10, width = 3):
+    def _setup_pres(self, scaling=10, width=3):
         """
         This converts the standard pressure grid into the correct length
         for the AMR pressure grid. The scaling adjusts the resolution of the
@@ -120,16 +122,16 @@ class RetrievalConfig:
         self.width = width
         nclouds = len(self.cloud_species)
         if nclouds == 0:
-            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
-        new_len = self.p_global.shape[0]  + nclouds*width*(scaling-1)
-        self.amr_pressure = np.logspace(np.log10(self.p_global[0]),np.log10(self.p_global[-1]),new_len)
-        self.add_parameter("pressure_scaling",False,value = scaling)
-        self.add_parameter("pressure_width",False,value = width)
-        self.add_parameter("pressure_simple",False,value = self.p_global.shape[0])
+            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up amr")
+        new_len = self.p_global.shape[0] + nclouds * width * (scaling - 1)
+        self.amr_pressure = np.logspace(np.log10(self.p_global[0]), np.log10(self.p_global[-1]), new_len)
+        self.add_parameter("pressure_scaling", False, value=scaling)
+        self.add_parameter("pressure_width", False, value=width)
+        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
 
         return self.amr_pressure
 
-    def add_parameter(self,name,free, value = None, transform_prior_cube_coordinate  = None):
+    def add_parameter(self, name, free, value=None, transform_prior_cube_coordinate=None):
         """
         This function adds a Parameter (see parameter.py) to the dictionary of parameters. A Parameter
         has a name and a boolean parameter to set whether it is a free or fixed parameter during the retrieval.
@@ -149,8 +151,9 @@ class RetrievalConfig:
         """
 
         self.parameters[name] = Parameter(name, free, value,
-                                          transform_prior_cube_coordinate = transform_prior_cube_coordinate)
-    def list_available_line_species(self):
+                                          transform_prior_cube_coordinate=transform_prior_cube_coordinate)
+
+    def list_available_line_species(self):  # TODO could be static
         """
         List the currently installed opacity tables that are available for species that contribute to the line opacity.
         """
@@ -168,15 +171,20 @@ class RetrievalConfig:
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/corr_k/")]
         files = set([f.split('_R_')[0] for f in files])
         print("\ncorrelated-k opacities")
-        for f in files: print(f)
+
+        for f in files:
+            print(f)
 
         lbl = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/line_by_line/")]
         lbl = set(lbl)
         print("\nline-by-line opacities")
-        for f in lbl: print(f)
+
+        for f in lbl:
+            print(f)
+
         return files.union(lbl)
 
-    def list_available_cloud_species(self):
+    def list_available_cloud_species(self):  # TODO could be static
         """
         List the currently installed opacity tables that are available for cloud species.
         """
@@ -193,10 +201,13 @@ class RetrievalConfig:
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/clouds/")]
         files = set(files)
-        for f in files: print(f)
+
+        for f in files:
+            print(f)
+
         return files
 
-    def list_available_cia_species(self):
+    def list_available_cia_species(self):  # TODO could be static
         """
         List the currently installed opacity tables that are available for CIA species.
         """
@@ -213,10 +224,13 @@ class RetrievalConfig:
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/cia/")]
         files = set(files)
-        for f in files: print(f)
+
+        for f in files:
+            print(f)
+
         return files
 
-    def set_line_species(self,linelist,eq=False,abund_lim=(-6.0,-0.5)):
+    def set_line_species(self, linelist, eq=False, abund_lim=(-6.0, -0.5)):
         """
         Set RadTrans.line_species
 
@@ -233,7 +247,7 @@ class RetrievalConfig:
                 The list of species to include in the retrieval
             eq : bool
                 If false, the retrieval should use free chemistry, and Parameters for the abundance of each
-                species in the linelist will be added to the retrieval. Otherwise equilibrium chemistry will
+                species in the linelist will be added to the retrieval. Otherwise, equilibrium chemistry will
                 be used. If you need fine control species, use the add_line_species and set up each species
                 individually.
             abund_lim : Tuple(float,float)
@@ -242,15 +256,19 @@ class RetrievalConfig:
                 The abundance limits must be given in log10 units of the mass fraction.
         """
         if abund_lim[1] > 0.0:
-            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-            sys.exit(2)
+            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+
         self.line_species = linelist
+
         if not eq:
             for spec in self.line_species:
-                self.parameters[spec] = Parameter(spec,True,\
-                                    transform_prior_cube_coordinate = \
-                                    lambda x : abund_lim[0]+(abund_lim[1]-abund_lim[0])*x)
-    def set_rayleigh_species(self,linelist):
+                self.parameters[spec] = Parameter(
+                    spec,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
+
+    def set_rayleigh_species(self, linelist):
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
 
@@ -261,7 +279,7 @@ class RetrievalConfig:
 
         self.rayleigh_species = linelist
 
-    def set_continuum_opacities(self,linelist):
+    def set_continuum_opacities(self, linelist):
         """
         Set the list of species that contribute to the continuum opacity in the pRT object.
 
@@ -272,10 +290,11 @@ class RetrievalConfig:
 
         self.continuum_opacities = linelist
 
-    def add_line_species(self,species,eq=False,abund_lim=(-7.0,0.0), fixed_abund = None):
+    def add_line_species(self, species, eq=False, abund_lim=(-7.0, 0.0), fixed_abund=None):
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
-        The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line opacities.
+        The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
+        opacities.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
@@ -286,7 +305,7 @@ class RetrievalConfig:
                 The species to include in the retrieval
             eq : bool
                 If False, the retrieval should use free chemistry, and Parameters for the abundance of the
-                species will be added to the retrieval. Otherwise (dis)equilibrium chemistry will be used.
+                species will be added to the retrieval. Otherwise, (dis)equilibrium chemistry will be used.
             abund_lim : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
                 The range of the prior goes from abund_lim[0] to abund_lim[1]
@@ -298,20 +317,21 @@ class RetrievalConfig:
 
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
-            print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-            sys.exit(2)
+            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
 
         self.line_species.append(species)
         if not eq:
             if fixed_abund is not None:
-                self.parameters[species] = Parameter(species,False,\
-                                                    value = fixed_abund)
+                self.parameters[species] = Parameter(species, False,
+                                                     value=fixed_abund)
             else:
-                self.parameters[species] = Parameter(species,True,\
-                                        transform_prior_cube_coordinate = \
-                                        lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+                self.parameters[species] = Parameter(
+                    species,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
 
-    def remove_species_lines(self,species,free=False):
+    def remove_species_lines(self, species, free=False):
         """
         This function removes a species from the pRT line list, and if using a free chemistry retrieval,
         removes the associated Parameter of the species.
@@ -327,9 +347,10 @@ class RetrievalConfig:
         if species in self.line_species:
             self.line_species.remove(species)
         if free:
-            self.parameters.pop(species,None)
+            self.parameters.pop(species, None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), PBase_lim = None, fixed_abund = None,fixed_base=None):
+    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), PBase_lim=None, fixed_abund=None,
+                          fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -341,7 +362,7 @@ class RetrievalConfig:
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
-        Similarly for PBase_lim.
+        The same is true for PBase_lim.
 
         Args:
             species : str
@@ -350,7 +371,7 @@ class RetrievalConfig:
                 Does the retrieval model use an equilibrium cloud model. This restricts the available species!
             abund_lim : tuple(float,float)
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
-                range would be (-3,1). If eq is false, this sets the the range on the actual cloud abundance,
+                range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
                 with a typical range being (-5,0).
             PBase_lim : tuple(float,float)
                 Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
@@ -372,46 +393,65 @@ class RetrievalConfig:
         self.cloud_species.append(species)
         cname = species.split('_')[0]
         if eq:
-            self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
-                                                transform_prior_cube_coordinate = \
-                                                lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+            self.parameters['eq_scaling_' + cname] = Parameter(
+                'eq_scaling_' + cname,
+                True,
+                transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+            )
         else:
             if abund_lim[1] > 0.0:
-                print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
-                sys.exit(3)
+                raise ValueError(
+                    f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                )
 
             if fixed_abund is None:
-                self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,True,\
-                                            transform_prior_cube_coordinate = \
-                                            lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
+                self.parameters['log_X_cb_' + cname] = Parameter(
+                    'log_X_cb_' + cname,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                )
             else:
-                self.parameters['log_X_cb_'+cname] = Parameter('log_X_cb_'+cname,False,\
-                                value = fixed_abund)
+                self.parameters['log_X_cb_' + cname] = Parameter(
+                    'log_X_cb_' + cname,
+                    False,
+                    value=fixed_abund
+                )
 
         if PBase_lim is not None or fixed_base is not None:
             if fixed_base is None:
-                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,True,\
-                                                            transform_prior_cube_coordinate = \
-                                                            lambda x : PBase_lim[0] + (PBase_lim[1]-PBase_lim[0])*x)
+                self.parameters['log_Pbase_' + cname] = Parameter(
+                    'log_Pbase_' + cname,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: PBase_lim[0] + (PBase_lim[1] - PBase_lim[0]) * x
+                )
             else:
-                self.parameters['log_Pbase_'+cname] =Parameter('log_Pbase_'+cname,False,\
-                                                               value = fixed_base)
+                self.parameters['log_Pbase_' + cname] = Parameter(
+                    'log_Pbase_' + cname,
+                    False,
+                    value=fixed_base
+                )
 
     def add_data(self, name, path,
                  model_generating_function,
-                 data_resolution = None,
-                 model_resolution = None,
-                 distance = None,
-                 scale = False,
-                 scale_err = False,
-                 wlen_range_micron = None,
-                 external_pRT_reference = None,
-                 opacity_mode = 'c-k',
-                 wlen_bins = None,
-                 pRT_grid = False):
+                 data_resolution=None,
+                 model_resolution=None,
+                 distance=None,
+                 scale=False,
+                 scale_err=False,
+                 wlen_range_micron=None,
+                 external_pRT_reference=None,
+                 opacity_mode='c-k',
+                 wlen_bins=None,
+                 pRT_grid=False,
+                 pRT_object=None,
+                 wlen=None,
+                 flux=None,
+                 flux_error=None,
+                 mask=None
+                 ):
         """
         Create a Data class object.
-
+        # TODO complete docstring
         Args:
             name : str
                 Identifier for this data set.
@@ -436,9 +476,9 @@ class RetrievalConfig:
                 A pair of wavelenths in units of micron that determine the lower and upper boundaries of the
                 model computation.
             external_pRT_reference : str
-                The name of an existing Data object. This object's pRT_object will be used to calculate the chi squared
-                of the new Data object. This is useful when two datasets overlap, as only one model computation is required
-                to compute the log likelihood of both datasets.
+                The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
+                of the new Data object. This is useful when two datasets overlap, as only one model computation is
+                required to compute the log likelihood of both datasets.
             opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -448,29 +488,34 @@ class RetrievalConfig:
             pRT_grid: bool
                 Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
-
         self.data[name] = Data(name, path,
-                                model_generating_function = model_generating_function,
-                                data_resolution = data_resolution,
-                                model_resolution = model_resolution,
-                                distance = distance,
-                                scale = scale,
-                                scale_err = scale_err,
-                                wlen_range_micron = wlen_range_micron,
-                                external_pRT_reference=external_pRT_reference,
-                                opacity_mode = opacity_mode,
-                                wlen_bins=wlen_bins,
-                                pRT_grid = pRT_grid)
+                               model_generating_function=model_generating_function,
+                               data_resolution=data_resolution,
+                               model_resolution=model_resolution,
+                               distance=distance,
+                               scale=scale,
+                               scale_err=scale_err,
+                               wlen_range_micron=wlen_range_micron,
+                               external_pRT_reference=external_pRT_reference,
+                               opacity_mode=opacity_mode,
+                               wlen_bins=wlen_bins,
+                               pRT_grid=pRT_grid,
+                               pRT_object=pRT_object,
+                               wlen=wlen,
+                               flux=flux,
+                               flux_error=flux_error,
+                               mask=mask
+                               )
 
     def add_photometry(self, path,
                        model_generating_function,
-                       model_resolution = 10,
-                       distance = None,
-                       scale = False,
-                       wlen_range_micron = None,
-                       photometric_transformation_function = None,
-                       external_pRT_reference = None,
-                       opacity_mode = 'c-k'):
+                       model_resolution=10,
+                       distance=None,
+                       scale=False,
+                       wlen_range_micron=None,
+                       photometric_transformation_function=None,
+                       external_pRT_reference=None,
+                       opacity_mode='c-k'):
         """
         Create a Data class object for each photometric point in a photometry file.
         The photometry file must be a csv file and have the following structure:
@@ -481,7 +526,7 @@ class RetrievalConfig:
         If using species, the name in the data file must be of the format instrument/filter.
 
         Args:
-            name : str
+            model_generating_function : str
                 Identifier for this data set.
             path : str
                 Path to observations file, including filename.
@@ -498,12 +543,14 @@ class RetrievalConfig:
                 A pair of wavelenths in units of micron that determine the lower and upper boundaries of
                 the model computation.
             external_pRT_reference : str
-                The name of an existing Data object. This object's pRT_object will be used to calculate the
+                The name of an existing Data object. This object's prt_object will be used to calculate the
                 chi squared of the new Data object. This is useful when two datasets overlap, as only
                 one model computation is required to compute the log likelihood of both datasets.
             photometric_transformation_function : method
                 A function that will transform a spectrum into an average synthetic photometric point,
                 typicall accounting for filter transmission.
+            opacity_mode: str
+                Opacity mode.
         """
 
         with open(path) as photometry:
@@ -511,42 +558,51 @@ class RetrievalConfig:
                 try:
                     import species
                     species.SpeciesInit()
-                except:
-                    logging.error("Please provide a function to transform a spectrum into photometry, or pip install species")
-                    sys.exit(12)
+                except:  # TODO find what error is expected here
+                    logging.error(
+                        "Please provide a function to transform a spectrum into photometry, or pip install species"
+                    )
+                    raise ValueError
+
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
                     continue
+
                 vals = line.split(',')
                 name = vals[0]
                 wlow = float(vals[1])
                 whigh = float(vals[2])
                 flux = float(vals[3])
                 err = float(vals[4])
+
                 if photometric_transformation_function is None:
                     transform = species.SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 
                 if wlen_range_micron is None:
-                    wbins = [0.95*wlow,1.05*whigh]
+                    wbins = [0.95 * wlow, 1.05 * whigh]
                 else:
                     wbins = wlen_range_micron
+
                 if opacity_mode == 'lbl':
                     logging.warning("Are you sure you want a high resolution model for photometry?")
-                self.data[name] = Data(name,
-                                        path,
-                                        model_generating_function = model_generating_function,
-                                        distance = distance,
-                                        photometry = True,
-                                        wlen_range_micron = wbins,
-                                        photometric_bin_edges = [wlow,whigh],
-                                        data_resolution = np.mean([wlow,whigh])/(whigh-wlow),
-                                        model_resolution = model_resolution,
-                                        scale = scale,
-                                        photometric_transformation_function = transform,
-                                        external_pRT_reference=external_pRT_reference,
-                                        opacity_mode=opacity_mode)
+
+                self.data[name] = Data(
+                    name,
+                    path,
+                    model_generating_function=model_generating_function,
+                    distance=distance,
+                    photometry=True,
+                    wlen_range_micron=wbins,
+                    photometric_bin_edges=[wlow, whigh],
+                    data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
+                    model_resolution=model_resolution,
+                    scale=scale,
+                    photometric_transformation_function=transform,
+                    external_pRT_reference=external_pRT_reference,
+                    opacity_mode=opacity_mode
+                )
                 self.data[name].flux = flux
                 self.data[name].flux_error = err
