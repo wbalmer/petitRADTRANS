@@ -690,7 +690,7 @@ class Retrieval:
                             # Convolution and rebin are cared of in get_chisq
                             log_likelihood += dd.get_chisq(
                                 wlen_model,
-                                spectrum_model[~dd.mask],
+                                spectrum_model, #[~dd.mask],
                                 self.plotting,
                                 self.parameters
                             ) + additional_logl
