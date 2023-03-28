@@ -20,6 +20,8 @@ reference_filenames = {
         'config_test_radtrans',
     'guillot_2010':
         'radtrans_guillot_2010_temperature_profile_ref',
+    'co_added_cross_correlation':
+        'co_added_cross_correlation_ref',
     'correlated_k_transmission':
         'radtrans_correlated_k_transmission_ref',
     'correlated_k_transmission_cloud_power_law':
@@ -60,6 +62,8 @@ reference_filenames = {
         'radtrans_line_by_line_downsampled_emission_ref',
     'line_by_line_transmission':
         'radtrans_line_by_line_transmission_ref',
+    'line_by_line_transmission_2d':
+        'radtrans_line_by_line_transmission_2d_ref',
     'line_by_line_emission':
         'radtrans_line_by_line_emission_ref',
     'mass_fractions_atmosphere':
@@ -137,6 +141,7 @@ def create_test_radtrans_config_file(filename):
                     'equilibrium_temperature': 1500.0  # (K)
                 },
                 'planetary_parameters': {
+                    'name': 'PSR B1257+12 b',  # actual planet has no link to below parameters
                     'reference_pressure': 0.01,  # (bar)
                     'radius': 1.838,  # (R_jup)
                     'surface_gravity': 1e1 ** 2.45,  # (cm.s-2)
@@ -147,6 +152,7 @@ def create_test_radtrans_config_file(filename):
                 'stellar_parameters': {
                     'effective_temperature': 5778.0,  # (K)
                     'radius': 1.0,  # (R_sun)
+                    'mass': 1.0,  # (M_sun)
                     'incidence_angle': 30  # (deg)
                 },
                 'spectrum_parameters': {
@@ -192,8 +198,23 @@ def create_test_radtrans_config_file(filename):
                     'resume': False
                 },
                 'mock_observation_parameters': {
-                    'resolution_power': 60,
+                    'resolving_power': 60,
+                    'high_resolution_resolving_power': 1e5,
+                    'wavelength_range_high_resolution': (2.3005, 2.3020),
+                    'orbital_phase_range': (-1e-2, 1e-2),
+                    'system_observer_radial_velocities_range': (-5.0e5, -4.85e5),
+                    'n_exposures': 20,
+                    'planet_rest_frame_velocity_shift': -1.5e5,
                     'relative_error': 1e-2
+                },
+                'ccf_analysis_parameters': {
+                    'normalize_ccf': True,
+                    'calculate_ccf_snr': True,
+                    'ccf_sum_axes': (0,),
+                    'pixels_per_resolution_element': 2,
+                    'peak_lsf_factor': 1.5,
+                    'velocity_interval_extension_factor': -0.3,
+                    'kp_factor': 1.5
                 }
             },
             fp=f,

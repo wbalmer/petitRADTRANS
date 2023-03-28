@@ -21,7 +21,7 @@ max_number_of_tests = 3
 
 
 def init_run():
-    # Since our retrieval has already ran before, we'll set the mode to 'evaluate' so we can make some plots.
+    # Since our retrieval has already run before, we'll set the mode to 'evaluate' so we can make some plots.
     run_definition_simple = petitRADTRANS.retrieval.RetrievalConfig(
         retrieval_name="test",
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest
@@ -110,8 +110,8 @@ def init_run():
         path=reference_filenames['mock_observation_transmission'],
         model_generating_function=retrieval_model_spec_iso,
         opacity_mode='c-k',
-        data_resolution=radtrans_parameters['mock_observation_parameters']['resolution_power'],
-        model_resolution=radtrans_parameters['mock_observation_parameters']['resolution_power'] * 2
+        data_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'],
+        model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
     )
 
     # Plot parameters

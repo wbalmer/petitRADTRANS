@@ -6,6 +6,25 @@ import copy as cp
 from scipy.interpolate import interp1d,CubicSpline
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 
+import petitRADTRANS.nat_cst as nc
+
+
+def doppler_shift(wavelength_0, velocity):
+    """Calculate the Doppler-shifted wavelength for electromagnetic waves.
+
+    A negative velocity means that the source is going toward the observer. A positive velocity means the source is
+    going away from the observer.
+
+    Args:
+        wavelength_0: (cm) wavelength of the wave in the referential of the source
+        velocity: (cm.s-1) velocity of the source relative to the observer
+
+    Returns:
+        (cm) the wavelength of the source as measured by the observer
+    """
+    return wavelength_0 * np.sqrt((1 + velocity / nc.c) / (1 - velocity / nc.c))
+
+
 ##################################################################
 ### Radtrans utility for retrieval temperature model computation
 ##################################################################
@@ -51,11 +70,59 @@ def guillot_global_ret(P,delta,gamma,T_int,T_equ):
                              np.exp(-gamma*tau*3.**0.5)))**0.25
     return T
 
+
+def guillot_metallic_temperature_profile(pressures, gamma, surface_gravity,
+                                         intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
+                                         metallicity=None):
+    """Get a Guillot temperature profile depending on metallicity.
+
+    Args:
+        pressures: (bar) pressures of the profile
+        gamma: ratio between visual and infrated opacity
+        surface_gravity: (cm.s-2) surface gravity
+        intrinsic_temperature: (K) intrinsic temperature
+        equilibrium_temperature: (K) equilibrium temperature
+        kappa_ir_z0: (cm2.s-1) infrared opacity
+        metallicity: ratio of heavy elements abundance over H abundance with respect to the solar ratio
+
+    Returns:
+        temperatures: (K) the temperature at each pressures of the atmosphere
+    """
+    if metallicity is not None:
+        kappa_ir = kappa_ir_z0 * metallicity
+    else:
+        kappa_ir = kappa_ir_z0
+
+    temperatures = guillot_global(
+        P=pressures,
+        kappa_IR=kappa_ir,
+        gamma=gamma,
+        grav=surface_gravity,
+        T_int=intrinsic_temperature,
+        T_equ=equilibrium_temperature
+    )
+
+    return temperatures
+
+
 ### Modified Guillot P-T formula
 def guillot_modif(P,delta,gamma,T_int,T_equ,ptrans,alpha):
     return guillot_global_ret(P,np.abs(delta),np.abs(gamma), \
                                   np.abs(T_int),np.abs(T_equ))* \
                                   (1.-alpha*(1./(1.+ P/ptrans)))
+
+
+def hz2um(frequency):
+    """Convert frequencies into wavelengths
+
+    Args:
+        frequency: (Hz) the frequency to convert
+
+    Returns:
+        (um) the corresponding wavelengths
+    """
+    return nc.c / frequency * 1e4  # cm to um
+
 
 def isothermal(P, T):
     return T * np.ones_like(P)
@@ -100,7 +167,7 @@ def make_press_temp_iso(rad_trans_params):
 
 ### Global Guillot P-T formula with kappa/grav replaced by delta
 def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
-    '''
+    """
     Self-luminous retrieval P-T model.
 
     Args:
@@ -127,32 +194,32 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     Returns:
         Tret : np.ndarray
             The temperature as a function of atmospheric pressure.
-    '''
+    """
     # Go grom bar to cgs
-    press_cgs = press*1e6
+    press_cgs = press * 1e6
 
     # Calculate the optical depth
-    tau = delta*press_cgs**alpha
+    tau = delta * press_cgs ** alpha
 
     # This is the eddington temperature
-    tedd = (3./4.*tint**4.*(2./3.+tau))**0.25
+    tedd = (3. / 4. * tint ** 4. * (2. / 3. + tau)) ** 0.25
 
-    ab = pm.interpol_abundances(CO*np.ones_like(tedd), \
-            FeH*np.ones_like(tedd), \
-            tedd, \
-            press)
+    ab = pm.interpol_abundances(CO * np.ones_like(tedd),
+                                FeH * np.ones_like(tedd),
+                                tedd,
+                                press)
 
     nabla_ad = ab['nabla_ad']
 
     # Enforce convective adiabat
     if conv:
         # Calculate the current, radiative temperature gradient
-        nab_rad = np.diff(np.log(tedd))/np.diff(np.log(press_cgs))
+        nab_rad = np.diff(np.log(tedd)) / np.diff(np.log(press_cgs))
         # Extend to array of same length as pressure structure
         nabla_rad = np.ones_like(tedd)
         nabla_rad[0] = nab_rad[0]
         nabla_rad[-1] = nab_rad[-1]
-        nabla_rad[1:-1] = (nab_rad[1:]+nab_rad[:-1])/2.
+        nabla_rad[1:-1] = (nab_rad[1:] + nab_rad[:-1]) / 2.
 
         # Where is the atmosphere convectively unstable?
         conv_index = nabla_rad > nabla_ad
@@ -162,32 +229,31 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
             if i == 0:
                 t_take = cp.copy(tedd)
             else:
-                t_take = cp.copy(tfinal)
+                t_take = cp.copy(tfinal)  # TODO possible reference before assignment
 
-            ab = pm.interpol_abundances(CO*np.ones_like(t_take), \
-                FeH*np.ones_like(t_take), \
-                t_take, \
-                press)
+            ab = pm.interpol_abundances(CO * np.ones_like(t_take),
+                                        FeH * np.ones_like(t_take),
+                                        t_take,
+                                        press)
 
             nabla_ad = ab['nabla_ad']
 
             # Calculate the average nabla_ad between the layers
             nabla_ad_mean = nabla_ad
-            nabla_ad_mean[1:] = (nabla_ad[1:]+nabla_ad[:-1])/2.
+            nabla_ad_mean[1:] = (nabla_ad[1:] + nabla_ad[:-1]) / 2.
             # What are the increments in temperature due to convection
-            tnew = nabla_ad_mean[conv_index]*np.mean(np.diff(np.log(press_cgs)))
+            tnew = nabla_ad_mean[conv_index] * np.mean(np.diff(np.log(press_cgs)))
             # What is the last radiative temperature?
             tstart = np.log(t_take[~conv_index][-1])
             # Integrate and translate to temperature from log(temperature)
-            tnew = np.exp(np.cumsum(tnew)+tstart)
+            tnew = np.exp(np.cumsum(tnew) + tstart)
 
             # Add upper radiative and
             # lower conective part into one single array
             tfinal = cp.copy(t_take)
             tfinal[conv_index] = tnew
 
-            if np.max(np.abs(t_take-tfinal)/t_take) < 0.01:
-                #print('n_ad', 1./(1.-nabla_ad[conv_index]))
+            if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:
                 break
 
     else:
@@ -196,7 +262,7 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     # Add the three temperature-point P-T description above tau = 0.1
     def press_tau(tau):
         # Returns the pressure at a given tau, in cgs
-        return (tau/delta)**(1./alpha)
+        return (tau / delta) ** (1. / alpha)
 
     # Where is the uppermost pressure of the Eddington radiative structure?
     p_bot_spline = press_tau(0.1)
@@ -206,28 +272,28 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
         if i_intp == 0:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]), \
-                             np.log10(p_bot_spline), \
-                             4)
+            support_points_low = np.logspace(np.log10(press_cgs[0]),
+                                             np.log10(p_bot_spline),
+                                             4)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
             # radiative+convective solution
-            support_points_high = 10**np.arange(np.log10(p_bot_spline),
-                                                 np.log10(press_cgs[-1]),
-                                                 np.diff(np.log10(support_points_low))[0])
+            support_points_high = 10 ** np.arange(np.log10(p_bot_spline),
+                                                  np.log10(press_cgs[-1]),
+                                                  np.diff(np.log10(support_points_low))[0])
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low)+len(support_points_high)-1)
+            support_points = np.zeros(len(support_points_low) + len(support_points_high) - 1)
             support_points[:4] = support_points_low
             support_points[4:] = support_points_high[1:]
 
         else:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]), \
-                             np.log10(p_bot_spline), \
-                             7)
+            support_points_low = np.logspace(np.log10(press_cgs[0]),
+                                             np.log10(p_bot_spline),
+                                             7)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
@@ -235,7 +301,7 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
             support_points_high = np.logspace(np.log10(p_bot_spline), np.log10(press_cgs[-1]), 7)
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low)+len(support_points_high)-1)
+            support_points = np.zeros(len(support_points_low) + len(support_points_high) - 1)
             support_points[:7] = support_points_low
             support_points[7:] = support_points_high[1:]
 
@@ -243,11 +309,11 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
         t_support = np.zeros_like(support_points)
 
         if i_intp == 0:
-            tfintp = interp1d(press_cgs, tfinal,kind='cubic')
+            tfintp = interp1d(press_cgs, tfinal, kind='cubic')
             # The temperature at p_bot_spline (from the radiative-convectice solution)
-            t_support[int(len(support_points_low))-1] = tfintp(p_bot_spline)
+            t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
             # The temperature at pressures below p_bot_spline (free parameters)
-            t_support[:(int(len(support_points_low))-1)] = T3
+            t_support[:(int(len(support_points_low)) - 1)] = T3
             # t_support[:3] = tfintp(support_points_low)
             # The temperature at pressures above p_bot_spline
             # (from the radiative-convectice solution)
@@ -255,14 +321,14 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
                 tfintp(support_points[(int(len(support_points_low))):])
 
         else:
-            tfintp1 = interp1d(press_cgs, tret,kind='cubic')
-            t_support[:(int(len(support_points_low))-1)] = \
-                tfintp1(support_points[:(int(len(support_points_low))-1)])
+            tfintp1 = interp1d(press_cgs, tret, kind='cubic')  # TODO possible reference before assignment
+            t_support[:(int(len(support_points_low)) - 1)] = \
+                tfintp1(support_points[:(int(len(support_points_low)) - 1)])
 
             tfintp = interp1d(press_cgs, tfinal)
             # The temperature at p_bot_spline (from the radiative-convectice solution)
-            t_support[int(len(support_points_low))-1] = tfintp(p_bot_spline)
-            #print('diff', t_connect_calc - tfintp(p_bot_spline))
+            t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
+            # print('diff', t_connect_calc - tfintp(p_bot_spline))
             t_support[int(len(support_points_low)):] = \
                 tfintp(support_points[(int(len(support_points_low))):])
 
@@ -270,8 +336,66 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
         cs = CubicSpline(np.log10(support_points), t_support)
         tret = cs(np.log10(press_cgs))
 
-    tret[tret<0.0] = 10.0
+    tret[tret < 0.0] = 10.0
     # Return the temperature, the pressure at tau = 1,
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
-    return tret#, press_tau(1.)/1e6, tfintp(p_bot_spline)
+    return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
+
+
+def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
+    """
+    Convert a radiosity from erg.s-1.cm-2.sr-1/cm to erg.s-1.cm-2.sr-1/Hz at a given wavelength.
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
+        radiosity_erg_hz = radiosity_erg_cm * d[cm]/d[Hz]
+        => radiosity_erg_hz = radiosity_erg_cm * wavelength**2 / c
+
+    Args:
+        radiosity_erg_cm: (erg.s-1.cm-2.sr-1/cm)
+        wavelength: (cm)
+
+    Returns:
+        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+    """
+    return radiosity_erg_cm * wavelength ** 2 / nc.c
+
+
+def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
+    """Convert a radiosity from erg.s-1.cm-2.sr-1/Hz to erg.s-1.cm-2.sr-1/cm at a given frequency.
+
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        => d[Hz]/d[cm] = [Hz]**2 / c
+        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
+        radiosity_erg_cm = radiosity_erg_hz * d[Hz]/d[cm]
+        => radiosity_erg_cm = radiosity_erg_hz * frequency**2 / c
+
+    Args:
+        radiosity_erg_hz: (erg.s-1.cm-2.sr-1/Hz)
+        frequency: (Hz)
+
+    Returns:
+        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+    """
+    # TODO move to physics
+    return radiosity_erg_hz * frequency ** 2 / nc.c
+
+
+def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):
+    """Calculate the spectral irradiance of a spherical source on a target from its spectral radiosity.
+
+    Args:
+        spectral_radiosity: (M.L-1.T-3) spectral radiosity of the source
+        source_radius: (L) radius of the spherical source
+        target_distance: (L) distance from the source to the target
+
+    Returns:
+        The irradiance of the source on the target (M.L-1.T-3).
+    """
+    return spectral_radiosity * (source_radius / target_distance) ** 2

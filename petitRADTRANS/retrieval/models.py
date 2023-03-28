@@ -231,10 +231,18 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     T1 = T2*(1.0-parameters['T1'].value)
     temp_arr = np.array([T1,T2,T3])
 
-    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
-    gravity, R_pl =  compute_gravity(parameters)
+    delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
 
-    temperatures = PT_ret_model(temp_arr, \
+    # let's start out by setting up our global pressure arrays
+    # This is used for the hi res bins for AMR
+    pglobal_check(pRT_object.press/1e6,
+                  parameters['pressure_simple'].value,
+                  parameters['pressure_scaling'].value)
+
+    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
+    gravity, R_pl = compute_gravity(parameters)
+
+    temperatures = PT_ret_model(temp_arr,
                             delta,
                             parameters['alpha'].value,
                             parameters['T_int'].value,

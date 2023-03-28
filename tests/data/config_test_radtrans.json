@@ -40,6 +40,7 @@
         "equilibrium_temperature": 1500.0
     },
     "planetary_parameters": {
+        "name": "PSR B1257+12 b",
         "reference_pressure": 0.01,
         "radius": 1.838,
         "surface_gravity": 281.8382931264455,
@@ -50,6 +51,7 @@
     "stellar_parameters": {
         "effective_temperature": 5778.0,
         "radius": 1.0,
+        "mass": 1.0,
         "incidence_angle": 30
     },
     "spectrum_parameters": {
@@ -119,7 +121,31 @@
         "resume": false
     },
     "mock_observation_parameters": {
-        "resolution_power": 60,
+        "resolving_power": 60,
+        "high_resolution_resolving_power": 1e5,
+        "wavelength_range_high_resolution": [
+            2.3005,
+            2.3020
+        ],
+        "orbital_phase_range": [
+            -1e-2,
+            1e-2
+        ],
+        "system_observer_radial_velocities_range": [
+            -5.0e5,
+            -4.85e5
+        ],
+        "n_exposures": 20,
+        "planet_rest_frame_velocity_shift": -1.5e5,
         "relative_error": 0.01
+    },
+    "ccf_analysis_parameters": {
+        "normalize_ccf": true,
+        "calculate_ccf_snr": true,
+        "ccf_sum_axes": [0],
+        "pixels_per_resolution_element": 2,
+        "peak_lsf_factor": 1.5,
+        "velocity_interval_extension_factor": -0.3,
+        "kp_factor": 1.5
     }
 }

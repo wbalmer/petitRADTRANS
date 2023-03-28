@@ -1,5 +1,6 @@
 import numpy as np
-from petitRADTRANS import Radtrans
+from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.physics import guillot_global
 
 atmosphere = Radtrans(line_species = ['H2O_main_iso',
                                       'CO_all_iso',
@@ -42,41 +43,4 @@ MMW = 2.33 * np.ones_like(temperature)
 
 atmosphere.calc_transm(temperature, mass_fractions, gravity, MMW, R_pl=R_pl, P0_bar=P0)
 
-'''
-import pylab as plt
-plt.rcParams['figure.figsize'] = (10, 6)
-
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean)
-
-plt.xlabel('Wavelength (microns)')
-plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
-plt.show()
-plt.clf()
-
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean)
-
-plt.xlim([2.3,2.3025])
-plt.xscale('log')
-plt.xlabel('Wavelength (microns)')
-plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
-plt.show()
-plt.clf()
-'''
-
 atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW)
-
-'''
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.flux/1e-6)
-
-plt.xlabel('Wavelength (microns)')
-plt.ylabel(r'Planet flux $F_\nu$ (10$^{-6}$ erg cm$^{-2}$ s$^{-1}$ Hz$^{-1}$)')
-plt.show()
-
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.flux/1e-6)
-
-plt.xlim([2.3,2.3025])
-plt.xlabel('Wavelength (microns)')
-plt.ylabel(r'Planet flux $F_\nu$ (10$^{-6}$ erg cm$^{-2}$ s$^{-1}$ Hz$^{-1}$)')
-plt.show()
-plt.clf()
-'''
