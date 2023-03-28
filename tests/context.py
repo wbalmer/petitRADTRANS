@@ -13,8 +13,8 @@ if path is None:
     warnings.warn("system variable pRT_input_data_path was not defined, "
                   "setting it to the value hardcoded into tests/context.py\n"
                   "Change it if necessary (this will become unnecessary in a future update)")
-    # os.environ["pRT_input_data_path"] = r"/Users/molliere/Documents/programm_data/petitRADTRANS_public/input_data"
-    os.environ["pRT_input_data_path"] = r"/home/dblain/petitradtrans/input_data"
+    os.environ["pRT_input_data_path"] = r"/Users/molliere/Documents/programm_data/petitRADTRANS_public/input_data"
+    #os.environ["pRT_input_data_path"] = r"/home/dblain/petitradtrans/input_data"
 
 import petitRADTRANS
 import petitRADTRANS.ccf
