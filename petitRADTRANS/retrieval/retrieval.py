@@ -585,7 +585,8 @@ class Retrieval:
                     #print(np.mean(spectrum_model))
                     log_likelihood += dd.get_chisq(wlen_model,
                                             spectrum_model,
-                                            self.plotting)
+                                            self.plotting,
+                                            parameters = self.parameters)
                 else:
                     # Get the PT profile
                     if name == self.rd.plot_kwargs["take_PTs_from"]:
@@ -625,7 +626,8 @@ class Retrieval:
                             return -1e99
                         log_likelihood += dede.get_chisq(wlen_model, \
                                         spectrum_model, \
-                                        self.plotting)
+                                        self.plotting,
+                                        self.parameters)
         #print(f"LL: {log_likelihood+log_prior}")
         if log_likelihood + log_prior < -9e98:
             return -1e98
@@ -980,7 +982,8 @@ class Retrieval:
         for name, dd in self.data.items():
             logL += dd.get_chisq(wlen_model,
                                  spectrum_model,
-                                 False)
+                                 False,
+                                 self.parameters)
             if dd.covariance is not None:
                 add = 0.5 * dd.log_covariance_determinant
             else:

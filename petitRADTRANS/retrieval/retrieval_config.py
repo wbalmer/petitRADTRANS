@@ -329,7 +329,7 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species,None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), PBase_lim = None, fixed_abund = None,fixed_base=None):
+    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), scaling_factor = None, PBase_lim = None, fixed_abund = None,fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -371,11 +371,11 @@ class RetrievalConfig:
 
         self.cloud_species.append(species)
         cname = species.split('_')[0]
-        if eq:
+        if scaling_factor is not None:
             self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
                                                 transform_prior_cube_coordinate = \
-                                                lambda x : abund_lim[0] + (abund_lim[1]-abund_lim[0])*x)
-        else:
+                                                lambda x : scaling_factor[0] + (scaling_factor[1]-scaling_factor[0])*x)
+        if not eq:
             if abund_lim[1] > 0.0:
                 print("WARNING!: Upper limit must be <= 0.0! Please set abundance limits as (low,high).")
                 sys.exit(3)
