@@ -1111,7 +1111,7 @@ class Planet:
         add = np.zeros(times.size)
         add[np.less(phases, 0)] = - 1
 
-        return add + np.mod(phase_start + times / orbital_period, 1.0)
+        return add + np.mod(phases, 1.0)
 
     @staticmethod
     def download_from_nasa_exoplanet_archive(name):

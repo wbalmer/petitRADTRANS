@@ -163,6 +163,7 @@ class RetrievalParameter:
 
 class BaseSpectralModel:
     # TODO warning when changing a Radtrans parameter
+    # TODO add function to list all the meaningful model_parameters
     # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
@@ -849,9 +850,6 @@ class BaseSpectralModel:
                 rebinned_wavelengths=wavelengths
             )
 
-            if planet_star_spectral_radiances < 0:
-                raise ValueError(f"something went wrong")
-
         return planet_star_spectral_radiances
 
     @staticmethod
@@ -1246,20 +1244,8 @@ class BaseSpectralModel:
             if update_parameters:
                 self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
 
-        # if scale:
-        #     spectrum = self.scale_spectrum(
-        #         spectrum=spectrum,
-        #         **parameters
-        #     )
-        #
-        # if instrumental_deformations is not None:
-        #     spectrum *= instrumental_deformations
-        #
-        # if noise_matrix is not None:
-        #     spectrum += noise_matrix
-
-        # Reduced spectrum
-        if reduce:
+        # Prepared spectrum
+        if reduce:  # TODO change to prepare
             spectrum, parameters['reduction_matrix'], parameters['reduced_uncertainties'] = \
                 self.get_reprocessed_spectrum(
                     spectrum=spectrum,
@@ -2604,12 +2590,13 @@ class SpectralModel(BaseSpectralModel):
             'radial_velocity_amplitude_function': self.calculate_radial_velocity_amplitude,
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
             'relative_velocities_function': self.calculate_relative_velocities,
-            'metallicity_function': self._calculate_metallicity_wrap,
+            'metallicity_function': self._calculate_metallicity_wrap,  # TODO should not be protected
             'mass2surface_gravity_function': self.mass2surface_gravity,
             'surface_gravity2mass_function': self.surface_gravity2mass,
         }
 
         # Put all used functions arguments default value into the model parameters
+        # TODO put that into a separate function that can be used to get all the relevant model parameters
         for function in functions_dict.values():
             signature = inspect.signature(function)
 
