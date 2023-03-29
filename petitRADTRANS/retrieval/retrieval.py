@@ -1315,7 +1315,8 @@ class Retrieval:
                 scale *= self.best_fit_params[f"{name}_scale_factor"].value
             errscale = 1.0
             if dd.scale_err:
-                errscale = self.best_fit_params[f"{name}_scale_factor"].value
+                errscale *= self.best_fit_params[f"{name}_scale_factor"].value
+            print(f"Scale: {scale}, {errscale}")
             if not dd.photometry:
                 best_fit_binned = rgw(self.best_fit_specs[self.retrieval_name][0], \
                                         self.best_fit_specs[self.retrieval_name][1], \
@@ -1950,8 +1951,6 @@ class Retrieval:
         index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
         bf_contribution[index] = 1e-16
         bf_contribution = np.ma.masked_where(bf_contribution <= 2e-16, bf_contribution)
-
-
 
 
         pressure_weights = np.diff(np.log10(pressures))
