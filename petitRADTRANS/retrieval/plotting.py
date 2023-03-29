@@ -509,5 +509,3 @@ def nice_corner(samples, \
     if dimensions == 1:
         plt.tight_layout(h_pad=0, w_pad=0)
     plt.savefig(output_file)
-    #plt.show()
-    #plt.clf()

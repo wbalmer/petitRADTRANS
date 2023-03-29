@@ -108,11 +108,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     # Prior check all input params
     clouds = {}
     Pbases = {}
-
+    abundances = {}
     for cloud in cloud_species:
         cname = cloud.split("_")[0]
         if 'use_easychem' in parameters.keys():
-            clouds[cname] = abundances_interp[cname]
+            # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
+            abundances[cname] = abundances_interp[cname]
             continue
 
         if "eq_scaling_"+cname in parameters.keys():
@@ -145,7 +146,6 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     else :
         small_index = np.linspace(0,pressures.shape[0]-1,pressures.shape[0], dtype = int)
     fseds = {}
-    abundances = {}
     if not 'use_easychem' in parameters.keys():
         for cloud in cp.copy(cloud_species):
             cname = cloud.split('_')[0]
@@ -203,16 +203,17 @@ def get_easychem_abundances(pressures, temperatures, line_species, cloud_species
     for key,val in parameters.items():
         if key not in exo.atoms:
             continue
-        itemindex = numpy.where(exo.atoms == key)
-        exo.atomAbunds[itemindex] = 10**val
+        itemindex = np.where(exo.atoms == key)
+        exo.atomAbunds[itemindex] = 10**val.value
 
     for condensate in default_remove_condensates:
         reactants = np.delete(reactants, np.argwhere(reactants == condensate))
     exo.updateReactants(reactants)
 
-    exo._updateFEH(FeH)
-    abundances = exo.solve(pressures, temperatures)
-
+    exo.feh = metallicity
+    exo._updateFEH()
+    exo.solve(pressures, temperatures)
+    abundances = exo.result_mass()
     pressures_goal = pressures.reshape(-1)
     if 'log_pquench' in parameters.keys():
         Pquench_carbon = 10**parameters['log_pquench'].value
