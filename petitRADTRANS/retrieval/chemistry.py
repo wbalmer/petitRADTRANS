@@ -2,6 +2,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 import copy as cp
 import numpy as np
+import easychem as ec
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW
@@ -41,8 +42,21 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     """
     # Free Chemistry
     abundances_interp = {}
-    if "C/O" in parameters.keys():
-        # Equilibrium chemistry
+    if 'use_easychem' in parameters.keys():
+        # Actual equilibrium chemistry
+        # Can retrieve atomic abundances
+
+        # Calling it abundances_interp to be consistent w poor mans
+        abundances_interp = get_easychem_abundances(pressures,
+                                                    temperatures,
+                                                    line_species,
+                                                    cloud_species,
+                                                    parameters)
+        MMW = abundances_interp['MMW']
+    elif "C/O" in parameters.keys():
+        # Check C/O AFTER easychem check -> need to use poor mans
+
+        # Interpolated Equilibrium chemistry
         # Make the abundance profile
         pquench_C = None
         if 'log_pquench' in parameters.keys():
@@ -56,14 +70,22 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Free chemistry abundances
     msum = 0.0
+    if abundances_interp:
+        for key, val in abundances_interp.items():
+            msum += np.max(val)
+
+    # Free chemistry species
     for species in line_species:
         if species.split("_R_")[0] in parameters.keys():
-            # Cannot mix free and equilibrium chemistry. Maybe something to add?
             abund = 10**parameters[species.split("_R_")[0]].value
             abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
             msum += abund
-    if not "C/O" in parameters.keys():
-        # Whatever's left is H2 and
+
+    # For free chemistry, need to fill with background gas (H2-He)
+    # TODO use arbitrary background gas
+    if not "Fe/H" in parameters.keys():
+        # Check to make sure we're using free chemistry
+        # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
             abundances_interp['H2'] = 10**parameters['H2'].value * np.ones_like(pressures)
             msum += 10**parameters['H2'].value
@@ -85,8 +107,14 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Prior check all input params
     clouds = {}
+    Pbases = {}
+
     for cloud in cloud_species:
         cname = cloud.split("_")[0]
+        if 'use_easychem' in parameters.keys():
+            clouds[cname] = abundances_interp[cname]
+            continue
+
         if "eq_scaling_"+cname in parameters.keys():
             # equilibrium cloud abundance
             Xcloud= fc.return_cloud_mass_fraction(cloud,parameters['Fe/H'].value, parameters['C/O'].value)
@@ -95,11 +123,6 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         else:
             # Free cloud abundance
             clouds[cname] = 10**parameters['log_X_cb_'+cloud.split("_")[0]].value
-
-    # Get the cloud locations
-    Pbases = {}
-    for cloud in cloud_species:
-        cname = cloud.split('_')[0]
         # Free cloud bases
         if 'Pbase_'+cname in parameters.keys():
             Pbases[cname] = 10**parameters['log_Pbase_'+cname].value
@@ -109,10 +132,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                                             parameters['Fe/H'].value, parameters['C/O'].value, np.mean(MMW))
         else:
             Pbases[cname] = fc.simple_cdf_free(cname,
-                                               pressures,
-                                               temperatures,
-                                               10**parameters['log_X_cb_'+cname].value,
-                                               MMW[0])
+                                            pressures,
+                                            temperatures,
+                                            10**parameters['log_X_cb_'+cname].value,
+                                            MMW[0])
     # Find high resolution pressure grid and indices
     if AMR:
         press_use, small_index = fixed_length_amr(np.array(list(Pbases.values())),
@@ -123,28 +146,93 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         small_index = np.linspace(0,pressures.shape[0]-1,pressures.shape[0], dtype = int)
     fseds = {}
     abundances = {}
-    for cloud in cp.copy(cloud_species):
-        cname = cloud.split('_')[0]
-        # Set up fseds per-cloud
-        if 'fsed_'+cname in parameters.keys():
-            fseds[cname] = parameters['fsed_'+cname].value
-        else:
-            fseds[cname] = parameters['fsed'].value
-        abundances[cname] = np.zeros_like(temperatures)
-        abundances[cname][pressures < Pbases[cname]] = \
-                        clouds[cname] *\
-                        (pressures[pressures <= Pbases[cname]]/\
-                        Pbases[cname])**fseds[cname]
-        abundances[cname] = abundances[cname][small_index]
+    if not 'use_easychem' in parameters.keys():
+        for cloud in cp.copy(cloud_species):
+            cname = cloud.split('_')[0]
+            # Set up fseds per-cloud
+            if 'fsed_'+cname in parameters.keys():
+                fseds[cname] = parameters['fsed_'+cname].value
+            else:
+                fseds[cname] = parameters['fsed'].value
+            abundances[cname] = np.zeros_like(temperatures)
+            abundances[cname][pressures < Pbases[cname]] = \
+                            clouds[cname] *\
+                            (pressures[pressures <= Pbases[cname]]/\
+                            Pbases[cname])**fseds[cname]
+            abundances[cname] = abundances[cname][small_index]
 
     for species in line_species:
-        if 'FeH' in species:
+        if 'FeH' in species and not 'use_easychem' in parameters.keys():
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = cp.copy(abundances_interp[species.split('_')[0]]/2.)
-            index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
-            abunds_change_rainout[index_ro] = 0.
+            if 'Fe(c)' in Pbases.keys():
+                index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
+                abunds_change_rainout[index_ro] = 0.
             abundances[species] = abunds_change_rainout[small_index]
         abundances[species] = abundances_interp[species.split('_')[0]][small_index]
     abundances['H2'] = abundances_interp['H2'][small_index]
     abundances['He'] = abundances_interp['He'][small_index]
     return abundances, MMW, small_index, Pbases
+
+def get_easychem_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR = False):
+
+    metallicity = None
+    carbon_to_oxygen = None
+
+    if "Fe/H" in parameters.keys():
+        metallicity = parameters["Fe/H"].value
+    if "C/O" in parameters.keys():
+        carbon_to_oxygen = parameters["C/O"].value
+
+    default_remove_condensates = ['Mg2SiO4(c)',
+                                 'Mg2SiO4(L)',
+                                 'MgAl2O4(c)',
+                                 'FeO(c)',
+                                 'Fe2SiO4(c)']
+
+    exo = ec.ExoAtmos(atoms=None,
+                  reactants=None,
+                  atomAbunds=None,
+                  thermofpath=None,
+                  feh=metallicity,
+                  co=carbon_to_oxygen)
+
+    reactants = exo.reactants.copy()
+
+    # Set atomic abundances from parameters
+    for key,val in parameters.items():
+        if key not in exo.atoms:
+            continue
+        itemindex = numpy.where(exo.atoms == key)
+        exo.atomAbunds[itemindex] = 10**val
+
+    for condensate in default_remove_condensates:
+        reactants = np.delete(reactants, np.argwhere(reactants == condensate))
+    exo.updateReactants(reactants)
+
+    exo._updateFEH(FeH)
+    abundances = exo.solve(pressures, temperatures)
+
+    pressures_goal = pressures.reshape(-1)
+    if 'log_pquench' in parameters.keys():
+        Pquench_carbon = 10**parameters['log_pquench'].value
+        if Pquench_carbon > np.min(pressures_goal):
+            q_index = min(np.searchsorted(pressures_goal, Pquench_carbon),
+                            int(len(pressures_goal))-1)
+
+            methane_abb = abundances['CH4']
+            methane_abb[pressures_goal < Pquench_carbon] = \
+                abundances['CH4'][q_index]
+            abundances['CH4'] = methane_abb
+
+            co_abb = abundances['CO']
+            co_abb[pressures_goal < Pquench_carbon] = \
+                abundances['CO'][q_index]
+            abundances['CO'] = co_abb
+
+            h2o_abb = abundances['H2O']
+            h2o_abb[pressures_goal < Pquench_carbon] = \
+                abundances['H2O'][q_index]
+            abundances['H2O'] = h2o_abb
+    abundances["MMW"] = exo.mmw
+    return abundances

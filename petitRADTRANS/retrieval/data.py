@@ -395,6 +395,9 @@ class Data:
             diff = (flux_rebinned - self.flux)
 
         f_err = self.flux_error
+        self.b_val = -np.inf
+        if "_b" in parameters.keys():
+            self.b_val = self.line_b_uncertainty_scaling(parameters)
         if self.scale_err:
             f_err *=self.scale_factor
         if not self.bval==-np.inf:
@@ -404,17 +407,23 @@ class Data:
         if self.covariance is not None:
             inv_cov = self.inv_cov
             log_covariance_determinant = self.log_covariance_determinant
-
-
             if self.scale_err:
                 cov = self.scale_factor**2 * self.covariance
                 inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+
+            if not self.bval==-np.inf:
+                cov = np.diag(np.diag(self.covariance) + 10**self.bval)
+                inv_cov = np.linalg.inv(cov)
+                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+
             logL += -0.5*np.dot(diff, np.dot(inv_cov, diff))
             logL += -0.5 * log_covariance_determinant
         else:
             logL += -0.5*np.sum( (diff / f_err)**2. )
             logL += -0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
+
+
         if plotting:
             if not self.photometry:
                 plt.clf()
@@ -449,16 +458,16 @@ class Data:
                 This can be done for all data sets, or specified with a tag at the end of
                 the key to apply different factors to different datasets.
         Returns:
-            10**b: float
+            b: float
                 10**b error bar scaling factor.
         """
         b_val = -np.inf
         if parameters is not None:
-            if f'uncertainty_scaling_b_{self.name}' in parameters.keys():
-                b_val = parameters[f'uncertainty_scaling_b_{self.name}'].value
+            if f'{self.name}_b' in parameters.keys():
+                b_val = parameters[f'{self.name}_b'].value
             elif f'uncertainty_scaling_b' in parameters.keys():
                 b_val = parameters['uncertainty_scaling_b'].value
-        return 10**b
+        return b_val
 
     def convolve(self, \
                  input_wavelength, \
