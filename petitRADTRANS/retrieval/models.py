@@ -112,14 +112,18 @@ def emission_model_diseq(pRT_object,
 
     # Make the P-T profile
     temp_arr = np.array([T1,T2,T3])
-
+    carbon_to_oxygen = 0
+    if 'C/O' in parameters.keys():
+        carbon_to_oxygen = parameters['C/O'].value
+    elif "C" in parameters.keys():
+        carbon_to_oxygen = parameters['C'].value/parameters['O'].value
     temperatures = PT_ret_model(temp_arr, \
                             delta,
                             parameters['alpha'].value,
                             parameters['T_int'].value,
                             p_use,
                             parameters['Fe/H'].value,
-                            parameters['C/O'].value,
+                            carbon_to_oxygen,
                             conv=True)
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
