@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.7.0-a39] - 2023-03-27
+## [2.7.0-a40] - 2023-03-30
 ### Added
 - Support for SLURM.
 - Module `configuration` to manage paths.
