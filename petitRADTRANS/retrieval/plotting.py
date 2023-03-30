@@ -62,14 +62,14 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
             else:
                 wlen = data.wlen
                 error = data.flux_error
-                flux = data.calculate_star_radiosity
+                flux = data.flux
         except:  # TODO find what is the error expected here
             wlen = data.wlen
             error = data.flux_error
-            flux = data.calculate_star_radiosity
+            flux = data.flux
     else:
         wlen = np.mean(data.width_photometry)
-        flux = data.calculate_star_radiosity
+        flux = data.flux
         error = data.flux_error
 
     marker = 'o'
