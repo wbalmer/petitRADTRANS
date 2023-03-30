@@ -163,7 +163,7 @@ class Data:
         self.photometric_transformation_function = \
             photometric_transformation_function
 
-        if photometry:
+        if photometry:  # TODO sys.exit should be avoided, using raise should be preferred
             if photometric_transformation_function is None:
                 logging.error("Please provide a photometry transformation function for " + name + "!")
                 sys.exit(9)
@@ -173,7 +173,7 @@ class Data:
                 sys.exit(9)
 
         self.photometry_range = wlen_range_micron
-        self.width_photometry = photometric_bin_edges # TODO change name, is confusing
+        self.width_photometry = photometric_bin_edges  # TODO change name, is confusing
 
         self.pRT_grid = pRT_grid
 
@@ -375,7 +375,6 @@ class Data:
                         (wlen_model <= self.wlen[-1] * 1.00000001)
                 flux_rebinned = spectrum_model[index]
             else:
-
                 if self.data_resolution is not None:
                     spectrum_model = self.convolve(wlen_model,
                                                    spectrum_model,

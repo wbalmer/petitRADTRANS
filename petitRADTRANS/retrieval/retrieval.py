@@ -685,7 +685,7 @@ class Retrieval:
                             # Convolution and rebin are cared of in get_chisq
                             log_likelihood += dd.get_chisq(
                                 wlen_model,
-                                spectrum_model[~dd.mask],
+                                spectrum_model, #[~dd.mask],  # TODO temporary fix until code design rework
                                 self.plotting,
                                 self.parameters
                             ) + additional_logl
@@ -1320,9 +1320,7 @@ class Retrieval:
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff", np.array(teffs))
         return tdict
 
-    #############################################################
-    # Plotting functions  # TODO (low) remove ascii art in comments
-    #############################################################
+    # Plotting functions
     def plot_all(self, output_dir=None, ret_names=None, contribution=False):
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,

@@ -54,7 +54,9 @@ class RetrievalConfig:
 
         if run_mode == 'retrieve':
             run_mode = 'retrieval'  # TODO please no.
+
         self.run_mode = run_mode
+
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
             sys.exit(1)

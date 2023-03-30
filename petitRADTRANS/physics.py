@@ -393,7 +393,6 @@ def PT_ret_model(rad_trans_params):
             tfinal[conv_index] = tnew
 
             if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:
-                # print('n_ad', 1./(1.-nabla_ad[conv_index]))
                 break
 
     else:

@@ -6,20 +6,30 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [2.7.0-a39] - 2023-03-27
 ### Added
+- Support for SLURM.
+- Module `configuration` to manage paths.
+
+### Changed
+- Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
+- Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
+- Some functions have moved from the module `nat_cst` to another, more specific module.
+- Package structure.
+
+## [2.6.0] - 2023-03-27
+### Added
 - High-resolution retrievals.
 - Possibility to initialize a `retrieval.Data` class without needing a file.
 - Possibility to initialize a `retrieval.Data` class with a `Radtrans` object, without the need to re-create one.
 - Possibility to initialize a `retrieval.Retrieval` class with a stellar spectrum, without the need to recalculate it.
 - Possibility to give scattering.
 - Support for 2D and 3D spectral array in retrievals.
-- Support for SLURM.
 - Static function `retrieval.Retrieval._get_samples`, to get retrieval outputs without the need to initialize a `Retrieval`.
 - Gibson et al. 2021 log-likelihood calculation.
 - Better high-resolution mock observation function.
 - Module `phoenix` for PHOENIX stellar models.
 - Module `physics` to store useful physical functions.
 - Module `utils` to store generic useful functions.
-- Module `retrieval.reprocessing` to reduce ground-based data.
+- Module `retrieval.preparing` to prepare telluric-contaminated ground-based data.
 - Module `ccf` to perform cross-correlation analysis.
 - Module `cli.eso_etc_cli` as a custom interface to ESO's ETC CLI.
 - Module `cli.eso_skycalc_cli` as a custom interface to ESO's SKYCALC CLI.
@@ -32,29 +42,23 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to calculate the Doppler shift.
 - Function to convolve, run-convolve, Doppler shift, and rebin a spectrum.
 - Noise estimation for eclipse spectra in addition to transit spectra.
-- Method to generate a `Planet` using a NASA Exoplanet Archive tab file.
+- Method to generate a `Planet` object using a NASA Exoplanet Archive tab file.
 - Function to calculate the radius of a planet from its surface gravity and mass.
 - Option to use the NASA Exoplanet Archive "best mass" when generating a `Planet`.
-- Test suite.
 - Functions in `Radtrans` to calculate radius and pressure at hydrostatic equilibrium.
 - Na2S and KCl clouds compatibility with free chemistry.
-- Module `configuration` to manage paths.
-- Module `version` to store petitRADTRANS version number.
+- [Future] Module `configuration` to manage paths.
+- Module `version` to store petitRADTRANS version number (will be used in future version).
 - Message when loading the `poor_mans_nonequ_chem` chemical equilibrium mass mixing ratios table.
 
 ### Changed
-- Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
-- Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
-- Some functions have moved from the module `nat_cst` to another, more specific module.
-- Package structure.
 - Running mean now uses the faster `scipy.ndimage.filters.uniform_filter1d` implementation.
-- Tutorial updated.
 - Some cloud functions are more generic.
 - Character limit in retrieval output directory increased from 100 to 200.
 - Stricter scattering convergence criterion.
 - Switched to corr-k combination method without Monte Carlo noise (relevant for scattering mode).
 - CIAs are no more hard-coded.
-- Make `poor_mans_nonequ_chem` compatible with `Angles`.
+- Make `poor_mans_nonequ_chem` compatible with `[Future] Orange`.
 - Code clean-up.
 
 ### Removed
@@ -79,3 +83,5 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ---
 No changelog before version 2.6.0.
+Some additions, changes and fixes reported in 2.6.0 may have been implemented in previous versions.
+Test suite added in version 2.4.0.

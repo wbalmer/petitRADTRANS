@@ -738,13 +738,13 @@ class Radtrans(_read_opacities.ReadOpacities):
                 raise ValueError(f"The Hansen distribution width (b_hans) must be an array, a dict, or a float, "
                                  f"but is of type '{type(b_hans)}' ({b_hans})")
 
-        for i_spec in range(len(self.cloud_species)):
-            self.cloud_mass_fracs[:, i_spec] = abundances[self.cloud_species[i_spec]]
+        for i_spec, cloud_name in enumerate(self.cloud_species):
+            self.cloud_mass_fracs[:, i_spec] = abundances[cloud_name]
 
             if radius is not None:
-                self.r_g[:, i_spec] = radius[self.cloud_species[i_spec]]
+                self.r_g[:, i_spec] = radius[cloud_name]
             elif a_hans is not None:
-                self.r_g[:, i_spec] = a_hans[self.cloud_species[i_spec]]
+                self.r_g[:, i_spec] = a_hans[cloud_name]
 
         if radius is not None or a_hans is not None:
             if dist == "lognormal":
@@ -1335,15 +1335,11 @@ class Radtrans(_read_opacities.ReadOpacities):
                 self.phot_radius = np.zeros(self.freq_len)
 
                 if self.mode == 'lbl' or self.test_ck_shuffle_comp:
-                    # self.total_tau[:, :, :1, :]
-                    # line_struc_kappas = np.zeros(
-                    #                 (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
-                    #             )
                     wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
+
                     for i_freq in range(self.freq_len):
                         tau_p = np.sum(wgauss_reshape * self.total_tau[:, i_freq, 0, :], axis=0)
                         press_taup = interp1d(tau_p, self.press)
-                        # print(tau_p)
                         self.phot_radius[i_freq] = rad_press(press_taup(2. / 3.))
             except:  # TODO find what is expected here
                 self.phot_radius = -np.ones(self.freq_len)
@@ -2129,6 +2125,7 @@ class Radtrans(_read_opacities.ReadOpacities):
         transm = np.sqrt(transm + radius[-1] ** 2.)
 
         return transm, radius
+
 
 def py_calc_cloud_opas(
         rho,  # (M,)

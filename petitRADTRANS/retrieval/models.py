@@ -240,7 +240,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                   parameters['pressure_scaling'].value)
 
     delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
-    gravity, R_pl =  compute_gravity(parameters)
+    gravity, R_pl = compute_gravity(parameters)
 
     temperatures = PT_ret_model(temp_arr,
                             delta,
