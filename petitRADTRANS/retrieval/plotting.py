@@ -54,7 +54,7 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
             resolution_data = np.mean(data.wlen[1:] / np.diff(data.wlen))
             ratio = resolution_data / resolution
             if int(ratio) > 1:
-                flux, edges, _ = binned_statistic(data.wlen, data.calculate_star_radiosity, 'mean',
+                flux, edges, _ = binned_statistic(data.wlen, data.flux, 'mean',
                                                   data.wlen.shape[0] / ratio)
                 error, _, _ = np.array(binned_statistic(data.wlen, data.flux_error,
                                        'mean', data.wlen.shape[0] / ratio)) / np.sqrt(ratio)
@@ -62,14 +62,14 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
             else:
                 wlen = data.wlen
                 error = data.flux_error
-                flux = data.calculate_star_radiosity
+                flux = data.flux
         except:  # TODO find what is the error expected here
             wlen = data.wlen
             error = data.flux_error
-            flux = data.calculate_star_radiosity
+            flux = data.flux
     else:
         wlen = np.mean(data.width_photometry)
-        flux = data.calculate_star_radiosity
+        flux = data.flux
         error = data.flux_error
 
     marker = 'o'
@@ -203,7 +203,7 @@ def contour_corner(sampledict,
 
         if plot_best_fit:
             best_fit = []
-            best_fit_ind = np.argmax(samples[:,-1])
+            best_fit_ind = np.argmax(samples[:, -1])
 
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
