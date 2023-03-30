@@ -10,17 +10,19 @@ from scipy.interpolate import interp1d
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate
+from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from scripts.load_spectral_matrix import construct_spectral_matrix
+from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
 
 
 module_dir = os.path.abspath(r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data')
 
 
-def ccf_analysis(ccf_norm_select, detector_selection, rvs, orbital_phases, v_sys, kp,
-                 kp_range, v_rest_range, max_area, max_percentage_area, area_increase_tolerance=1.1):
+def _ccf_analysis(ccf_norm_select, detector_selection, rvs, orbital_phases, v_sys, kp,
+                  kp_range, v_rest_range, max_area, max_percentage_area, area_increase_tolerance=1.1):
     ccf_norm_select = ccf_norm_select[detector_selection]
     ccf_norm_select_sum = np.ma.sum(ccf_norm_select, axis=0)
 
@@ -270,239 +272,28 @@ def find_best_detector_selection(first_guess, detector_list, ccf_norm_select, rv
         max_sn_peak, max_kp_peak, max_v_peak, kps, v_rests
 
 
-def find_best_detector_selection_noa_nosnr(first_guess, detector_list, ccf_norm_select, rvs, orbital_phases, v_sys, kp,
-                                           kp_range, v_rest_range, max_percentage_area=0.68,
-                                           area_increase_tolerance=1.1, use_peak=True):
-    detector_selection = first_guess
-    ccf_norm_select_tmp = ccf_norm_select[detector_selection]
-    ccf_norm_select_sum = np.ma.sum(ccf_norm_select_tmp, axis=0)
-
-    # Collapsed CCF
-    ccf_tot, v_rests, kps = simple_co_added_ccf(np.array([ccf_norm_select_sum]), rvs, orbital_phases, v_sys, kp)
-
-    # Calculate S/N
-    ccf_tot_sn = np.zeros(ccf_tot.shape)
-    exclude = 15.6  # exclusion region in km/s (+/-):
-    max_sn_sn = 0
-    max_kp_sn = 0
-    max_v_rest_sn = 0
-    max_area = np.size(np.where(ccf_tot[0] >= max_percentage_area * np.max(ccf_tot[0])))
-
-    for k, ccf_tot_kp in enumerate(ccf_tot[0]):
-        # Finding the maximum in the CCF, wherever it may be located:
-        aux = np.argmax(ccf_tot_kp)
-
-        # Select the v_rest range far from "detected" signal
-        std_pts_a = np.where(v_rests < (v_rests[aux] - exclude))[0]
-        std_pts_b = np.where(v_rests > (v_rests[aux] + exclude))[0]
-        std_pts = np.concatenate((std_pts_a, std_pts_b))
-
-        # Compute the S/N
-        ccf_tot_sn[0, k, :] = ccf_tot_kp / np.std(ccf_tot_kp[std_pts])
-
-        id_max = np.argmax(ccf_tot_sn[0, k, :])
-
-        if ccf_tot_sn[0, k, id_max] > max_sn_sn:
-            max_sn_sn = ccf_tot_sn[0, k, id_max]
-            max_kp_sn = kps[k]
-            max_v_rest_sn = v_rests[id_max]
-
-    wh_max = np.where(ccf_tot == np.max(ccf_tot))
-
-    max_sn_peak = ccf_tot_sn[wh_max][0]
-    max_kp_peak = kps[wh_max[1]][0]
-    max_v_peak = v_rests[wh_max[2]][0]
-
-    if use_peak:
-        max_sn = max_sn_peak
-        max_kp = max_kp_peak
-        max_v_rest = max_v_peak
-    else:
-        max_sn = max_sn_sn
-        max_kp = max_kp_sn
-        max_v_rest = max_v_rest_sn
-
-    if not (kp_range[0] <= max_kp <= kp_range[1]) or not (v_rest_range[0] <= max_v_rest <= v_rest_range[1]):
-        raise ValueError(
-            f'bad first guess: \n'
-            f' max kp {max_kp};     kp range {kp_range}\n'
-            f' max vr {max_v_rest}; v_rest range {v_rest_range}\n'
-        )
-
-    # Add
-    for i in detector_list:
-        if i not in detector_selection:
-            print(f"Try adding detector {i}")
-            detector_selection_tmp = np.append(detector_selection, [i])
-            max_sn_sn_tmp, max_kp_sn_tmp, max_v_rest_sn_tmp, ccf_tot_tmp, area, ccf_tot_sn_tmp, \
-                max_sn_peak_tmp, max_kp_peak_tmp, max_v_peak_tmp = ccf_analysis(
-                    ccf_norm_select=ccf_norm_select,
-                    detector_selection=detector_selection_tmp,
-                    rvs=rvs,
-                    orbital_phases=orbital_phases,
-                    v_sys=v_sys,
-                    kp=kp,
-                    kp_range=kp_range,
-                    v_rest_range=v_rest_range,
-                    max_area=max_area,
-                    max_percentage_area=max_percentage_area,
-                    area_increase_tolerance=area_increase_tolerance
-                )
-
-            if use_peak:
-                max_sn_tmp = max_sn_peak_tmp
-                max_kp_tmp = max_kp_peak_tmp
-                max_v_rest_tmp = max_v_peak_tmp
-            else:
-                max_sn_tmp = max_sn_sn_tmp
-                max_kp_tmp = max_kp_sn_tmp
-                max_v_rest_tmp = max_v_rest_sn_tmp
-
-            if (kp_range[0] <= max_kp_tmp <= kp_range[1]) \
-                    and (v_rest_range[0] <= max_v_rest_tmp <= v_rest_range[1]):
-                print(f"Added detector {i} (S/N: {max_sn_tmp}, kp: {max_kp_tmp}, v_rest: {max_v_rest_tmp})")
-                detector_selection = detector_selection_tmp
-                max_sn = max_sn_tmp
-                max_kp = max_kp_tmp
-                max_v_rest = max_v_rest_tmp
-                max_area = area
-                ccf_tot = ccf_tot_tmp
-                ccf_tot_sn = ccf_tot_sn_tmp
-                max_sn_sn = max_sn_sn_tmp
-                max_kp_sn = max_kp_sn_tmp
-                max_v_rest_sn = max_v_rest_sn_tmp
-                max_sn_peak = max_sn_peak_tmp
-                max_kp_peak = max_kp_peak_tmp
-                max_v_peak = max_v_peak_tmp
-            else:
-                print(f"Rejecting detector {i}: "
-                      f"Max CCF S/N ({max_sn_tmp} > {max_sn}) at invalid kp and/or v_rest:\n"
-                      f"  kp: \t{max_kp_tmp}, must be within {kp_range}\n"
-                      f"  v_rest: \t{max_v_rest_tmp}, must be within {v_rest_range}")
-    # Remove
-    for i in detector_list:
-        if i in detector_selection:
-            print(f"Try removing detector {i}")
-            detector_selection_tmp = np.delete(detector_selection, np.where(detector_selection == i))
-            max_sn_sn_tmp, max_kp_sn_tmp, max_v_rest_sn_tmp, ccf_tot_tmp, area, ccf_tot_sn_tmp, \
-                max_sn_peak_tmp, max_kp_peak_tmp, max_v_peak_tmp = ccf_analysis(
-                    ccf_norm_select=ccf_norm_select,
-                    detector_selection=detector_selection_tmp,
-                    rvs=rvs,
-                    orbital_phases=orbital_phases,
-                    v_sys=v_sys,
-                    kp=kp,
-                    kp_range=kp_range,
-                    v_rest_range=v_rest_range,
-                    max_area=max_area,
-                    max_percentage_area=max_percentage_area,
-                    area_increase_tolerance=area_increase_tolerance
-                )
-
-            if use_peak:
-                max_sn_tmp = max_sn_peak_tmp
-                max_kp_tmp = max_kp_peak_tmp
-                max_v_rest_tmp = max_v_peak_tmp
-            else:
-                max_sn_tmp = max_sn_sn_tmp
-                max_kp_tmp = max_kp_sn_tmp
-                max_v_rest_tmp = max_v_rest_sn_tmp
-
-            if (kp_range[0] <= max_kp_tmp <= kp_range[1]) \
-                    and (v_rest_range[0] <= max_v_rest_tmp <= v_rest_range[1]):
-                print(f"Removed detector {i}")
-                detector_selection = detector_selection_tmp
-                max_sn = max_sn_tmp
-                max_kp = max_kp_tmp
-                max_v_rest = max_v_rest_tmp
-                max_area = area
-                ccf_tot = ccf_tot_tmp
-                ccf_tot_sn = ccf_tot_sn_tmp
-            else:
-                print(f"Re-adding detector {i}: "
-                      f"max CCF S/N ({max_sn_tmp} > {max_sn}) at invalid kp and/or v_rest:\n"
-                      f"  kp: \t{max_kp_tmp}, must be within {kp_range}\n"
-                      f"  v_rest: \t{max_v_rest_tmp}, must be within {v_rest_range}")
-
-    print(f"\nCCF S/N: {max_sn}\n"
-          f"kp: {max_kp * 1e-5} km.s-1\n"
-          f"v_rest: {max_v_rest * 1e-5} km.s-1")
-
-    return ccf_tot, max_sn_sn, max_kp_sn, max_v_rest_sn, ccf_tot_sn, detector_selection, \
-        max_sn_peak, max_kp_peak, max_v_peak, kps, v_rests
-
-
-def find_best_detector_selection_alex(ccf_norm, ccf_norm_untouched, rvs, orbital_phases, v_sys, kp, alex_kp_factor=-1.0,
-                                      planet_rest_velocity=0.0):
-    exclude = 15.6e5  # exclusion region in cm.s-1 (+/-):
-
-    ccf_tot_sn = np.zeros(ccf_norm.shape[0])
-    ccf_tot_sn_untouched = np.zeros(ccf_norm.shape[0])
-
-    detector_selection = np.array([])
-    ccf_tot_ = []
-    ccf_tot_untouched_ = []
-
-    kps = None
-    v_rests = None
-
-    kp *= alex_kp_factor
-
-    for i, ccf in enumerate(ccf_norm):
-        ccf = np.ma.array([ccf]).filled(0)
-        ccf_untouched = np.ma.array([ccf_norm_untouched[i]]).filled(0)
-
-        ccf_tot, v_rests, kps = simple_co_added_ccf(ccf, rvs, orbital_phases, v_sys, kp)
-        ccf_tot_untouched, _, _ = simple_co_added_ccf(
-            ccf_untouched, rvs, orbital_phases, v_sys, kp
-        )
-
-        ccf_tot_.append(ccf_tot)
-        ccf_tot_untouched_.append(ccf_tot_untouched)
-
-        wh_kp = np.where(np.abs(kps - kp) == np.min(np.abs(kps - kp)))[0][0]
-        wh_vr = np.where(np.abs(v_rests - planet_rest_velocity) == np.min(np.abs(v_rests - planet_rest_velocity)))[0][0]
-
-        std_pts_a = np.where(v_rests < (v_rests[wh_vr] - exclude))[0]
-        std_pts_b = np.where(v_rests > (v_rests[wh_vr] + exclude))[0]
-        std_pts = np.concatenate((std_pts_a, std_pts_b))
-
-        # Compute the S/N
-        ccf_tot_sn[i] = ccf_tot[0, wh_kp, wh_vr] / np.ma.std(ccf_tot[0, wh_kp, std_pts])
-        ccf_tot_sn_untouched[i] = ccf_tot_untouched[0, wh_kp, wh_vr] / np.ma.std(ccf_tot_untouched[0, wh_kp, std_pts])
-
-        if ccf_tot_sn[i] - ccf_tot_sn_untouched[i] > 3:
-            print(f"Adding detector {i}: delta CCF > 3 ({ccf_tot_sn[i] - ccf_tot_sn_untouched[i]})")
-            detector_selection = np.append(detector_selection, i)
-        else:
-            print(f"Rejecting detector {i}: delta CCF <= 3 ({ccf_tot_sn[i] - ccf_tot_sn_untouched[i]})")
-
-    return detector_selection, ccf_tot_sn, ccf_tot_sn_untouched, np.array(ccf_tot_), np.array(ccf_tot_untouched_), \
-        kps, v_rests
-
-
-def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
-              orbital_phases, airmass, observations, uncertainties,
-              generate_mock_obs=False, tellurics_mask_threshold=0.5):
-
-    planet_rest_frame_velocity_shift = 0.0
-
+def get_model(planet, wavelengths_instrument, system_observer_radial_velocities, kp_range, ccf_velocities,
+              orbital_phases, airmass, uncertainties, detector_selection,
+              tellurics_mask_threshold=0.5, mode='transmission'):
     spectral_model = SpectralModel(
-        pressures=np.logspace(-10, 2, 100),
+        # Radtrans object parameters
+        pressures=np.logspace(-10, 2, 100),  # bar
         line_species=[
-            'H2O_main_iso',
             # 'CH4_hargreaves_main_iso',
             'CO_all_iso',
+            'H2O_main_iso',
             # 'H2S_main_iso',
-            # 'HCN_main_iso',
             # 'NH3_main_iso'
         ],
         rayleigh_species=['H2', 'He'],
         continuum_opacities=['H2-H2', 'H2-He'],
+        opacity_mode='lbl',
         lbl_opacity_sampling=4,
-        reference_pressure=1e-2,
+        # Temperature profile parameters
         temperature_profile_mode='isothermal',
-        temperature=planet.equilibrium_temperature,
+        temperature=planet.equilibrium_temperature,  # K
+        # Chemical parameters
+        use_equilibrium_chemistry=False,
         imposed_mass_mixing_ratios={
             'CH4_hargreaves_main_iso': 3.4e-5,
             'CO_all_iso': 1.8e-2,
@@ -511,177 +302,62 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             'HCN_main_iso': 2.7e-7,
             'NH3_main_iso': 7.9e-6
         },
-        use_equilibrium_chemistry=False,
         fill_atmosphere=True,
-        cloud_pressure=2.0,
-        planet_radius=planet.radius,
-        planet_surface_gravity=planet.surface_gravity,
-        star_effective_temperature=planet.star_effective_temperature,
-        star_radius=planet.star_radius,
-        semi_major_axis=planet.orbit_semi_major_axis,
-        planet_orbital_inclination=planet.orbital_inclination,
-        planet_radial_velocity_amplitude=kp,
-        system_observer_radial_velocities=v_sys,
-        planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
-        orbital_phases=orbital_phases,
-        airmass=airmass,
+        # Transmission spectrum parameters (radtrans.calc_transm)
+        planet_radius=planet.radius,  # cm
+        planet_surface_gravity=planet.surface_gravity,  # cm.s-2
+        reference_pressure=1e-2,  # bar
+        cloud_pressure=1e2,
+        # Instrument parameters
         new_resolving_power=9.2e4,
-        output_wavelengths=wavelengths_instrument[:, 0, :],
+        output_wavelengths=wavelengths_instrument,  # um
+        # Scaling parameters
+        star_radius=planet.star_radius,  # cm
+        # Orbital parameters
+        star_mass=planet.star_mass,  # g
+        semi_major_axis=planet.orbit_semi_major_axis,  # cm
+        orbital_phases=orbital_phases,
+        system_observer_radial_velocities=system_observer_radial_velocities,  # cm.s-1
+        planet_rest_frame_velocity_shift=0.0,  # cm.s-1
+        planet_orbital_inclination=planet.orbital_inclination,
+        # Reprocessing parameters
         uncertainties=uncertainties,
-        tellurics_mask_threshold=tellurics_mask_threshold,
-        polynomial_fit_degree=2,
-        apply_throughput_removal=True,
-        apply_telluric_lines_removal=True
-    )
-    spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
-        relative_velocities=ccf_velocities
-    )
-
-    wavelengths_ref = copy.deepcopy(wavelengths_instrument[:, 0, :])
-    wavelengths_ref = np.vstack((
-        np.linspace(
-            spectral_model.wavelengths_boundaries[0],
-            np.min(wavelengths_instrument),
-            wavelengths_instrument.shape[2]
-        ),
-        wavelengths_ref,
-        np.linspace(
-            np.max(wavelengths_instrument),
-            spectral_model.wavelengths_boundaries[1],
-            wavelengths_instrument.shape[2]
-        ),
-    ))
-
-    uncertainties_ref = np.vstack((
-        np.ones((1, wavelengths_instrument.shape[1], wavelengths_instrument.shape[2])) * uncertainties[0, :, :],
-        uncertainties,
-        np.ones((1, wavelengths_instrument.shape[1], wavelengths_instrument.shape[2])) * uncertainties[-1, :, :],
-    ))
-
-    uncertainties_ref = np.ma.masked_invalid(uncertainties_ref)
-
-    spectral_model_ref = copy.deepcopy(spectral_model)
-    spectral_model_ref.model_parameters['output_wavelengths'] = wavelengths_ref
-    spectral_model_ref.model_parameters['uncertainties'] = uncertainties_ref
-    spectral_model_ref.model_parameters['system_observer_radial_velocities'] = 0.0
-    spectral_model_ref.wavelengths_boundaries[0] -= 0.002
-    spectral_model_ref.wavelengths_boundaries[1] += 0.002
-
-    print(f"Boundaries: {spectral_model_ref.wavelengths_boundaries}")
-    print(f"Radtrans...")
-    radtrans_ref = spectral_model_ref.get_radtrans()
-
-    print('----\n')
-    if generate_mock_obs:
-        radtrans = spectral_model.get_radtrans()
-        model_wavelengths, ccf_model = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode='transmission',
-            update_parameters=True,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=False,
-            convolve=True,
-            rebin=False,
-            reduce=False
-        )
-    else:
-        ccf_model = None
-        model_wavelengths = None
-
-    true_parameters = copy.deepcopy(spectral_model.model_parameters)
-
-    print('Data reduction...')
-    reduced_data, reduction_matrix, reduced_uncertainties = preparing_pipeline(
-        spectrum=observations,
-        uncertainties=uncertainties,
-        wavelengths=wavelengths_instrument,
         airmass=airmass,
         tellurics_mask_threshold=tellurics_mask_threshold,
-        full=True,
         polynomial_fit_degree=2,
         apply_throughput_removal=True,
-        apply_telluric_lines_removal=True
+        apply_telluric_lines_removal=True,
+        # Special parameters
+        constance_tolerance=1e300,  # force constant convolve
+        detector_selection=detector_selection
     )
 
-    if generate_mock_obs:
-        noise = np.random.default_rng().normal(loc=0, scale=uncertainties, size=reduced_data.shape)
-        telluric_transmittance = os.path.join(module_dir, 'andes', 'sky', 'transmission',
-                                              f"transmission.dat")
-        variable_throughput = os.path.join(module_dir, 'andes', 'brogi_crires', "algn.npy")
+    retrieval_velocities = spectral_model.get_retrieval_velocities(
+        planet_radial_velocity_amplitude_range=kp_range,
+        planet_rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities))
+    )
 
-        print('Adding telluric transmittance...')
-        telluric_data = np.loadtxt(telluric_transmittance)
-        telluric_wavelengths = telluric_data[:, 0] * 1e-3  # nm to um
-        telluric_transmittance = np.zeros(reduced_data.shape)
+    retrieval_velocities[0] -= 5e5
+    retrieval_velocities[1] += 5e5
 
-        for i, detector_wavelengths in enumerate(wavelengths_instrument[:, 0, :]):
-            telluric_transmittance[i, :, :] = np.ones((reduced_data.shape[1], reduced_data.shape[2])) * \
-                                              fr.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
-                                                                detector_wavelengths)
+    spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
+        relative_velocities=retrieval_velocities
+    )
 
-        print('Adding variable throughput...')
-        variable_throughput = np.load(variable_throughput)
-        variable_throughput = np.max(variable_throughput[0], axis=1)
-        variable_throughput = variable_throughput / np.max(variable_throughput)
-        xp = np.linspace(0, 1, np.size(variable_throughput))
-        x = np.linspace(0, 1, np.size(orbital_phases))
-        variable_throughput = np.interp(x, xp, variable_throughput)
+    radtrans = spectral_model.get_radtrans()
 
-        deformation_matrix = np.zeros(reduced_data.shape)
-
-        for i in range(reduced_data.shape[0]):
-            for k in range(reduced_data.shape[2]):
-                deformation_matrix[i, :, k] = telluric_transmittance[i, :, k] * variable_throughput
-
-        print('Generating mock observations...')
-        _, mock_observations = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode='transmission',
-            update_parameters=False,
-            instrumental_deformations=deformation_matrix,
-            noise_matrix=noise,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=True
-        )
-
-        print('Generating noiseless mock observations...')
-        _, mock_observations_nn = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode='transmission',
-            update_parameters=False,
-            instrumental_deformations=deformation_matrix,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=True
-        )
-    else:
-        mock_observations = None
-        mock_observations_nn = None
-
-    print('Generating reference model...')
-    _, ccf_model_red = spectral_model_ref.get_spectrum_model(
-        radtrans=radtrans_ref,
-        mode='transmission',
+    wavelengths, model = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
         update_parameters=True,
-        instrumental_deformations=None,
-        noise_matrix=None,
         scale=True,
-        shift=True,
+        shift=False,
         convolve=True,
-        rebin=True,
-        reduce=True
+        rebin=False,
+        reduce=False
     )
 
-    return reduced_data, ccf_model, model_wavelengths, true_parameters, mock_observations, mock_observations_nn, \
-        ccf_model_red, wavelengths_ref, spectral_model, spectral_model_ref, radtrans_ref
+    return wavelengths, model, spectral_model, radtrans
 
 
 def sysrem(n_data, n_spectra, data_in, errors_in):
@@ -876,44 +552,29 @@ def plot_ccfs(rvs, orbital_phases, ccf):
     fig.tight_layout()
 
 
-def main():
-    use_t23 = False  # use full eclipse transit time instead of total transit time
-    use_t1535 = False
-    planet_name = 'HD 209458 b'
-    planet = Planet.get(planet_name)
-    night = 0
-    lsf_fwhm = 1.9e5
-
-    tellurics_mask_threshold = 0.5
-
-    use_alex_detector_selection = False
-
-    dates = [
-        '2022_06_29',
-        '2022_07_06',
-        '2022_10_12',
-    ]
-
-    # Load data
-    wavelengths_instrument, observations, uncertainties, times = load_rico_data(
-            os.path.join(module_dir, 'crires', planet_name.lower().replace(' ', '_'),
-                         'hd209_crires_reduced', dates[night], 'correct_wavelengths'),
+def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, data_source='rico', nodes='both'):
+    if data_source == 'rico':
+        wavelengths_instrument, observations, uncertainties, times = load_rico_data(
+            os.path.join(module_dir, 'crires', planet.name.lower().replace(' ', '_'),
+                         'hd209_crires_v2', dates[night], 'correct_wavelengths'),
             interpolate_to_common_wl=True,
-            nodes='A'
+            nodes=nodes
         )
-
-    wavelengths_instrumentj, observationsj, uncertaintiesj, timesj = load_jason_data(
-            os.path.join(module_dir, 'crires', planet_name.lower().replace(' ', '_'),
-                         'jason'),
-            n_transits=1
+    elif data_source == 'rico1':
+        wavelengths_instrument, observations, uncertainties, times = load_rico_data(
+            os.path.join(module_dir, 'crires', planet.name.lower().replace(' ', '_'),
+                         'hd209_crires_v1', dates[night], 'correct_wavelengths'),
+            interpolate_to_common_wl=True,
+            nodes=nodes
         )
-
-    mid_transit_time = [
-        59759.8109 - 0.5,
-        59766.8604 - 0.5,
-        59865.5532 - 0.5
-    ]  # https://astro.swarthmore.edu/transits/print_transits.cgi?single_object=0&ra=&dec=&epoch=&period=&duration=&depth=&target=&observatory_string=-24.625%3B-70.403333%3BAmerica%2FSantiago%3BEuropean+Southern+Observatory%3A+Paranal&use_utc=0&observatory_latitude=37.223611&observatory_longitude=-2.54625&timezone=UTC&start_date=05-29-2022&days_to_print=180&days_in_past=0&minimum_start_elevation=30&and_vs_or=or&minimum_end_elevation=30&minimum_ha=-12&maximum_ha=12&baseline_hrs=1&show_unc=1&minimum_depth=0&maximum_V_mag=&target_string=HD+209458+b&print_html=1&twilight=-12&max_airmass=2.4
-    mid_transit_time = mid_transit_time[night]
+    elif data_source == 'jason_v1':
+        wavelengths_instrument, observations, uncertainties, times = load_jason_data(
+                os.path.join(module_dir, 'crires', planet.name.lower().replace(' ', '_'),
+                             'jason'),
+                n_transits=3
+            )
+    else:
+        raise ValueError(f"data_source must be 'jason' or 'rico', but was '{data_source}'")
 
     berv = planet.get_barycentric_velocities(
         ra=planet.ra,
@@ -921,27 +582,63 @@ def main():
         time=times,
         site_name='Paranal'
     )
-    bervj = planet.get_barycentric_velocities(
-        ra=planet.ra,
-        dec=planet.dec,
-        time=timesj,
-        site_name='Paranal'
-    )
+
     airmass = planet.get_airmass(
         ra=planet.ra,
         dec=planet.dec,
         time=times,
         site_name='Paranal'
     )
-    airmassj = planet.get_airmass(
-        ra=planet.ra,
-        dec=planet.dec,
-        time=timesj,
-        site_name='Paranal'
-    )
 
     times = (times - mid_transit_time) * nc.snc.day
-    timesj = (timesj - mid_transit_time) * nc.snc.day
+    orbital_phases = planet.get_orbital_phases(0, planet.orbital_period, times)
+
+    wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,
+                                 times <= planet_transit_duration / 2))[0]
+
+    wavelengths_instrument = wavelengths_instrument[:, wh, :]
+    observations = observations[:, wh, :]
+    uncertainties = uncertainties[:, wh, :]
+    times = times[wh]
+
+    orbital_phases = orbital_phases[wh]
+    berv = berv[wh]
+    airmass = airmass[wh]
+
+    kp = planet.calculate_orbital_velocity(planet.star_mass, planet.orbit_semi_major_axis)
+    v_sys = planet.star_radial_velocity - berv * 1e2
+
+    return wavelengths_instrument, observations, uncertainties, times, berv, airmass, orbital_phases, v_sys, kp
+
+
+def main():
+    use_t23 = False  # use full eclipse transit time instead of total transit time
+    use_t1535 = False
+    load_rico = True
+    load_jason = False
+    remove_5sig_outsiders = True
+    planet_name = 'HD 209458 b'
+    planet = Planet.get(planet_name)
+    night = 0
+    lsf_fwhm = 1.9e5
+    pixels_per_resolution_element = 2
+    kp_factor = 1.5
+    extra_factor = -0.25
+
+    tellurics_mask_threshold = 0.5
+
+    dates = [
+        '2022_06_29',
+        '2022_07_06',
+        '2022_10_12',
+    ]
+
+    mid_transit_time = [
+        59759.8109 - 0.5,
+        59766.8604 - 0.5,
+        59865.5532 - 0.5
+    ]  # https://astro.swarthmore.edu/transits/print_transits.cgi?single_object=0&ra=&dec=&epoch=&period=&duration=&depth=&target=&observatory_string=-24.625%3B-70.403333%3BAmerica%2FSantiago%3BEuropean+Southern+Observatory%3A+Paranal&use_utc=0&observatory_latitude=37.223611&observatory_longitude=-2.54625&timezone=UTC&start_date=05-29-2022&days_to_print=180&days_in_past=0&minimum_start_elevation=30&and_vs_or=or&minimum_end_elevation=30&minimum_ha=-12&maximum_ha=12&baseline_hrs=1&show_unc=1&minimum_depth=0&maximum_V_mag=&target_string=HD+209458+b&print_html=1&twilight=-12&max_airmass=2.4
+    mid_transit_time = mid_transit_time[night]
 
     if use_t23:
         print(f"Using full transit time (T23), not total transit time (T14)")
@@ -963,136 +660,134 @@ def main():
     else:
         planet_transit_duration = planet.transit_duration
 
-    wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,
-                                 times <= planet_transit_duration / 2))[0]
-    whj = np.where(np.logical_and(timesj >= -planet_transit_duration / 2,
-                                  timesj <= planet_transit_duration / 2))[0]
+    # Load data
+    if load_rico:
+        print(f"Loading Rico data...")
+        wavelengths_instrument, observations, uncertainties, times, berv, airmass, \
+            orbital_phases, v_sys, kp = get_data(
+                planet=planet,
+                planet_transit_duration=planet_transit_duration,
+                dates=dates,
+                night=night,
+                mid_transit_time=mid_transit_time,
+                data_source='rico'
+            )
 
-    orbital_phases = planet.get_orbital_phases(0, planet.orbital_period, times)
-    orbital_phasesj = planet.get_orbital_phases(0, planet.orbital_period, timesj)
-
-    wavelengths_instrument = wavelengths_instrument[:, wh, :]
-    wavelengths_instrumentj = wavelengths_instrumentj[:, whj, :]
-    observations = observations[:, wh, :]
-    observationsj = observationsj[:, whj, :]
-    uncertainties = uncertainties[:, wh, :]
-    uncertaintiesj = uncertaintiesj[:, whj, :]
-    times = times[wh]
-    timesj = timesj[whj]
-
-    orbital_phases = orbital_phases[wh]
-    orbital_phasesj = orbital_phasesj[whj]
-    berv = berv[wh]
-    bervj = bervj[whj]
-    airmass = airmass[wh]
-    airmassj = airmassj[whj]
-
-    kp = planet.calculate_orbital_velocity(planet.star_mass, planet.orbit_semi_major_axis)
-    v_sys = planet.star_radial_velocity - berv * 1e2
-    v_sysj = planet.star_radial_velocity - bervj * 1e2
-
-    # Get models and reduce data
-    ccf_velocities = ccf_radial_velocity(
-        v_sys=v_sys,
-        kp=kp,
-        lsf_fwhm=lsf_fwhm,  # cm.s-1
-        pixels_per_resolution_element=2,
-        kp_factor=1.0,
-        extra_factor=0.25
-    )
-
-    reduced_data, ccf_model_pre, model_wavelengths, true_parameters, mock_observations, mock_observations_nn, \
-        ccf_model_ref_pre, wavelengths_ref, spectral_model, spectral_model_ref, radtrans = get_model(
-            planet=planet,
-            wavelengths_instrument=wavelengths_instrument,
-            kp=kp,
+        ccf_velocities = ccf_radial_velocity(
             v_sys=v_sys,
-            ccf_velocities=ccf_velocities,
-            orbital_phases=orbital_phases,
-            airmass=airmass,
-            observations=observations,
-            uncertainties=uncertainties,
-            tellurics_mask_threshold=tellurics_mask_threshold
-        )
-
-    reduced_dataj, ccf_model_prej, model_wavelengthsj, true_parametersj, mock_observationsj, mock_observations_nnj, \
-        ccf_model_ref_prej, wavelengths_refj, spectral_modelj, spectral_model_refj, radtransj = get_model(
-            planet=planet,
-            wavelengths_instrument=wavelengths_instrumentj,
             kp=kp,
+            lsf_fwhm=lsf_fwhm,  # cm.s-1
+            pixels_per_resolution_element=pixels_per_resolution_element,
+            kp_factor=kp_factor,
+            extra_factor=extra_factor
+        )
+    else:
+        wavelengths_instrument = None
+        observations = None
+        uncertainties = None
+        times = None
+        berv = None
+        airmass = None
+        orbital_phases = None
+        v_sys = None
+        kp = None
+        ccf_velocities = None
+
+    if load_jason:
+        print(f"Loading Jason data...")
+        wavelengths_instrumentj, observationsj, uncertaintiesj, timesj, bervj, airmassj, \
+            orbital_phasesj, v_sysj, kpj = get_data(
+                planet=planet,
+                planet_transit_duration=planet_transit_duration,
+                dates=dates,
+                night=night,
+                mid_transit_time=mid_transit_time,
+                data_source='rico'
+            )
+
+        ccf_velocitiesj = ccf_radial_velocity(
             v_sys=v_sysj,
-            ccf_velocities=ccf_velocities,
-            orbital_phases=orbital_phasesj,
-            airmass=airmassj,
-            observations=observationsj,
-            uncertainties=uncertaintiesj,
-            tellurics_mask_threshold=tellurics_mask_threshold
+            kp=kpj,
+            lsf_fwhm=lsf_fwhm,  # cm.s-1
+            pixels_per_resolution_element=pixels_per_resolution_element,
+            kp_factor=kp_factor,
+            extra_factor=extra_factor
         )
+    else:
+        wavelengths_instrumentj = None
+        observationsj = None
+        uncertaintiesj = None
+        timesj = None
+        bervj = None
+        airmassj = None
+        orbital_phasesj = None
+        v_sysj = None
+        kpj = None
 
-    ccf_model = ccf_model_ref_pre  # no need to use norm_sys since the model is already reduced
-    wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]  # search where the orbital phase is colsest to 0 to get a model where kp~0, not ideal
-
-    # Calculate CCF
-    ccf, ccf_models, rvs = simple_ccf(
-        wavelengths_instrument,
-        reduced_data,
-        wavelengths_ref.flatten(),
-        ccf_model[:, wh_0, :].flatten(),
-        lsf_fwhm=2.6e5,  # cm.s-1
-        pixels_per_resolution_element=2,  # v_rest step is lsf_fwhm / pixels_per_resolution_element
-        radial_velocity=v_sys,
-        kp=kp,
-        data_uncertainties=uncertainties
+    print("Generating model...")
+    wavelengths_model, model, spectral_model, radtrans = get_model(
+        planet=planet,
+        wavelengths_instrument=wavelengths_instrument,
+        system_observer_radial_velocities=v_sys,
+        kp_range=np.array([-kp, kp]) * kp_factor,
+        ccf_velocities=ccf_velocities,
+        orbital_phases=orbital_phases,
+        airmass=airmass,
+        uncertainties=uncertainties,
+        detector_selection=None,
+        tellurics_mask_threshold=tellurics_mask_threshold,
+        mode='transmission'
     )
 
-    # Nice CCF
-    ccf_norm = np.transpose(np.transpose(ccf) - np.transpose(np.nanmedian(ccf, axis=2)))
-    ccf_norm = np.ma.masked_invalid(ccf_norm)
+    print("Preparing data...")
+    prepared_data, reprocessing_matrix, prepared_data_uncertainties = spectral_model.pipeline(
+        spectrum=observations,
+        wavelength=wavelengths_instrument,
+        **spectral_model.model_parameters
+    )
 
-    detector_list = np.linspace(0, wavelengths_instrument.shape[0] - 1, wavelengths_instrument.shape[0], dtype=int)
-    detector_selection = detector_list
-    detector_selection = np.arange(1, 23, 1)
-    # detector_selection = [5, 7, 8, 9, 14, 15, 17, 18, 19, 21]
-    # detector_selection = [5, 6, 9, 14, 18, 19, 20, 21]
+    if remove_5sig_outsiders:
+        print("Removing 5 sigmas outsiders...")
+        stds = np.moveaxis(
+            np.ma.median(np.ma.std(prepared_data, axis=-1), axis=1)
+            * np.ones((prepared_data.shape[1], prepared_data.shape[2], prepared_data.shape[0])),
+            -1,
+            0
+        )
+        masked_data = np.ma.masked_where(
+            np.abs(prepared_data - 1) > 5 * stds, observations
+        )
+        uncertainties = np.ma.masked_where(masked_data.mask, uncertainties)
+        spectral_model.model_parameters['uncertainties'] = uncertainties
 
-    # Find best detector selection and calculate collapsed CCF
-    kp_range = np.array([145e5, 160e5])
-
-    ccf_norm_select = copy.copy(ccf_norm)
-    ccf_norm_select = ccf_norm_select[detector_selection]
-    ccf_norm_select_sum = np.ma.sum(ccf_norm_select, axis=0)
-    ccf_tot, v_rests, kps = simple_co_added_ccf(np.array([ccf_norm_select_sum]), rvs, orbital_phases, v_sys, kp)
-
-    max_percentage_area = 0.68
-    ccf_tot, max_sn_sn, max_kp_sn, max_v_rest_sn, ccf_tot_sn, detector_selection, \
-        max_sn_peak, max_kp_peak, max_v_rest_peak, kps, v_rests = \
-        find_best_detector_selection(
-            first_guess=detector_selection,
-            detector_list=detector_list,
-            ccf_norm_select=ccf_norm_select,
-            rvs=rvs,
-            orbital_phases=orbital_phases,
-            v_sys=v_sys,
-            kp=kp,
-            kp_range=kp_range,
-            v_rest_range=[-10e5, 10e5],
-            max_percentage_area=max_percentage_area,
-            area_increase_tolerance=1.0,
-            use_peak=True
+        print("Re-preparing data after 5 sigmas outsiders removal...")
+        masked_prepared_data, reprocessing_matrix_m, masked_prepared_data_uncertainties = spectral_model.pipeline(
+            spectrum=masked_data,
+            wavelength=wavelengths_instrument,
+            **spectral_model.model_parameters
         )
 
-    # Plots
-    plt.imshow(ccf_tot[0], aspect='auto', origin='lower',
-               extent=np.array([v_rests[0], v_rests[-1], kps[0], kps[-1]]) * 1e-5)
-    plt.colorbar(label='collapsed CCF')
-    plt.vlines(0, np.min(kps) * 1e-5, np.max(kps) * 1e-5, color='r', alpha=0.3)
-    plt.hlines(kp * 1e-5, np.min(v_rests) * 1e-5, np.max(v_rests) * 1e-5, color='r', alpha=0.3)
-    plt.scatter(max_v_rest_peak * 1e-5, max_kp_peak * 1e-5, color='r', marker='+')
-    plt.contour(v_rests * 1e-5, kps * 1e-5, ccf_tot[0], levels=[max_percentage_area * np.max(ccf_tot[0])],
-                colors='r', alpha=0.3)
-    plt.xlabel(r'$V_r$ (km$\cdot$s$^{-1}$)')
-    plt.ylabel(r'$K_p$ (km$\cdot$s$^{-1}$)')
-    plt.title(f"TT mask threshold: {tellurics_mask_threshold}, SNR = {max_sn_sn:.3f}")
+    print("CCF...")
+    ccf_analysis(
+        wavelengths_data=wavelengths_instrument,
+        data=prepared_data,
+        wavelengths_model=wavelengths_model,
+        model=model,
+        velocities_ccf=ccf_velocities,
+        model_velocities=None,
+        normalize_ccf=True,
+        calculate_ccf_snr=True,
+        ccf_sum_axes=None,
+        planet_radial_velocity_amplitude=kp,
+        system_observer_radial_velocities=v_sys,
+        orbital_phases=orbital_phases,
+        planet_orbital_inclination=planet.orbital_inclination,
+        line_spread_function_fwhm=lsf_fwhm,
+        pixels_per_resolution_element=pixels_per_resolution_element,
+        co_added_ccf_peak_width=None,
+        velocity_interval_extension_factor=extra_factor,
+        kp_factor=kp_factor
+    )
 
 
 def remove_mask(observed_spectra, observations_uncertainties):
