@@ -360,6 +360,19 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
     return wavelengths, model, spectral_model, radtrans
 
 
+def load_variable_throughput_brogi(file, times_size, wavelengths_size):
+    variable_throughput = np.load(file)
+
+    variable_throughput = np.max(variable_throughput[0], axis=1)
+    variable_throughput = variable_throughput / np.max(variable_throughput)
+
+    xp = np.linspace(0, 1, np.size(variable_throughput))
+    x = np.linspace(0, 1, times_size)
+    variable_throughput = np.interp(x, xp, variable_throughput)
+
+    return np.tile(variable_throughput, (wavelengths_size, 1)).T
+
+
 def sysrem(n_data, n_spectra, data_in, errors_in):
     """
     SYSREM procedure by Alejandro Sanchez-Lopez, 26-09-17 2017
@@ -427,28 +440,37 @@ def sysrem(n_data, n_spectra, data_in, errors_in):
     return data_out, cor1
 
 
-def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both', truncate=5, quantile_mask=0.005):
-    # lacking: mid_transit_time, orbital_phases, airmass, berv
+def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
+                   truncate=5, mask_threshold=1e-15, snr_threshold=1):
     wavelengths_instrument, observations, uncertainties, times = construct_spectral_matrix(
         os.path.join(data_directory, ''),
         interpolate_to_common_wl=interpolate_to_common_wl,
-        nodes=nodes,
-        #planet.orbital_period,
-        #mid_transit_jd=58004.425291
+        nodes=nodes
     )
 
     if truncate is not None:
         mask = np.ones(wavelengths_instrument.shape, dtype=bool)
-        mask[:, :, truncate:-truncate] = False
+        mask[:, :, truncate + 5:-truncate] = False
+        # mask[:, -167:-165, :] = True  # TODO remove weird line from night 1 (is it still there in other nights? at different places?)
         # wavelengths_instrument = np.ma.masked_where(mask, wavelengths_instrument)
         observations = np.ma.masked_where(mask, observations)
         uncertainties = np.ma.masked_where(mask, uncertainties)
 
-    mask_threshold = np.quantile(observations.data, quantile_mask)
     mask_threshold = np.less(observations, mask_threshold)
     # wavelengths_instrument = np.ma.masked_where(mask_threshold, wavelengths_instrument)
     observations = np.ma.masked_where(mask_threshold, observations)
     uncertainties = np.ma.masked_where(mask_threshold, uncertainties)
+
+    observations = np.ma.masked_invalid(observations)
+    uncertainties = np.ma.masked_invalid(uncertainties)
+
+    observations = np.ma.masked_where(uncertainties.mask, observations)
+    uncertainties = np.ma.masked_where(observations.mask, uncertainties)
+
+    snr_mask = np.less(observations / uncertainties, snr_threshold)
+
+    observations = np.ma.masked_where(snr_mask, observations)
+    uncertainties = np.ma.masked_where(snr_mask, uncertainties)
 
     return wavelengths_instrument, observations, uncertainties, times
 
@@ -617,7 +639,13 @@ def main():
     load_rico = True
     load_jason = False
     remove_5sig_outsiders = True
+    get_mock_obs = True
     planet_name = 'HD 209458 b'
+
+    output_directory = os.path.abspath(os.path.abspath('./')
+                                       + '../../../../work/run_outputs/petitRADTRANS')
+    additional_data_directory = os.path.join(output_directory, 'data')
+
     planet = Planet.get(planet_name)
     night = 0
     lsf_fwhm = 1.9e5
@@ -670,7 +698,8 @@ def main():
                 dates=dates,
                 night=night,
                 mid_transit_time=mid_transit_time,
-                data_source='rico'
+                data_source='rico',
+                nodes='both'
             )
 
         ccf_velocities = ccf_radial_velocity(
@@ -739,6 +768,51 @@ def main():
         mode='transmission'
     )
 
+    if get_mock_obs:
+        wavelengths_telluric, telluric_transmittances = \
+            get_tellurics_npz(
+                './tellurics_crires.npz',
+                np.array([
+                    spectral_model.wavelengths_boundaries[0] - 1e-6,
+                    spectral_model.wavelengths_boundaries[1] + 1e-6
+                ])
+            )
+
+        telluric_transmittances[np.less(telluric_transmittances, 1e-15)] = 1e-15
+
+        variable_throughput = load_variable_throughput_brogi(
+            os.path.join(additional_data_directory, 'metis', 'brogi_crires_test', 'algn.npy'),
+            times_size=times.size,
+            wavelengths_size=wavelengths_instrument.shape[-1]
+        )
+
+        noise_matrix = np.random.default_rng().normal(
+            loc=0,
+            scale=np.ma.masked_array(uncertainties / observations).filled(0),
+            size=uncertainties.shape
+        )
+
+        _, mock_observations = spectral_model.get_spectrum_model(
+            radtrans=radtrans,
+            mode='transmission',
+            update_parameters=True,
+            telluric_transmittances_wavelengths=wavelengths_telluric,
+            telluric_transmittances=telluric_transmittances,
+            instrumental_deformations=variable_throughput,
+            noise_matrix=noise_matrix,
+            scale=True,
+            shift=True,
+            convolve=True,
+            rebin=True
+        )
+
+        print("Preparing mock data...")
+        prepared_mock_data, reprocessing_mock_matrix, prepared_mock_data_uncertainties = spectral_model.pipeline(
+            spectrum=mock_observations,
+            wavelength=wavelengths_instrument,
+            **spectral_model.model_parameters
+        )
+
     print("Preparing data...")
     prepared_data, reprocessing_matrix, prepared_data_uncertainties = spectral_model.pipeline(
         spectrum=observations,
@@ -768,26 +842,28 @@ def main():
         )
 
     print("CCF...")
-    ccf_analysis(
-        wavelengths_data=wavelengths_instrument,
-        data=prepared_data,
-        wavelengths_model=wavelengths_model,
-        model=model,
-        velocities_ccf=ccf_velocities,
-        model_velocities=None,
-        normalize_ccf=True,
-        calculate_ccf_snr=True,
-        ccf_sum_axes=None,
-        planet_radial_velocity_amplitude=kp,
-        system_observer_radial_velocities=v_sys,
-        orbital_phases=orbital_phases,
-        planet_orbital_inclination=planet.orbital_inclination,
-        line_spread_function_fwhm=lsf_fwhm,
-        pixels_per_resolution_element=pixels_per_resolution_element,
-        co_added_ccf_peak_width=None,
-        velocity_interval_extension_factor=extra_factor,
-        kp_factor=kp_factor
-    )
+    co_added_cross_correlations_snr, co_added_cross_correlations, \
+        v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths = \
+        ccf_analysis(
+            wavelengths_data=wavelengths_instrument,
+            data=prepared_data,
+            wavelengths_model=wavelengths_model[0],
+            model=model[0],
+            velocities_ccf=ccf_velocities,
+            model_velocities=None,
+            normalize_ccf=True,
+            calculate_ccf_snr=True,
+            ccf_sum_axes=None,
+            planet_radial_velocity_amplitude=kp,
+            system_observer_radial_velocities=v_sys,
+            orbital_phases=orbital_phases,
+            planet_orbital_inclination=planet.orbital_inclination,
+            line_spread_function_fwhm=lsf_fwhm,
+            pixels_per_resolution_element=pixels_per_resolution_element,
+            co_added_ccf_peak_width=None,
+            velocity_interval_extension_factor=extra_factor,
+            kp_factor=kp_factor
+        )
 
 
 def remove_mask(observed_spectra, observations_uncertainties):
