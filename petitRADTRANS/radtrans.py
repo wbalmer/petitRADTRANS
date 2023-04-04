@@ -99,6 +99,7 @@ class Radtrans(_read_opacities.ReadOpacities):
             do_scat_emis:
             lbl_opacity_sampling:
         """
+        # TODO add wavelengths generator
         if line_species is None:
             line_species = []
 
@@ -1799,6 +1800,7 @@ class Radtrans(_read_opacities.ReadOpacities):
                   FeH=0.,
                   return_opacities=False,
                   **kwargs):
+        # TODO move outside (no plots in Radtrans)
         import matplotlib.pyplot as plt
 
         temp = np.array(temperature)
