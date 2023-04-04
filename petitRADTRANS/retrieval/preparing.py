@@ -89,7 +89,9 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
-    if spectrum.shape[1] <= polynomial_fit_degree + 1:
+    degrees_of_freedom = polynomial_fit_degree + 1
+
+    if spectrum.shape[1] <= degrees_of_freedom:
         warnings.warn(f"not enough points in airmass axis ({spectrum.shape[1]}) "
                       f"for a meaningful correction with the requested fit degree ({polynomial_fit_degree}). "
                       f"At least {polynomial_fit_degree + 2} airmass axis points are required. "
@@ -116,22 +118,22 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     # Correction
     for i, det in enumerate(spectrum):
         # Mask wavelength columns where at least one value is lower or equal to 0, to avoid invalid log values
-        masked_det = np.ma.masked_where(np.ones(det.shape) * np.min(det, axis=0) <= 0, det)
+        masked_det = np.ma.masked_less_equal(det, 0)
         log_det_t = np.ma.log(np.transpose(masked_det))
         weights[i][masked_det.mask] = 0  # polyfit doesn't take masks into account, so set weight of masked values to 0
 
         # Fit each wavelength column
         for k, log_wavelength_column in enumerate(log_det_t):
-            if np.allclose(weights[i, :, k], 0, atol=sys.float_info.min):  # skip fully masked columns
+            if weights[i, np.nonzero(weights[i, :, k]), k].size > degrees_of_freedom:
+                fit_parameters = np.polynomial.Polynomial.fit(
+                    x=airmass, y=log_wavelength_column, deg=polynomial_fit_degree, w=weights[i, :, k]
+                )
+                fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)
+                telluric_lines_fits[i, :, k] = fit_function(airmass)
+            else:
                 telluric_lines_fits[i, :, k] = 0
 
-                continue
-
-            fit_parameters = np.polynomial.Polynomial.fit(
-                x=airmass, y=log_wavelength_column, deg=polynomial_fit_degree, w=weights[i, :, k]
-            )
-            fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)
-            telluric_lines_fits[i, :, k] = fit_function(airmass)
+                warnings.warn(f"not all columns have enough valid points for fitting")
 
         # Calculate telluric transmittance estimate
         telluric_lines_fits[i, :, :] = np.exp(telluric_lines_fits[i, :, :])
@@ -249,7 +251,9 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
-    if spectrum.shape[2] <= polynomial_fit_degree + 1:
+    degrees_of_freedom = polynomial_fit_degree + 1
+
+    if spectrum.shape[2] <= degrees_of_freedom:
         warnings.warn(f"not enough points in wavelengths axis ({spectrum.shape[2]}) "
                       f"for a meaningful correction with the requested fit degree ({polynomial_fit_degree}). "
                       f"At least {polynomial_fit_degree + 2} wavelengths axis points are required. "
@@ -294,7 +298,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
 
         # Apply mask where estimate is lower than the threshold, as well as the data mask
         throughput_fits[i, :, :] = np.ma.masked_where(
-            np.ones(throughput_fits[i].shape) * np.min(throughput_fits[i, :, :], axis=0) < mask_threshold,
+            throughput_fits[i, :, :] < mask_threshold,
             throughput_fits[i, :, :]
         )
         throughput_fits[i, :, :] = np.ma.masked_where(
@@ -311,8 +315,6 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         pipeline_uncertainties /= np.abs(throughput_fits)
 
         if correct_uncertainties:
-            degrees_of_freedom = 1 + polynomial_fit_degree
-
             # Count number of non-masked points minus degrees of freedom in each wavelength axes
             if np.ndim(pipeline_uncertainties.mask) != np.ndim(pipeline_uncertainties):
                 raise ValueError(f"number of dimensions of the mask of pipeline uncertainties "
