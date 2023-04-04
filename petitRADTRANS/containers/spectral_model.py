@@ -767,6 +767,7 @@ class BaseSpectralModel:
             add_cloud_scattering_as_absorption:
             absorption_opacity_function:
             scattering_opacity_function:
+            scattering_opacity_function:
 
         Returns:
 
@@ -1554,7 +1555,37 @@ class BaseSpectralModel:
 
         # Add telluric transmittance
         if telluric_transmittances is not None:
-            telluric_transmittances_rebin = np.zeros(wavelengths.shape)
+            # Rebin spectra on an intermediate wavelength grid, only if re-binning is needed
+            '''
+            Another way is to rebin the telluric transmittances on the current wavelengths, however this can lead to
+            inaccuracies if the rebin function is not precise enough. 
+            '''
+            if shift and rebin:
+                # Get the mean resolving power of the current shifted wavelengths grids:
+                #   R = lambda / d_lambda
+                # With np.diff we get R from "one side" of the bin, to get the resolving power inside the bins:
+                #   R = (lambda[:-1] + d_lambda / 2) / d_lambda = lambda / d_lambda + 0.5
+                current_resolving_power = np.mean(wavelengths[:, :-1] / np.diff(wavelengths) + 0.5)
+
+                # Get the intermediate wavelength grid at the same resolving power than the current shifted grids
+                wavelengths_rebin = SpectralModel.resolving_space(
+                    start=np.max(np.min(wavelengths[:, 1:], axis=-1)),
+                    stop=np.min(np.max(wavelengths[:, :-1], axis=-1)),
+                    resolving_power=current_resolving_power
+                )
+
+                _, spectrum = BaseSpectralModel.__rebin_wrap(  # TODO rebin wrap should not be hidden
+                    wavelengths=wavelengths,
+                    spectrum=spectrum,
+                    output_wavelengths=wavelengths_rebin,
+                    rebin_spectrum_function=rebin_spectrum_function,
+                    **kwargs
+                )
+
+                wavelengths = np.tile(wavelengths_rebin, (spectrum.shape[0], 1))
+
+            # Initialize arrays
+            telluric_transmittances_rebin = np.zeros(spectrum.shape)
 
             if telluric_transmittances_wavelengths is None:
                 telluric_transmittances_wavelengths = wavelengths_0
@@ -2652,6 +2683,34 @@ class SpectralModel(BaseSpectralModel):
                 spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
 
         return preparing_pipeline(spectrum=spectrum, full=True, **kwargs)
+
+    @staticmethod
+    def resolving_space(start, stop, resolving_power):
+        # Check for inputs validity
+        if start > stop:
+            raise ValueError(f"start ({start}) must be lower than stop {stop}")
+
+        if resolving_power <= 0:
+            raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
+
+        # Ensure that the while loop will stop at some point
+        size_max = (stop - start) / (start / resolving_power)
+
+        if not np.isfinite(size_max) or size_max < 0:
+            raise ValueError(f"invalid maximum size ({size_max})")
+
+        # Start generating space
+        space = [start]
+
+        while len(space) < size_max and space[-1] < stop:
+            space.append(space[-1] + space[-1] / resolving_power)
+
+        if len(space) >= size_max and space[-1] < stop:
+            raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({space[-1]} < {stop})")
+        elif space[-1] > stop:
+            del space[-1]  # ensure that the space is within the [start, stop] interval
+
+        return np.array(space)
 
     @staticmethod
     def surface_gravity2mass(planet_surface_gravity, planet_radius, verbose=False, **kwargs):

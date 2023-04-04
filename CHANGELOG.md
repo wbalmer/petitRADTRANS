@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.7.0-a40] - 2023-03-30
+## [2.7.0-a41] - 2023-04-04
 ### Added
 - Support for SLURM.
 - Module `configuration` to manage paths.
@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Some functions have moved from the module `nat_cst` to another, more specific module.
+- Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - Package structure.
+
+### Fixed
+- Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
 
 ## [2.6.0] - 2023-03-27
 ### Added
