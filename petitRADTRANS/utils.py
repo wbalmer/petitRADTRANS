@@ -182,6 +182,20 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
             )
 
 
+def feature_scaling(array, min_value=0, max_value=1):
+    """Bring all values of array between a min and max value.
+
+    Args:
+        array: array to normalize
+        min_value: target minimum value
+        max_value: target maximum value
+
+    Returns:
+        The normalized array with values between min_value and max_value.
+    """
+    return min_value + ((array - np.min(array)) * (max_value - min_value)) / (np.max(array) - np.min(array))
+
+
 def fill_object(array, value):
     """Fill a numpy object array with a value."""
     if array.dtype == 'O':
