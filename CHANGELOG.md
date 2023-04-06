@@ -4,10 +4,13 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.7.0-a41] - 2023-04-04
+## [2.7.0-a42] - 2023-04-06
 ### Added
+- SYSREM preparing pipeline.
 - Support for SLURM.
 - Module `configuration` to manage paths.
+- Function `utils.feature_scaling` to normalize arrays.
+- Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
