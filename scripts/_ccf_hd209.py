@@ -9,8 +9,8 @@ from petitRADTRANS.fort_rebin import fort_rebin as fr
 from scipy.interpolate import interp1d
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import doppler_shift
-from petitRADTRANS.ccf.ccf_core import cross_correlate
-from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space
+from petitRADTRANS.ccf.ccf_core import cross_correlate, co_add_cross_correlation
+from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space, get_co_added_ccf_velocity_space
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
@@ -373,75 +373,24 @@ def load_variable_throughput_brogi(file, times_size, wavelengths_size):
     return np.tile(variable_throughput, (wavelengths_size, 1)).T
 
 
-def sysrem(n_data, n_spectra, data_in, errors_in):
-    """
-    SYSREM procedure by Alejandro Sanchez-Lopez, 26-09-17 2017
-    """
-    # We first define an array holding the time evolution
-    # of a certain pixel. Ignas uses (n_data/3). However,
-    # this value might have to be changed if it falls inside a mask.
-    a = data_in[int(n_data / 3), :]  # TODO but a is the airmass, why taking only one value and why using the data?
-
-    # Resize to intialize an entire matrix
-    # 'aj' is the airmass in Tamuz et al. 2004; it's
-    # here called a1.
-    a1 = np.matlib.repmat(a, n_data, 1)
-
-    # 'c' which is the extinction coefficient in Tamuz et al. 2004; it's
-    # calculated as in equation (2) of the paper.
-    # For the calculation of c, data_in is the r_ij of Tamuz et al. 2004.
-    c = np.sum(data_in * a1 / errors_in ** 2., 1) / \
-        np.sum(a1 ** 2. / errors_in ** 2., 1)
-    # Right now c is an array. We're going to resize it to obtain
-    # a matrix 'c1'. It's like having the t evolution of this
-    # 'extinction coeff' for each pixel.
-    c1 = np.transpose(np.matlib.repmat(c, n_spectra, 1))
-
-    # As in the paper, we aim to remove the product c_i*a_j
-    # (c1 * a1) from each r_ij (data_in(i,j)). So, we are
-    # basically assuming that the average variation of the flux
-    # over time is mainly due to airmass variations (a1). We
-    # assume that the variation is linear and the slope is c1.
-
-    # Defining the correction factors 'cor':
-    cor1 = c1 * a1  # in essence, the thing we want to substract to the data.
-    cor0 = np.zeros(cor1.shape, dtype=float)
-
-    # Now that c has been calculated using the prior a1 value from the
-    # data_in, we can turn around the problem and calculate the set of 'a'
-    # values that minimize eq. (3) in the paper using the previously
-    # calculated c values.
-    # Hence, we repeat the loop until the convergence criterion is achieved.
-    while np.sum(np.abs(cor0 - cor1)) / np.sum(np.abs(cor0)) >= 1e-3:
-        # Start with the first value calculated before for the correction
-        cor0 = cor1
-        # Apply eq. (4) in the paper, which gives us 'a':
-        a = np.sum(data_in * c1 / errors_in ** 2., 0) / \
-            np.sum(c1 ** 2. / errors_in ** 2., 0)
-
-        # We transform it into a matrix
-        a1 = np.matlib.repmat(np.transpose(a), n_data, 1)
-
-        # Now we recalculate the best fitting coefficients 'c' using the
-        # latest 'a' values. By iterating this process until the
-        # convergence criterion is achieved, we obtained the two sets
-        # (a & c) that BEST account for the variations during the
-        # observations (airmass variations mostly).
-        c = np.sum(data_in * a1 / errors_in ** 2., 1) / \
-            np.sum(a1 ** 2. / errors_in ** 2., 1)
-        c1 = np.transpose(np.matlib.repmat(c, n_spectra, 1))
-
-        # Recalculate the correction using the latest values of the
-        # two sets a & c.
-        cor1 = a1 * c1
-
-    data_out = np.copy(data_in - cor1)
-
-    return data_out, cor1
-
-
 def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
-                   truncate=5, mask_threshold=1e-15, snr_threshold=1):
+                   truncate=5, mask_threshold=1e-15, snr_threshold=1, mask_of_mask_threshold=0.02):
+    def __mask_columns_lines(matrix, mask_lines=False, mask_columns=False):
+        for i, matrix_ccd in enumerate(matrix):
+            # Mask lines where too many points are masked
+            if mask_lines:
+                for j, arr_exposure in enumerate(matrix_ccd):
+                    if np.nonzero(arr_exposure.mask)[0].size / arr_exposure.mask.size > mask_of_mask_threshold:
+                        matrix[i, j, :].mask = np.ones(matrix.shape[2], dtype=bool)
+
+            # Mask columns where too many points are masked
+            if mask_columns:
+                for k, arr_wavelength in enumerate(matrix_ccd.T):
+                    if np.nonzero(arr_wavelength.mask)[0].size / arr_wavelength.mask.size > mask_of_mask_threshold:
+                        matrix[i, :, k].mask = np.ones(matrix.shape[1], dtype=bool)
+
+        return matrix
+
     wavelengths_instrument, observations, uncertainties, times = construct_spectral_matrix(
         os.path.join(data_directory, ''),
         interpolate_to_common_wl=interpolate_to_common_wl,
@@ -449,28 +398,42 @@ def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
     )
 
     if truncate is not None:
-        mask = np.ones(wavelengths_instrument.shape, dtype=bool)
-        mask[:, :, truncate + 5:-truncate] = False
-        # mask[:, -167:-165, :] = True  # TODO remove weird line from night 1 (is it still there in other nights? at different places?)
-        # wavelengths_instrument = np.ma.masked_where(mask, wavelengths_instrument)
-        observations = np.ma.masked_where(mask, observations)
-        uncertainties = np.ma.masked_where(mask, uncertainties)
+        # mask = np.ones(wavelengths_instrument.shape, dtype=bool)
+        # mask[:, :, truncate + 5:-truncate] = False
+        observations = observations[:, :, truncate + 5:-truncate]
+        uncertainties = uncertainties[:, :, truncate + 5:-truncate]
+        wavelengths_instrument = wavelengths_instrument[:, :, truncate + 5:-truncate]
 
-    mask_threshold = np.less(observations, mask_threshold)
-    # wavelengths_instrument = np.ma.masked_where(mask_threshold, wavelengths_instrument)
-    observations = np.ma.masked_where(mask_threshold, observations)
-    uncertainties = np.ma.masked_where(mask_threshold, uncertainties)
-
+    # Mask invalid points
     observations = np.ma.masked_invalid(observations)
     uncertainties = np.ma.masked_invalid(uncertainties)
 
+    # Propagate mask to observations and uncertainties
     observations = np.ma.masked_where(uncertainties.mask, observations)
     uncertainties = np.ma.masked_where(observations.mask, uncertainties)
 
+    # Mask invalid lines
+    observations = __mask_columns_lines(observations, mask_lines=True)
+    uncertainties = __mask_columns_lines(uncertainties, mask_lines=True)
+
+    # Mask points where SNR is too low
     snr_mask = np.less(observations / uncertainties, snr_threshold)
 
     observations = np.ma.masked_where(snr_mask, observations)
     uncertainties = np.ma.masked_where(snr_mask, uncertainties)
+
+    # Mask observations that are too low
+    mask_threshold = np.less(observations, mask_threshold)
+    observations = np.ma.masked_where(mask_threshold, observations)
+    uncertainties = np.ma.masked_where(mask_threshold, uncertainties)
+
+    # Mask invalid columns
+    observations = __mask_columns_lines(observations, mask_columns=True)
+    uncertainties = __mask_columns_lines(uncertainties, mask_columns=True)
+
+    # Propagate mask to observations and unceratainties
+    observations = np.ma.masked_where(uncertainties.mask, observations)
+    uncertainties = np.ma.masked_where(observations.mask, uncertainties)
 
     return wavelengths_instrument, observations, uncertainties, times
 
@@ -618,6 +581,10 @@ def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, da
     wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,
                                  times <= planet_transit_duration / 2))[0]
 
+    if len(wh) == 0:
+        raise ValueError(f"no in-transit data found "
+                         f"(times: [{np.min(times)}, {np.max(times)}], mid transit: {mid_transit_time})")
+
     wavelengths_instrument = wavelengths_instrument[:, wh, :]
     observations = observations[:, wh, :]
     uncertainties = uncertainties[:, wh, :]
@@ -684,7 +651,6 @@ def main():
         if use_t1535:
             print(f"Adding exposures of half-eclipses")
             planet_transit_duration += (planet.transit_duration - planet_transit_duration) / 2
-
     else:
         planet_transit_duration = planet.transit_duration
 
@@ -786,6 +752,11 @@ def main():
             wavelengths_size=wavelengths_instrument.shape[-1]
         )
 
+        # uncertainties_simple = np.moveaxis(
+        #     np.ma.mean(uncertainties, axis=1) * np.moveaxis(np.ones(uncertainties.shape), 1, 0), 0, 1)
+        # observations_simple = np.moveaxis(
+        #     np.ma.mean(observations, axis=1) * np.moveaxis(np.ones(observations.shape), 1, 0), 0, 1)
+
         noise_matrix = np.random.default_rng().normal(
             loc=0,
             scale=np.ma.masked_array(uncertainties / observations).filled(0),
@@ -863,6 +834,29 @@ def main():
             co_added_ccf_peak_width=None,
             velocity_interval_extension_factor=extra_factor,
             kp_factor=kp_factor
+        )
+
+    #
+    co_added_velocities, kps, v_rest = get_co_added_ccf_velocity_space(
+        planet_radial_velocity_amplitude=kp,
+        velocities_ccf=velocities_ccf,
+        system_observer_radial_velocities=v_sys,
+        orbital_longitudes=orbital_phases * 360,  # phase to deg
+        planet_orbital_inclination=planet.orbital_inclination,
+        kp_factor=kp_factor
+    )
+
+    detector_selection = np.array(range(5, 22))
+
+    ccf_sum = np.array([np.sum(ccfs[detector_selection], axis=0)])
+
+    co_added_cross_correlations_notsplit = np.zeros((ccf_sum.shape[0], kps.size, v_rest.size))
+
+    for i, ccf_ in enumerate(ccf_sum):
+        co_added_cross_correlations_notsplit[i] = co_add_cross_correlation(
+            cross_correlation=ccf_,
+            velocities_ccf=velocities_ccf,
+            co_added_velocities=co_added_velocities
         )
 
 
