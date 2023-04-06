@@ -7,13 +7,13 @@ import sys, os
 
 # To not have numpy start parallelizing on its own
 os.environ["OMP_NUM_THREADS"] = "1"
-from scipy.special import erfcinv
+from scipy.special import erfcinv, gamma
 import numpy as np
 import math as math
 from molmass import Formula
 from typing import Tuple
 from petitRADTRANS import nat_cst as nc
-
+from petitRADTRANS.physics import linear_spline_profile,cubic_spline_profile
 # import threading, subprocess
 
 
@@ -85,6 +85,8 @@ def log_gaussian_prior(cube, mu, sigma):
 def delta_prior(cube, x1, x2):
     return x1
 
+def inverse_gamma_prior(cube, a, b):
+    return ((b**a)/gamma(a)) * (1/cube)**(a+1) * np.exp(-b/cube)
 
 # Sanity checks on parameter ranges
 def b_range(x, b):

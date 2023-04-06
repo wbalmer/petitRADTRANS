@@ -162,14 +162,17 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             abundances[cname] = abundances[cname][small_index]
 
     for species in line_species:
-        if 'FeH' in species and not 'use_easychem' in parameters.keys():
+        sname = species.split('_')[0]
+        if sname == "C2H2":
+            sname = "C2H2,acetylene"
+        if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
-            abunds_change_rainout = cp.copy(abundances_interp[species.split('_')[0]]/2.)
-            if 'Fe(c)' in Pbases.keys():
+            abunds_change_rainout = cp.copy(abundances_interp[sname]/2.)
+            if 'Fe(c)' in Pbases.keys() and not 'use_easychem' in parameters.keys():
                 index_ro = pressures < Pbases['Fe(c)'] # Must have iron cloud
                 abunds_change_rainout[index_ro] = 0.
             abundances[species] = abunds_change_rainout[small_index]
-        abundances[species] = abundances_interp[species.split('_')[0]][small_index]
+        abundances[species] = abundances_interp[sname][small_index]
     abundances['H2'] = abundances_interp['H2'][small_index]
     abundances['He'] = abundances_interp['He'][small_index]
     return abundances, MMW, small_index, Pbases
@@ -188,7 +191,12 @@ def get_easychem_abundances(pressures, temperatures, line_species, cloud_species
                                  'Mg2SiO4(L)',
                                  'MgAl2O4(c)',
                                  'FeO(c)',
-                                 'Fe2SiO4(c)']
+                                 'Fe2SiO4(c)',
+                                 'TiO2(c)',
+                                 'TiO2(L)',
+                                 'H3PO4(c)',
+                                 'H2O(L)',
+                                 'H2O(c)',]
 
     exo = ec.ExoAtmos(atoms=None,
                   reactants=None,
@@ -199,6 +207,13 @@ def get_easychem_abundances(pressures, temperatures, line_species, cloud_species
 
     reactants = exo.reactants.copy()
 
+    for condensate in default_remove_condensates:
+        reactants = np.delete(reactants, np.argwhere(reactants == condensate))
+    exo.updateReactants(reactants)
+
+    exo.feh = metallicity
+    exo._updateFEH()
+
     # Set atomic abundances from parameters
     for key,val in parameters.items():
         if key not in exo.atoms:
@@ -206,12 +221,7 @@ def get_easychem_abundances(pressures, temperatures, line_species, cloud_species
         itemindex = np.where(exo.atoms == key)
         exo.atomAbunds[itemindex] = 10**val.value
 
-    for condensate in default_remove_condensates:
-        reactants = np.delete(reactants, np.argwhere(reactants == condensate))
-    exo.updateReactants(reactants)
 
-    exo.feh = metallicity
-    exo._updateFEH()
     exo.solve(pressures, temperatures)
     abundances = exo.result_mass()
     pressures_goal = pressures.reshape(-1)

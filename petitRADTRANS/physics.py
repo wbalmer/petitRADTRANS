@@ -275,3 +275,27 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
     return tret#, press_tau(1.)/1e6, tfintp(p_bot_spline)
+
+def cubic_spline_profile(press, temperature_points, gamma, nnodes = 0):
+    cs = CubicSpline(np.linspace(np.log10(press[0]),
+                             np.log10(press[-1]),
+                             nnodes+2),
+                 temperature_points)
+
+    interpolated_temps = cs(np.log10(press))
+    prior = temperature_curvature_prior(press,interpolated_temps,gamma)
+    return interpolated_temps, prior
+
+def linear_spline_profile(press, temperature_points, gamma, nnodes = 0):
+    interpolated_temps = np.interp(np.log10(press),
+                    np.linspace(np.log10(press[0]),
+                             np.log10(press[-1]),
+                             nnodes+2),
+                    temperature_points)
+    prior = temperature_curvature_prior(press,interpolated_temps,gamma)
+    return interpolated_temps, prior
+
+def temperature_curvature_prior(press,temps,gamma):
+        weighted_temp_prior = -0.5*np.sum((temps[2:]-2*temps[1:-1]+temps[:-2])**2)/gamma
+        weighted_temp_prior -= 0.5*np.log(2*np.pi*gamma)
+        return weighted_temp_prior
