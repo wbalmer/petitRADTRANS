@@ -2693,19 +2693,23 @@ class SpectralModel(BaseSpectralModel):
         if resolving_power <= 0:
             raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
 
-        # Ensure that the while loop will stop at some point
-        size_max = (stop - start) / (start / resolving_power)
+        # Get maximum space length
+        size_max = int((stop - start) / (start / resolving_power))
 
         if not np.isfinite(size_max) or size_max < 0:
             raise ValueError(f"invalid maximum size ({size_max})")
 
         # Start generating space
         space = [start]
+        i = 0
 
-        while len(space) < size_max and space[-1] < stop:
+        for i in range(size_max):
+            if space[-1] >= stop:
+                break
+
             space.append(space[-1] + space[-1] / resolving_power)
 
-        if len(space) >= size_max and space[-1] < stop:
+        if i == size_max - 1 and space[-1] < stop:
             raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({space[-1]} < {stop})")
         elif space[-1] > stop:
             del space[-1]  # ensure that the space is within the [start, stop] interval
