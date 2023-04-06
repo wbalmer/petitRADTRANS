@@ -8,6 +8,31 @@ import warnings
 import numpy as np
 
 
+def __init_pipeline(spectrum, uncertainties):
+    # Initialize reduction matrix
+    reduction_matrix = np.ma.ones(spectrum.shape)
+    reduction_matrix.mask = np.zeros(spectrum.shape, dtype=bool)
+
+    # Initialize reduced data and pipeline noise
+    reduced_data = copy.copy(spectrum)
+
+    if isinstance(spectrum, np.ma.core.MaskedArray):
+        reduced_data.mask = copy.copy(spectrum.mask)
+
+        if uncertainties is not None:
+            reduced_data_uncertainties = np.ma.masked_array(copy.copy(uncertainties))
+            reduced_data_uncertainties.mask = copy.copy(spectrum.mask)
+        else:
+            reduced_data_uncertainties = None
+    else:
+        if uncertainties is not None:
+            reduced_data_uncertainties = copy.copy(uncertainties)
+        else:
+            reduced_data_uncertainties = None
+
+    return reduced_data, reduction_matrix, reduced_data_uncertainties
+
+
 def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):
     if reduction_matrix is None:
         reduction_matrix = np.ma.ones(spectrum.shape)
@@ -31,6 +56,48 @@ def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):
             pipeline_uncertainties = None
 
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
+
+
+def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inverted, c, shape_a, shape_c):
+    """SYSREM iteration.
+    For the first iteration, c should be 1.
+    The inputs are chosen in order to maximize speed.
+
+    Args:
+        spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
+        uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
+        c: 2-D matrix (..., exposures, wavelengths) containing the a-priori "extinction coefficients"
+        shape_a: intermediate shape for "airmass" estimation (wavelength, ..., exposure)
+        shape_c: intermediate shape for "extinction coefficients" estimation (exposure, ..., wavelength)
+
+    Returns:
+        The estimated lower-rank estimation of the spectrum, and the estimated "extinction coefficients"
+    """
+    # Get the "airmass"  (time variation of a pixel), not related to the true airmass
+    a = np.sum(c * spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(c ** 2 * uncertainties_squared_inverted, axis=-1)
+
+    # Tile into a (..., exposure, wavelength) matrix
+    a = np.moveaxis(
+        a * np.ones(shape_a),
+        0,
+        -1
+    )
+
+    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
+    c = np.sum(a * spectrum_uncertainties_squared, axis=-2) / \
+        np.sum(a ** 2 * uncertainties_squared_inverted, axis=-2)
+
+    # Tile into a (..., exposure, wavelength) matrix
+    c = np.moveaxis(
+        c * np.ones(shape_c),
+        0,
+        -2
+    )
+
+    # Recalculate the correction using the latest values of the
+    # two sets a & c.
+    return a * c, c
 
 
 def pipeline_validity_test(reduced_true_model, reduced_mock_observations,
@@ -402,26 +469,7 @@ def preparing_pipeline(spectrum, uncertainties=None,
     Returns:
         Reduced spectral data (and reduction matrix and uncertainties after reduction if full is True)
     """
-    # Initialize reduction matrix
-    reduction_matrix = np.ma.ones(spectrum.shape)
-    reduction_matrix.mask = np.zeros(spectrum.shape, dtype=bool)
-
-    # Initialize reduced data and pipeline noise
-    reduced_data = copy.copy(spectrum)
-
-    if isinstance(spectrum, np.ma.core.MaskedArray):
-        reduced_data.mask = copy.copy(spectrum.mask)
-
-        if uncertainties is not None:
-            reduced_data_uncertainties = np.ma.masked_array(copy.copy(uncertainties))
-            reduced_data_uncertainties.mask = copy.copy(spectrum.mask)
-        else:
-            reduced_data_uncertainties = None
-    else:
-        if uncertainties is not None:
-            reduced_data_uncertainties = copy.copy(uncertainties)
-        else:
-            reduced_data_uncertainties = None
+    reduced_data, reduction_matrix, reduced_data_uncertainties = __init_pipeline(spectrum, uncertainties)
 
     # Apply corrections
     if apply_throughput_removal:
@@ -462,6 +510,95 @@ def preparing_pipeline(spectrum, uncertainties=None,
             )
 
     if full:
+        return reduced_data, reduction_matrix, reduced_data_uncertainties
+    else:
+        return reduced_data
+
+
+def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, convergence_criterion=1e-3,
+                              full=False, verbose=False, **kwargs):
+    """SYSREM preparing pipeline.
+    SYSREM tries to find the coefficients a and c such as:
+        S**2 = sum_ij ((spectrum_ij - a_j * c_i) / uncertainties)**2
+    is minimized. Several iterations can be performed. This assumes that the spectrum is deformed by a combination of
+    linear effects.
+    The coefficients a and c can be seen as estimates for any strong (linear) systematic effect in the data, they are
+    not necessarily related to the airmass and extinction coefficients.
+
+    Source: Tamuz et al. 2005 (doi:10.1111/j.1365-2966.2004.08585.x).
+    Thanks to Alejandro Sanchez-Lopez (26-09-2017) for sharing his version of the algorithm.
+
+    Args:
+        spectrum: spectral data to correct
+        uncertainties: uncertainties on the data
+        n_iterations_max: maximum number of SYSREM iterations
+        convergence_criterion: SYSREM convergence criterion
+        full: if True, return the reduced matrix and reduced uncertainties in addition to the reduced spectrum
+        verbose: if True, print the convergence status at each iteration
+
+    Returns:
+        Reduced spectral data (and reduction matrix and uncertainties after reduction if full is True)
+    """
+    # Initialize SYSREM meaningful variables
+    spectrum_shape = list(spectrum.shape)
+    shape_a = copy.copy(spectrum_shape)
+    shape_c = copy.copy(spectrum_shape)
+
+    shape_a.insert(0, shape_a.pop(-1))
+    shape_c.insert(0, shape_c.pop(-2))
+
+    uncertainties_squared_inverted = 1 / uncertainties ** 2
+    spectrum_uncertainties_squared = spectrum * uncertainties_squared_inverted
+
+    cor0 = np.zeros(spectrum.shape)
+
+    # First iteration
+    cor1, c = __sysrem_iteration(
+        spectrum_uncertainties_squared=spectrum_uncertainties_squared,
+        uncertainties_squared_inverted=uncertainties_squared_inverted,
+        c=1,
+        shape_a=shape_a,
+        shape_c=shape_c
+    )
+
+    # Next iterations
+    i = 0
+
+    for i in range(n_iterations_max):
+        # Check for convergence
+        if np.sum(np.abs(cor0 - cor1)) <= convergence_criterion * np.sum(np.abs(cor0)):
+            if verbose:
+                print(f"Iteration {i} (max {n_iterations_max}): "
+                      f"{np.sum(np.abs(cor0 - cor1)) / np.sum(np.abs(cor0))} (> {convergence_criterion})")
+                print("Convergence reached!")
+
+            break
+        elif verbose and i > 0:
+            print(f"Iteration {i} (max {n_iterations_max}): "
+                  f"{np.sum(np.abs(cor0 - cor1)) / np.sum(np.abs(cor0))} (> {convergence_criterion})")
+
+        # Iterate
+        cor0 = cor1
+        cor1, c = __sysrem_iteration(
+            spectrum_uncertainties_squared=spectrum_uncertainties_squared,
+            uncertainties_squared_inverted=uncertainties_squared_inverted,
+            c=c,
+            shape_a=shape_a,
+            shape_c=shape_c
+        )
+
+    if i == n_iterations_max - 1 and np.sum(np.abs(cor0 - cor1)) > convergence_criterion * np.sum(np.abs(cor0)):
+        warnings.warn(f"convergence not reached in {n_iterations_max} iterations "
+                      f"({np.sum(np.abs(cor0 - cor1)) > convergence_criterion * np.sum(np.abs(cor0))} "
+                      f"> {convergence_criterion})")
+
+    # Remove the systematics from the spectrum
+    reduced_data = spectrum - cor1
+
+    if full:
+        reduction_matrix = reduced_data / spectrum
+        reduced_data_uncertainties = uncertainties / reduction_matrix
+
         return reduced_data, reduction_matrix, reduced_data_uncertainties
     else:
         return reduced_data
