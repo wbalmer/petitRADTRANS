@@ -629,8 +629,8 @@ class Retrieval:
                                         self.plotting,
                                         self.parameters)
         #print(f"LL: {log_likelihood+log_prior}")
-        if "log_prior_weight" in parameters.keys():
-            log_prior = parameters["log_prior_weight"].value
+        if "log_prior_weight" in self.parameters.keys():
+            log_prior = self.parameters["log_prior_weight"].value
         if log_likelihood + log_prior < -9e98:
             return -1e98
         if np.abs(log_likelihood + log_prior) < 1e-98:

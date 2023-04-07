@@ -3,7 +3,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 import copy as cp
 
-from scipy.interpolate import interp1d,CubicSpline
+from scipy.interpolate import interp1d,CubicSpline,PchipInterpolator
 from petitRADTRANS import poor_mans_nonequ_chem as pm
 
 ##################################################################
@@ -277,7 +277,7 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     return tret#, press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 def cubic_spline_profile(press, temperature_points, gamma, nnodes = 0):
-    cs = CubicSpline(np.linspace(np.log10(press[0]),
+    cs = PchipInterpolator(np.linspace(np.log10(press[0]),
                              np.log10(press[-1]),
                              nnodes+2),
                  temperature_points)

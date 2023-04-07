@@ -504,7 +504,7 @@ def interpolated_profile_emission(pRT_object, \
         contribution = parameters["contribution"].value
     gravity, R_pl = compute_gravity(parameters)
 
-    temp_arr = np.array([parameters[f"T{i}"] for i in range(parameters['nnodes'].value + 2)])
+    temp_arr = np.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
     if "linear" in parameters.keys():
         temperatures, log_prior_weight = linear_spline_profile(p_use,
                                              temp_arr,

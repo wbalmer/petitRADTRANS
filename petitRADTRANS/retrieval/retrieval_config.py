@@ -7,6 +7,8 @@ import numpy as np
 from .data import Data
 from .parameter import Parameter
 
+import species
+species.SpeciesInit()
 
 class RetrievalConfig:
     """
@@ -505,13 +507,6 @@ class RetrievalConfig:
         """
 
         with open(path) as photometry:
-            if photometric_transformation_function is None:
-                try:
-                    import species
-                    species.SpeciesInit()
-                except:
-                    logging.error("Please provide a function to transform a spectrum into photometry, or pip install species")
-                    sys.exit(12)
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
