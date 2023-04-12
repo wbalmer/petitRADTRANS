@@ -16,6 +16,7 @@ def test_planet_get():
     )
 
     file_exists = False
+    filename_tmp = None
 
     if os.path.isfile(filename):
         print(f"Temporarily removing file '{filename}' for testing")
@@ -25,8 +26,6 @@ def test_planet_get():
         file = os.path.split(filename)[1]
         filename_tmp = os.path.join(tmp_dir, file)
         shutil.move(filename, filename_tmp)
-    else:
-        filename_tmp = None
 
     try:
         _ = petitRADTRANS.containers.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
