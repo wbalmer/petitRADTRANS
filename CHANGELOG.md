@@ -4,9 +4,10 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [2.7.0-a42] - 2023-04-06
+## [2.7.0-a43] - 2023-04-12
 ### Added
 - SYSREM preparing pipeline.
+- Simple transit light loss modelling for `SpectralModel`.
 - Support for SLURM.
 - Module `configuration` to manage paths.
 - Function `utils.feature_scaling` to normalize arrays.

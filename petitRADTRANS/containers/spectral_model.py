@@ -165,6 +165,7 @@ class BaseSpectralModel:
     # TODO warning when changing a Radtrans parameter
     # TODO add function to list all the meaningful model_parameters
     # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data
+    # TODO the Base object is not really useful and neither used, better use only the SpectralModel object
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
                  opacity_mode='lbl', do_scat_emis=True, lbl_opacity_sampling=1,
@@ -944,6 +945,10 @@ class BaseSpectralModel:
         return wavelengths, planet_transit_radius
 
     @staticmethod
+    def calculate_transit_fractional_light_loss(spectrum, **kwargs):
+        return spectrum
+
+    @staticmethod
     def convolve(input_wavelengths, input_spectrum, new_resolving_power, **kwargs):
         """Convolve a spectrum to a new resolving power with a Gaussian filter.
         The original spectrum must have a resolving power very large compared to the target resolving power.
@@ -1187,7 +1192,8 @@ class BaseSpectralModel:
     def get_spectrum_model(self, radtrans: Radtrans, mode='emission', parameters=None, update_parameters=False,
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
-                           scale=False, shift=False, convolve=False, rebin=False, reduce=False):
+                           scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
+                           reduce=False):
         if parameters is None:
             parameters = self.model_parameters
 
@@ -1199,6 +1205,7 @@ class BaseSpectralModel:
             parameters['noise_matrix'] = noise_matrix
             parameters['scale'] = scale
             parameters['shift'] = shift
+            parameters['use_transit_light_loss'] = use_transit_light_loss
             parameters['convolve'] = convolve
             parameters['rebin'] = rebin
             parameters['reduce'] = reduce
@@ -1232,7 +1239,9 @@ class BaseSpectralModel:
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=wavelengths,
             spectrum=spectrum,
+            scale_function=self.scale_spectrum,
             shift_wavelengths_function=self.shift_wavelengths,
+            transit_fractional_light_loss_function=self.calculate_transit_fractional_light_loss,
             convolve_function=self.convolve,
             rebin_spectrum_function=self.rebin_spectrum,
             **self.model_parameters
@@ -1450,13 +1459,14 @@ class BaseSpectralModel:
 
     @staticmethod
     def modify_spectrum(wavelengths, spectrum, mode,
-                        scale=False, shift=False, convolve=False, rebin=False,
+                        scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                         telluric_transmittances_wavelengths=None, telluric_transmittances=None, airmass=None,
                         instrumental_deformations=None, noise_matrix=None,
                         output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
                         star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
                         is_observed=False, star_radius=None, system_distance=None,
-                        scale_function=None, shift_wavelengths_function=None, convolve_function=None,
+                        scale_function=None, shift_wavelengths_function=None,
+                        transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
                         **kwargs):
         # TODO check emission spectrum
@@ -1467,6 +1477,9 @@ class BaseSpectralModel:
 
         if shift_wavelengths_function is None:
             shift_wavelengths_function = BaseSpectralModel.shift_wavelengths
+
+        if transit_fractional_light_loss_function is None:
+            transit_fractional_light_loss_function = BaseSpectralModel.calculate_transit_fractional_light_loss
 
         if convolve_function is None:
             convolve_function = BaseSpectralModel.convolve
@@ -1552,6 +1565,16 @@ class BaseSpectralModel:
 
             if np.ndim(spectrum) <= 1:  # generate 2D spectrum
                 spectrum = np.array([spectrum])
+
+        if use_transit_light_loss:
+            if scale:
+                spectrum = transit_fractional_light_loss_function(
+                    spectrum=spectrum,
+                    star_radius=star_radius,
+                    **kwargs
+                )
+            else:
+                warnings.warn("'scale' must be True to calculate transit light loss, skipping step...")
 
         # Add telluric transmittance
         if telluric_transmittances is not None:
@@ -2034,6 +2057,104 @@ class SpectralModel(BaseSpectralModel):
                     mass_mixing_ratios[key] = equilibrium_mass_mixing_ratios[key]
 
         return mass_mixing_ratios
+
+    @staticmethod
+    def _calculate_planet_star_centers_distance(planet_orbit_semi_major_axis, planet_orbital_inclination,
+                                                planet_radius_normalized, star_radius,
+                                                orbital_longitudes, planet_transit_duration, planet_orbital_period,
+                                                **kwargs):
+        """Calculate the sky-projected distance between the centers of a star and a planet.
+        This equation is valid if the eccentricity of the planet orbit is low.
+
+        Source: Csizmadia 2020 (https://doi.org/10.1093/mnras/staa349)
+
+        Args:
+            planet_orbit_semi_major_axis: planet orbit semi-major axis
+            planet_orbital_inclination: planet orbital inclination
+            planet_radius_normalized: planet radius over its star radius
+            star_radius: radius of the planet star
+            orbital_longitudes: orbital longitudes of the observation exposures
+            planet_transit_duration: duration of the planet total transit (T14)
+            planet_orbital_period: period of the planet orbit
+        """
+        impact_parameter_squared = Planet.calculate_impact_parameter(
+            planet_orbit_semi_major_axis=planet_orbit_semi_major_axis,
+            planet_orbital_inclination=planet_orbital_inclination,
+            star_radius=star_radius
+        ) ** 2
+
+        # Get the orbital longitude corresponding to the absolute value of the orbital longitude at the beginning of T14
+        # phi14 = T_14 / P is the phase length of T14, we want half this value: the transit occurs between +/- phi14 / 2
+        # phi14 is converted into longitude by multiplying by 2 * pi; 2 * pi / 2 = pi, hence the pi factor
+        transit_longitude_half_length = np.rad2deg(planet_transit_duration / planet_orbital_period * np.pi)
+
+        # Move axis to (wavelength, ..., exposure) to be able to multiply with orbital longitudes
+        planet_radius_normalized_squared = np.moveaxis((1 + planet_radius_normalized) ** 2, -1, 0)
+
+        planet_star_centers_distance = np.sqrt(
+            impact_parameter_squared + (planet_radius_normalized_squared - impact_parameter_squared)
+            * (orbital_longitudes / transit_longitude_half_length) ** 2
+        )
+
+        # Move axis back to (..., exposure, wavelength)
+        return np.moveaxis(planet_star_centers_distance, 0, -1)
+
+    @staticmethod
+    def _calculate_transit_fractional_light_loss_uniform(planet_radius_normalized, planet_star_centers_distance,
+                                                         planet_radius_normalized_squared=None, **kwargs):
+        """Calculate the fractional light loss observed when a planet transit a star.
+        This equation neglects the effect of limb-darkening, assuming that the source is uniform.
+
+        Source: Mandel & Agol 2002 (https://iopscience.iop.org/article/10.1086/345520)
+
+        Args:
+            planet_radius_normalized: planet radius over its star radius
+            planet_radius_normalized_squared: planet radius over its star radius, squared
+            planet_star_centers_distance: sky-projected distance between the centers of the planet and the star,
+                normalized over the radius of the star
+        """
+        transit_fractional_light_loss = np.zeros(np.shape(planet_star_centers_distance))
+
+        if planet_radius_normalized_squared is None:
+            planet_radius_normalized_squared = planet_radius_normalized ** 2
+
+        partial_transit = np.nonzero(
+            np.logical_and(
+                np.less_equal(planet_star_centers_distance, 1 + planet_radius_normalized),
+                np.greater(planet_star_centers_distance, np.abs(1 - planet_radius_normalized))
+            )
+        )
+        full_transit = np.nonzero(np.less_equal(planet_star_centers_distance, 1 - planet_radius_normalized))
+        star_totally_eclipsed = np.nonzero(np.less_equal(planet_star_centers_distance, planet_radius_normalized - 1))
+
+        if partial_transit[0].size > 0:
+            z = planet_star_centers_distance[partial_transit]
+            z_squared = z ** 2
+
+            kappa_0 = np.arccos(
+                (planet_radius_normalized_squared[partial_transit] + z_squared - 1)
+                / (2 * planet_radius_normalized[partial_transit] * z)
+            )
+
+            kappa_1 = np.arccos(
+                (1 - planet_radius_normalized_squared[partial_transit] + z_squared)
+                / (2 * z)
+            )
+
+            square_root = np.sqrt(
+                (
+                    4 * z_squared
+                    - (1 + z_squared - planet_radius_normalized_squared[partial_transit]) ** 2
+                ) / 4
+            )
+
+            transit_fractional_light_loss[partial_transit] = \
+                (planet_radius_normalized_squared[partial_transit] * kappa_0 + kappa_1 - square_root) / np.pi
+
+        transit_fractional_light_loss[full_transit] = planet_radius_normalized_squared[full_transit]
+        transit_fractional_light_loss[star_totally_eclipsed] = 1
+
+        return transit_fractional_light_loss
 
     @staticmethod
     def _convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None,
@@ -2549,6 +2670,33 @@ class SpectralModel(BaseSpectralModel):
             raise ValueError(f"mode must be 'isothermal' or 'guillot', but was '{temperature_profile_mode}'")
 
         return temperatures
+
+    @staticmethod
+    def calculate_transit_fractional_light_loss(spectrum, **kwargs):
+        """Calculate the transit depth taking into account the transit fractional light loss.
+        Spectrum must be scaled.
+
+        Args:
+            spectrum: the scaled spectrum
+
+        Returns:
+            The scaled spectrum, taking into account the transit light loss.
+        """
+        planet_radius_normalized_squared = 1 - spectrum
+        planet_radius_normalized = np.sqrt(planet_radius_normalized_squared)
+
+        planet_star_centers_distance = SpectralModel._calculate_planet_star_centers_distance(
+            planet_radius_normalized=planet_radius_normalized,
+            **kwargs
+        )
+
+        spectrum_transit_fractional_light_loss = SpectralModel._calculate_transit_fractional_light_loss_uniform(
+            planet_radius_normalized=planet_radius_normalized,
+            planet_radius_normalized_squared=planet_radius_normalized_squared,
+            planet_star_centers_distance=planet_star_centers_distance
+        )
+
+        return 1 - spectrum_transit_fractional_light_loss
 
     @staticmethod
     def convolve(input_wavelengths, input_spectrum, new_resolving_power, constance_tolerance=1e-6, **kwargs):
