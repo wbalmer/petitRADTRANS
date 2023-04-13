@@ -5,6 +5,7 @@ import warnings
 import h5py
 import numpy as np
 import pyvo
+import astropy.io.votable.exceptions
 from astropy.table.table import Table
 from astropy.time import Time
 from astropy.coordinates import AltAz, EarthLocation, SkyCoord
@@ -654,7 +655,10 @@ class Planet:
 
     @classmethod
     def from_votable_file(cls, filename):
-        astro_table = Table.read(filename)
+        with warnings.catch_warnings():
+            # Temporarily filter the archive-induced units warnings
+            warnings.filterwarnings('ignore', category=u.UnitsWarning)
+            astro_table = Table.read(filename)
 
         return cls.from_votable(astro_table)
 
@@ -1121,7 +1125,10 @@ class Planet:
         astro_table = result_set.to_table()
         filename = Planet.generate_filename(name).rsplit('.', 1)[0] + '.vot'
 
-        astro_table.write(filename, format='votable')
+        with warnings.catch_warnings():
+            # Temporarily filter the archive-induced units warnings
+            warnings.filterwarnings("ignore", category=astropy.io.votable.exceptions.W50)
+            astro_table.write(filename, format='votable')
 
         return astro_table
 
@@ -1135,9 +1142,9 @@ class Planet:
                 continue  # skip every tailed parameters
             elif dictionary[key].dtype == object or not (key + tails[0] in dictionary and key + tails[1] in dictionary):
                 # if object or no error tailed parameters, get the first value that is not masked
-                if not hasattr(dictionary[key], '__iter__'):
+                if not hasattr(dictionary[key], '__iter__') or np.size(dictionary[key]) == 0:
                     raise ValueError(f"No value found for parameter '{key}'; "
-                                     f"this error is most often caused by a misspelling of a planet name")
+                                     f"this error is most often caused by the misspelling of a planet name")
 
                 parameter_dict[key] = dictionary[key][0]
 
