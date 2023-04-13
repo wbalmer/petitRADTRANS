@@ -12,6 +12,7 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older result
 # Initializations
 def init_radtrans_downsampled_line_by_line():
     atmosphere = petitRADTRANS.radtrans.Radtrans(
+        pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
@@ -19,8 +20,6 @@ def init_radtrans_downsampled_line_by_line():
         lbl_opacity_sampling=radtrans_parameters['spectrum_parameters']['line_by_line_opacity_sampling'],
         mode='lbl'
     )
-
-    atmosphere.setup_opa_structure(radtrans_parameters['pressures'])
 
     return atmosphere
 

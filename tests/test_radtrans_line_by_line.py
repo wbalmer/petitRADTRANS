@@ -19,14 +19,13 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older result
 # Initializations
 def init_radtrans_line_by_line():
     atmosphere = petitRADTRANS.radtrans.Radtrans(
+        pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
         mode='lbl'
     )
-
-    atmosphere.setup_opa_structure(radtrans_parameters['pressures'])
 
     return atmosphere
 

@@ -1809,7 +1809,11 @@ class Radtrans(_read_opacities.ReadOpacities):
         temp = temp.reshape(1)
         pressure_bar = pressure_bar.reshape(1)
 
-        self.setup_opa_structure(pressure_bar)
+        self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
+            self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
+            self.line_struc_kappas, self.line_struc_kappas_comb, \
+            self.total_tau, self.line_abundances, self.cloud_mass_fracs, self.r_g = \
+            self._init_pressure_dependent_parameters(pressures=pressure_bar)
 
         wlen_cm, opas = self.get_opa(temp)
         wlen_micron = wlen_cm / 1e-4

@@ -19,6 +19,7 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older result
 # Initializations
 def init_radtrans_correlated_k():
     atmosphere = petitRADTRANS.radtrans.Radtrans(
+        pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
@@ -26,8 +27,6 @@ def init_radtrans_correlated_k():
         wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
         mode='c-k'
     )
-
-    atmosphere.setup_opa_structure(radtrans_parameters['pressures'])
 
     return atmosphere
 
