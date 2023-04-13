@@ -634,7 +634,7 @@ class Planet:
             if key in new_planet.__dict__:
                 new_planet.__dict__[key] = parameter_dict[key]
 
-        if 'surface_gravity' not in parameter_dict:
+        if 'surface_gravity' not in parameter_dict and new_planet.radius > 0:
             new_planet.surface_gravity, \
                 new_planet.surface_gravity_error_upper, new_planet.surface_gravity_error_lower = \
                 new_planet.mass2surface_gravity(
