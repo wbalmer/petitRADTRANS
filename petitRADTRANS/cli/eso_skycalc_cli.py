@@ -39,7 +39,7 @@ def find_optimal_airmass_day(ra, dec, observatory='3060m',
                 mjd=mjd
             )
         except json.JSONDecodeError:
-            print(f"Skipping invalid result")
+            print("Skipping invalid result")
             continue
 
         if 1.0 <= airmass < best_airmass:
@@ -74,7 +74,7 @@ def find_optimal_airmass_day(ra, dec, observatory='3060m',
                     mjd=mjd
                 )
             except json.JSONDecodeError:
-                print(f"Skipping invalid result")
+                print("Skipping invalid result")
                 continue
 
             if 1.0 <= airmass < best_airmass:

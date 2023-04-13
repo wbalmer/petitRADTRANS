@@ -315,9 +315,9 @@ class BaseSpectralModel:
             if self.wavelengths is not None:
                 self.model_parameters['output_wavelengths'] = copy.deepcopy(self.wavelengths)
             elif 'output_wavelengths' not in self.model_parameters:
-                raise TypeError(f"missing required argument "
-                                f"'wavelengths_boundaries', add this argument to manually set the boundaries or "
-                                f"add keyword argument 'output_wavelengths' to set the boundaries automatically")
+                raise TypeError("missing required argument "
+                                "'wavelengths_boundaries', add this argument to manually set the boundaries or "
+                                "add keyword argument 'output_wavelengths' to set the boundaries automatically")
 
             wavelengths_boundaries = self.get_optimal_wavelength_boundaries()
 
@@ -347,10 +347,10 @@ class BaseSpectralModel:
         if relative_velocities is None \
                 and is_orbiting \
                 and orbital_longitudes is None:
-            warnings.warn(f"Modelled object is orbiting but no orbital position information were provided, "
-                          f"assumed an orbital longitude of 0; "
-                          f"add key 'orbital_longitudes' or 'orbital_phases' to model parameters, "
-                          f"or set model parameter 'is_orbiting' to False")
+            warnings.warn("Modelled object is orbiting but no orbital position information were provided, "
+                          "assumed an orbital longitude of 0; "
+                          "add key 'orbital_longitudes' or 'orbital_phases' to model parameters, "
+                          "or set model parameter 'is_orbiting' to False")
 
             orbital_longitudes = np.zeros(1)
 
@@ -445,8 +445,8 @@ class BaseSpectralModel:
         # Calculate planet radial velocities if needed
         if is_orbiting:
             if orbital_longitudes is None:
-                raise TypeError(f"missing model parameter 'orbital_longitude' "
-                                f"required to calculate planet radial velocities")
+                raise TypeError("missing model parameter 'orbital_longitude' "
+                                "required to calculate planet radial velocities")
 
             if planet_radial_velocity_amplitude is None:
                 planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
@@ -775,9 +775,9 @@ class BaseSpectralModel:
         """
         if is_observed:
             BaseSpectralModel._check_none_model_parameters(
-                explanation_message_=f"These model parameters are required to calculate "
-                                     f"the observed irradiance of the planet ; "
-                                     f"set model parameter 'is_observed' to False if the planet is not observed",
+                explanation_message_="These model parameters are required to calculate "
+                                     "the observed irradiance of the planet ; "
+                                     "set model parameter 'is_observed' to False if the planet is not observed",
                 planet_radius=planet_radius,
                 system_distance=system_distance
             )
@@ -1581,7 +1581,7 @@ class BaseSpectralModel:
             # Rebin spectra on an intermediate wavelength grid, only if re-binning is needed
             '''
             Another way is to rebin the telluric transmittances on the current wavelengths, however this can lead to
-            inaccuracies if the rebin function is not precise enough. 
+            inaccuracies if the rebin function is not precise enough.
             '''
             if shift and rebin:
                 # Get the mean resolving power of the current shifted wavelengths grids:
@@ -1636,8 +1636,8 @@ class BaseSpectralModel:
                         1, 0
                     )
             elif np.ndim(telluric_transmittances) == 2:
-                warnings.warn(f"using 2D telluric transmittances is not recommended for precise modelling, "
-                              f"consider using 1D telluric transmittances and providing for airmass at each exposure")
+                warnings.warn("using 2D telluric transmittances is not recommended for precise modelling, "
+                              "consider using 1D telluric transmittances and providing for airmass at each exposure")
 
                 for i, wavelength_shift in enumerate(wavelengths_rebin):
                     _, telluric_transmittances_rebin[i] = BaseSpectralModel.__rebin_wrap(
@@ -1953,7 +1953,7 @@ class SpectralModel(BaseSpectralModel):
                                     star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                     verbose=False, **kwargs):
         if verbose:
-            print(f"metallicity set to None, calculating it using scaled metallicity...")
+            print("metallicity set to None, calculating it using scaled metallicity...")
 
         metallicity = SpectralModel.calculate_scaled_metallicity(
             planet_mass=planet_mass,
@@ -2387,7 +2387,7 @@ class SpectralModel(BaseSpectralModel):
 
             # TODO more general handling of isotopologues (use smarter species names)
             if 'CO_main_iso' in line_species and 'CO_all_iso' in line_species:
-                raise ValueError(f"cannot add main isotopologue and all isotopologues of CO at the same time")
+                raise ValueError("cannot add main isotopologue and all isotopologues of CO at the same time")
 
             if 'CO_main_iso' not in imposed_mass_mixing_ratios and 'CO_36' not in imposed_mass_mixing_ratios:
                 if 'CO_all_iso' not in line_species:
@@ -2643,7 +2643,7 @@ class SpectralModel(BaseSpectralModel):
                                       guillot_temperature_profile_gamma=0.4,
                                       guillot_temperature_profile_kappa_ir_z0=0.01, **kwargs):
         SpectralModel._check_none_model_parameters(
-            explanation_message_=f"Required for calculating the temperature profile",
+            explanation_message_="Required for calculating the temperature profile",
             temperature=temperature
         )
 
@@ -2797,14 +2797,14 @@ class SpectralModel(BaseSpectralModel):
     @staticmethod
     def mass2surface_gravity(planet_mass, planet_radius, verbose=False, **kwargs):
         if verbose:
-            print(f"planet_surface_gravity set to None, calculating it using surface gravity and radius...")
+            print("planet_surface_gravity set to None, calculating it using surface gravity and radius...")
 
         if planet_radius is None or planet_mass is None:
             raise ValueError(f"both planet radius ({planet_radius}) "
                              f"and planet mass ({planet_mass}) "
                              f"are required to calculate planet surface gravity")
         elif planet_radius <= 0:
-            raise ValueError(f"cannot calculate surface gravity from planet mass with a radius <= 0")
+            raise ValueError("cannot calculate surface gravity from planet mass with a radius <= 0")
 
         return Planet.mass2surface_gravity(
             mass=planet_mass,
@@ -2867,14 +2867,14 @@ class SpectralModel(BaseSpectralModel):
     @staticmethod
     def surface_gravity2mass(planet_surface_gravity, planet_radius, verbose=False, **kwargs):
         if verbose:
-            print(f"planet_mass set to None, calculating it using surface gravity and radius...")
+            print("planet_mass set to None, calculating it using surface gravity and radius...")
 
         if planet_radius is None or planet_surface_gravity is None:
             raise ValueError(f"both planet radius ({planet_radius}) "
                              f"and surface gravity ({planet_surface_gravity}) "
                              f"are required to calculate planet mass")
         elif planet_radius <= 0:
-            raise ValueError(f"cannot calculate planet mass from surface gravity with a radius <= 0")
+            raise ValueError("cannot calculate planet mass from surface gravity with a radius <= 0")
 
         return Planet.surface_gravity2mass(
             surface_gravity=planet_surface_gravity,

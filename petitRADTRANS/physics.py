@@ -350,6 +350,9 @@ def PT_ret_model(rad_trans_params):
 
     nabla_ad = ab['nabla_ad']
 
+    tfinal = None  # TODO tmp fix for reference before assignment
+    tret = None  # TODO tmp fix for reference before assignment
+
     # Enforce convective adiabat
     if conv:
         # Calculate the current, radiative temperature gradient
@@ -368,7 +371,7 @@ def PT_ret_model(rad_trans_params):
             if i == 0:
                 t_take = cp.copy(tedd)
             else:
-                t_take = cp.copy(tfinal)  # TODO possible reference before assignment
+                t_take = cp.copy(tfinal)  # TODO reference before assignment
 
             ab = pm.interpol_abundances(co_ratio * np.ones_like(t_take),
                                         feh * np.ones_like(t_take),

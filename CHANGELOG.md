@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Some functions have moved from the module `nat_cst` to another, more specific module.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - Package structure.
+- Code clean-up.
+
+### Removed
+- Class `ReadOpacities`, now merged with `Radtrans`.
 
 ### Fixed
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.

@@ -1,1 +1,0 @@
-from petitRADTRANS.retrieval_examples.emission.rebin_give_width import rebin_give_width

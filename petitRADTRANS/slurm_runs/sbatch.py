@@ -81,7 +81,7 @@ def make_srun_script_from_template(filename, template_filename, job_name='petitR
 
     # Change relevant options to new values
     if i_line == n_lines - 1 and lines[i_line][:8] != '#SBATCH ':  # no option found
-        print(f"No #SBATCH option found in template file, adding required ones")
+        print("No #SBATCH option found in template file, adding required ones")
 
         for sbatch_option in list(sbatch_options_found.keys())[::-1]:  # reverse to keep the dict key order during ins.
             lines.insert(2, sbatch_option)

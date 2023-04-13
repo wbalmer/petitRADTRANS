@@ -172,7 +172,7 @@ def main(python_script, template_filename, output_directory, additional_data_dir
     # Generate bins array
     wavelengths_borders = [wavelength_min, wavelength_max]
 
-    wavelength_bins = wavelengths_borders #* np.array([1.05, 0.95])
+    wavelength_bins = wavelengths_borders
     wavelength_bins = np.linspace(wavelength_bins[0], wavelength_bins[1], int(n_wavelength_bins + 1))
 
     # Split bins/retrievals/runs by nodes, will use the same configuration for each planet
@@ -247,13 +247,13 @@ def main(python_script, template_filename, output_directory, additional_data_dir
                     )
 
                     if co2_mode:
-                        srun_lines[-1] += f" --co2"
+                        srun_lines[-1] += " --co2"
 
                     if not rewrite:
-                        srun_lines[-1] += f" --no-rewrite"
+                        srun_lines[-1] += " --no-rewrite"
 
                     if resume:
-                        srun_lines[-1] += f" --resume"
+                        srun_lines[-1] += " --resume"
 
                     srun_lines[-1] += ' &\n'
 
@@ -283,7 +283,7 @@ def main(python_script, template_filename, output_directory, additional_data_dir
 
         jobs_config_file = os.path.join(output_directory, job_basename_planet +
                                         f"_{n_transits}t_"
-                                        f"{wavelength_min:.3f}-{wavelength_max:.3f}um_{n_wavelength_bins - 1}bins_" \
+                                        f"{wavelength_min:.3f}-{wavelength_max:.3f}um_{n_wavelength_bins - 1}bins_"
                                         f"{atm}_{n_live_points}lp" + '.npz')
 
         print(f"Saving jobs configuration for planet {planet} in file '{jobs_config_file}'...")

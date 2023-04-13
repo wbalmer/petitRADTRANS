@@ -360,7 +360,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     rebinned_spectrum = fr.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
 
     if np.all(rebinned_spectrum == -1):
-        raise ValueError(f"something went wrong during re-binning (rebin.f90), check the previous messages")
+        raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
     elif np.any(rebinned_spectrum < 0):
         raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs "
                          f"(min input spectrum value: {np.min(input_spectrum)}, "

@@ -91,7 +91,7 @@ def _check_data_model_rules(data, model):
     model_n_dimensions = np.ndim(model)
 
     if data_n_dimensions < 1:
-        raise ValueError(f"data must have at least 1 dimension")
+        raise ValueError("data must have at least 1 dimension")
     elif data_n_dimensions == 1:
         if model_n_dimensions != data_n_dimensions:
             raise ValueError(f"data has 1 dimension; data and model must have the "
@@ -219,8 +219,8 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
 
     if co_added_ccf_peak_width is None:
         if line_spread_function_fwhm is None:
-            raise ValueError(f"co_added_ccf_peak_width must be a scalar or determined from line_spread_function_fwhm, "
-                             f"but both are None")
+            raise ValueError("co_added_ccf_peak_width must be a scalar or determined from line_spread_function_fwhm, "
+                             "but both are None")
 
         co_added_ccf_peak_width = 3 * line_spread_function_fwhm / pixels_per_resolution_element
 
@@ -582,7 +582,7 @@ def get_ccf_model_wavelengths(wavelengths_model, velocities_ccf, relative_veloci
                     )
 
     '''
-    wavelengths_model_shifted and wavelengths_model_shifted_view have the same address in memory, so 
+    wavelengths_model_shifted and wavelengths_model_shifted_view have the same address in memory, so
     wavelengths_model_shifted is already modified
     '''
 
