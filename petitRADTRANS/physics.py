@@ -300,7 +300,7 @@ def isothermal(pressures, temperature):
     return np.ones(pressures.size) * temperature
 
 
-def PT_ret_model(rad_trans_params):
+def pt_ret_model(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
     # TODO fix docstring

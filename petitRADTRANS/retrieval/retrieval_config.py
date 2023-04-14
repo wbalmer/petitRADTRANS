@@ -2,9 +2,6 @@ import logging
 import os
 import sys
 
-# To not have numpy start parallelizing on its own
-os.environ["OMP_NUM_THREADS"] = "1"
-
 import numpy as np
 from petitRADTRANS.config.configuration import petitradtrans_config
 
@@ -239,7 +236,9 @@ class RetrievalConfig:
                 The abundance limits must be given in log10 units of the mass fraction.
         """
         if abund_lim[1] > 0.0:
-            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+            raise ValueError(
+                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+            )
 
         self.line_species = linelist
 
@@ -300,7 +299,9 @@ class RetrievalConfig:
 
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
-            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+            raise ValueError(
+                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+            )
 
         self.line_species.append(species)
         if not eq:
@@ -479,11 +480,11 @@ class RetrievalConfig:
                                scale=scale,
                                scale_err=scale_err,
                                wlen_range_micron=wlen_range_micron,
-                               external_pRT_reference=external_pRT_reference,
+                               external_radtrans_reference=external_pRT_reference,
                                opacity_mode=opacity_mode,
                                wlen_bins=wlen_bins,
-                               pRT_grid=pRT_grid,
-                               pRT_object=pRT_object,
+                               radtrans_grid=pRT_grid,
+                               radtrans_object=pRT_object,
                                wlen=wlen,
                                flux=flux,
                                flux_error=flux_error,
@@ -541,7 +542,7 @@ class RetrievalConfig:
                 try:
                     import species
                     species.SpeciesInit()
-                except:  # TODO find what error is expected here
+                except Exception:  # TODO find what error is expected here
                     logging.error(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
@@ -584,7 +585,7 @@ class RetrievalConfig:
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
-                    external_pRT_reference=external_pRT_reference,
+                    external_radtrans_reference=external_pRT_reference,
                     opacity_mode=opacity_mode
                 )
                 self.data[name].flux = flux

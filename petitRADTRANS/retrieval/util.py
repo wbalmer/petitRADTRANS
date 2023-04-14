@@ -5,20 +5,14 @@ calculations, transforms from mass to number fractions, and fits file output.
 """
 import os
 import sys
-
-# To not have numpy start parallelizing on its own
-os.environ["OMP_NUM_THREADS"] = "1"
-from scipy.special import erfcinv
-import numpy as np
-import math as math
-from molmass import Formula
 from typing import Tuple
+
+import numpy as np
+from molmass import Formula
 from petitRADTRANS import nat_cst as nc
+from scipy.special import erfcinv
 
-# import threading, subprocess
-
-
-SQRT2 = math.sqrt(2.)
+SQRT2 = np.sqrt(2)
 
 
 #################
@@ -45,15 +39,11 @@ def surf_to_meas(flux, p_rad, dist):
 
 
 def freq_to_micron(frequency):
-    return nc.c/frequency/1e-4
+    return nc.c / frequency / 1e-4
 
 
 def fnu_to_flambda(wlen, spectrum):
-    f_lambda = spectrum*nc.c/wlen**2.
-    # convert to flux per m^2 (from flux per cm^2) cancels with step below
-    #f_lambda = f_lambda * 1e4
-    # convert to flux per micron (from flux per cm) cancels with step above
-    #f_lambda = f_lambda * 1e-4
+    f_lambda = spectrum * nc.c / wlen ** 2.
     # convert from ergs to Joule
     f_lambda = f_lambda * 1e-7
     return f_lambda
@@ -61,7 +51,7 @@ def fnu_to_flambda(wlen, spectrum):
 
 def spectrum_cgs_to_si(frequency, spectrum):
     wlen = freq_to_micron(frequency)
-    f_lambda = fnu_to_flambda(wlen*1e-4, spectrum)
+    f_lambda = fnu_to_flambda(wlen * 1e-4, spectrum)
     return wlen, f_lambda
 
 
@@ -172,6 +162,7 @@ def get_MMW_from_mfrac(m_frac):
 
     return calc_MMW(m_frac)
 
+
 def get_MMW_from_nfrac(n_frac):
     """
     Calculate the mean molecular weight from a number fraction
@@ -223,7 +214,8 @@ def number_to_mass(n_fracs):
         m_frac[key] = value * getMM(spec) / mmw
     return m_frac
 
-def teff_calc(waves,model,dist=1.0,r_pl=1.0):
+
+def teff_calc(waves, model, dist=1.0, r_pl=1.0):
     """
     This function takes in the wavelengths and flux of a model
     in units of W/m2/micron and calculates the effective temperature
@@ -240,14 +232,14 @@ def teff_calc(waves,model,dist=1.0,r_pl=1.0):
     """
     import astropy.units as u
     import astropy.constants as c
-    def integ(waves,model):
-        return np.sum(model[:-1]*((dist/r_pl)**2.)*(u.W/u.m**2/u.micron)* np.diff(waves)*u.micron)
 
-    energy = integ(waves,model)
-    #print(energy)
-    summed = ((energy /c.sigma_sb))
-    #print(summed)
-    return (summed.value)**0.25
+    def integ(w, m):
+        return np.sum(m[:-1] * ((dist / r_pl) ** 2.) * (u.W / u.m ** 2 / u.micron) * np.diff(w) * u.micron)
+
+    energy = integ(waves, model)
+    summed = energy / c.sigma_sb
+
+    return summed.value ** 0.25
 
 
 def bin_species_exok(species, resolution):
@@ -286,40 +278,25 @@ def bin_species_exok(species, resolution):
         masses=masses
     )
 
+
 def compute_gravity(parameters):
-    gravity = -np.inf
-    R_pl = -np.inf
     if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
-        gravity = 10**parameters['log_g'].value
-        R_pl = np.sqrt(nc.G*parameters['mass'].value/gravity)
+        gravity = 10 ** parameters['log_g'].value
+        R_pl = np.sqrt(nc.G * parameters['mass'].value / gravity)
     elif 'log_g' in parameters.keys():
-        gravity= 10**parameters['log_g'].value
+        gravity = 10 ** parameters['log_g'].value
         R_pl = parameters['R_pl'].value
     elif 'mass' in parameters.keys():
         R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value/R_pl**2
+        gravity = nc.G * parameters['mass'].value / R_pl ** 2
     else:
         print("Pick two of log_g, R_pl and mass priors!")
         sys.exit(5)
+
     return gravity, R_pl
 
-def set_resolution(lines,abundances,resolution):
-    """
-    deprecated
-    """
-    # Set correct key names in abundances for pRT, with set resolution
-    # Only needed for free chemistry retrieval
-    #print(lines)
-    #print(abundances)
-    if resolution is None:
-        return abundances
-    for line in lines:
-        abundances[line] = abundances[line.split("_R_"+str(resolution))[0]]
-        del abundances[line.split("_R_"+str(resolution))]
-    return abundances
 
-
-def fixed_length_amr(p_clouds, pressures, scaling = 10, width = 3):
+def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
     in the region where the clouds are located.
@@ -379,10 +356,12 @@ def fixed_length_amr(p_clouds, pressures, scaling = 10, width = 3):
 
     return pressures[indices], indices
 
+
 ########################
 # File Formatting
 ########################
-def fits_output(wavelength, spectrum, covariance, object, output_dir="", correlation=None):  # TODO arg object needs to be renamed
+def fits_output(wavelength, spectrum, covariance, object, output_dir="",
+                correlation=None):  # TODO arg object needs to be renamed
     """
     Generate a fits file that can be used as an input to a pRT retrieval.
 

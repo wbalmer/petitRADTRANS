@@ -4,10 +4,6 @@ import json
 import logging
 import os
 import sys
-
-# To not have numpy start parallelizing on its own  # TODO is this really necessary?
-os.environ["OMP_NUM_THREADS"] = "1"
-# Read external packages
 import numpy as np
 
 # Plotting
@@ -685,7 +681,7 @@ class Retrieval:
                             # Convolution and rebin are cared of in get_chisq
                             log_likelihood += dd.get_chisq(
                                 wlen_model,
-                                spectrum_model, #[~dd.mask],  # TODO temporary fix until code design rework
+                                spectrum_model,  # [~dd.mask],  # TODO temporary fix until code design rework
                                 self.plotting,
                                 self.parameters
                             ) + additional_logl
@@ -1076,7 +1072,7 @@ class Retrieval:
                                                cp.copy(self.data[name].pRT_object.line_species),
                                                cp.copy(self.data[name].pRT_object.cloud_species),
                                                parameters,
-                                               AMR=False)
+                                               amr=False)
         return abundances, mmw
 
     def get_evidence(self, ret_name=""):
@@ -1305,10 +1301,13 @@ class Retrieval:
             for rint in rands:
                 samp = samples[rint, :-1]
                 params = self.build_param_dict(samp, parameters_read)
-                retVal = duse.model_generating_function(prt_object,
-                                                             params,
-                                                             False,
-                                                             self.rd.AMR)
+                retVal = duse.model_generating_function(
+                    prt_object,
+                    params,
+                    False,
+                    self.rd.AMR
+                )
+
                 if len(retVal) == 2:
                     wlen, model = retVal
                 else:
@@ -1471,7 +1470,7 @@ class Retrieval:
                         wlen = dd.wlen
                         error = dd.flux_error
                         flux = dd.flux
-                except:
+                except Exception:
                     wlen = dd.wlen
                     error = dd.flux_error
                     flux = dd.flux
@@ -1510,7 +1509,7 @@ class Retrieval:
                     # Species functions give tuples of (flux,error)
                     try:
                         best_fit_binned = best_fit_binned[0]
-                    except:  # TODO find exception expected here
+                    except Exception:  # TODO find exception expected here
                         pass
 
                 else:
@@ -1519,7 +1518,7 @@ class Retrieval:
                                                                self.best_fit_specs[dd.external_pRT_reference][1])
                     try:
                         best_fit_binned = best_fit_binned[0]
-                    except:  # TODO find exception expected here
+                    except Exception:  # TODO find exception expected here
                         pass
             # Plot the data
             marker = 'o'
@@ -1599,18 +1598,18 @@ class Retrieval:
         # Making the plots pretty
         try:
             ax.set_xscale(self.rd.plot_kwargs["xscale"])
-        except:  # TODO find exception expected here
+        except Exception:  # TODO find exception expected here
             pass
         try:
             ax.set_yscale(self.rd.plot_kwargs["yscale"])
-        except:  # TODO find exception expected here
+        except Exception:  # TODO find exception expected here
             pass
 
         # Fancy ticks for upper pane
         ax.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
         try:
             ax.xaxis.set_major_formatter('{x:.1f}')
-        except:  # TODO find exception expected here
+        except Exception:  # TODO find exception expected here
             logging.warning("Please update to matplotlib 3.3.4 or greater")
             pass
 
@@ -1637,7 +1636,7 @@ class Retrieval:
 
         try:
             ax_r.xaxis.set_major_formatter('{x:.1f}')
-        except:  # TODO find exception expected here
+        except Exception:  # TODO find exception expected here
             logging.warning("Please update to matplotlib 3.3.4 or greater")
             pass
 
@@ -1792,7 +1791,7 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = True):
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh=True):
         """
         Plot the PT profile with error contours
 
@@ -1815,6 +1814,7 @@ class Retrieval:
             fig : matplotlib.figure
             ax : matplotlib.axes
         """
+        wlen = None  # TODO temporary fix for unresolved reference
 
         print("\nPlotting PT profiles")
         if not self.run_mode == 'evaluate':
@@ -1944,11 +1944,11 @@ class Retrieval:
         ax.set_yscale('log')
         try:
             ax.set_ylim(self.rd.plot_kwargs["press_limits"])
-        except:
+        except Exception:
             ax.set_ylim([pressures[-1] * 1.03, pressures[0] / 1.03])
         try:
             ax.set_xlim(self.rd.plot_kwargs["temp_limits"])
-        except:
+        except Exception:
             pass
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
@@ -1956,6 +1956,7 @@ class Retrieval:
         plt.tight_layout()
         plt.savefig(
             self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_PT_envelopes.pdf')
+
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, **kwargs):
@@ -1986,10 +1987,6 @@ class Retrieval:
         p_plot_inds = {}
         p_ranges = {}
         p_use_dict = {}
-        bf_index = None
-
-        if plot_best_fit:
-            bf_index = {}
 
         for name, params in parameter_dict.items():
             samples_use = cp.copy(sample_dict[name])
@@ -2146,6 +2143,8 @@ class Retrieval:
         return bf_contribution
 
     def plot_abundances(self, samples_use, parameters_read, species_to_plot=None, contribution=False, refresh=True):
+        wlen = None  # TODO temporary fix for unresolved reference
+
         print("\nPlotting Abundances profiles")
         # Get best-fit index
         log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)

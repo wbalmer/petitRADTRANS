@@ -164,7 +164,7 @@ class RetrievalParameter:
 class BaseSpectralModel:
     # TODO warning when changing a Radtrans parameter
     # TODO add function to list all the meaningful model_parameters
-    # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data
+    # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data  # noqa: E501
     # TODO the Base object is not really useful and neither used, better use only the SpectralModel object
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
@@ -279,7 +279,7 @@ class BaseSpectralModel:
         else:
             self.cloud_species = cloud_species
 
-        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value
+        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
         # Spectrum generation base parameters
         self.temperatures = temperatures
         self.mass_mixing_ratios = mass_mixing_ratios
@@ -2415,7 +2415,7 @@ class SpectralModel(BaseSpectralModel):
 
         for i in range(np.size(m_sum_imposed_species)):
             if m_sum_imposed_species[i] > 1:
-                # TODO changing retrieved mmr might come problematic in some retrievals (retrieved value not corresponding to actual value in model)
+                # TODO changing retrieved mmr might come problematic in some retrievals (retrieved value not corresponding to actual value in model)  # noqa: E501
                 if verbose:
                     warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum_imposed_species}) is > 1, "
                                   f"correcting...")

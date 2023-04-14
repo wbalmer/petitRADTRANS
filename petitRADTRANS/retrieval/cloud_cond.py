@@ -7,7 +7,7 @@ from scipy.interpolate import interp1d
 plotting = False
 
 if plotting:
-    import pylab as plt
+    import matplotlib as plt
 
 #############################################################
 # Cloud Cond
@@ -68,6 +68,74 @@ masses = {
     'Ni': 58.7
 }
 
+
+def _setup_clouds(pressures, parameters, cloud_species):
+    """
+    This function provides the set of cloud parameters used in
+    petitRADTRANS. This will be some combination of atmospheric
+    parameters (fsed and Kzz), distribution descriptions (log normal or hansen)
+    and the cloud particle radius. Fsed and the particle radii can be provided
+    on a per-cloud basis.
+
+    Args:
+        pressures : np.ndarray
+            The pressure array used to provide the atmospheric grid
+        parameters : dict
+            The dictionary of parameters passed to the model function. Should contain:
+                 *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                  *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                  *  log_kzz : Vertical mixing parameter
+        cloud_species : list
+            A list of the names of each of the cloud species used in the atmosphere.
+
+    Returns:
+        sigma_lnorm : float, None
+            The width of a log normal particle size distribution
+        fseds : dict, None
+            The sedimentation fraction for each cloud species in the atmosphere
+        kzz : np.ndarray, None
+            The vertical mixing parameter
+        b_hans : float, None
+            The width of a hansen particle size distribution
+        radii : dict, None
+            The central radius of the particle size distribution
+        distribution : string
+            Either "lognormal" or "hansen" - tells pRT which distribution to use.
+    """
+    p_use = None
+    sigma_lnorm = None
+    b_hans = None
+    distribution = "lognormal"
+    kzz = None
+
+    # Setup distribution shape
+    if "sigma_lnorm" in parameters.keys():
+        sigma_lnorm = parameters['sigma_lnorm'].value
+    elif "b_hans" in parameters.keys():
+        b_hans = parameters['b_hans'].value
+        distribution = "hansen"
+
+    # Are we retrieving the particle radii?
+    radii = {}
+
+    for cloud in cloud_species:
+        if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
+            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+
+    if not radii:
+        radii = None
+
+    # per-cloud species fseds
+    fseds = get_fseds(parameters, cloud_species)
+    if "log_kzz" in parameters.keys():
+        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
+    return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+
+
 def setup_clouds(pressures, parameters, cloud_species):
     """
     This function provides the set of cloud parameters used in
@@ -105,13 +173,10 @@ def setup_clouds(pressures, parameters, cloud_species):
         distribution : string
             Either "lognormal" or "hansen" - tells pRT which distribution to use.
     """
-
-
+    p_use = None
     sigma_lnorm = None
-    radii = None
     b_hans = None
     distribution = "lognormal"
-    fseds = None
     kzz = None
 
     # Setup distribution shape
@@ -123,6 +188,7 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     # Are we retrieving the particle radii?
     radii = {}
+
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
             radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
@@ -134,6 +200,7 @@ def setup_clouds(pressures, parameters, cloud_species):
     if "log_kzz" in parameters.keys():
         kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+
 
 def get_fseds(parameters, cloud_species):
     """
@@ -148,97 +215,15 @@ def get_fseds(parameters, cloud_species):
         if 'fsed_'+cname in parameters.keys():
             fseds[cloud] = parameters['fsed_'+cname].value
         elif 'fsed' in parameters.keys():
-                fseds[cloud] = parameters['fsed'].value
+            fseds[cloud] = parameters['fsed'].value
+
     if not fseds:
         fseds = None
+
     return fseds
 
-def setup_clouds(pressures, parameters, cloud_species):
-    """
-    This function provides the set of cloud parameters used in
-    petitRADTRANS. This will be some combination of atmospheric
-    parameters (fsed and Kzz), distribution descriptions (log normal or hansen)
-    and the cloud particle radius. Fsed and the particle radii can be provided
-    on a per-cloud basis.
 
-    Args:
-        pressures : np.ndarray
-            The pressure array used to provide the atmospheric grid
-        parameters : dict
-            The dictionary of parameters passed to the model function. Should contain:
-                 *  fsed : sedimentation parameter - can be unique to each cloud type
-                One of:
-                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
-                  *  b_hans : Width of cloud particle size distribution (hansen)
-                One of:
-                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
-                  *  log_kzz : Vertical mixing parameter
-        cloud_species : list
-            A list of the names of each of the cloud species used in the atmosphere.
-
-    Returns:
-        sigma_lnorm : float, None
-            The width of a log normal particle size distribution
-        fseds : dict, None
-            The sedimentation fraction for each cloud species in the atmosphere
-        kzz : np.ndarray, None
-            The vertical mixing parameter
-        b_hans : float, None
-            The width of a hansen particle size distribution
-        radii : dict, None
-            The central radius of the particle size distribution
-        distribution : string
-            Either "lognormal" or "hansen" - tells pRT which distribution to use.
-    """
-
-
-    sigma_lnorm = None
-    radii = None
-    b_hans = None
-    distribution = "lognormal"
-    fseds = None
-    kzz = None
-
-    # Setup distribution shape
-    if "sigma_lnorm" in parameters.keys():
-        sigma_lnorm = parameters['sigma_lnorm'].value
-    elif "b_hans" in parameters.keys():
-        b_hans = parameters['b_hans'].value
-        distribution = "hansen"
-
-    # Are we retrieving the particle radii?
-    radii = {}
-    for cloud in cloud_species:
-        if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
-    if not radii:
-        radii = None
-
-    # per-cloud species fseds
-    fseds = get_fseds(parameters, cloud_species)
-    if "log_kzz" in parameters.keys():
-        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
-    return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
-
-def get_fseds(parameters, cloud_species):
-    """
-    This function checks to see if the fsed values are input on a per-cloud basis
-    or only as a single value, and returns the dictionary providing the fsed values
-    for each cloud, or None, if no cloud is used.
-    """
-
-    fseds = {}
-    for cloud in cloud_species:
-        cname = cloud.split('_')[0]
-        if 'fsed_'+cname in parameters.keys():
-            fseds[cloud] = parameters['fsed_'+cname].value
-        elif 'fsed' in parameters.keys():
-                fseds[cloud] = parameters['fsed'].value
-    if not fseds:
-        fseds = None
-    return fseds
-
-def return_cloud_mass_fraction(name,FeH,CO):
+def return_cloud_mass_fraction(name, metallicity, co_ratio):
     if "Fe(c)" in name:
         return return_x_fe(metallicity, co_ratio)
     if "MgSiO3(c)" in name:
@@ -434,7 +419,7 @@ def return_t_cond_fe_free(x_fe, mmw=2.33):
 
 
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
-    t = np.linspace(100.,12000.,1200)
+    t = np.linspace(100., 12000., 1200)
     # Taken from Ackerman & Marley (2001)
     # including their erratum
 
@@ -507,7 +492,8 @@ def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
 
     return p_vap(t) / (xna2s * mmw / m_na2s), t
 
-def return_t_cond_na2s_free(x_na2s, metallicity, mmw=2.33):
+
+def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     # Taken from Charnay+2018
     t = np.linspace(100., 10000., 1000)
 
@@ -592,25 +578,15 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
-    # print(Pc, press)
-    tcond_on_input_grid = tcond_p(press)
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
-    return P_cloud
-
-def simple_cdf_Fe_free(press, temp, XFe, MMW = 2.33):
-    Pc, Tc = return_T_cond_Fe_comb_free(XFe, MMW)
-    index = (Pc > 1e-8) & (Pc < 1e5)
-    Pc, Tc = Pc[index], Tc[index]
-    tcond_p = interp1d(Pc, Tc)
     try:
-        Tcond_on_input_grid = tcond_p(press)
-    except:
-        print(Pc)
+        tcond_on_input_grid = tcond_p(press)
+    except ValueError:
+        print(pc)
         return np.min(press)
-    Tdiff = Tcond_on_input_grid - temp
-    diff_vec = Tdiff[1:]*Tdiff[:-1]
+
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:]*t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
     if len(diff_vec[ind_cdf]) > 0:
@@ -630,6 +606,7 @@ def simple_cdf_Fe_free(press, temp, XFe, MMW = 2.33):
 
     return p_cloud
 
+
 def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_mgsio3(metallicity, co_ratio, mmw)
     index = (pc > 1e-8) & (pc < 1e5)
@@ -637,11 +614,9 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     try:
         tcond_p = interp1d(pc, tc)
     except ValueError:
-        logging.warn("Could not interpolate pressures and temperatures!")
+        warnings.warn("Could not interpolate pressures and temperatures!")
         return np.min(press)
-    except ValueError:
-        logging.warn("Could not interpolate pressures and temperatures!")
-        return np.min(press)
+
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
@@ -805,7 +780,7 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
         plt.axhline(p_cloud, color='red', linestyle='--')
         plt.yscale('log')
         plt.xlim([0., 3000.])
-        plt.ylim([1e2,1e-6])
+        plt.ylim([1e2, 1e-6])
         plt.show()
 
     return p_cloud

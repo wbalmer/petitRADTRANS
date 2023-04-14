@@ -14,7 +14,7 @@ import petitRADTRANS.nat_cst as nc
 def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=None):
     # TODO write generic plotting functions rather than copy pasting code.
     # Deprecated
-    specs = sorted([f for f in glob.glob(path+'/' + name + '*.dat')])
+    specs = sorted([f for f in glob.glob(path + '/' + name + '*.dat')])
     wlen = np.genfromtxt(specs[0])[:, 0]
     if rebin_val is not None:
         wlen = nc.running_mean(wlen, rebin_val)[::rebin_val]
@@ -57,13 +57,13 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
                 flux, edges, _ = binned_statistic(data.wlen, data.flux, 'mean',
                                                   data.wlen.shape[0] / ratio)
                 error, _, _ = np.array(binned_statistic(data.wlen, data.flux_error,
-                                       'mean', data.wlen.shape[0] / ratio)) / np.sqrt(ratio)
+                                                        'mean', data.wlen.shape[0] / ratio)) / np.sqrt(ratio)
                 wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
             else:
                 wlen = data.wlen
                 error = data.flux_error
                 flux = data.flux
-        except:  # TODO find what is the error expected here
+        except Exception:  # TODO find what is the error expected here
             wlen = data.wlen
             error = data.flux_error
             flux = data.flux
@@ -100,7 +100,7 @@ def contour_corner(sampledict,
                    short_name=None,
                    legend=False,
                    prt_plot_style=True,
-                   plot_best_fit = False,
+                   plot_best_fit=False,
                    **kwargs):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
@@ -121,7 +121,7 @@ def contour_corner(sampledict,
         parameter_ranges : dict
             A dictionary with keys for each retrieval name as in sampledict. Each value
             contains the ranges of parameters that have a range set with corner_range in the
-            parameter class. Otherwise the range is +/- 4 sigma
+            parameter class. Otherwise, the range is +/- 4 sigma
         parameter_plot_indices : dict
             A dictionary with keys for each retrieval name as in sampledict. Each value
             contains the indices of the sample to plot, as set by the plot_in_corner
@@ -138,6 +138,8 @@ def contour_corner(sampledict,
         prt_plot_style : bool
             Use the prt plot style, changes the colour scheme and fonts to match the rest of
             the prt plots.
+        plot_best_fit :
+            # TODO complete docstring
         kwargs : dict
             Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
             the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
@@ -443,7 +445,7 @@ def contour_corner_large(sampledict,
 
         if plot_best_fit:
             best_fit = []
-            best_fit_ind = np.argmax(samples[:,-1])
+            best_fit_ind = np.argmax(samples[:, -1])
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
 
@@ -618,7 +620,7 @@ def nice_corner(samples,
         if parameter_plot_indices is None:
             parameter_plot_indices = np.linspace(0, len(parameter_names) - 1,
                                                  len(parameter_names) - 1).astype('int')
-    except:
+    except Exception:
         pass
 
     if max_val_ratio is None:
@@ -641,7 +643,7 @@ def nice_corner(samples,
                 range_list.append(range_take)
             else:
                 range_list.append(parameter_ranges[i])
-        except:
+        except Exception:
             range_mean = np.mean(samples[len(samples) - s:, i])
             range_std = np.std(samples[len(samples) - s:, i])
             range_take = (range_mean - 4 * range_std, range_mean + 4 * range_std)
@@ -652,7 +654,7 @@ def nice_corner(samples,
 
         for i in parameter_plot_indices:
             truths_list.append(true_values[i])
-    except:
+    except Exception:
         truths_list = None
 
     dimensions = len(parameter_plot_indices)
@@ -665,9 +667,9 @@ def nice_corner(samples,
 
     try:
         ax_array = axes.flat
-    except:
+    except Exception:
         ax_array = [plt.gca()]
-    # print(len(axes).flat)
+
     for ax in ax_array:
 
         # print(i_col, i_lin, dimensions, len(axes.flat))
@@ -695,7 +697,7 @@ def nice_corner(samples,
                            linestyle='--', linewidth=2.5)
                 ax.axvline(truths_list[i_col], color='red',
                            linestyle='--', linewidth=2.5)
-            except:
+            except Exception:
                 pass
 
             if i_col > 0:
@@ -726,7 +728,7 @@ def nice_corner(samples,
             try:
                 ax.axvline(truths_list[i_col], color='red',
                            linestyle='--', linewidth=2.5)
-            except:
+            except Exception:
                 pass
 
             ax.axvline(float(med) + float(up), color='black',
@@ -748,7 +750,7 @@ def nice_corner(samples,
         for i_lin in range(dimensions):
             try:
                 plt.sca(axes[i_lin, i_col])
-            except:
+            except Exception:
                 pass
             range_use = np.linspace(range_list[i_col][0],
                                     range_list[i_col][1], 5)[1:-1]
@@ -762,7 +764,7 @@ def nice_corner(samples,
     for i_lin in range(dimensions):
         try:
             plt.sca(axes[i_lin, 0])
-        except:
+        except Exception:
             pass
         plt.ylabel(labels_list[i_lin])
 

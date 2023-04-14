@@ -1,16 +1,13 @@
-import sys, os
-import copy as cp
-os.environ["OMP_NUM_THREADS"] = "1"
+import sys
 import numpy as np
-from scipy.interpolate import interp1d,CubicSpline
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval import cloud_cond as fc
-from petitRADTRANS import poor_mans_nonequ_chem as pm
 
-from petitRADTRANS.physics import PT_ret_model, guillot_global, guillot_global_ret, guillot_modif, isothermal
+from petitRADTRANS.physics import pt_ret_model, guillot_global, isothermal
 from .chemistry import get_abundances
-from .util import surf_to_meas, calc_MMW, compute_gravity, spectrum_cgs_to_si
+from .util import surf_to_meas, compute_gravity, spectrum_cgs_to_si
+
 """
 Models Module
 
@@ -39,12 +36,13 @@ All models must take the same set of inputs:
 """
 
 # Global constants to reduce calculations and initializations.
-PGLOBAL = np.logspace(-6,3,1000)
+PGLOBAL = np.logspace(-6, 3, 1000)
+
 
 def emission_model_diseq(pRT_object,
                          parameters,
-                         PT_plot_mode = False,
-                         AMR = True):
+                         PT_plot_mode=False,
+                         AMR=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -93,41 +91,45 @@ def emission_model_diseq(pRT_object,
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
 
     # Use this for debugging.
-    #for key, val in parameters.items():
+    # for key, val in parameters.items():
     #    print(key,val.value)
 
     # Priors for these parameters are implemented here, as they depend on each other
-    T3 = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3'].value)
-    T2 = T3*(1.0-parameters['T2'].value)
-    T1 = T2*(1.0-parameters['T1'].value)
-    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
-    gravity, R_pl =  compute_gravity(parameters)
+    T3 = ((3. / 4. * parameters['T_int'].value ** 4. * (0.1 + 2. / 3.)) ** 0.25) * (1.0 - parameters['T3'].value)
+    T2 = T3 * (1.0 - parameters['T2'].value)
+    T1 = T2 * (1.0 - parameters['T1'].value)
+    delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
+    gravity, R_pl = compute_gravity(parameters)
 
     # Make the P-T profile
-    temp_arr = np.array([T1,T2,T3])
+    temp_arr = np.array([T1, T2, T3])
 
-    temperatures = PT_ret_model(temp_arr, \
-                            delta,
-                            parameters['alpha'].value,
-                            parameters['T_int'].value,
-                            p_use,
-                            parameters['Fe/H'].value,
-                            parameters['C/O'].value,
-                            conv=True)
+    temperatures = pt_ret_model(  # TODO weird way of calling the function
+        (
+            temp_arr,
+            delta,
+            parameters['alpha'].value,
+            parameters['T_int'].value,
+            p_use,
+            parameters['Fe/H'].value,
+            parameters['C/O'].value,
+            True  # conv
+        )
+    )
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+                                                          temperatures,
+                                                          pRT_object.line_species,
+                                                          pRT_object.cloud_species,
+                                                          parameters,
+                                                          amr=AMR)
     if abundances is None:
         return None, None
     if PT_plot_mode:
@@ -143,23 +145,24 @@ def emission_model_diseq(pRT_object,
     # Calculate the spectrum
     if pressures.shape[0] != pRT_object.press.shape[0]:
         print("Incorrect output shape!")
-        return None,None
+        return None, None
 
     # Hansen or log normal clouds
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                           pRT_object.cloud_species)
 
     # calculate the spectrum
     pRT_object.calc_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution = contribution,
-                        fsed = fseds,
-                        Kzz = kzz,
-                        sigma_lnorm = sigma_lnorm,
-                        b_hans = b_hans,
-                        radius = radii,
-                        dist = distribution)
+                         abundances,
+                         gravity,
+                         MMW,
+                         contribution=contribution,
+                         fsed=fseds,
+                         Kzz=kzz,
+                         sigma_lnorm=sigma_lnorm,
+                         b_hans=b_hans,
+                         radius=radii,
+                         dist=distribution)
 
     # Getting the model into correct units (W/m2/micron)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
@@ -170,10 +173,11 @@ def emission_model_diseq(pRT_object,
         return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
+
 def emission_model_diseq_patchy_clouds(pRT_object,
                                        parameters,
-                                       PT_plot_mode = False,
-                                       AMR = True):
+                                       PT_plot_mode=False,
+                                       AMR=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -221,43 +225,47 @@ def emission_model_diseq_patchy_clouds(pRT_object,
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
-    contribution = False # Not sure how to deal with having 2 separate contribution function
+    contribution = False  # Not sure how to deal with having 2 separate contribution function
 
     # Priors for these parameters are implemented here, as they depend on each other
-    T3 = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3'].value)
-    T2 = T3*(1.0-parameters['T2'].value)
-    T1 = T2*(1.0-parameters['T1'].value)
-    temp_arr = np.array([T1,T2,T3])
+    T3 = ((3. / 4. * parameters['T_int'].value ** 4. * (0.1 + 2. / 3.)) ** 0.25) * (1.0 - parameters['T3'].value)
+    T2 = T3 * (1.0 - parameters['T2'].value)
+    T1 = T2 * (1.0 - parameters['T1'].value)
+    temp_arr = np.array([T1, T2, T3])
 
     delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
 
     # let's start out by setting up our global pressure arrays
     # This is used for the hi res bins for AMR
-    pglobal_check(pRT_object.press/1e6,
+    pglobal_check(pRT_object.press / 1e6,
                   parameters['pressure_simple'].value,
                   parameters['pressure_scaling'].value)
 
-    delta = ((10.0**(-3.0+5.0*parameters['log_delta'].value))*1e6)**(-parameters['alpha'].value)
+    delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = PT_ret_model(temp_arr,
-                            delta,
-                            parameters['alpha'].value,
-                            parameters['T_int'].value,
-                            p_use,
-                            parameters['Fe/H'].value,
-                            parameters['C/O'].value,
-                            conv=True)
+    temperatures = pt_ret_model(
+        (  # TODO weird way of calling the function
+            temp_arr,
+            delta,
+            parameters['alpha'].value,
+            parameters['T_int'].value,
+            p_use,
+            parameters['Fe/H'].value,
+            parameters['C/O'].value,
+            True  # conv
+        )
+    )
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+                                                          temperatures,
+                                                          pRT_object.line_species,
+                                                          pRT_object.cloud_species,
+                                                          parameters,
+                                                          amr=AMR)
     if abundances is None:
         return None, None
     if PT_plot_mode:
@@ -270,55 +278,57 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     else:
         pressures = p_use
     if pressures.shape[0] != pRT_object.press.shape[0]:
-        return None,None
+        return None, None
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                           pRT_object.cloud_species)
     pRT_object.calc_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution = contribution,
-                        fsed = fseds,
-                        Kzz = kzz,
-                        sigma_lnorm = sigma_lnorm,
-                        b_hans = b_hans,
-                        radius = radii,
-                        dist = distribution)
+                         abundances,
+                         gravity,
+                         MMW,
+                         contribution=contribution,
+                         fsed=fseds,
+                         Kzz=kzz,
+                         sigma_lnorm=sigma_lnorm,
+                         b_hans=b_hans,
+                         radius=radii,
+                         dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
-                                  R_pl,
-                                  parameters['D_pl'].value)
+                                         R_pl,
+                                         parameters['D_pl'].value)
 
     # Set the cloud abundances to 0 for clear case
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
     pRT_object.calc_flux(temperatures,
-                    abundances,
-                    gravity,
-                    MMW,
-                    contribution = contribution,
-                    fsed = fseds,
-                    Kzz = kzz,
-                    sigma_lnorm = sigma_lnorm,
-                    b_hans = b_hans,
-                    dist = distribution)
+                         abundances,
+                         gravity,
+                         MMW,
+                         contribution=contribution,
+                         fsed=fseds,
+                         Kzz=kzz,
+                         sigma_lnorm=sigma_lnorm,
+                         b_hans=b_hans,
+                         dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
-                                  R_pl,
-                                  parameters['D_pl'].value)
+                                        R_pl,
+                                        parameters['D_pl'].value)
 
     # Patchiness fraction
     patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) +\
-                     ((1-patchiness)*spectrum_model_clear)
+    spectrum_model = (patchiness * spectrum_model_cloudy) + \
+                     ((1 - patchiness) * spectrum_model_clear)
 
     return wlen_model, spectrum_model
 
-def guillot_emission(pRT_object, \
-                     parameters, \
-                     PT_plot_mode = False,
-                     AMR = False):
+
+def guillot_emission(pRT_object,
+                     parameters,
+                     PT_plot_mode=False,
+                     AMR=False):
     """
     Equilibrium Chemistry Emission Model, Guillot Profile
 
@@ -369,27 +379,29 @@ def guillot_emission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(p_use, \
-                                10**parameters['log_kappa_IR'].value,
-                                parameters['gamma'].value, \
-                                gravity, \
-                                parameters['T_int'].value, \
-                                parameters['T_equ'].value)
+    temperatures = guillot_global(
+        p_use,
+        10 ** parameters['log_kappa_IR'].value,
+        parameters['gamma'].value,
+        gravity,
+        parameters['T_int'].value,
+        parameters['T_equ'].value
+    )
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+                                                          temperatures,
+                                                          pRT_object.line_species,
+                                                          pRT_object.cloud_species,
+                                                          parameters,
+                                                          amr=AMR)
     if abundances is None:
         return None, None
 
@@ -403,18 +415,19 @@ def guillot_emission(pRT_object, \
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                           pRT_object.cloud_species)
     pRT_object.calc_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution = contribution,
-                        fsed = fseds,
-                        Kzz = kzz,
-                        sigma_lnorm = sigma_lnorm,
-                        b_hans = b_hans,
-                        radius = radii,
-                        dist = distribution)
+                         abundances,
+                         gravity,
+                         MMW,
+                         contribution=contribution,
+                         fsed=fseds,
+                         Kzz=kzz,
+                         sigma_lnorm=sigma_lnorm,
+                         b_hans=b_hans,
+                         radius=radii,
+                         dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
@@ -423,10 +436,11 @@ def guillot_emission(pRT_object, \
         return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
-def guillot_transmission(pRT_object, \
-                         parameters, \
-                         PT_plot_mode = False,
-                         AMR = False):
+
+def guillot_transmission(pRT_object,
+                         parameters,
+                         PT_plot_mode=False,
+                         AMR=False):
     """
     Equilibrium Chemistry Transmission Model, Guillot Profile
 
@@ -481,28 +495,29 @@ def guillot_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity, R_pl =  compute_gravity(parameters)
+    gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(p_use, \
-                                    10**parameters['log_kappa_IR'].value, \
-                                    parameters['gamma'].value, \
-                                    gravity, \
-                                    parameters['T_int'].value, \
-                                    parameters['T_equ'].value)
-
+    temperatures = guillot_global(
+        p_use,
+        10 ** parameters['log_kappa_IR'].value,
+        parameters['gamma'].value,
+        gravity,
+        parameters['T_int'].value,
+        parameters['T_equ'].value
+    )
 
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+                                                          temperatures,
+                                                          pRT_object.line_species,
+                                                          pRT_object.cloud_species,
+                                                          parameters,
+                                                          amr=AMR)
     if abundances is None:
         return None, None
 
@@ -518,54 +533,60 @@ def guillot_transmission(pRT_object, \
 
     pcloud = None
     if 'log_Pcloud' in parameters.keys():
-        pcloud = 10**parameters['log_Pcloud'].value
+        pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
 
     # Calculate the spectrum
-    if len(pRT_object.cloud_species)> 0:
-        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    if len(pRT_object.cloud_species) > 0:
+        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                               pRT_object.cloud_species)
         pRT_object.calc_transm(temperatures,
-                                abundances,
-                                gravity,
-                                MMW,
-                                R_pl=R_pl,
-                                P0_bar=0.01,
-                                sigma_lnorm = sigma_lnorm,
-                                radius = radii,
-                                fsed = fseds,
-                                Kzz = kzz,
-                                b_hans = b_hans,
-                                distribution = distribution,
-                                contribution = contribution)
-    elif pcloud is not None:
-        pRT_object.calc_transm(temperatures, \
-                        abundances, \
-                        gravity, \
-                        MMW, \
-                        R_pl=R_pl, \
-                        P0_bar=0.01,
-                        Pcloud = pcloud,
-                        contribution = contribution)
-    else:
-        pRT_object.calc_transm(temperatures, \
-                               abundances, \
-                               gravity, \
-                               MMW, \
-                               R_pl=R_pl, \
+                               abundances,
+                               gravity,
+                               MMW,
+                               R_pl=R_pl,
                                P0_bar=0.01,
-                               contribution = contribution)
+                               sigma_lnorm=sigma_lnorm,
+                               radius=radii,
+                               fsed=fseds,
+                               Kzz=kzz,
+                               b_hans=b_hans,
+                               distribution=distribution,
+                               contribution=contribution)
+    elif pcloud is not None:
+        pRT_object.calc_transm(
+            temperatures,
+            abundances,
+            gravity,
+            MMW,
+            R_pl=R_pl,
+            P0_bar=0.01,
+            Pcloud=pcloud,
+            contribution=contribution
+        )
+    else:
+        pRT_object.calc_transm(
+            temperatures,
+            abundances,
+            gravity,
+            MMW,
+            R_pl=R_pl,
+            P0_bar=0.01,
+            contribution=contribution
+        )
 
-    wlen_model = nc.c/pRT_object.freq/1e-4
-    spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    wlen_model = nc.c / pRT_object.freq / 1e-4
+    spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
-def guillot_patchy_transmission(pRT_object, \
-                                    parameters, \
-                                    PT_plot_mode = False,
-                                    AMR = False):
+
+def guillot_patchy_transmission(pRT_object,
+                                parameters,
+                                PT_plot_mode=False,
+                                AMR=False):
     """
     Equilibrium Chemistry Transmission Model, Guillot Profile
 
@@ -621,31 +642,38 @@ def guillot_patchy_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity, R_pl =  compute_gravity(parameters)
+    gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(p_use, \
-                                    10**parameters['log_kappa_IR'].value, \
-                                    parameters['gamma'].value, \
-                                    gravity, \
-                                    parameters['T_int'].value, \
-                                    parameters['T_equ'].value)
+    temperatures = guillot_global(
+        p_use,
+        10 ** parameters['log_kappa_IR'].value,
+        parameters['gamma'].value,
+        gravity,
+        parameters['T_int'].value,
+        parameters['T_equ'].value
+    )
 
-    abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+    abundances, MMW, small_index, Pbases = get_abundances(
+        p_use,
+        temperatures,
+        pRT_object.line_species,
+        pRT_object.cloud_species,
+        parameters,
+        amr=AMR
+    )
+
     if abundances is None:
         return None, None
+
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
+
     if AMR:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
@@ -654,50 +682,56 @@ def guillot_patchy_transmission(pRT_object, \
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                           pRT_object.cloud_species)
     # Calculate the spectrum
-    pRT_object.calc_transm(temperatures, \
-                            abundances, \
-                            gravity, \
-                            MMW, \
-                            R_pl=R_pl, \
-                            P0_bar=0.01,
-                            sigma_lnorm = sigma_lnorm,
-                            b_hans = b_hans,
-                            fsed = fseds,
-                            Kzz = kzz,
-                            radius = radii,
-                            distribution = distribution,
-                            contribution = contribution)
+    pRT_object.calc_transm(
+        temperatures,
+        abundances,
+        gravity,
+        MMW,
+        R_pl=R_pl,
+        P0_bar=0.01,
+        sigma_lnorm=sigma_lnorm,
+        b_hans=b_hans,
+        fsed=fseds,
+        Kzz=kzz,
+        radius=radii,
+        distribution=distribution,
+        contribution=contribution
+    )
 
-    wlen_model = nc.c/pRT_object.freq/1e-4
-    spectrum_model_cloudy = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    wlen_model = nc.c / pRT_object.freq / 1e-4
+    spectrum_model_cloudy = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
-    pRT_object.calc_transm(temperatures, \
-                            abundances, \
-                            gravity, \
-                            MMW, \
-                            R_pl=R_pl, \
-                            P0_bar=0.01,
-                            sigma_lnorm = parameters['sigma_lnorm'].value,
-                            radius = radii,
-                            contribution = contribution)
+    pRT_object.calc_transm(
+        temperatures,
+        abundances,
+        gravity,
+        MMW,
+        R_pl=R_pl,
+        P0_bar=0.01,
+        sigma_lnorm=parameters['sigma_lnorm'].value,
+        radius=radii,
+        contribution=contribution
+    )
 
-    wlen_model = nc.c/pRT_object.freq/1e-4
-    spectrum_model_clear = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+    wlen_model = nc.c / pRT_object.freq / 1e-4
+    spectrum_model_clear = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) +\
-                     ((1-patchiness)*spectrum_model_clear)
+    spectrum_model = (patchiness * spectrum_model_cloudy) + \
+                     ((1 - patchiness) * spectrum_model_clear)
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contr_tr
     return wlen_model, spectrum_model
 
-def isothermal_transmission(pRT_object, \
-                            parameters, \
-                            PT_plot_mode = False,
-                            AMR = False):
+
+def isothermal_transmission(pRT_object,
+                            parameters,
+                            PT_plot_mode=False,
+                            AMR=False):
     """
     Equilibrium Chemistry Transmission Model, Isothermal Profile
 
@@ -746,10 +780,10 @@ def isothermal_transmission(pRT_object, \
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
 
     # Make the P-T profile
-    temperatures = isothermal(p_use,parameters["Temp"].value)
+    temperatures = isothermal(p_use, parameters["Temp"].value)
     gravity, R_pl = compute_gravity(parameters)
 
     contribution = False
@@ -757,11 +791,11 @@ def isothermal_transmission(pRT_object, \
         contribution = parameters["contribution"].value
     # Make the abundance profile
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
-                                                  temperatures,
-                                                  pRT_object.line_species,
-                                                  pRT_object.cloud_species,
-                                                  parameters,
-                                                  AMR =AMR)
+                                                          temperatures,
+                                                          pRT_object.line_species,
+                                                          pRT_object.cloud_species,
+                                                          parameters,
+                                                          amr=AMR)
     if abundances is None:
         return None, None
 
@@ -775,51 +809,62 @@ def isothermal_transmission(pRT_object, \
     else:
         pressures = p_use
 
-       # Calculate the spectrum
+    # Calculate the spectrum
     pcloud = None
     if 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
     elif 'log_Pcloud' in parameters.keys():
-        pcloud = 10**parameters['log_Pcloud'].value
+        pcloud = 10 ** parameters['log_Pcloud'].value
 
     if pcloud is not None:
         # P0_bar is important for low gravity transmission
         # spectrum. 100 is standard, 0.01 is good for small,
         # low gravity objects
-        pRT_object.calc_transm(temperatures, \
-                               abundances, \
-                               gravity, \
-                               MMW, \
-                               R_pl=R_pl, \
-                               P0_bar=0.01,
-                               Pcloud = pcloud)
+        pRT_object.calc_transm(
+            temperatures,
+            abundances,
+            gravity,
+            MMW,
+            R_pl=R_pl,
+            P0_bar=0.01,
+            Pcloud=pcloud
+        )
     elif len(pRT_object.cloud_species) > 0:
-        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
-        pRT_object.calc_transm(temperatures, \
-                                abundances, \
-                                gravity, \
-                                MMW, \
-                                R_pl=R_pl, \
-                                P0_bar=0.01,
-                                sigma_lnorm = sigma_lnorm,
-                                b_hans = b_hans,
-                                fsed = fseds,
-                                Kzz = kzz,
-                                radius = radii,
-                                contribution = contribution)
+        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
+                                                                               pRT_object.cloud_species)
+        pRT_object.calc_transm(
+            temperatures,
+            abundances,
+            gravity,
+            MMW,
+            R_pl=R_pl,
+            P0_bar=0.01,
+            sigma_lnorm=sigma_lnorm,
+            b_hans=b_hans,
+            fsed=fseds,
+            Kzz=kzz,
+            radius=radii,
+            contribution=contribution
+        )
     else:
-        pRT_object.calc_transm(temperatures, \
-                               abundances, \
-                               gravity, \
-                               MMW, \
-                               R_pl=R_pl, \
-                               P0_bar=0.01,
-                               contribution = contribution)
-    wlen_model = nc.c/pRT_object.freq/1e-4
-    spectrum_model = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
+        pRT_object.calc_transm(
+            temperatures,
+            abundances,
+            gravity,
+            MMW,
+            R_pl=R_pl,
+            P0_bar=0.01,
+            contribution=contribution
+        )
+
+    wlen_model = nc.c / pRT_object.freq / 1e-4
+    spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
+
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contr_tr
+
     return wlen_model, spectrum_model
+
 
 def initialize_pressure(press, parameters, AMR):
     """
@@ -829,17 +874,19 @@ def initialize_pressure(press, parameters, AMR):
     Args:
         press : numpy.ndarray
             Pressure array from a pRT_object. Used to set the min and max values of PGLOBAL
-        shape : int
-            the shape of the pressure array if no AMR is used
-        scaling :
-            The factor by which the pressure array resolution should be scaled.
+        parameters :
+            # TODO complete docstring
+        AMR :
+            # TODO complete docstring
     """
     if AMR:
         set_pglobal(press, parameters)
         p_use = PGLOBAL
     else:
         p_use = press
+
     return p_use
+
 
 def set_pglobal(press, parameters):
     """
@@ -855,13 +902,14 @@ def set_pglobal(press, parameters):
     """
     try:
         pglobal_check(press,
-                    parameters['pressure_simple'].value,
-                    parameters['pressure_scaling'].value)
+                      parameters['pressure_simple'].value,
+                      parameters['pressure_scaling'].value)
     except KeyError():
         print("You must include the pressure_simple and pressure_scaling parameters when using AMR!")
         sys.exit(1)
 
-def pglobal_check(press,shape,scaling):
+
+def pglobal_check(press, shape, scaling):
     """
     Check to ensure that the global pressure array has the correct length.
     Updates PGLOBAL.
@@ -875,9 +923,7 @@ def pglobal_check(press,shape,scaling):
             The factor by which the pressure array resolution should be scaled.
     """
     global PGLOBAL
-    if PGLOBAL.shape[0] != int(scaling*shape):
+    if PGLOBAL.shape[0] != int(scaling * shape):
         PGLOBAL = np.logspace(np.log10(press[0]),
                               np.log10(press[-1]),
-                              int(scaling*shape))
-
-
+                              int(scaling * shape))

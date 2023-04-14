@@ -17,7 +17,7 @@ class Data:
     Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
     The pRT instance can be overwritten, and associated with an existing pRT instance with the
     external_pRT_reference parameter.
-    This setup allows for joint or independant retrievals on multiple datasets.
+    This setup allows for joint or independent retrievals on multiple datasets.
 
     Args:
         name : str
@@ -37,19 +37,19 @@ class Data:
             correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
             Lowering the resolution will speed up the computation.
             If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
-            will sample the the high-resolution opacities at the specified resolution.
+            will sample the high-resolution opacities at the specified resolution.
             This may be desired in the case where medium-resolution spectra are
             required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
             :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
             may make sense to carry out the calculations with lbl_opacity_sampling = 10e5,
-            for example, and then rebinning to the final desired resolution:
+            for example, and then re-binning to the final desired resolution:
             this may save time! The user should verify whether this leads to
-            solutions which are identical to the rebinned results of the fiducial
+            solutions which are identical to the re-binned results of the fiducial
             :math:`10^6` resolution. If not, this parameter must not be used.
             Note the difference between this parameter and the lbl_opacity_sampling
             parameter in the RadTrans class - the actual desired resolution should
             be set here.
-        external_pRT_reference : object
+        external_radtrans_reference : object
             An existing RadTrans object. Leave as none unless you're sure of what you're doing.
         model_generating_function : method
             A function, typically defined in run_definition.py that returns the model wavelength and spectrum (emission
@@ -70,7 +70,7 @@ class Data:
             and output a single photometric point (and optionally flux error).
         photometric_bin_edges : Tuple, numpy.ndarray
             The edges of the photometric bin in micron. [low,high]
-        pRT_grid: bool
+        radtrans_grid: bool
             Set to true if data has been binned to pRT R = 1,000 c-k grid.
         opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
@@ -86,7 +86,7 @@ class Data:
                  data_resolution=None,
                  model_resolution=None,
                  distance=None,
-                 external_pRT_reference=None,
+                 external_radtrans_reference=None,
                  model_generating_function=None,
                  wlen_range_micron=None,
                  scale=False,
@@ -96,8 +96,8 @@ class Data:
                  photometric_transformation_function=None,
                  photometric_bin_edges=None,
                  opacity_mode='c-k',
-                 pRT_grid=False,
-                 pRT_object=None,
+                 radtrans_grid=False,
+                 radtrans_object=None,
                  wlen=None,
                  flux=None,
                  flux_error=None,
@@ -108,7 +108,7 @@ class Data:
         self.path_to_observations = path_to_observations
 
         # To be filled later
-        self.pRT_object = pRT_object
+        self.pRT_object = radtrans_object
         self.wlen = wlen  #: The wavelength bin centers
         self.flux = flux  #: The flux or transit depth
         self.flux_error = flux_error  #: The error on the flux or transit depth
@@ -128,7 +128,7 @@ class Data:
 
         self.data_resolution = data_resolution
         self.model_resolution = model_resolution
-        self.external_pRT_reference = external_pRT_reference
+        self.external_pRT_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
         self.opacity_mode = opacity_mode
 
@@ -136,7 +136,7 @@ class Data:
             logging.error("opacity_mode must be either 'c-k' or 'lbl'!")
             sys.exit(10)
         # Sanity check model function
-        if not model_generating_function and not external_pRT_reference:
+        if not model_generating_function and not external_radtrans_reference:
             logging.error("Please provide a model generating function or external reference for " + name + "!")
             sys.exit(8)
 
@@ -175,7 +175,7 @@ class Data:
         self.photometry_range = wlen_range_micron
         self.width_photometry = photometric_bin_edges  # TODO change name, is confusing
 
-        self.pRT_grid = pRT_grid
+        self.pRT_grid = radtrans_grid
 
         # Read in data
         if path_to_observations is not None:
@@ -221,7 +221,7 @@ class Data:
         the first column must be the wavelength in micron, the second column the flux or transit depth,
         and the final column must be the error on each data point.
         Checks will be performed to determine the correct delimiter, but the recommended format is to use a
-        csv file with columns for wavlength, flux and error.
+        csv file with columns for wavelength, flux and error.
 
         Args:
             path : str
@@ -250,8 +250,9 @@ class Data:
             logging.error("Failed to properly load data in " + path + "!!!")
             sys.exit(6)
         elif obs.shape[1] > 3:
-            logging.warning(" File " + path + " has more than three columns. Retrieval package assumes that"+ \
-                          " the first three have this meaning: wavelength, flux, flux error")
+            logging.warning(
+                f" File {path} has more than three columns. Retrieval package assumes that "
+                f"the first three have this meaning: wavelength, flux, flux error")
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
         self.wlen = obs[:, 0]
@@ -260,7 +261,7 @@ class Data:
 
     def load_jwst(self, path):
         """
-        Load in an x1d fits file as produced by the STSci JWST pipeline.
+        Load in a x1d fits file as produced by the STSci JWST pipeline.
         Expects units of Jy for the flux and micron for the wavelength.
 
         Args:
@@ -276,10 +277,10 @@ class Data:
         self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
         self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
 
-    def loadfits(self,path):
+    def loadfits(self, path):
         """
         Load in a particular style of fits file.
-        Must include extension SPECTRUM with fields WAVLENGTH, FLUX
+        Must include extension SPECTRUM with fields WAVELENGTH, FLUX
         and COVARIANCE (or ERROR).
 
         Args:
@@ -288,10 +289,13 @@ class Data:
         """
 
         from astropy.io import fits
+
         if self.photometry:
             return
+
         self.wlen = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
         self.flux = fits.getdata(path, 'SPECTRUM').field("FLUX")
+
         try:
             self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
@@ -301,9 +305,9 @@ class Data:
             # the full error.
             try:
                 self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            except:  # TODO find what is the error expected here
+            except Exception:  # TODO find what is the error expected here
                 self.flux_error = np.sqrt(self.covariance.diagonal())
-        except:  # TODO find what is the error expected here
+        except Exception:  # TODO find what is the error expected here
             self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
 
     def set_distance(self, distance):
@@ -320,7 +324,7 @@ class Data:
         self.distance = distance
         return self.distance
 
-    def update_bins(self,wlens):
+    def update_bins(self, wlens):
         self.wlen_bins = np.zeros_like(wlens)
         self.wlen_bins[:-1] = np.diff(wlens)
         self.wlen_bins[-1] = self.wlen_bins[-2]
@@ -357,11 +361,13 @@ class Data:
 
         Args:
             wlen_model : numpy.ndarray
-                The wavlengths of the model
+                The wavelengths of the model
             spectrum_model : numpy.ndarray
                 The model flux in the same units as the data.
             plotting : bool
                 Show test plots.
+            parameters :
+                # TODO complete docstring
 
         Returns:
             logL : float
@@ -405,8 +411,9 @@ class Data:
                 if param_name == 'Mike_Line_b':
                     b_val = parameters['Mike_Line_b'].value
                 else:
-                    id = param_name.split('Mike_Line_b')[-1][1:]
-                    if id in self.name:
+                    index = param_name.split('Mike_Line_b')[-1][1:]
+
+                    if index in self.name:
                         b_val = parameters[param_name].value
 
         if self.scale_err:
@@ -473,7 +480,7 @@ class Data:
 
         Set:
             chi2(A, B) = sum(((f_i - A * m_i) / (B * sig_i)) ** 2),  implicit sum on i
-        with f_i the data, m_i the model, and sig_i the uncertainty; i denotes wavelength/time variation.
+        with f_i the data, m_i the model, and sig_i the uncertainty; where "i" denotes wavelength/time variation.
         Starting from (implicit product on i):
             L        = prod(1 / sqrt(2 * pi * B * sig_i ** 2) * exp(-1/2 * sum(((f_i - A * m_i) / (B * sig_i)) ** 2))),
             => L     = prod( 1 / sqrt(2 * pi * B * sig_i ** 2) * exp(-1/2 * chi2(A, B)) ),

@@ -198,7 +198,7 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
             else:
                 telluric_lines_fits[i, :, k] = 0
 
-                warnings.warn(f"not all columns have enough valid points for fitting")
+                warnings.warn("not all columns have enough valid points for fitting")
 
         # Calculate telluric transmittance estimate
         telluric_lines_fits[i, :, :] = np.exp(telluric_lines_fits[i, :, :])
