@@ -801,20 +801,30 @@ def guillot_patchy_transmission(pRT_object, \
         pressures = p_use
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
-    # Calculate the spectrum
-    pRT_object.calc_transm(temperatures, \
-                            abundances, \
-                            gravity, \
-                            MMW, \
-                            R_pl=R_pl, \
-                            P0_bar=p_reference,
-                            sigma_lnorm = sigma_lnorm,
-                            b_hans = b_hans,
-                            fsed = fseds,
-                            Kzz = kzz,
-                            radius = radii,
-                            dist = distribution,
-                            contribution = contribution)
+    # Hazes
+    gamma_scat = None
+    kappa_0 = None
+    if "gamma_scat" in parameters.keys():
+        gamma_scat = parameters["gamma_scat"].value
+    if "kappa_0" in parameters.keys():
+        kappa_0 = 10**parameters["kappa_0"].value
+
+    # Calc cloudy spectrum
+    pRT_object.calc_transm(temperatures,
+                                abundances,
+                                gravity,
+                                MMW,
+                                R_pl=R_pl,
+                                P0_bar=p_reference,
+                                sigma_lnorm = sigma_lnorm,
+                                radius = radii,
+                                fsed = fseds,
+                                Kzz = kzz,
+                                kappa_zero = kappa_0,
+                                gamma_scat = gamma_scat,
+                                b_hans = b_hans,
+                                dist = distribution,
+                                contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4
     spectrum_model_cloudy = (pRT_object.transm_rad/parameters['Rstar'].value)**2.
@@ -827,8 +837,6 @@ def guillot_patchy_transmission(pRT_object, \
                             MMW, \
                             R_pl=R_pl, \
                             P0_bar=p_reference,
-                            sigma_lnorm = parameters['sigma_lnorm'].value,
-                            radius = radii,
                             contribution = contribution)
 
     wlen_model = nc.c/pRT_object.freq/1e-4

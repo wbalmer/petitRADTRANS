@@ -163,8 +163,19 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     for species in line_species:
         sname = species.split('_')[0]
+
+        # Depending on easychem vs interpolated and different versions of pRT
+        # C2H2 is named differently.
         if sname == "C2H2":
-            sname = "C2H2,acetylene"
+            # might be',acetylene'
+            not_found = True
+            for key in abundances_interp.keys():
+                if sname in key:
+                    sname = key
+                    not_found = False
+                    break
+            if not_found:
+                continue
         if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
             abunds_change_rainout = cp.copy(abundances_interp[sname]/2.)
