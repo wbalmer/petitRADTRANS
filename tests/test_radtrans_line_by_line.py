@@ -365,13 +365,24 @@ def test_line_by_line_spectral_model_transmission_ccf():
             planet_radial_velocity_function=None
         )
 
+    co_added_cross_correlations_max, max_kp, max_v_rest, n_around_peak \
+        = petitRADTRANS.ccf.ccf.get_co_added_ccf_peak_properties(
+            co_added_cross_correlation=co_added_cross_correlations,
+            kp_space=kps,
+            vr_space=v_rest,
+            peak_cutoff=radtrans_parameters['ccf_analysis_parameters']['peak_cutoff']
+        )
+
     # Comparison
     compare_from_reference_file(
         reference_file=reference_filenames['co_added_cross_correlation'],
         comparison_dict={
             'rest_velocities': v_rest,
             'orbital_radial_velocity_amplitudes': kps,
-            'co_added_cross_correlations': co_added_cross_correlations
+            'co_added_cross_correlations': co_added_cross_correlations,
+            'max_kp': max_kp,
+            'max_v_rest': max_v_rest,
+            'n_around_peak': n_around_peak
         },
         relative_tolerance=relative_tolerance
     )

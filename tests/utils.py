@@ -213,7 +213,8 @@ def create_test_radtrans_config_file(filename):
                     'pixels_per_resolution_element': 2,
                     'peak_lsf_factor': 1.5,
                     'velocity_interval_extension_factor': -0.3,
-                    'kp_factor': 1.5
+                    'kp_factor': 1.5,
+                    'peak_cutoff': 0.68
                 }
             },
             fp=f,
