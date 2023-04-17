@@ -72,7 +72,9 @@ reference_filenames = {
     'mass_fractions_c_o_ratios':
         'mass_fractions_c_o_ratios_ref',
     'mass_fractions_metallicities':
-        'mass_fractions_metallicities_ref'
+        'mass_fractions_metallicities_ref',
+    'simple_spectrum':
+        'simple_spectrum_ref',
 }
 
 # Complete filenames
