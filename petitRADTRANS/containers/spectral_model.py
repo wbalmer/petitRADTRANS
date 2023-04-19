@@ -1346,7 +1346,8 @@ class BaseSpectralModel:
                        retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
                        mode='emission', update_parameters=False, telluric_transmittances=None,
                        instrumental_deformations=None, noise_matrix=None,
-                       scale=False, shift=False, convolve=False, rebin=False, reduce=False,
+                       scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
+                       reduce=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
                        write_out_spec_sample=False, dataset_name='data', **kwargs):
         if pressures is None:
@@ -1421,6 +1422,7 @@ class BaseSpectralModel:
                 noise_matrix=noise_matrix,
                 scale=scale,
                 shift=shift,
+                use_transit_light_loss=use_transit_light_loss,
                 convolve=convolve,
                 rebin=rebin,
                 reduce=reduce
@@ -1744,7 +1746,8 @@ class BaseSpectralModel:
                                             spectrum_model=None, mode='emission', update_parameters=False,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
-                                            scale=False, shift=False, convolve=False, rebin=False, reduce=False):
+                                            scale=False, shift=False, use_transit_light_loss=False,
+                                            convolve=False, rebin=False, reduce=False):
         # TODO Change model generating function template to not include pt_plot_mode
         # Convert from Parameter object to dictionary
         p = copy.deepcopy(parameters)  # copy to avoid over-writing
@@ -2059,9 +2062,9 @@ class SpectralModel(BaseSpectralModel):
         return mass_mixing_ratios
 
     @staticmethod
-    def _calculate_planet_star_centers_distance(planet_orbit_semi_major_axis, planet_orbital_inclination,
+    def _calculate_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
                                                 planet_radius_normalized, star_radius,
-                                                orbital_longitudes, planet_transit_duration, planet_orbital_period,
+                                                orbital_longitudes, transit_duration, orbital_period,
                                                 **kwargs):
         """Calculate the sky-projected distance between the centers of a star and a planet.
         This equation is valid if the eccentricity of the planet orbit is low.
@@ -2069,24 +2072,24 @@ class SpectralModel(BaseSpectralModel):
         Source: Csizmadia 2020 (https://doi.org/10.1093/mnras/staa349)
 
         Args:
-            planet_orbit_semi_major_axis: planet orbit semi-major axis
-            planet_orbital_inclination: planet orbital inclination
+            orbit_semi_major_axis: planet orbit semi-major axis
+            orbital_inclination: planet orbital inclination
             planet_radius_normalized: planet radius over its star radius
             star_radius: radius of the planet star
             orbital_longitudes: orbital longitudes of the observation exposures
-            planet_transit_duration: duration of the planet total transit (T14)
-            planet_orbital_period: period of the planet orbit
+            transit_duration: duration of the planet total transit (T14)
+            orbital_period: period of the planet orbit
         """
         impact_parameter_squared = Planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=planet_orbit_semi_major_axis,
-            planet_orbital_inclination=planet_orbital_inclination,
+            planet_orbit_semi_major_axis=orbit_semi_major_axis,
+            planet_orbital_inclination=orbital_inclination,
             star_radius=star_radius
         ) ** 2
 
         # Get the orbital longitude corresponding to the absolute value of the orbital longitude at the beginning of T14
         # phi14 = T_14 / P is the phase length of T14, we want half this value: the transit occurs between +/- phi14 / 2
         # phi14 is converted into longitude by multiplying by 2 * pi; 2 * pi / 2 = pi, hence the pi factor
-        transit_longitude_half_length = np.rad2deg(planet_transit_duration / planet_orbital_period * np.pi)
+        transit_longitude_half_length = np.rad2deg(transit_duration / orbital_period * np.pi)
 
         # Move axis to (wavelength, ..., exposure) to be able to multiply with orbital longitudes
         planet_radius_normalized_squared = np.moveaxis((1 + planet_radius_normalized) ** 2, -1, 0)
