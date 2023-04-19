@@ -98,8 +98,8 @@ def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inv
     return a * c, c
 
 
-def pipeline_validity_test(reduced_true_model, reduced_mock_observations,
-                           mock_observations_reduction_matrix=None, mock_noise=None):
+def bias_pipeline_metric(reduced_true_model, reduced_mock_observations,
+                         mock_observations_reduction_matrix=None, mock_noise=None):
     if mock_observations_reduction_matrix is None:
         mock_observations_reduction_matrix = np.ones(reduced_true_model.shape)
 
@@ -515,7 +515,7 @@ def preparing_pipeline(spectrum, uncertainties=None,
 
 
 def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, convergence_criterion=1e-3,
-                              full=False, verbose=False, **kwargs):
+                              subtract=False, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
         S**2 = sum_ij ((spectrum_ij - a_j * c_i) / uncertainties)**2
@@ -532,6 +532,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
         uncertainties: uncertainties on the data
         n_iterations_max: maximum number of SYSREM iterations
         convergence_criterion: SYSREM convergence criterion
+        subtract: if True, subtract the fitted systematics to the spectrum instead of dividing them
         full: if True, return the reduced matrix and reduced uncertainties in addition to the reduced spectrum
         verbose: if True, print the convergence status at each iteration
 
@@ -549,7 +550,10 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
     uncertainties_squared_inverted = 1 / uncertainties ** 2
     spectrum_uncertainties_squared = spectrum * uncertainties_squared_inverted
 
-    systematics_0 = np.zeros(spectrum.shape)
+    # Handle masked values
+    if isinstance(spectrum_uncertainties_squared, np.ma.core.MaskedArray):
+        uncertainties_squared_inverted[spectrum_uncertainties_squared.mask] = 0
+        spectrum_uncertainties_squared = spectrum_uncertainties_squared.filled(0)
 
     # First iteration
     systematics, c = __sysrem_iteration(
@@ -562,6 +566,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
 
     # Next iterations
     i = 0
+    systematics_0 = np.zeros(spectrum.shape)
 
     for i in range(n_iterations_max):
         # Check for convergence
@@ -596,15 +601,25 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
             f"> {convergence_criterion})"
         )
 
+    # Mask where systematics are 0 to prevent division by 0 error
+    systematics = np.ma.masked_equal(systematics, 0)
+
     # Remove the systematics from the spectrum
     '''
     This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same results
     and this way the pipeline can be used in retrievals more effectively.
     '''
-    reduced_data = spectrum / systematics
+    if subtract:
+        reduced_data = spectrum - systematics
+    else:
+        reduced_data = spectrum / systematics
 
     if full:
-        reduction_matrix = 1 / systematics
+        if subtract:
+            reduction_matrix = reduced_data / spectrum
+        else:
+            reduction_matrix = 1 / systematics
+
         reduced_data_uncertainties = uncertainties * np.abs(reduction_matrix)
 
         return reduced_data, reduction_matrix, reduced_data_uncertainties
