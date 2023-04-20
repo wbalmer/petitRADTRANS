@@ -2202,9 +2202,9 @@ class Retrieval:
             # Plot only the best fit abundances.
             # Default to this for speed.
             if volume_mixing_ratio:
-                abund_dict, MMW = self.get_volume_mixing_ratio(sample_use[:-1], parameters_read)
+                abund_dict, MMW = self.get_volume_mixing_ratio(sample_use, parameters_read)
             else:
-                abund_dict, MMW = self.get_mass_fractions(sample_use[:-1], parameters_read)
+                abund_dict, MMW = self.get_mass_fractions(sample_use, parameters_read)
             for i,spec in enumerate(species_to_plot):
                 ax.plot(abundances[spec],
                         pressures,
