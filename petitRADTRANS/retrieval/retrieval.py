@@ -1022,6 +1022,7 @@ class Retrieval:
         """
         logL = 0
         add = 0
+        norm = 0
         for name, dd in self.data.items():
             sf = 1
             logL += dd.get_chisq(wlen_model,
