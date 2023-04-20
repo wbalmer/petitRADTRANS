@@ -20,7 +20,7 @@ from .parameter import Parameter
 from .data import Data
 from .plotting import plot_specs,plot_data,contour_corner
 from .rebin_give_width import rebin_give_width as rgw
-from .util import bin_species_exok
+from .util import bin_species_exok, mass_to_number
 
 class Retrieval:
     """
@@ -422,7 +422,7 @@ class Retrieval:
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
                     # Get best-fit index
-                    self.get_best_fit_params(samples_use[best_fit_index,:-1],parameters_read)
+                    self.get_max_likelihood_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    𝛘^{2} = {self.chi2}\n")
                 for key,value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling']:
@@ -701,7 +701,7 @@ class Retrieval:
 
         return self.samples, self.param_dict
 
-    def get_best_fit_params(self,best_fit_params,parameters_read):
+    def get_max_likelihood_params(self,best_fit_params,parameters_read):
         """
         This function converts the sample from the post_equal_weights file with the maximum
         log likelihood, and converts it into a dictionary of Parameters that can be used in
@@ -711,9 +711,32 @@ class Retrieval:
             best_fit_params : numpy.ndarray
                 An array of the best fit parameter values (or any other sample)
             parameters_read : list
-                A list of the free parameters as read from the output files.
+                A list of the free parameter names as read from the output files.
         """
         self.best_fit_params = self.build_param_dict(best_fit_params,parameters_read)
+        return self.best_fit_params
+
+    def get_median_params(self,samples,parameters_read):
+        """
+        This function builds a parameter dictionary based on the median value
+        of each parameter. This will update the best_fit_parameter dictionary!
+
+        Args:
+            best_fit_params : numpy.ndarray
+                An array of the best fit parameter values (or any other sample)
+            parameters_read : list
+                A list of the free parameter names as read from the output files.
+        """
+        i_p = 0
+        samples_use = np.zeros(len(parameters_read))
+        # Take the median of each column
+        for pp in self.parameters:
+            if self.parameters[pp].is_free_parameter:
+                for i_s in range(len(parameters_read)):
+                    if parameters_read[i_s] == self.parameters[pp].name:
+                        samples_use[i_p] = np.median(samples[:, i_s])
+                i_p += 1
+        self.best_fit_params = self.build_param_dict(samples_use,parameters_read)
         return self.best_fit_params
 
     def get_full_range_model(self,
@@ -764,14 +787,14 @@ class Retrieval:
         return mg_func(atmosphere, parameters, PT_plot_mode= False, AMR = self.rd.AMR)
 
 
-    def get_best_fit_model(self,best_fit_params,parameters_read,ret_name = None, contribution = False,save = True):
+    def get_best_fit_model(self, best_fit_params, parameters_read, ret_name = None, contribution = False,save = True):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
         range of the retrieval, to be used in plots.
 
         Args:
             best_fit_params : numpy.ndarray
-                A numpy array containing the best fit parameters, to be passed to get_best_fit_params
+                A numpy array containing the best fit parameters, to be passed to get_max_likelihood_params
             parameters_read : list
                 A list of the free parameters as read from the output files.
             model_generating_fun : method
@@ -794,7 +817,7 @@ class Retrieval:
 
 
         if not self.retrieval_name in self.best_fit_specs.keys():
-            self.get_best_fit_params(best_fit_params,parameters_read)
+            self.get_max_likelihood_params(best_fit_params,parameters_read)
 
         if self.rd.AMR:
             p = self.rd._setup_pres()
@@ -853,7 +876,7 @@ class Retrieval:
             return bf_wlen, bf_spectrum, bf_contribution
         return bf_wlen, bf_spectrum
 
-    def get_abundances(self,sample,parameters_read=None):
+    def get_mass_fractions(self,sample,parameters_read=None):
         """
         This function returns the abundances of each species as a function of pressure
 
@@ -883,6 +906,11 @@ class Retrieval:
                                             parameters,
                                             AMR=False)
         return abundances, MMW
+
+    def get_volume_mixing_ratios(self,sample,parameters_read=None):
+        mass_fracs, MMW = self.get_mass_fractions(sample,parameters_read)
+        vmr = mass_to_number(mass_fracs)
+        return vms, MMW
 
     def get_evidence(self, ret_name = ""):
         """
@@ -1278,6 +1306,7 @@ class Retrieval:
         # Setup best fit spectrum
         # First get the fit for each dataset for the residual plots
         self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
+
         # Then get the full wavelength range
         bf_wlen, bf_spectrum = self.get_best_fit_model(samples_use[best_fit_index, :-1],\
                                                        parameters_read)
@@ -1358,7 +1387,6 @@ class Retrieval:
             # Plot the residuals
             col = ax.get_lines()[-1].get_color()
             if dd.external_pRT_reference is None:
-
                 ax_r.errorbar(wlen, \
                             ((flux*scale) - best_fit_binned )/(error*errscale) ,
                             yerr = error/error,
@@ -2011,6 +2039,7 @@ class Retrieval:
                         species_to_plot = None,
                         contribution = False,
                         sample_posteriors=False,
+                        volume_mixing_ratio = False,
                         figsize = (12,6)):
         print("\nPlotting Abundances profiles")
         if self.prt_plot_style:
@@ -2056,7 +2085,10 @@ class Retrieval:
             # Go through EVERY sample to find the abundance distribution.
             # Very slow.
             for sample in samples_use:
-                abund_dict, MMW = self.get_abundances(sample[:-1], parameters_read)
+                if volume_mixing_ratio:
+                    abund_dict, MMW = self.get_volume_mixing_ratio(sample[:-1], parameters_read)
+                else:
+                    abund_dict, MMW = self.get_mass_fractions(sample[:-1], parameters_read)
                 for species in species_to_plot:
                     abundances[species].append(abund_dict[species])
 
@@ -2090,7 +2122,10 @@ class Retrieval:
         else:
             # Plot only the best fit abundances.
             # Default to this for speed.
-            abundances, MMW = self.get_abundances(samples_use[best_fit_index , :-1], parameters_read)
+            if volume_mixing_ratio:
+                abund_dict, MMW = self.get_volume_mixing_ratio(sample[:-1], parameters_read)
+            else:
+                abund_dict, MMW = self.get_mass_fractions(sample[:-1], parameters_read)
             for i,spec in enumerate(species_to_plot):
                 ax.plot(abundances[spec],
                         pressures,

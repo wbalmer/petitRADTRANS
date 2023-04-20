@@ -390,9 +390,9 @@ class Data:
                 flux_rebinned = flux_rebinned[0]
 
         if self.scale:
-            diff = (flux_rebinned - self.flux*self.scale_factor)
+            diff = (flux_rebinned - self.flux*self.scale_factor) + self.offset
         else:
-            diff = (flux_rebinned - self.flux)
+            diff = (flux_rebinned - self.flux) + self.offset
 
         f_err = self.flux_error
         self.b_val = -np.inf
