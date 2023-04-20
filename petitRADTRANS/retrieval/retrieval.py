@@ -2132,7 +2132,14 @@ class Retrieval:
         self.rd.p_global = temp_pres
         self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
         self.PT_plot_mode = True
-        pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
+        if mode.strip('-').strip("_").lower() == "bestfit":
+                # Get best-fit index
+                logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
+                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
+                sample_use = samples_use[best_fit_index, :-1]
+        elif mode.lower() == "median":
+                med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
+        pressures, t = self.log_likelihood(sample_use, 0, 0)
         self.PT_plot_mode = False
 
         # Check if we're only plotting a few species
@@ -2195,9 +2202,9 @@ class Retrieval:
             # Plot only the best fit abundances.
             # Default to this for speed.
             if volume_mixing_ratio:
-                abund_dict, MMW = self.get_volume_mixing_ratio(sample[:-1], parameters_read)
+                abund_dict, MMW = self.get_volume_mixing_ratio(sample_use[:-1], parameters_read)
             else:
-                abund_dict, MMW = self.get_mass_fractions(sample[:-1], parameters_read)
+                abund_dict, MMW = self.get_mass_fractions(sample_use[:-1], parameters_read)
             for i,spec in enumerate(species_to_plot):
                 ax.plot(abundances[spec],
                         pressures,
@@ -2208,13 +2215,6 @@ class Retrieval:
 
         # Check to see if we're weighting by the emission contribution.
         if contribution:
-            if mode.strip('-').strip("_").lower() == "bestfit":
-                # Get best-fit index
-                logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-            elif mode.lower() == "median":
-                med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
-
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model( parameters_read,
                                                                         contribution = True,
                                                                         save = True,
