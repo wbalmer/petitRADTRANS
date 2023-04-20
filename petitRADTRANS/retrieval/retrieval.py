@@ -1973,7 +1973,7 @@ class Retrieval:
                           model_generating_func = None,
                           log_scale_contribution = False,
                           n_contour_levels = 30,
-                          mode = 'median'
+                          mode = 'median',
                           figsize = (11,6)
                           ):
         """
