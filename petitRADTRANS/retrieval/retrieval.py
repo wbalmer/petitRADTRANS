@@ -1023,6 +1023,7 @@ class Retrieval:
         logL = 0
         add = 0
         for name, dd in self.data.items():
+            sf = 1
             logL += dd.get_chisq(wlen_model,
                                  spectrum_model,
                                  False,
@@ -1406,14 +1407,14 @@ class Retrieval:
                 if not dd.photometry:
                     label = dd.name
                     ax.errorbar(wlen, \
-                                flux * self.rd.plot_kwargs["y_axis_scaling"] * scale, \
+                                flux * self.rd.plot_kwargs["y_axis_scaling"] * scale + offset, \
                                 yerr = error * self.rd.plot_kwargs["y_axis_scaling"] *errscale, \
                                 marker=marker, markeredgecolor='k', linewidth = 0, elinewidth = 2, \
                                 label = label, zorder =10, alpha = 0.9)
                 else:
                     # Don't label photometry?
                     ax.errorbar(wlen, \
-                                flux * self.rd.plot_kwargs["y_axis_scaling"] * scale, \
+                                flux * self.rd.plot_kwargs["y_axis_scaling"] * scale + offset, \
                                 yerr = error * self.rd.plot_kwargs["y_axis_scaling"] *errscale, \
                                 xerr = dd.wlen_bins/2., linewidth = 0, elinewidth = 2, \
                                 marker=marker, markeredgecolor='k', color = 'grey', zorder = 10, \
@@ -1422,7 +1423,7 @@ class Retrieval:
                 col = ax.get_lines()[-1].get_color()
                 if dd.external_pRT_reference is None:
                     ax_r.errorbar(wlen, \
-                                ((flux*scale) - best_fit_binned )/(error*errscale) ,
+                                ((flux + offset)*scale - best_fit_binned )/(error*errscale) ,
                                 yerr = error/error,
                                 color = col,
                                 linewidth = 0, elinewidth = 2, \
@@ -1430,7 +1431,7 @@ class Retrieval:
                                 alpha = 0.9)
                 else:
                     ax_r.errorbar(wlen, \
-                            ((flux*scale) - best_fit_binned )/(error*errscale),
+                            ((flux + offset)*scale - best_fit_binned )/(error*errscale),
                             yerr = error/error,
                             color = col,
                             linewidth = 0, elinewidth = 2, \
