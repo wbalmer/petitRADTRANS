@@ -1501,7 +1501,7 @@ class Retrieval:
             ntick_div = 2
         if self.rd.plot_kwargs["xscale"] == 'log':
             # For the minor ticks, use no labels; default NullFormatter.
-            x_major = LogLocator(base = 10.0, subs = np.linspace(1,maxwlen,maxwlen//ntick_div,dtype = int), numticks = maxwlen//ntick_div)
+            x_major = LogLocator(base = 10.0, subs = np.linspace(1,maxwlen,maxwlen/ntick_div,dtype = int), numticks = int(maxwlen/ntick_div))
             ax.xaxis.set_major_locator(x_major)
             x_minor = LogLocator(base = 10.0, subs = np.arange(0.1,10.1,0.1)*0.1, numticks = 100)
             ax.xaxis.set_minor_locator(x_minor)
@@ -1525,7 +1525,7 @@ class Retrieval:
             pass
         if self.rd.plot_kwargs["xscale"] == 'log':
             # For the minor ticks, use no labels; default NullFormatter.
-            x_major = LogLocator(base = 10.0, subs = np.linspace(1,maxwlen,maxwlen//ntick_div,dtype = int), numticks = maxwlen//ntick_div)
+            x_major = LogLocator(base = 10.0, subs = np.linspace(1,maxwlen,maxwlen/ntick_div,dtype = int), numticks = int(maxwlen/ntick_div))
             ax_r.xaxis.set_major_locator(x_major)
             x_minor = LogLocator(base = 10.0, subs = np.arange(0.1,10.1,0.1)*0.1, numticks = 100)
             ax_r.xaxis.set_minor_locator(x_minor)
