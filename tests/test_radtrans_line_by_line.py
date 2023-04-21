@@ -68,10 +68,10 @@ def init_spectral_model_line_by_line():
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,  # cm
         # Orbital parameters
         star_mass=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.m_sun,  # g
-        semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
-        orbital_phases=np.linspace(
-            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][0],
-            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][1],
+        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
+        orbital_longitudes=np.linspace(
+            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][0] * 360,
+            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][1] * 360,
             radtrans_parameters['mock_observation_parameters']['n_exposures']
         ),
         system_observer_radial_velocities=np.linspace(
@@ -350,7 +350,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
             ccf_sum_axes=radtrans_parameters['ccf_analysis_parameters']['ccf_sum_axes'],
             planet_radial_velocity_amplitude=spectral_model.model_parameters['planet_radial_velocity_amplitude'],
             system_observer_radial_velocities=spectral_model.model_parameters['system_observer_radial_velocities'],
-            orbital_phases=spectral_model.model_parameters['orbital_phases'],
+            orbital_longitudes=spectral_model.model_parameters['orbital_longitudes'],
             planet_orbital_inclination=spectral_model.model_parameters['planet_orbital_inclination'],
             line_spread_function_fwhm=line_spread_function_fwhm,
             pixels_per_resolution_element=radtrans_parameters['ccf_analysis_parameters'][

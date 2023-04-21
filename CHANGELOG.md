@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a45] - 2023-04-14
+## [3.0.0-a46] - 2023-04-21
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -14,10 +14,13 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed
+- Functions and arguments now have clearer names.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Some functions have moved from the module `nat_cst` to another, more specific module.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
+- Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
+- In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
 - Package structure.
 - Code clean-up.
 

@@ -171,7 +171,6 @@ class BaseSpectralModel:
                  opacity_mode='lbl', do_scat_emis=True, lbl_opacity_sampling=1,
                  temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
                  wavelengths_boundaries=None, wavelengths=None, transit_radii=None, spectral_radiosities=None,
-                 times=None,
                  **model_parameters):
         """Base for SpectralModel. Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
@@ -248,8 +247,6 @@ class BaseSpectralModel:
                 transit radii of the model.
             spectral_radiosities:
                 (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
-            times:
-                (s) # TODO implement to calculate orbital longitudes, etc.
             **model_parameters:
                 dictionary of parameters. The keys can match arguments of functions used to generate the model.
         """
@@ -290,9 +287,6 @@ class BaseSpectralModel:
         self.transit_radii = transit_radii
         self.spectral_radiosities = spectral_radiosities
 
-        # Time-dependent parameters
-        self.times = times
-
         # Other model parameters
         self.model_parameters = model_parameters
 
@@ -307,6 +301,7 @@ class BaseSpectralModel:
                 radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
                 planet_radial_velocities_function=self.calculate_planet_radial_velocities,
                 relative_velocities_function=self.calculate_relative_velocities,
+                orbital_longitudes_function=self.calculate_orbital_longitudes,
                 **self.model_parameters
             )
 
@@ -325,16 +320,19 @@ class BaseSpectralModel:
 
     @staticmethod
     def __init_velocities(radial_velocity_amplitude_function, planet_radial_velocities_function,
-                          relative_velocities_function,
+                          relative_velocities_function, orbital_longitudes_function,
                           relative_velocities=None, system_observer_radial_velocities=None,
-                          planet_radial_velocity_amplitude=None, planet_radial_velocities=None,
-                          planet_rest_frame_velocity_shift=0.0,
-                          orbital_longitudes=None, orbital_phases=None, is_orbiting=None, **kwargs):
+                          planet_radial_velocities=None, planet_rest_frame_velocity_shift=0.0,
+                          orbital_longitudes=None, orbital_phases=None, orbital_period=None,
+                          times=None, mid_transit_time=None, is_orbiting=None, **kwargs):
         if system_observer_radial_velocities is None:
             system_observer_radial_velocities = np.zeros(1)
 
         # Determine if the planet is orbiting or not from the given information
-        if orbital_longitudes is not None or orbital_phases is not None:
+        if mid_transit_time is not None or orbital_period is not None:
+            if is_orbiting is None:
+                is_orbiting = True
+        elif orbital_longitudes is not None or orbital_phases is not None:
             if orbital_longitudes is None and orbital_phases is not None:
                 orbital_longitudes = np.rad2deg(2 * np.pi * orbital_phases)
 
@@ -344,30 +342,43 @@ class BaseSpectralModel:
             is_orbiting = False
 
         # Handle case where orbital longitudes are required but not given
-        if relative_velocities is None \
-                and is_orbiting \
-                and orbital_longitudes is None:
+        if is_orbiting \
+                and relative_velocities is None \
+                and orbital_longitudes is None \
+                and (times is None or mid_transit_time is None or orbital_period is None):
             warnings.warn("Modelled object is orbiting but no orbital position information were provided, "
                           "assumed an orbital longitude of 0; "
-                          "add key 'orbital_longitudes' or 'orbital_phases' to model parameters, "
+                          "ensure that model parameters 'times', 'mid_transit_time' and 'orbital_period' are set; "
+                          "alternatively, set model parameter 'orbital_longitudes' or 'orbital_phases', "
                           "or set model parameter 'is_orbiting' to False")
 
             orbital_longitudes = np.zeros(1)
 
+        planet_radial_velocity_amplitude = None
+
         # Calculate relative velocities if needed
         if relative_velocities is None:
-            relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude = \
+            relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes = \
                 BaseSpectralModel._calculate_relative_velocities_wrap(
                     radial_velocity_amplitude_function=radial_velocity_amplitude_function,
                     planet_radial_velocities_function=planet_radial_velocities_function,
                     relative_velocities_function=relative_velocities_function,
+                    orbital_longitudes_function=orbital_longitudes_function,
                     system_observer_radial_velocities=system_observer_radial_velocities,
                     planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
-                    is_orbiting=is_orbiting,
+                    orbital_period=orbital_period,
+                    times=times,
+                    mid_transit_time=mid_transit_time,
                     orbital_longitudes=orbital_longitudes,
-                    planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+                    is_orbiting=is_orbiting,
                     **kwargs
                 )
+        elif is_orbiting and planet_radial_velocity_amplitude is None:
+            raise TypeError("Modelled object is orbiting and 'relative_velocities' was set, "
+                            "but not 'planet_radial_velocity_amplitude'; "
+                            "set model parameter 'planet_radial_velocity_amplitude', "
+                            "or remove model parameter 'relative_velocities' to calculate both "
+                            "'planet_radial_velocity_amplitude' and 'relative_velocities'")
 
         return relative_velocities, system_observer_radial_velocities, planet_radial_velocity_amplitude, \
             planet_radial_velocities, orbital_longitudes, is_orbiting
@@ -437,28 +448,40 @@ class BaseSpectralModel:
 
     @staticmethod
     def _calculate_relative_velocities_wrap(radial_velocity_amplitude_function, planet_radial_velocities_function,
-                                            relative_velocities_function,
+                                            relative_velocities_function, orbital_longitudes_function,
                                             system_observer_radial_velocities, planet_rest_frame_velocity_shift,
-                                            is_orbiting=False, orbital_longitudes=None,
-                                            planet_radial_velocity_amplitude=None, planet_radial_velocities=None,
+                                            orbital_period=None, times=None, mid_transit_time=None,
+                                            orbital_longitudes=None, is_orbiting=False, planet_radial_velocities=None,
                                             **kwargs):
         # Calculate planet radial velocities if needed
         if is_orbiting:
-            if orbital_longitudes is None:
-                raise TypeError("missing model parameter 'orbital_longitude' "
-                                "required to calculate planet radial velocities")
-
-            if planet_radial_velocity_amplitude is None:
-                planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+            if orbital_period is None or mid_transit_time is None:
+                if orbital_longitudes is None:
+                    raise TypeError("missing model parameter 'orbital_longitude' "
+                                    "required to calculate planet radial velocities; "
+                                    "add this parameter, "
+                                    "or add the model parameters 'orbital_period' and 'mid_transit_time'; "
+                                    "alternatively, set 'is_orbiting' to False")
+                else:
+                    kwargs['orbital_longitudes'] = orbital_longitudes
+            else:
+                orbital_longitudes = orbital_longitudes_function(
+                    times_to_longitude_start=times - mid_transit_time,
+                    orbital_period=orbital_period,
                     **kwargs
                 )
+                kwargs['orbital_longitudes'] = orbital_longitudes
+
+            planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+                **kwargs
+            )
+            kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
 
             planet_radial_velocities = planet_radial_velocities_function(
-                orbital_longitudes=orbital_longitudes,
-                planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
                 **kwargs
             )
         else:
+            orbital_longitudes = None
             planet_radial_velocity_amplitude = None
 
             if planet_radial_velocities is None:
@@ -471,7 +494,7 @@ class BaseSpectralModel:
             **kwargs
         )
 
-        return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude
+        return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes
 
     @staticmethod
     def _check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
@@ -563,13 +586,13 @@ class BaseSpectralModel:
         }
 
     @staticmethod
-    def calculate_radial_velocity_amplitude(star_mass, semi_major_axis, **kwargs):
+    def calculate_radial_velocity_amplitude(star_mass, orbit_semi_major_axis, **kwargs):
         """
         Calculate the planet orbital radial velocity semi-amplitude (aka K_p).
 
         Args:
             star_mass: (g) mass of the star
-            semi_major_axis: (cm) orbit semi major axis
+            orbit_semi_major_axis: (cm) orbit semi major axis
             **kwargs: used to store unnecessary parameters
 
         Returns:
@@ -577,7 +600,7 @@ class BaseSpectralModel:
         """
         return Planet.calculate_orbital_velocity(
             star_mass=star_mass,
-            semi_major_axis=semi_major_axis
+            orbit_semi_major_axis=orbit_semi_major_axis
         )
 
     @staticmethod
@@ -635,6 +658,8 @@ class BaseSpectralModel:
                 **kwargs
             )[0][0]
 
+        # TODO take convolution into account
+
         # Ensure that non-shifted spectrum can still be re-binned
         rebin_required_interval[0] = np.min((rebin_required_interval_shifted[0], rebin_required_interval[0]))
         rebin_required_interval[1] = np.max((rebin_required_interval_shifted[1], rebin_required_interval[1]))
@@ -644,6 +669,14 @@ class BaseSpectralModel:
         rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - rebin_range_margin_power)
 
         return rebin_required_interval
+
+    @staticmethod
+    def calculate_orbital_longitudes(times_to_longitude_start, orbital_period, longitude_start=0, **kwargs):
+        return Planet.get_orbital_phases(
+            phase_start=longitude_start * 360,
+            orbital_period=orbital_period,
+            times=times_to_longitude_start
+        ) * 360  # degrees
 
     @staticmethod
     def calculate_planet_radial_velocities(orbital_longitudes, planet_radial_velocity_amplitude,
@@ -664,13 +697,13 @@ class BaseSpectralModel:
                                       mean_molar_masses_function,
                                       star_spectral_radiosities_function, planet_star_spectral_radiances_function,
                                       radial_velocity_amplitude_function, planet_radial_velocities_function,
-                                      relative_velocities_function, **kwargs):
+                                      relative_velocities_function, orbital_longitudes_function, **kwargs):
         """Calculate the temperature profile, the mass mixing ratios, the mean molar masses and other parameters
         required for spectral calculation.
 
         This function define how these parameters are calculated and how they are combined.
 
-        Args:
+        Args:  # TODO complete docstring
             temperature_profile_function:
             mass_mixing_ratios_function:
             mean_molar_masses_function:
@@ -678,6 +711,7 @@ class BaseSpectralModel:
             planet_star_spectral_radiances_function:
             radial_velocity_amplitude_function:
             planet_radial_velocities_function:
+            orbital_longitudes_function:
             relative_velocities_function:
             **kwargs:
 
@@ -709,11 +743,13 @@ class BaseSpectralModel:
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
                 kwargs['planet_radial_velocities'], \
-                kwargs['planet_radial_velocity_amplitude'] = \
+                kwargs['planet_radial_velocity_amplitude'], \
+                kwargs['orbital_longitudes'] = \
                 BaseSpectralModel._calculate_relative_velocities_wrap(
                     radial_velocity_amplitude_function=radial_velocity_amplitude_function,
                     planet_radial_velocities_function=planet_radial_velocities_function,
                     relative_velocities_function=relative_velocities_function,
+                    orbital_longitudes_function=orbital_longitudes_function,
                     **kwargs
                 )
 
@@ -723,7 +759,8 @@ class BaseSpectralModel:
     def calculate_spectral_radiosity_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios,
                                               planet_surface_gravity, mean_molar_mass,
                                               planet_star_spectral_radiances=None,
-                                              star_effective_temperature=None, star_radius=None, semi_major_axis=None,
+                                              star_effective_temperature=None, star_radius=None,
+                                              orbit_semi_major_axis=None,
                                               cloud_pressure=None, cloud_sigma=None, cloud_sedimentation_factor=None,
                                               cloud_particle_radii=None, cloud_particle_size_distribution='lognormal',
                                               cloud_hansen_a=None, cloud_hansen_b=None, eddy_diffusion_coefficient=None,
@@ -744,7 +781,7 @@ class BaseSpectralModel:
             mean_molar_mass:
             star_effective_temperature:
             star_radius:
-            semi_major_axis:
+            orbit_semi_major_axis:
             planet_star_spectral_radiances:
             cloud_pressure:
             cloud_sigma:
@@ -801,7 +838,7 @@ class BaseSpectralModel:
             add_cloud_scat_as_abs=add_cloud_scattering_as_absorption,
             Tstar=star_effective_temperature,
             Rstar=star_radius,
-            semimajoraxis=semi_major_axis,
+            semimajoraxis=orbit_semi_major_axis,
             geometry=irradiation_geometry,
             theta_star=irradiation_inclination,
             hack_cloud_photospheric_tau=cloud_photospheric_optical_depth,
@@ -835,12 +872,12 @@ class BaseSpectralModel:
         return star_spectrum_wavelengths, star_spectral_radiosities
 
     @staticmethod
-    def calculate_planet_star_spectral_radiances(star_spectral_radiosities, star_radius, semi_major_axis,
+    def calculate_planet_star_spectral_radiances(star_spectral_radiosities, star_radius, orbit_semi_major_axis,
                                                  star_spectrum_wavelengths=None, wavelengths=None, **kwargs):
         planet_star_spectral_irradiances = radiosity2irradiance(
             spectral_radiosity=star_spectral_radiosities,
             source_radius=star_radius,
-            target_distance=semi_major_axis
+            target_distance=orbit_semi_major_axis
         )  # ingoing radiosity of the star on the planet
 
         planet_star_spectral_radiances = planet_star_spectral_irradiances / np.pi  # W.m-2/um to W.m-2.sr-1/um
@@ -1057,8 +1094,10 @@ class BaseSpectralModel:
         return self.pipeline(spectrum, **kwargs)
 
     def get_relative_velocities(self, system_observer_radial_velocities=None, planet_radial_velocity_amplitude=None,
-                                planet_rest_frame_velocity_shift=None, orbital_longitudes=None, is_orbiting=None,
-                                planet_orbital_inclination=None, planet_radial_velocities=None, full=False, **kwargs):
+                                planet_rest_frame_velocity_shift=None, times=None, mid_transit_time=None,
+                                orbital_period=None, orbital_longitudes=None,
+                                is_orbiting=None, planet_orbital_inclination=None, planet_radial_velocities=None,
+                                full=False, **kwargs):
         if system_observer_radial_velocities is None:
             system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
 
@@ -1067,6 +1106,15 @@ class BaseSpectralModel:
 
         if planet_rest_frame_velocity_shift is None:
             planet_rest_frame_velocity_shift = self.model_parameters['planet_rest_frame_velocity_shift']
+
+        if times is None:
+            times = self.model_parameters['times']
+
+        if mid_transit_time is None:
+            mid_transit_time = self.model_parameters['mid_transit_time']
+
+        if orbital_period is None:
+            orbital_period = self.model_parameters['orbital_period']
 
         if orbital_longitudes is None:
             orbital_longitudes = self.model_parameters['orbital_longitudes']
@@ -1077,15 +1125,19 @@ class BaseSpectralModel:
         if planet_orbital_inclination is None:
             planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
 
-        relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude = \
+        relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes = \
             self._calculate_relative_velocities_wrap(
                 radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
                 planet_radial_velocities_function=self.calculate_planet_radial_velocities,
                 relative_velocities_function=self.calculate_relative_velocities,
+                orbital_longitudes_function=self.calculate_orbital_longitudes,
                 system_observer_radial_velocities=system_observer_radial_velocities,
                 planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
                 is_orbiting=is_orbiting,
                 orbital_longitudes=orbital_longitudes,
+                times=times,
+                mid_transit_time=mid_transit_time,
+                orbital_period=orbital_period,
                 planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
                 planet_radial_velocities=planet_radial_velocities,
                 planet_orbital_inclination=planet_orbital_inclination,
@@ -1093,14 +1145,15 @@ class BaseSpectralModel:
             )
 
         if full:
-            return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude
+            return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes
         else:
             return relative_velocities
 
     def get_retrieval_velocities(self, planet_radial_velocity_amplitude_range=None,
                                  planet_rest_frame_velocity_shift_range=None,
-                                 system_observer_radial_velocities=None, orbital_longitudes=None,
-                                 planet_orbital_inclination=None, **kwargs):
+                                 mid_transit_times_range=None,
+                                 system_observer_radial_velocities=None, orbital_period=None,
+                                 planet_orbital_inclination=None, star_mass=None, orbit_semi_major_axis=None, **kwargs):
         if system_observer_radial_velocities is None:
             system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
 
@@ -1110,17 +1163,29 @@ class BaseSpectralModel:
         if planet_rest_frame_velocity_shift_range is None:
             planet_rest_frame_velocity_shift_range = self.model_parameters['planet_rest_frame_velocity_shift_range']
 
-        if orbital_longitudes is None:
-            orbital_longitudes = self.model_parameters['orbital_longitudes']
+        if mid_transit_times_range is None:
+            mid_transit_times_range = self.model_parameters['mid_transit_times_range']
+
+        if orbital_period is None:
+            orbital_period = self.model_parameters['orbital_period']
 
         if planet_orbital_inclination is None:
             planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
+
+        if star_mass is None:
+            star_mass = self.model_parameters['star_mass']
+
+        if orbit_semi_major_axis is None:
+            orbit_semi_major_axis = self.model_parameters['orbit_semi_major_axis']
 
         velocities_min = np.min(self.get_relative_velocities(
             system_observer_radial_velocities=system_observer_radial_velocities,
             planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
             planet_rest_frame_velocity_shift=np.min(planet_rest_frame_velocity_shift_range),
-            orbital_longitudes=orbital_longitudes,
+            mid_transit_time=np.min(mid_transit_times_range),  # the transit happens sooner, spectrum is more r-shifted
+            orbital_period=orbital_period,
+            star_mass=star_mass,
+            orbit_semi_major_axis=orbit_semi_major_axis,
             is_orbiting=True,
             planet_orbital_inclination=planet_orbital_inclination,
             planet_radial_velocities=None,
@@ -1132,7 +1197,10 @@ class BaseSpectralModel:
             system_observer_radial_velocities=system_observer_radial_velocities,
             planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
             planet_rest_frame_velocity_shift=np.max(planet_rest_frame_velocity_shift_range),
-            orbital_longitudes=orbital_longitudes,
+            mid_transit_time=np.max(mid_transit_times_range),  # the transit happens later, spectrum is more b-shifted
+            orbital_period=orbital_period,
+            star_mass=star_mass,
+            orbit_semi_major_axis=orbit_semi_major_axis,
             is_orbiting=True,
             planet_orbital_inclination=planet_orbital_inclination,
             planet_radial_velocities=None,
@@ -1157,7 +1225,8 @@ class BaseSpectralModel:
             'planet_star_spectral_radiances_function': self.calculate_planet_star_spectral_radiances,
             'radial_velocity_amplitude_function': self.calculate_radial_velocity_amplitude,
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
-            'relative_velocities_function': self.calculate_relative_velocities
+            'relative_velocities_function': self.calculate_relative_velocities,
+            'orbital_longitudes_function': self.calculate_orbital_longitudes,
         }
 
         # Put all used functions arguments default value into the model parameters
@@ -1801,6 +1870,7 @@ class BaseSpectralModel:
             noise_matrix=noise_matrix,
             scale=scale,
             shift=shift,
+            use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin,
             reduce=reduce
@@ -2580,7 +2650,7 @@ class SpectralModel(BaseSpectralModel):
                                       mean_molar_masses_function,
                                       star_spectral_radiosities_function, planet_star_spectral_radiances_function,
                                       radial_velocity_amplitude_function, planet_radial_velocities_function,
-                                      relative_velocities_function,
+                                      relative_velocities_function, orbital_longitudes_function,
                                       wavelengths=None, pressures=None, line_species=None,
                                       metallicity_function=None,
                                       mass2surface_gravity_function=None, surface_gravity2mass_function=None,
@@ -2630,11 +2700,13 @@ class SpectralModel(BaseSpectralModel):
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
                 kwargs['planet_radial_velocities'], \
-                kwargs['planet_radial_velocity_amplitude'] = \
+                kwargs['planet_radial_velocity_amplitude'], \
+                kwargs['orbital_longitudes'] = \
                 SpectralModel._calculate_relative_velocities_wrap(
                     radial_velocity_amplitude_function=radial_velocity_amplitude_function,
                     planet_radial_velocities_function=planet_radial_velocities_function,
                     relative_velocities_function=relative_velocities_function,
+                    orbital_longitudes_function=orbital_longitudes_function,
                     **kwargs
                 )
 
@@ -2735,15 +2807,6 @@ class SpectralModel(BaseSpectralModel):
 
         return convolved_spectrum
 
-    def get_orbital_phases(self, phase_start, orbital_period):
-        orbital_phases = Planet.get_orbital_phases(
-            phase_start=phase_start,
-            orbital_period=orbital_period,
-            times=self.times
-        )
-
-        return orbital_phases
-
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None, line_species=None,
                                             **kwargs
                                             ):
@@ -2772,6 +2835,7 @@ class SpectralModel(BaseSpectralModel):
             'radial_velocity_amplitude_function': self.calculate_radial_velocity_amplitude,
             'planet_radial_velocities_function': self.calculate_planet_radial_velocities,
             'relative_velocities_function': self.calculate_relative_velocities,
+            'orbital_longitudes_function': self.calculate_orbital_longitudes,
             'metallicity_function': self._calculate_metallicity_wrap,  # TODO should not be protected
             'mass2surface_gravity_function': self.mass2surface_gravity,
             'surface_gravity2mass_function': self.surface_gravity2mass,

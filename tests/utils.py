@@ -75,6 +75,8 @@ reference_filenames = {
         'mass_fractions_metallicities_ref',
     'simple_spectrum':
         'simple_spectrum_ref',
+    'singular_values':
+        'singular_values_ref'
 }
 
 # Complete filenames
@@ -87,9 +89,11 @@ reference_filenames = {
 
 reference_filenames['mock_observation_transmission'] = reference_filenames[
         'correlated_k_transmission_cloud_calculated_radius_scattering'
-    ].rsplit('.', 1)[0] + '.dat'
+    ].rsplit('.', 1)[0] + '.dat'  # using a .dat file is needed for the basic retrieval test
 reference_filenames['pymultinest_parameter_analysis'] = \
-    os.path.join(tests_data_directory, 'test_stats' + '.json')
+    os.path.join(tests_data_directory, 'test_stats.json')
+reference_filenames['NASA_exoplanet_archive_test'] = \
+    os.path.join(tests_data_directory, 'NASA_exoplanet_archive_test.tab')
 
 
 # Make directories if needed

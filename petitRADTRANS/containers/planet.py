@@ -975,18 +975,18 @@ class Planet:
         return kp * np.sin(np.deg2rad(orbital_longitude))
 
     @staticmethod
-    def calculate_orbital_velocity(star_mass, semi_major_axis):
+    def calculate_orbital_velocity(star_mass, orbit_semi_major_axis):
         """Calculate an approximation of the orbital velocity.
         This equation is valid if the mass of the object is negligible compared to the mass of the star, and if the
         eccentricity of the object is close to 0.
 
         Args:
             star_mass: (g) mass of the star
-            semi_major_axis: (cm) semi-major axis of the orbit of the object
+            orbit_semi_major_axis: (cm) semi-major axis of the orbit of the object
 
         Returns: (cm.s-1) the mean orbital velocity, assuming 0 eccentricity and mass_object << mass_star
         """
-        return np.sqrt(nc.G * star_mass / semi_major_axis)
+        return np.sqrt(nc.G * star_mass / orbit_semi_major_axis)
 
     @staticmethod
     def generate_filename(name, directory=default_planet_models_directory):

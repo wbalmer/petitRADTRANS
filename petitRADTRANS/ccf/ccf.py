@@ -159,7 +159,7 @@ def calculate_co_added_ccf_snr(co_added_cross_correlation, rest_velocities, vr_p
 
 def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_ccf=None,
                  model_velocities=None, normalize_ccf=True, calculate_ccf_snr=True, ccf_sum_axes=None,
-                 planet_radial_velocity_amplitude=None, system_observer_radial_velocities=None, orbital_phases=None,
+                 planet_radial_velocity_amplitude=None, system_observer_radial_velocities=None, orbital_longitudes=None,
                  planet_orbital_inclination=90.0, line_spread_function_fwhm=None, pixels_per_resolution_element=2,
                  co_added_ccf_peak_width=None,
                  velocity_interval_extension_factor=0.25, kp_factor=2.0, n_kp=None, n_vr=None,
@@ -178,7 +178,7 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         calculate_ccf_snr: if True, output the signal-to-noise of the CCF map, based on the standard deviation
         ccf_sum_axes: iterable listing the axes on which to sum the CCF before computing the co-added CCF
         system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
-        orbital_phases: 1D array containing the orbital phases of the data
+        orbital_longitudes: 1D array containing the orbital longitudes of the data
         planet_orbital_inclination: (deg) orbital inclination of the planet
         planet_radial_velocity_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
         line_spread_function_fwhm: (cm.s-1) Full Width at Half-Maximum of the instrument line spread function (LSF)
@@ -255,7 +255,7 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         velocities_ccf=velocities_ccf,
         system_observer_radial_velocities=system_observer_radial_velocities,
-        orbital_longitudes=orbital_phases * 360,  # phase to deg
+        orbital_longitudes=orbital_longitudes,  # phase to deg
         planet_orbital_inclination=planet_orbital_inclination,
         kp_factor=kp_factor,
         n_kp=n_kp,
