@@ -472,10 +472,19 @@ class BaseSpectralModel:
                 )
                 kwargs['orbital_longitudes'] = orbital_longitudes
 
-            planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
-                **kwargs
-            )
-            kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
+            if 'planet_radial_velocity_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
+                planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+                    **kwargs
+                )
+                kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
+            else:
+                if kwargs['planet_radial_velocity_amplitude'] is None:
+                    planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+                        **kwargs
+                    )
+                    kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
+                else:
+                    planet_radial_velocity_amplitude = kwargs['planet_radial_velocity_amplitude']
 
             planet_radial_velocities = planet_radial_velocities_function(
                 **kwargs
@@ -1666,7 +1675,7 @@ class BaseSpectralModel:
                     start=np.max(np.min(wavelengths[:, 1:], axis=-1)),
                     stop=np.min(np.max(wavelengths[:, :-1], axis=-1)),
                     resolving_power=current_resolving_power
-                )
+                )  # TODO these wavelengths should be obtainable from a function
 
                 _, spectrum = BaseSpectralModel.__rebin_wrap(  # TODO rebin wrap should not be hidden
                     wavelengths=wavelengths,
