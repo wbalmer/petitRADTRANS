@@ -1185,6 +1185,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         ax6.set_xlim(xlim)
         ax6.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
         ax5.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
+        ax6.set_xlabel('Wavelength (m)')
 
         #plt.tight_layout()
 
@@ -1206,8 +1207,10 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     finally:
         matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
 
+
 def plot_model_stepst(spectral_model, radtrans, mode, ccd_id,
                       path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
+    # Same as above, but for testing (faster to use rng arrays as placeholders than calculated spectra)
     update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
     plt.rc('legend', fontsize=11)  # legend fontsize
     orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
@@ -1434,157 +1437,184 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
                            noise_matrix, path_outputs, xlim=None,
                            figure_name='simulated_data_steps', image_format='pdf', noise_factor=100.0):
     update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
-    orbital_phases = spectral_model.model_parameters['orbital_phases']
+    plt.rc('legend', fontsize=14)  # legend fontsize
+    orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
 
-    # Step 5 bis
+    t23 = Planet.calculate_full_transit_duration(
+        total_transit_duration=spectral_model.model_parameters['transit_duration'],
+        planet_radius=spectral_model.model_parameters['planet_radius'],
+        star_radius=spectral_model.model_parameters['star_radius'],
+        impact_parameter=Planet.calculate_impact_parameter(
+            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
+            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
+            star_radius=spectral_model.model_parameters['star_radius']
+        )
+    )
+
+    t1535 = (spectral_model.model_parameters['transit_duration'] + t23) / 2
+
+    t_to_t0 = spectral_model.model_parameters['times'] - spectral_model.model_parameters['mid_transit_time']
+
+    phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
+    phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
+
+    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
+    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
+
+    # Step 6 bis
     w_shift, spectra_shift = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances=telluric_transmittance,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=False,
-            rebin=False,
-            reduce=False
-        )
-
-    # Step 6
-    _, spectra_convolve = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=False,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
 
     # Step 7
+    _, spectra_convolve = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=False,
+        reduce=False
+    )
+
+    # Step 8
     wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
             radtrans=radtrans,
             mode=mode,
             update_parameters=True,
             telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
             telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
             instrumental_deformations=None,
             noise_matrix=None,
             scale=True,
             shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
-
-    # Step 8
-    _, spectra_tt = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            instrumental_deformations=instrumental_deformations,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
+            use_transit_light_loss=True,
             convolve=True,
             rebin=True,
             reduce=False
         )
 
     # Step 9
+    _, spectra_tt = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
+
+    # Step 10
     _, spectra_n = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            instrumental_deformations=instrumental_deformations,
-            noise_matrix=noise_matrix * noise_factor,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=noise_matrix * noise_factor,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
 
     # Plots
     w_shift = w_shift * 1e-6  # um to m
     wavelengths_instrument = wavelengths_instrument[ccd_id] * 1e-6  # um to m
 
-    fig, axes = plt.subplots(nrows=5, ncols=1, sharex='col', figsize=(6.4, 5 * 1.6))
+    fig = plt.figure(figsize=(6.4, 5 * 1.6))
 
-    axes[0].plot(w_shift[0], spectra_shift[0], label=rf'$\Phi$ = {orbital_phases[0]:.3f}', color='C0')
-    axes[0].plot(w_shift[-1], spectra_shift[-1], label=rf'$\Phi$ = {orbital_phases[-1]:.3f}', color='C3', ls=':')
-    axes[0].set_ylim([0.4, 1])
-    axes[0].legend(loc=4)
-    axes[0].set_title('Step 5 bis: adding telluric transmittance')
+    # Base grid
+    gs00 = fig.add_gridspec(5, 1, top=0.965, bottom=0.065, left=0.15, right=0.98, hspace=0.3)
 
-    axes[1].plot(w_shift[0], spectra_convolve[0], label=rf'$\Phi$ = {orbital_phases[0]:.3f}', color='C0')
-    axes[1].plot(w_shift[-1], spectra_convolve[-1], label=rf'$\Phi$ = {orbital_phases[-1]:.3f}', color='C3', ls=':')
-    axes[1].set_ylim([0.4, 1])
-    axes[1].legend(loc=4)
-    axes[1].set_title('Step 6: convolving')
+    ax0 = fig.add_subplot(gs00[0])
+    ax0.plot(w_shift[0], spectra_shift[0], label=rf'$\Phi$ = {orbital_phases[phase_15]:.3f}', color='C0')
+    ax0.plot(w_shift[-1], spectra_shift[-1], label=rf'$\Phi$ = {orbital_phases[phase_35]:.3f}', color='C3', ls=':')
+    ax0.tick_params(labelbottom=False)
+    ax0.set_title('Step 6 bis: adding telluric transmittance')
+    ax0.set_ylim([0.4, 1])
+    ax0.legend(loc=4)
 
-    axes[2].pcolormesh(
+    ax1 = fig.add_subplot(gs00[1], sharex=ax0)
+    ax1.plot(w_shift[0], spectra_convolve[0], label=rf'$\Phi$ = {orbital_phases[phase_15]:.3f}', color='C0')
+    ax1.plot(w_shift[-1], spectra_convolve[-1], label=rf'$\Phi$ = {orbital_phases[phase_35]:.3f}', color='C3', ls=':')
+    ax1.tick_params(labelbottom=False)
+    ax1.set_title('Step 7: convolving')
+    ax1.set_ylim([0.4, 1])
+    ax1.legend(loc=4)
+
+    ax2 = fig.add_subplot(gs00[2], sharex=ax0)
+    ax2.pcolormesh(
         wavelengths_instrument,
         orbital_phases,
         spectra_final[ccd_id],
         shading='nearest',
         cmap='viridis'
     )
-    axes[2].set_title('Step 7: re-binning')
+    ax2.tick_params(labelbottom=False)
+    ax2.set_title('Step 8: re-binning')
+    ax2.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
 
-    axes[3].pcolormesh(
+    ax3 = fig.add_subplot(gs00[3], sharex=ax0)
+    ax3.pcolormesh(
         wavelengths_instrument,
         orbital_phases,
         spectra_tt[ccd_id],
         shading='nearest',
         cmap='viridis'
     )
-    axes[3].set_title('Step 8: adding instrumental deformations')
+    ax3.tick_params(labelbottom=False)
+    ax3.set_title('Step 9: adding instrumental deformations')
+    ax3.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
 
-    axes[4].pcolormesh(
+    ax4 = fig.add_subplot(gs00[4], sharex=ax0)
+    ax4.pcolormesh(
         wavelengths_instrument,
         orbital_phases,
         spectra_n[ccd_id],
         shading='nearest',
         cmap='viridis'
     )
-    axes[4].set_title(f'Step 9: adding noise ({100:.0f} times increased)')
+    ax4.set_title(f'Step 10: adding noise ({100:.0f} times increased)')
+    ax4.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
 
-    if xlim is None:
-        xlim = (wavelengths_instrument[0], wavelengths_instrument[-1])
+    ax4.set_xlim(xlim)
+    x_ticks = ax4.get_xticks()
+    ax4.set_xticks(x_ticks[1::2])
+    ax4.set_xlim(xlim)
+    ax4.set_xlabel('Wavelength (m)')
 
-    axes[-1].set_xlim(xlim)
-    x_ticks = axes[-1].get_xticks()
-    axes[-1].set_xticks(x_ticks[1::2])
-    axes[-1].set_xlim(xlim)
-    axes[-1].set_xlabel('Wavelength (m)')
-
-    plt.tight_layout()
-
-    gs = axes[0].get_gridspec()
-
-    spectral_axes = fig.add_subplot(gs[0:2], frameon=False)
-    spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-    spectral_axes.set_ylabel('Arbitrary units', labelpad=20)
-
-    spectral_axes = fig.add_subplot(gs[2:], frameon=False)
+    spectral_axes = fig.add_subplot(gs00[:], frameon=False)
     spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
     spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
 
@@ -1597,67 +1627,69 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
                                 path_outputs, xlim=None, figure_name='preparing_steps', image_format='pdf'):
     # Ref
     wavelengths_ref, spectra_ref = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
 
     # Start
     _, spectra_start = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=deformation_matrix,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
 
     spectra_start = np.ma.masked_where(uncertainties.mask, spectra_start)
 
     # Step 1
     spectra_vt_corrected, vt_matrix, vt_uncertainties = preparing_pipeline(
-            spectrum=spectra_start,
-            uncertainties=uncertainties,
-            wavelengths=wavelengths_ref,
-            airmass=spectral_model.model_parameters['airmass'],
-            tellurics_mask_threshold=spectral_model.model_parameters['tellurics_mask_threshold'],
-            polynomial_fit_degree=spectral_model.model_parameters['polynomial_fit_degree'],
-            apply_throughput_removal=True,
-            apply_telluric_lines_removal=False,
-            full=True
-        )
+        spectrum=spectra_start,
+        uncertainties=uncertainties,
+        wavelengths=wavelengths_ref,
+        airmass=spectral_model.model_parameters['airmass'],
+        tellurics_mask_threshold=spectral_model.model_parameters['tellurics_mask_threshold'],
+        polynomial_fit_degree=spectral_model.model_parameters['polynomial_fit_degree'],
+        apply_throughput_removal=True,
+        apply_telluric_lines_removal=False,
+        full=True
+    )
 
     # Step 2
     spectra_corrected, r_matrix, r_uncertainties = preparing_pipeline(
-            spectrum=spectra_vt_corrected,
-            uncertainties=vt_uncertainties,
-            wavelengths=wavelengths_ref,
-            airmass=spectral_model.model_parameters['airmass'],
-            tellurics_mask_threshold=spectral_model.model_parameters['tellurics_mask_threshold'],
-            polynomial_fit_degree=spectral_model.model_parameters['polynomial_fit_degree'],
-            apply_throughput_removal=False,
-            apply_telluric_lines_removal=True,
-            full=True
-        )
+        spectrum=spectra_vt_corrected,
+        uncertainties=vt_uncertainties,
+        wavelengths=wavelengths_ref,
+        airmass=spectral_model.model_parameters['airmass'],
+        tellurics_mask_threshold=spectral_model.model_parameters['tellurics_mask_threshold'],
+        polynomial_fit_degree=spectral_model.model_parameters['polynomial_fit_degree'],
+        apply_throughput_removal=False,
+        apply_telluric_lines_removal=True,
+        full=True
+    )
 
     # Plots
     wavelengths_ref *= 1e-6  # um to m
@@ -1712,24 +1744,25 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
             spectral_model_.model_parameters['uncertainties'].shape, dtype=bool
         )
 
-    orbital_phases = spectral_model_.model_parameters['orbital_phases']
+    orbital_phases = spectral_model_.model_parameters['orbital_longitudes'] / 360
 
     wavelengths, data_noiseless = spectral_model_.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=deformation_matrix,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
 
     fake_model = copy.deepcopy(spectral_model_)
     fake_model.model_parameters['uncertainties'] = np.ma.array([simulated_uncertainties[ccd_id]])
@@ -1740,55 +1773,58 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         )
 
     _, reprocessed_data_noiseless_fake = fake_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=True
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=deformation_matrix,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=True
+    )
 
     _, reprocessed_data_noiseless = spectral_model_.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=True
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=deformation_matrix,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=True
+    )
 
     _, reprocessed_data_noisy = spectral_model_.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=np.array([noise_matrix[ccd_id]]),
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=True
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        # telluric_transmittances=None,
+        instrumental_deformations=instrumental_deformations,
+        # instrumental_deformations=deformation_matrix,
+        noise_matrix=np.array([noise_matrix[ccd_id]]),
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=True,
+        reduce=True
+    )
 
     # Plots
     wavelengths = wavelengths[0] * 1e-6  # um to m
