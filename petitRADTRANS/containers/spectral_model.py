@@ -1648,9 +1648,9 @@ class BaseSpectralModel:
 
         if use_transit_light_loss:
             if scale:
+                # TODO fix _calculate_transit_fractional_light_loss_uniform not working when shift is False
                 spectrum = transit_fractional_light_loss_function(
                     spectrum=spectrum,
-                    star_radius=star_radius,
                     **kwargs
                 )
             else:

@@ -16,6 +16,7 @@ import time
 import warnings
 
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import matplotlib.colors
 import numpy as np
 from astropy.io import fits
@@ -285,6 +286,11 @@ def load_additional_data(data_dir, wavelengths_instrument, airmasses, times, res
     # Skycalc returns all wavelengths within the wavelengths boundaries, not including the boundaries themselves
     wavelength_range_rebin[0] -= wavelength_range_rebin[0] / 1e6  # 1e6 is the default resolving power of Skycalc
     wavelength_range_rebin[-1] += wavelength_range_rebin[-1] / 1e6
+
+    # Add extra wavelengths to be sure that we are in the intermediate grid
+    # TODO should be automated
+    wavelength_range_rebin[0] -= 1e-3
+    wavelength_range_rebin[-1] += 2e-3
 
     wavelengths_telluric, telluric_transmittance_0 = get_tellurics_npz(
         telluric_transmittance_file, wavelength_range_rebin
@@ -868,155 +874,559 @@ def update_figure_font_size(font_size):
     plt.rc('figure', titlesize=font_size)  # fontsize of the figure title
 
 
+def plot_broken_yaxis(*args, axis_high, axis_low, plot_function_name, y_min, y_low, y_high, y_max,
+                      markersize=12, marker_vertical_ratio=0.5, mew=1, linestyle="none", color='k', mec='k',
+                      plot_colors=None, **kwargs):
+    axis_high_plot_function = getattr(axis_high, plot_function_name)
+    axis_low_plot_function = getattr(axis_low, plot_function_name)
+
+    if plot_colors is not None:
+        for c in plot_colors:
+            axis_high_plot_function(*args, color=c, **kwargs)
+            axis_low_plot_function(*args, color=c, **kwargs)
+    else:
+        axis_high_plot_function(*args, **kwargs)
+        axis_low_plot_function(*args, **kwargs)
+
+    axis_high.set_ylim(y_high, y_max)
+    axis_low.set_ylim(y_min, y_low)
+
+    axis_high.spines.bottom.set_visible(False)
+    axis_low.spines.top.set_visible(False)
+
+    axis_high.xaxis.tick_top()
+    axis_high.tick_params(labeltop=False)  # don't put tick labels at the top
+
+    axis_low.xaxis.tick_bottom()
+
+    transform_kwargs = dict(marker=[(-1, -marker_vertical_ratio), (1, marker_vertical_ratio)], markersize=markersize,
+                            linestyle=linestyle, color=color, mec=mec, mew=mew, clip_on=False)
+
+    axis_high.plot([0, 1], [0, 0], transform=axis_high.transAxes, **transform_kwargs)
+    axis_low.plot([0, 1], [1, 1], transform=axis_low.transAxes, **transform_kwargs)
+
+    return axis_high, axis_low
+
+
 def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
-                     path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
+                      path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
     update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
-    orbital_phases = spectral_model.model_parameters['orbital_phases']
+    plt.rc('legend', fontsize=14)  # legend fontsize
+    orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
+    mid_phase = np.argmin(np.abs(orbital_phases))
+
+    t23 = Planet.calculate_full_transit_duration(
+        total_transit_duration=spectral_model.model_parameters['transit_duration'],
+        planet_radius=spectral_model.model_parameters['planet_radius'],
+        star_radius=spectral_model.model_parameters['star_radius'],
+        impact_parameter=Planet.calculate_impact_parameter(
+            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
+            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
+            star_radius=spectral_model.model_parameters['star_radius']
+        )
+    )
+
+    t1535 = (spectral_model.model_parameters['transit_duration'] + t23) / 2
+
+    t_to_t0 = spectral_model.model_parameters['times'] - spectral_model.model_parameters['mid_transit_time']
+
+    phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
+    phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
+
+    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
+    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
 
     # Step 1-3
     true_wavelengths_instrument, true_spectrum_instrument = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances=telluric_transmittance,
-            telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=False,
-            shift=False,
-            convolve=False,
-            rebin=False,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances=telluric_transmittance,
+        telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=False,
+        shift=False,
+        use_transit_light_loss=False,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
 
     # Step 4
     _, spectra_scale = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            # telluric_transmittances=telluric_transmittances,
-            telluric_transmittances=None,
-            # instrumental_deformations=instrumental_deformations,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=False,
-            convolve=False,
-            rebin=False,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        # telluric_transmittances=telluric_transmittances,
+        telluric_transmittances=None,
+        # instrumental_deformations=instrumental_deformations,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=False,
+        use_transit_light_loss=False,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
 
     # Step 5
     w_shift, spectra_shift = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances=telluric_transmittance,
-            telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=False,
-            rebin=False,
-            reduce=False
-        )
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances=telluric_transmittance,
+        telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=False,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
 
     # Step 6
-    _, spectra_convolve = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances=telluric_transmittance,
-            telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=False,
-            reduce=False
-        )
+    _, spectra_tlloss = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        # telluric_transmittances=telluric_transmittances,
+        telluric_transmittances=None,
+        # instrumental_deformations=instrumental_deformations,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
 
     # Step 7
-    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
-            radtrans=radtrans,
-            mode=mode,
-            update_parameters=True,
-            # telluric_transmittances=telluric_transmittance,
-            telluric_transmittances=None,
-            # instrumental_deformations=variable_throughput,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=True,
-            shift=True,
-            convolve=True,
-            rebin=True,
-            reduce=False
-        )
+    _, spectra_convolve = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances=telluric_transmittance,
+        telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        shift=True,
+        use_transit_light_loss=True,
+        convolve=True,
+        rebin=False,
+        reduce=False
+    )
 
-    # Plots
+    # Step 8
+    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances=telluric_transmittance,
+        telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        use_transit_light_loss=True,
+        shift=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
+
+    # Init
     w_shift = w_shift * 1e-6  # um to m
     wavelengths_instrument = wavelengths_instrument[ccd_id] * 1e-6  # um to m
     true_wavelengths_instrument = true_wavelengths_instrument[0] * 1e-6  # um to m
     true_spectrum_instrument = true_spectrum_instrument[0] * 1e-2  # cm to m
 
-    fig, axes = plt.subplots(nrows=5, ncols=1, sharex='col', figsize=(6.4, 5 * 1.6))
+    features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
+    features_amplitude_factor = 0.05
 
-    axes[0].plot(true_wavelengths_instrument, true_spectrum_instrument, color='C2')
-    axes[0].set_title('Step 3: base model')
+    # Plots
+    default_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    custom_cycle = [default_cycle[0], default_cycle[2], default_cycle[3]]
 
-    axes[1].plot(true_wavelengths_instrument, spectra_scale[0], color='C2')
-    axes[1].set_title('Step 4: scaling')
+    try:
+        fig = plt.figure(figsize=(6.4, 7 * 1.6))
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=custom_cycle)
 
-    axes[2].plot(w_shift[0], spectra_shift[0], label=rf'$\Phi$ = {orbital_phases[0]:.3f}', color='C0')
-    axes[2].plot(w_shift[-1], spectra_shift[-1], label=rf'$\Phi$ = {orbital_phases[-1]:.3f}', color='C3')
-    axes[2].legend(loc=4)
-    axes[2].set_title('Step 5: shifting')
+        # Base grid
+        gs0 = fig.add_gridspec(7, 1, top=0.975, bottom=0.055, left=0.15, right=0.98, hspace=0.3)
 
-    axes[3].plot(w_shift[0], spectra_convolve[0], label=rf'$\Phi$ = {orbital_phases[0]:.3f}', color='C0')
-    axes[3].plot(w_shift[-1], spectra_convolve[-1], label=rf'$\Phi$ = {orbital_phases[-1]:.3f}', color='C3')
-    axes[3].legend(loc=4)
-    axes[3].set_title('Step 6: convolving')
+        # Steps 3 to 5: no broken axis
+        gs00 = gs0[:3].subgridspec(3, 1, hspace=0.3)
 
-    axes[4].pcolormesh(
-        wavelengths_instrument,
-        orbital_phases,
-        spectra_final[ccd_id],
-        shading='nearest',
-        cmap='viridis'
+        ax0 = fig.add_subplot(gs00[0])
+        ax0.plot(true_wavelengths_instrument, true_spectrum_instrument, color='C2')
+        ax0.tick_params(labelbottom=False)
+        ax0.set_title('Step 3: base model')
+
+        ax1 = fig.add_subplot(gs00[1], sharex=ax0)
+        ax1.plot(true_wavelengths_instrument, spectra_scale[0], color='C2')
+        ax1.tick_params(labelbottom=False)
+        ax1.set_title('Step 4: scaling')
+
+        ax2 = fig.add_subplot(gs00[2], sharex=ax0)
+        ax2.plot(
+            w_shift[phase_15], spectra_shift[phase_15], label=rf'$\Phi$ = {orbital_phases[phase_15]:.3f}', color='C0'
+        )
+        ax2.plot(
+            w_shift[phase_35], spectra_shift[phase_35], label=rf'$\Phi$ = {orbital_phases[phase_35]:.3f}', color='C3'
+        )
+        ax2.tick_params(labelbottom=False)
+        ax2.legend(loc=4)
+        ax2.set_title('Step 5: shifting')
+
+        # Step 6: broken axis required
+        gs01 = gs0[3].subgridspec(2, 1, hspace=0.1)
+
+        ax3_high = fig.add_subplot(gs01[0], sharex=ax0)
+        ax3_low = fig.add_subplot(gs01[1], sharex=ax0)
+
+        xs = np.array([w_shift[phase_15], w_shift[mid_phase], w_shift[phase_35]]).T
+        ys = np.array([spectra_tlloss[phase_15], spectra_tlloss[mid_phase], spectra_tlloss[phase_35]]).T
+        labels = [
+            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
+            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
+            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
+        ]
+
+        ax3_high, ax3_low = plot_broken_yaxis(
+            xs, ys,
+            axis_high=ax3_high,
+            axis_low=ax3_low,
+            plot_function_name='plot',
+            y_min=None,
+            y_low=np.max(spectra_tlloss[mid_phase]) + features_amplitude_factor * features_amplitude,
+            y_high=np.min(spectra_tlloss[phase_15]) - features_amplitude_factor * features_amplitude,
+            y_max=None,
+            label=labels
+        )
+        ax3_high.set_yticks([0.988, 0.990])
+        ax3_low.tick_params(labelbottom=False)
+        ax3_low.legend(loc=4)
+        ax3_high.set_title('Step 6: adding transit effect')
+
+        # Step 7: broken axis required
+        gs02 = gs0[4].subgridspec(2, 1, hspace=0.1)
+
+        ax4_high = fig.add_subplot(gs02[0], sharex=ax0)
+        ax4_low = fig.add_subplot(gs02[1], sharex=ax0)
+
+        features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
+
+        ys = np.array([spectra_convolve[phase_15], spectra_convolve[mid_phase], spectra_convolve[phase_35]]).T
+        labels = [
+            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
+            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
+            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
+        ]
+
+        ax4_high, ax4_low = plot_broken_yaxis(
+            xs, ys,
+            axis_high=ax4_high,
+            axis_low=ax4_low,
+            plot_function_name='plot',
+            y_min=None,
+            y_low=np.max(spectra_convolve[mid_phase]) + features_amplitude_factor * features_amplitude,
+            y_high=np.min(spectra_convolve[phase_15]) - features_amplitude_factor * features_amplitude,
+            y_max=None,
+            label=labels
+        )
+
+        ax4_high.set_yticks([0.988, 0.990])
+        ax4_low.tick_params(labelbottom=False)
+        ax4_low.legend(loc=4)
+        ax4_high.set_title('Step 7: convolving')
+
+        # Step 8: no broken axis
+        gs03 = gs0[5:].subgridspec(2, 1, hspace=0.3)
+
+        ax5 = fig.add_subplot(gs03[0], sharex=ax0)
+        ax5.pcolormesh(
+            wavelengths_instrument,
+            orbital_phases,
+            np.moveaxis(np.moveaxis(spectra_final[ccd_id], -1, 0) / np.max(spectra_final[ccd_id], axis=-1), 0, -1),
+            shading='nearest',
+            cmap='viridis'
+        )
+        ax5.tick_params(labelbottom=False)
+        ax5.set_title('Step 8: re-binning (normalised)')
+
+        ax6 = fig.add_subplot(gs03[1], sharex=ax0)
+        ax6.pcolormesh(
+            wavelengths_instrument,
+            orbital_phases,
+            spectra_final[ccd_id],
+            shading='nearest',
+            cmap='viridis'
+        )
+        ax6.set_title('Step 8: re-binning')
+
+        if xlim is None:
+            xlim = (wavelengths_instrument[0], wavelengths_instrument[-1])
+
+        ax6.set_xlim(xlim)
+        x_ticks = ax6.get_xticks()
+        ax6.set_xticks(x_ticks[1::2])
+        ax6.set_xlim(xlim)
+        ax6.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
+        ax5.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
+
+        #plt.tight_layout()
+
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
+
+        spectral_axes = fig.add_subplot(gs0[0:1], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel(r'$m_{\theta,0}$ (m)', labelpad=20)
+
+        spectral_axes = fig.add_subplot(gs0[1:5], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel('Arbitrary units', labelpad=20)
+
+        spectral_axes = fig.add_subplot(gs0[5:], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
+
+        plt.savefig(os.path.join(path_outputs, figure_name + '.' + image_format))
+    finally:
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
+
+def plot_model_stepst(spectral_model, radtrans, mode, ccd_id,
+                      path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
+    update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
+    plt.rc('legend', fontsize=11)  # legend fontsize
+    orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
+    mid_phase = np.argmin(np.abs(orbital_phases))
+
+    t23 = Planet.calculate_full_transit_duration(
+        total_transit_duration=spectral_model.model_parameters['transit_duration'],
+        planet_radius=spectral_model.model_parameters['planet_radius'],
+        star_radius=spectral_model.model_parameters['star_radius'],
+        impact_parameter=Planet.calculate_impact_parameter(
+            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
+            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
+            star_radius=spectral_model.model_parameters['star_radius']
+        )
     )
-    axes[4].set_title('Step 7: re-binning')
 
-    if xlim is None:
-        xlim = (wavelengths_instrument[0], wavelengths_instrument[-1])
+    t1535 = (spectral_model.model_parameters['transit_duration'] + t23) / 2
 
-    axes[-1].set_xlim(xlim)
-    x_ticks = axes[-1].get_xticks()
-    axes[-1].set_xticks(x_ticks[1::2])
-    axes[-1].set_xlim(xlim)
+    t_to_t0 = spectral_model.model_parameters['times'] - spectral_model.model_parameters['mid_transit_time']
 
-    plt.tight_layout()
+    phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
+    phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
 
-    gs = axes[0].get_gridspec()
+    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
+    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
 
-    spectral_axes = fig.add_subplot(gs[0:1], frameon=False)
-    spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-    spectral_axes.set_ylabel(r'$m_{\theta,0}$ (m)', labelpad=20)
+    yy = np.random.default_rng().random(1000) * 0.01
 
-    spectral_axes = fig.add_subplot(gs[1:4], frameon=False)
-    spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-    spectral_axes.set_ylabel('Arbitrary units', labelpad=20)
+    # Step 1-3
+    true_wavelengths_instrument, true_spectrum_instrument = np.array([np.linspace(1.4, 1.6, 1000)]), np.array([yy * 100])
 
-    spectral_axes = fig.add_subplot(gs[4:], frameon=False)
-    spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-    spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
+    # Step 4
+    _, spectra_scale = None, np.array([1 - yy])
 
-    plt.savefig(os.path.join(path_outputs, figure_name + '.' + image_format))
+    # Step 5
+    w_shift, spectra_shift = np.moveaxis(np.zeros((1000, 35)) + np.linspace(-0.01, 0.01, 35), 0, -1) + true_wavelengths_instrument, \
+        np.ones((35, 1000)) * spectra_scale[0]
+
+    # Step 6
+    spectra_tlloss = np.ones(spectra_shift.shape)
+    spectra_tlloss[:phase_15+1] = spectra_shift[:phase_15+1] / np.max(spectra_shift[:phase_15+1])
+    spectra_tlloss[phase_35:] = spectra_shift[phase_35:] / np.max(spectra_shift[phase_35:])
+
+    # Step 7
+    _, spectra_convolve = None, spectra_tlloss
+
+    # Step 8
+    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
+        radtrans=radtrans,
+        mode=mode,
+        update_parameters=True,
+        # telluric_transmittances=telluric_transmittance,
+        telluric_transmittances=None,
+        # instrumental_deformations=variable_throughput,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=True,
+        use_transit_light_loss=True,
+        shift=True,
+        convolve=True,
+        rebin=True,
+        reduce=False
+    )
+
+    # Init
+    w_shift = w_shift * 1e-6  # um to m
+    wavelengths_instrument = wavelengths_instrument[ccd_id] * 1e-6  # um to m
+    true_wavelengths_instrument = true_wavelengths_instrument[0] * 1e-6  # um to m
+    true_spectrum_instrument = true_spectrum_instrument[0] * 1e-2  # cm to m
+
+    # Plots
+    default_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    custom_cycle = [default_cycle[3], default_cycle[2], default_cycle[0]]
+
+    try:
+        fig = plt.figure(figsize=(6.4, 7 * 1.6))
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=custom_cycle)
+
+        # Base grid
+        gs0 = fig.add_gridspec(7, 1, top=0.975, bottom=0.055, left=0.15, right=0.98, hspace=0.3)
+
+        # Steps 3 to 5: no broken axis
+        gs00 = gs0[:3].subgridspec(3, 1, hspace=0.3)
+
+        ax0 = fig.add_subplot(gs00[0])
+        ax0.plot(true_wavelengths_instrument, true_spectrum_instrument, color='C2')
+        ax0.tick_params(labelbottom=False)
+        ax0.set_title('Step 3: base model')
+
+        ax1 = fig.add_subplot(gs00[1], sharex=ax0)
+        ax1.plot(true_wavelengths_instrument, spectra_scale[0], color='C2')
+        ax1.tick_params(labelbottom=False)
+        ax1.set_title('Step 4: scaling')
+
+        ax2 = fig.add_subplot(gs00[2], sharex=ax0)
+        ax2.plot(
+            w_shift[phase_15], spectra_shift[phase_15], label=rf'$\Phi$ = {orbital_phases[phase_15]:.3f}', color='C3'
+        )
+        ax2.plot(
+            w_shift[phase_35], spectra_shift[phase_35], label=rf'$\Phi$ = {orbital_phases[phase_35]:.3f}', color='C0'
+        )
+        ax2.tick_params(labelbottom=False)
+        ax2.legend(loc=4)
+        ax2.set_title('Step 5: shifting')
+
+        # Step 6: broken axis required
+        gs01 = gs0[3].subgridspec(2, 1, hspace=0.1)
+
+        ax3_high = fig.add_subplot(gs01[0], sharex=ax0)
+        ax3_low = fig.add_subplot(gs01[1], sharex=ax0)
+
+        features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
+
+        xs = np.array([w_shift[phase_15], w_shift[mid_phase], w_shift[phase_35]]).T
+        ys = np.array([spectra_tlloss[phase_15], spectra_tlloss[mid_phase], spectra_tlloss[phase_35]]).T
+        labels = [
+            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
+            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
+            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
+        ]
+
+        ax3_high, ax3_low = plot_broken_yaxis(
+            xs, ys,
+            axis_high=ax3_high,
+            axis_low=ax3_low,
+            plot_function_name='plot',
+            y_min=None,
+            y_low=np.max(spectra_tlloss[mid_phase]) + 0.1 * features_amplitude,
+            y_high=np.min(spectra_tlloss[phase_15]) - 0.1 * features_amplitude,
+            y_max=None,
+            label=labels
+        )
+
+        ax3_low.tick_params(labelbottom=False)
+        ax3_low.legend(loc=4)
+        ax3_high.set_title('Step 6: adding transit effect')
+
+        # Step 7: broken axis required
+        gs02 = gs0[4].subgridspec(2, 1, hspace=0.1)
+
+        ax4_high = fig.add_subplot(gs02[0], sharex=ax0)
+        ax4_low = fig.add_subplot(gs02[1], sharex=ax0)
+
+        features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
+
+        ys = np.array([spectra_convolve[phase_15], spectra_convolve[mid_phase], spectra_convolve[phase_35]]).T
+        labels = [
+            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
+            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
+            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
+        ]
+
+        ax4_high, ax4_low = plot_broken_yaxis(
+            xs, ys,
+            axis_high=ax4_high,
+            axis_low=ax4_low,
+            plot_function_name='plot',
+            y_min=None,
+            y_low=np.max(spectra_convolve[mid_phase]) + 0.1 * features_amplitude,
+            y_high=np.min(spectra_convolve[phase_15]) - 0.1 * features_amplitude,
+            y_max=None,
+            label=labels
+        )
+
+        ax4_low.tick_params(labelbottom=False)
+        ax4_low.legend(loc=4)
+        ax4_high.set_title('Step 7: convolving')
+
+        # Step 8: no broken axis
+        gs03 = gs0[5:].subgridspec(2, 1, hspace=0.3)
+
+        ax5 = fig.add_subplot(gs03[0], sharex=ax0)
+        ax5.pcolormesh(
+            wavelengths_instrument,
+            orbital_phases,
+            np.moveaxis(np.moveaxis(spectra_final[ccd_id], -1, 0) / np.max(spectra_final[ccd_id], axis=-1), 0, -1),
+            shading='nearest',
+            cmap='viridis'
+        )
+        ax5.tick_params(labelbottom=False)
+        ax5.set_title('Step 8: re-binning (normalised)')
+
+        ax6 = fig.add_subplot(gs03[1], sharex=ax0)
+        ax6.pcolormesh(
+            wavelengths_instrument,
+            orbital_phases,
+            spectra_final[ccd_id],
+            shading='nearest',
+            cmap='viridis'
+        )
+        ax6.set_title('Step 8: re-binning')
+
+        if xlim is None:
+            xlim = (wavelengths_instrument[0], wavelengths_instrument[-1])
+
+        ax6.set_xlim(xlim)
+        x_ticks = ax6.get_xticks()
+        ax6.set_xticks(x_ticks[1::2])
+        ax6.set_xlim(xlim)
+        ax6.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
+        ax5.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
+
+        #plt.tight_layout()
+
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
+
+        spectral_axes = fig.add_subplot(gs0[0:1], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel(r'$m_{\theta,0}$ (m)', labelpad=20)
+
+        spectral_axes = fig.add_subplot(gs0[1:5], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel('Arbitrary units', labelpad=20)
+
+        spectral_axes = fig.add_subplot(gs0[5:], frameon=False)
+        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+        spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
+    finally:
+        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
 
 
 def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
@@ -2001,7 +2411,7 @@ def plot_all_figures(retrieved_parameters,
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_sim_c2_100lp\simulated_data_model.h5'
+        r'R_T0_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_all_sim_c810_45lp\simulated_data_model.h5'
     )
     radtrans = sm.get_radtrans()
 
@@ -2009,7 +2419,7 @@ def plot_all_figures(retrieved_parameters,
         retrieved_parameters,
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_sim_c2_100lp',
+        r'transmission_R_T0_Kp_V0_Rp_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_all_sim_c810_45lp',
         sm
     )
 
@@ -2023,8 +2433,6 @@ def plot_all_figures(retrieved_parameters,
             mid_transit_jd=58004.42319302507#58004.425291
         )
 
-    orbital_phases = Planet.get_orbital_phases(0, 2.2185769195665 * nc.snc.day, times - 0.42319302507 * nc.snc.day)
-
     instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
         load_additional_data(
             data_dir=r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data',
@@ -2034,27 +2442,17 @@ def plot_all_figures(retrieved_parameters,
             resolving_power=sm.model_parameters['new_resolving_power']
         )
 
-    detector_selection = np.array(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 42,
-         43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54])  # alex2
+    # detector_selection = np.array(
+    #     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 42,
+    #      43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55])  # alex3
+    detector_selection = np.arange(0, 56)  # all
     ccd_id = np.asarray(detector_selection == 46).nonzero()[0][0]
     planet = Planet.get('HD 189733 b')
 
     # Modify TD
-    print(f"Using full transit time (T23), not total transit time (T14)")
-    planet_transit_duration = planet.calculate_full_transit_duration(
-        total_transit_duration=planet.transit_duration,
-        planet_radius=planet.radius,
-        star_radius=planet.star_radius,
-        impact_parameter=planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-            planet_orbital_inclination=planet.orbital_inclination,
-            star_radius=planet.star_radius
-        )
-    )
-
-    print(f"Adding exposures of half-eclipses")
-    planet_transit_duration += (planet.transit_duration - planet_transit_duration) / 2
+    planet_transit_duration = planet.transit_duration + np.max(
+        retrieved_parameters['mid_transit_time']['prior_parameters']) \
+        - np.min(retrieved_parameters['mid_transit_time']['prior_parameters'])
 
     wavelengths_instrument_0 = copy.deepcopy(wavelengths_instrument[:, 0])
     observed_spectra_0 = copy.deepcopy(observed_spectra)
@@ -2079,8 +2477,8 @@ def plot_all_figures(retrieved_parameters,
             barycentric_velocities=barycentric_velocities,
             detector_selection=detector_selection,
             n_transits=1,
-            use_t23=True,
-            use_t1535=True
+            use_t23=False,
+            use_t1535=False
         )
 
     simulated_uncertainties = np.moveaxis(
@@ -3349,6 +3747,13 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
             'figure_coefficient': 1e-5,
             'retrieval_name': 'V0'
         },
+        'mid_transit_time': {
+            'prior_parameters': [-1800, 1800],
+            'prior_type': 'uniform',
+            'figure_title': r'$T_0$',
+            'figure_label': r'$T_0$ (s)',
+            'retrieval_name': 'T0'
+        },
         'planet_radius': {
             'prior_parameters': np.array([0.8, 1.25]),
             'prior_type': 'uniform',
@@ -3478,6 +3883,8 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
     planet.star_radius_error_upper = +0.01396094224705000 * nc.r_sun
     planet.star_radius_error_lower = -0.01396094224705000 * nc.r_sun
 
+    mid_transit_time_jd = 58004.42319302507#58004.425291
+
     if use_t23:
         print(f"Using full transit time (T23), not total transit time (T14)")
         planet_transit_duration = planet.calculate_full_transit_duration(
@@ -3498,6 +3905,10 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
     else:
         planet_transit_duration = planet.transit_duration
 
+    if 'mid_transit_time' in retrieved_parameters:
+        planet_transit_duration += np.max(retrieved_parameters['mid_transit_time']['prior_parameters']) \
+            - np.min(retrieved_parameters['mid_transit_time']['prior_parameters'])
+
     resolving_power = 8.04e4
     retrieval_name = f"{planet_name.replace(' ', '_')}_{mode}{retrieval_name}_{n_live_points}lp"
 
@@ -3510,7 +3921,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
         wavelengths_instrument, observed_spectra, instrument_snr, uncertainties, orbital_phases, airmasses, \
             barycentric_velocities, times, mid_transit_time = load_carmenes_data(
                 directory=os.path.join(additional_data_directory, 'carmenes', 'hd_189733_b'),
-                mid_transit_jd=58004.42319302507#58004.425291
+                mid_transit_jd=mid_transit_time_jd
             )
 
         instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
@@ -3579,6 +3990,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
             continuum_opacities=['H2-H2', 'H2-He'],
             opacity_mode='lbl',
             lbl_opacity_sampling=4,
+            times=times,
             # Temperature profile parameters
             temperature_profile_mode='isothermal',
             temperature=planet.equilibrium_temperature,  # K
@@ -3605,8 +4017,12 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
             star_radius=planet.star_radius,  # cm
             # Orbital parameters
             star_mass=planet.star_mass,  # g
-            semi_major_axis=planet.orbit_semi_major_axis,  # cm
+            orbit_semi_major_axis=planet.orbit_semi_major_axis,  # cm
             orbital_phases=orbital_phases,
+            mid_transit_time=mid_transit_time,
+            orbital_period=planet.orbital_period,
+            orbital_inclination=planet.orbital_inclination,
+            transit_duration=planet.transit_duration,
             system_observer_radial_velocities=planet.star_radial_velocity - barycentric_velocities * 1e5,  # cm.s-1
             planet_rest_frame_velocity_shift=0.0,  # cm.s-1
             planet_orbital_inclination=planet.orbital_inclination,
@@ -3631,11 +4047,17 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
             retrieved_parameters['planet_radius']['prior_parameters'] *= \
                 spectral_model.model_parameters['planet_radius']
 
+        if 'mid_transit_time' in retrieved_parameters:
+            retrieved_parameters['mid_transit_time']['prior_parameters'] += \
+                spectral_model.model_parameters['mid_transit_time']
+
         retrieval_velocities = spectral_model.get_retrieval_velocities(
             planet_radial_velocity_amplitude_range=retrieved_parameters[
                 'planet_radial_velocity_amplitude']['prior_parameters'],
             planet_rest_frame_velocity_shift_range=retrieved_parameters[
-                'planet_rest_frame_velocity_shift']['prior_parameters']
+                'planet_rest_frame_velocity_shift']['prior_parameters'],
+            mid_transit_times_range=retrieved_parameters[
+                'mid_transit_time']['prior_parameters'],
         )
 
         spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
@@ -3848,8 +4270,8 @@ def main(planet_name, output_directory, additional_data_directory, mode, retriev
 
 def _main():
     # Manual initialisation
-    use_t23 = True
-    use_t1535 = True
+    use_t23 = False
+    use_t1535 = False
     planet_name = 'HD 189733 b'
     output_directory = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
                                        + '../../../../../work/run_outputs/petitRADTRANS')
@@ -3879,12 +4301,13 @@ def _main():
     convolve = True
     rebin = True
 
-    detector_selection_name = 'alex2'
+    detector_selection_name = 'testd'
 
     retrieval_parameters = [
         'new_resolving_power',
         'planet_radial_velocity_amplitude',
         'planet_rest_frame_velocity_shift',
+        'mid_transit_time',
         'planet_radius',
         'log10_planet_surface_gravity',
         'temperature',
@@ -3929,36 +4352,36 @@ def _main():
 if __name__ == '__main__':
     t0 = time.time()
 
-    args = parser.parse_args()
+    parser_args = parser.parse_args()
 
-    print(f'rm: {args.retrieve_mock_observations}')
-    print(f'a: {args.no_archive}')
-    print(f'convolve: {args.no_convolve}')
+    print(f'rm: {parser_args.retrieve_mock_observations}')
+    print(f'a: {parser_args.no_archive}')
+    print(f'convolve: {parser_args.no_convolve}')
 
     main(
-        planet_name=args.planet_name,
-        output_directory=args.output_directory,
-        additional_data_directory=args.additional_data_directory,
-        mode=args.mode,
-        retrieval_name=args.retrieval_name,
-        retrieval_parameters=args.retrieval_parameters,
-        detector_selection_name=args.detector_selection_name,
-        n_live_points=args.n_live_points,
-        resume=args.resume,
-        tellurics_mask_threshold=args.tellurics_mask_threshold,
-        retrieve_mock_observations=args.retrieve_mock_observations,
-        use_simulated_uncertainties=args.use_simulated_uncertainties,
-        add_noise=args.add_noise,
-        n_transits=args.n_transits,
-        check=args.check,
-        retrieve=args.no_retrieval,
-        archive=args.no_archive,
-        scale=args.no_scale,
-        shift=args.no_shift,
-        convolve=args.no_convolve,
-        rebin=args.no_rebin,
-        use_t23=args.use_t23,
-        use_t1535=args.use_t1535
+        planet_name=parser_args.planet_name,
+        output_directory=parser_args.output_directory,
+        additional_data_directory=parser_args.additional_data_directory,
+        mode=parser_args.mode,
+        retrieval_name=parser_args.retrieval_name,
+        retrieval_parameters=parser_args.retrieval_parameters,
+        detector_selection_name=parser_args.detector_selection_name,
+        n_live_points=parser_args.n_live_points,
+        resume=parser_args.resume,
+        tellurics_mask_threshold=parser_args.tellurics_mask_threshold,
+        retrieve_mock_observations=parser_args.retrieve_mock_observations,
+        use_simulated_uncertainties=parser_args.use_simulated_uncertainties,
+        add_noise=parser_args.add_noise,
+        n_transits=parser_args.n_transits,
+        check=parser_args.check,
+        retrieve=parser_args.no_retrieval,
+        archive=parser_args.no_archive,
+        scale=parser_args.no_scale,
+        shift=parser_args.no_shift,
+        convolve=parser_args.no_convolve,
+        rebin=parser_args.no_rebin,
+        use_t23=parser_args.use_t23,
+        use_t1535=parser_args.use_t1535
     )
 
     print(f"Done in {time.time() - t0} s")
