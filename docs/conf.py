@@ -15,7 +15,7 @@
 import os
 import sys
 
-from petitRADTRANS.version import version
+from ..version import version
 
 sys.path.insert(0, os.path.abspath('../'))
 autodoc_mock_imports = ['petitRADTRANS', 'numpy', 'scipy', 'glob',
