@@ -75,8 +75,18 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder
-- Type the following in the terminal ``python setup.py install``, and press
-  Enter.
+- Execute the following command in the terminal: ``pip install .``
+
+Windows 10 and 11 instructions
+_____________________
+
+The installation of pRT on Windows machines, just as in the Linux case, requires C and Fortran compilers. Those can be obtained from, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_. The installation process is otherwise the same as in Linux.
+
+**Important note:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see below).
+
+**Using WSL:** it is highly recommended to use the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL) in order to make the most out of pRT on Windows. Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case. **It is also highly recommended to put the "input_data" folder on the WSL side** to get the fastest performances during retrievals.
+
+pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl$\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
 
 Apple M1 instructions
 _____________________
