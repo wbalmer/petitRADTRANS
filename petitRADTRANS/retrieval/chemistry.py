@@ -206,6 +206,7 @@ def get_easychem_abundances(pressures, temperatures, line_species, cloud_species
                                  'TiO2(c)',
                                  'TiO2(L)',
                                  'H3PO4(c)',
+                                 'H3PO4(L)',
                                  'H2O(L)',
                                  'H2O(c)',]
 
