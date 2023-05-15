@@ -632,7 +632,12 @@ class Retrieval:
 
         for name, dd in self.data.items():
             if dd.scale:
-                dd.scale_factor = self.parameters[name + "_scale_factor"].value
+                try:
+                    dd.scale_factor = self.parameters[name + "_scale_factor"].value
+                except KeyError:
+                    # If multiple datasets should be scaled by the same value (need to be called "Instrument_1", "Instrument_2", etc.)
+                    name_use = name[:-2] # cut off the _1, _2, etc.
+                    dd.scale_factor = self.parameters[name_use + "_scale_factor_multiple"].value
 
         for name, dd in self.data.items():
             # Only calculate spectra within a given
