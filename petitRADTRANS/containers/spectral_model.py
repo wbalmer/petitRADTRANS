@@ -166,6 +166,7 @@ class BaseSpectralModel:
     # TODO add function to list all the meaningful model_parameters
     # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data  # noqa: E501
     # TODO the Base object is not really useful and neither used, better use only the SpectralModel object
+    # TODO add transit duration function
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
                  opacity_mode='lbl', do_scat_emis=True, lbl_opacity_sampling=1,
@@ -2906,6 +2907,9 @@ class SpectralModel(BaseSpectralModel):
         if 'uncertainties' in kwargs:  # ensure that spectrum and uncertainties share the same mask
             if hasattr(kwargs['uncertainties'], 'mask'):
                 spectrum = np.ma.masked_where(kwargs['uncertainties'].mask, spectrum)
+
+        if np.ndim(spectrum.mask) == 0:
+            spectrum.mask = np.zeros(spectrum.shape, dtype=bool)
 
         return preparing_pipeline(spectrum=spectrum, full=True, **kwargs)
 
