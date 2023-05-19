@@ -4,7 +4,7 @@ import glob
 import corner
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
+import seaborn as sns  # TODO is seaborn really that useful?
 from matplotlib.lines import Line2D
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import binned_statistic

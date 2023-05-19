@@ -73,7 +73,7 @@ def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inv
     Returns:
         The lower-rank estimation of the spectrum (systematics), and the estimated "extinction coefficients"
     """
-    # Get the "airmass"  (time variation of a pixel), not related to the true airmass
+    # Get the "airmass" (time variation of a pixel), not related to the true airmass
     a = np.sum(c * spectrum_uncertainties_squared, axis=-1) / \
         np.sum(c ** 2 * uncertainties_squared_inverted, axis=-1)
 
@@ -96,6 +96,46 @@ def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inv
     )
 
     return a * c, c
+
+
+def __sysrem_iteration2(spectrum_uncertainties_squared, uncertainties_squared_inverted, a, shape_a, shape_c):
+    """SYSREM iteration.
+    For the first iteration, c should be 1.
+    The inputs are chosen in order to maximize speed.
+
+    Args:
+        spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
+        uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
+        c: 2-D matrix (..., exposures, wavelengths) containing the a-priori "extinction coefficients"
+        shape_a: intermediate shape for "airmass" estimation (wavelength, ..., exposure)
+        shape_c: intermediate shape for "extinction coefficients" estimation (exposure, ..., wavelength)
+
+    Returns:
+        The lower-rank estimation of the spectrum (systematics), and the estimated "extinction coefficients"
+    """
+    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
+    c = np.sum(a * spectrum_uncertainties_squared, axis=-2) / \
+        np.sum(a ** 2 * uncertainties_squared_inverted, axis=-2)
+
+    # Tile into a (..., exposure, wavelength) matrix
+    c = np.moveaxis(
+        c * np.ones(shape_c),
+        0,
+        -2
+    )
+
+    # Get the "airmass" (time variation of a pixel), not related to the true airmass
+    a = np.sum(c * spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(c ** 2 * uncertainties_squared_inverted, axis=-1)
+
+    # Tile into a (..., exposure, wavelength) matrix
+    a = np.moveaxis(
+        a * np.ones(shape_a),
+        0,
+        -1
+    )
+
+    return a * c, a
 
 
 def bias_pipeline_metric(reduced_true_model, reduced_mock_observations,
@@ -384,7 +424,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
             # Count number of non-masked points minus degrees of freedom in each wavelength axes
             if np.ndim(pipeline_uncertainties.mask) != np.ndim(pipeline_uncertainties):
                 raise ValueError(f"number of dimensions of the mask of pipeline uncertainties "
-                                 f"({np.ndim(pipeline_uncertainties.mask)}) does not matches pipeline uncertainties"
+                                 f"({np.ndim(pipeline_uncertainties.mask)}) does not matches pipeline uncertainties "
                                  f"number of dimension ({np.ndim(pipeline_uncertainties)})")
 
             valid_points = wavelengths.size - np.sum(pipeline_uncertainties.mask, axis=2) - degrees_of_freedom
@@ -514,8 +554,11 @@ def preparing_pipeline(spectrum, uncertainties=None,
         return reduced_data
 
 
-def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, convergence_criterion=1e-3,
-                              subtract=False, full=False, verbose=False, **kwargs):
+def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations_max=10, convergence_criterion=1e-3,
+                              tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
+                              apply_throughput_removal=True, apply_telluric_lines_removal=True,
+                              correct_uncertainties=True,
+                              subtract=False, remove_mean=True, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
         S**2 = sum_ij ((spectrum_ij - a_j * c_i) / uncertainties)**2
@@ -530,45 +573,104 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
     Args:
         spectrum: spectral data to correct
         uncertainties: uncertainties on the data
+        wavelengths: wavelengths of the data
         n_iterations_max: maximum number of SYSREM iterations
         convergence_criterion: SYSREM convergence criterion
+        tellurics_mask_threshold: mask wavelengths where the atmospheric transmittance estimate is below this value
+        polynomial_fit_degree: degree of the polynomial fit of the instrumental deformations
+        apply_throughput_removal: if True, divide the spectrum by its mean over wavelengths
+        apply_telluric_lines_removal: if True, apply the telluric lines removal correction
+        correct_uncertainties:
         subtract: if True, subtract the fitted systematics to the spectrum instead of dividing them
+        remove_mean:
         full: if True, return the reduced matrix and reduced uncertainties in addition to the reduced spectrum
         verbose: if True, print the convergence status at each iteration
 
     Returns:
         Reduced spectral data (and reduction matrix and uncertainties after reduction if full is True)
     """
+    # Pre-preparation
+    reduction_matrix = np.ones(spectrum.shape)
+    reduced_data_uncertainties = copy.deepcopy(uncertainties)
+    reduced_data = copy.deepcopy(spectrum)
+
+    if apply_throughput_removal:
+        if wavelengths is None:
+            if verbose:
+                print("Dividing by the mean...")
+
+            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_mean(
+                spectrum=spectrum,
+                reduction_matrix=reduction_matrix,
+                uncertainties=reduced_data_uncertainties
+            )
+        else:
+            if verbose:
+                print(f"Dividing by an order-{polynomial_fit_degree} polynomial...")
+
+            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_fit(
+                spectrum=spectrum,
+                reduction_matrix=reduction_matrix,
+                wavelengths=wavelengths,
+                uncertainties=reduced_data_uncertainties,
+                mask_threshold=sys.float_info.min,
+                polynomial_fit_degree=polynomial_fit_degree,
+                correct_uncertainties=correct_uncertainties
+            )
+
+    reduced_data = np.ma.masked_where(reduced_data < tellurics_mask_threshold, reduced_data)
+
+    if remove_mean and subtract:
+        if verbose:
+            print("Subtracting mean...")
+
+        reduced_data = np.moveaxis(
+            np.moveaxis(reduced_data, -1, 0) - np.ma.average(reduced_data, axis=-1, weights=uncertainties),
+            0,
+            -1
+        )
+
+    if not apply_telluric_lines_removal:
+        if full:
+            return reduced_data, reduction_matrix, reduced_data_uncertainties
+        else:
+            return reduced_data
+
     # Initialize SYSREM meaningful variables
-    spectrum_shape = list(spectrum.shape)
+    if verbose:
+        print("Starting SysRem...")
+
+    spectrum_shape = list(reduced_data.shape)
     shape_a = copy.copy(spectrum_shape)
     shape_c = copy.copy(spectrum_shape)
 
     shape_a.insert(0, shape_a.pop(-1))
     shape_c.insert(0, shape_c.pop(-2))
 
-    uncertainties_squared_inverted = 1 / uncertainties ** 2
-    spectrum_uncertainties_squared = spectrum * uncertainties_squared_inverted
+    uncertainties_squared_inverted = 1 / reduced_data_uncertainties ** 2
+    spectrum_uncertainties_squared = reduced_data * uncertainties_squared_inverted
 
     # Handle masked values
     if isinstance(spectrum_uncertainties_squared, np.ma.core.MaskedArray):
         uncertainties_squared_inverted[spectrum_uncertainties_squared.mask] = 0
         spectrum_uncertainties_squared = spectrum_uncertainties_squared.filled(0)
 
-    # First iteration
-    systematics, c = __sysrem_iteration(
-        spectrum_uncertainties_squared=spectrum_uncertainties_squared,
-        uncertainties_squared_inverted=uncertainties_squared_inverted,
-        c=1,
-        shape_a=shape_a,
-        shape_c=shape_c
-    )
-
-    # Next iterations
+    # Iterate
     i = 0
-    systematics_0 = np.zeros(spectrum.shape)
+    c = 1
+    systematics_0 = np.zeros(reduced_data.shape)
+    systematics = np.zeros(reduced_data.shape)
 
     for i in range(n_iterations_max):
+        systematics, c = __sysrem_iteration(
+            spectrum_uncertainties_squared=spectrum_uncertainties_squared,
+            uncertainties_squared_inverted=uncertainties_squared_inverted,
+            c=c,
+            shape_a=shape_a,
+            shape_c=shape_c
+        )
+        systematics[np.nonzero(np.logical_not(np.isfinite(systematics)))] = 0
+
         # Check for convergence
         if np.sum(np.abs(systematics_0 - systematics)) <= convergence_criterion * np.sum(np.abs(systematics_0)):
             if verbose:
@@ -583,18 +685,11 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
                   f"{np.sum(np.abs(systematics_0 - systematics)) / np.sum(np.abs(systematics_0))} "
                   f"(> {convergence_criterion})")
 
-        # Iterate
         systematics_0 = systematics
-        systematics, c = __sysrem_iteration(
-            spectrum_uncertainties_squared=spectrum_uncertainties_squared,
-            uncertainties_squared_inverted=uncertainties_squared_inverted,
-            c=c,
-            shape_a=shape_a,
-            shape_c=shape_c
-        )
 
     if i == n_iterations_max - 1 \
-            and np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0)):
+            and np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0)) \
+            and convergence_criterion > 0:
         warnings.warn(
             f"convergence not reached in {n_iterations_max} iterations "
             f"({np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0))} "
@@ -610,17 +705,18 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, n_iterations_max=10, conv
     and this way the pipeline can be used in retrievals more effectively.
     '''
     if subtract:
-        reduced_data = spectrum - systematics
+        reduced_data -= systematics
     else:
-        reduced_data = spectrum / systematics
+        reduced_data /= systematics
 
     if full:
         if subtract:
-            reduction_matrix = reduced_data / spectrum
+            # With the subtractions, uncertainties should not be affected
+            # TODO it can be argued that the uncertainties on the systematics should be taken into account
+            reduction_matrix -= systematics
         else:
-            reduction_matrix = 1 / systematics
-
-        reduced_data_uncertainties = uncertainties * np.abs(reduction_matrix)
+            reduction_matrix /= systematics
+            reduced_data_uncertainties = reduced_data_uncertainties * np.abs(reduction_matrix)
 
         return reduced_data, reduction_matrix, reduced_data_uncertainties
     else:
