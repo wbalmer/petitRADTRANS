@@ -255,7 +255,7 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
         velocities_ccf=velocities_ccf,
         system_observer_radial_velocities=system_observer_radial_velocities,
-        orbital_longitudes=orbital_longitudes,  # phase to deg
+        orbital_longitudes=orbital_longitudes,
         planet_orbital_inclination=planet_orbital_inclination,
         kp_factor=kp_factor,
         n_kp=n_kp,
