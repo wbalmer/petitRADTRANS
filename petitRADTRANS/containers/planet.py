@@ -955,6 +955,34 @@ class Planet:
         return planet_orbit_semi_major_axis * np.cos(np.deg2rad(planet_orbital_inclination)) / star_radius
 
     @staticmethod
+    def calculate_mid_transit_time_from_source(observation_day,
+                                               source_mid_transit_time,
+                                               source_mid_transit_time_error_lower, source_mid_transit_time_error_upper,
+                                               orbital_period, orbital_period_error_lower, orbital_period_error_upper,
+                                               day2second=True):
+        n_orbits = np.ceil(observation_day - source_mid_transit_time)
+        observation_mid_transit_time = source_mid_transit_time + n_orbits * orbital_period
+
+        derivatives = np.array([
+            1,  # dT0 / dT0_source
+            n_orbits  # dT0 / dP
+        ])
+
+        uncertainties = np.abs(np.array([
+            [source_mid_transit_time_error_lower, source_mid_transit_time_error_upper],
+            [orbital_period_error_lower, orbital_period_error_upper],
+        ]))
+
+        errors = calculate_uncertainty(derivatives, uncertainties)
+
+        if day2second:
+            observation_mid_transit_time = np.mod(observation_mid_transit_time, 1) * nc.snc.day
+            errors[0] *= nc.snc.day
+            errors[1] *= nc.snc.day
+
+        return observation_mid_transit_time, errors[1], -errors[0], n_orbits
+
+    @staticmethod
     def calculate_planet_radial_velocity(planet_radial_velocity_amplitude, planet_orbital_inclination,
                                          orbital_longitude, **kwargs):
         """Calculate the planet radial velocity as seen by an observer.
