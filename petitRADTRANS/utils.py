@@ -319,6 +319,10 @@ def median_uncertainties(uncertainties):
         * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
 
 
+def normalize(array, axis=None):
+    return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
+
+
 def read_abunds(path):
     f = open(path)
     header = f.readlines()[0][:-1]
