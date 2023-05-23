@@ -674,7 +674,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations
         # Check for convergence
         if np.sum(np.abs(systematics_0 - systematics)) <= convergence_criterion * np.sum(np.abs(systematics_0)):
             if verbose:
-                print(f"Iteration {i} (max {n_iterations_max}): "
+                print(f"Iteration {i + 1} (max {n_iterations_max}): "
                       f"{np.sum(np.abs(systematics_0 - systematics)) / np.sum(np.abs(systematics_0))} "
                       f"(> {convergence_criterion})")
                 print("Convergence reached!")
