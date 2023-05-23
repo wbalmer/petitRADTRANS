@@ -960,7 +960,7 @@ class Planet:
                                                source_mid_transit_time_error_lower, source_mid_transit_time_error_upper,
                                                orbital_period, orbital_period_error_lower, orbital_period_error_upper,
                                                day2second=True):
-        n_orbits = np.ceil(observation_day - source_mid_transit_time)
+        n_orbits = np.ceil((observation_day - source_mid_transit_time) / orbital_period)
         observation_mid_transit_time = source_mid_transit_time + n_orbits * orbital_period
 
         derivatives = np.array([
