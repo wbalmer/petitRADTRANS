@@ -64,6 +64,11 @@ class Radtrans(_read_opacities.ReadOpacities):
             this may save time! The user should verify whether this leads to
             solutions which are identical to the rebinned results of the fiducial
             :math:`10^6` resolution. If not, this parameter must not be used.
+        use_detailed_line_absorber_names (Optional[bool]):
+            False by default. If True, the keywords of the mass fraction dictionary handed
+            to calc_flux() and calc_transm() must match the line absorber names exactly,
+            including line list and resolution flags. For example, if "H2O_Exomol_R_10" is loaded,
+            the mass fraction keyword has to be "H2O_Exomol_R_10", instead of the nominal "H2O".
     """
 
     def __init__(
@@ -84,7 +89,8 @@ class Radtrans(_read_opacities.ReadOpacities):
             mu_star=1.,
             semimajoraxis=None,
             hack_cloud_photospheric_tau=None,
-            path_input_data=os.environ.get("pRT_input_data_path")
+            path_input_data=os.environ.get("pRT_input_data_path"),
+            use_detailed_line_absorber_names = False
     ):
         """
 
@@ -181,6 +187,9 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.scat = False
         self.cloud_scaling_factor = None
         self.scaling_physicality = None
+
+        # Mass fraction keywords must match line absorber names exactly?
+        self.use_detailed_line_absorber_names = use_detailed_line_absorber_names
 
         # Read in frequency grid
         # Any opacities there at all?
@@ -594,8 +603,16 @@ class Radtrans(_read_opacities.ReadOpacities):
         self.mmw = mmw
         self.scat = False
 
+        # Fill line abundance dictionary with provided mass fraction dictionary "abundances"
         for i_spec in range(len(self.line_species)):
-            self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+            # Check if user provided the detailed line absorber name or
+            # if line absorber name should be matched *exactly*:
+            if (self.line_species[i_spec] in abundances) or self.use_detailed_line_absorber_names:
+                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+            # If they did not, or if self.use_detailed_line_absorber_names == False: split at "_"!
+            else:
+                # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
+                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec].split('_')[0]]
 
         self.continuum_opa = np.zeros_like(self.continuum_opa)
         self.continuum_opa_scat = np.zeros_like(self.continuum_opa_scat)
