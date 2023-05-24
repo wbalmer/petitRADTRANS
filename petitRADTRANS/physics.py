@@ -4,7 +4,6 @@ import numpy as np
 import copy as cp
 
 from scipy.interpolate import interp1d,CubicSpline
-from petitRADTRANS import poor_mans_nonequ_chem as pm
 
 import petitRADTRANS.nat_cst as nc
 
@@ -195,6 +194,9 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
         Tret : np.ndarray
             The temperature as a function of atmospheric pressure.
     """
+
+    from petitRADTRANS import poor_mans_nonequ_chem as pm
+
     # Go grom bar to cgs
     press_cgs = press * 1e6
 
