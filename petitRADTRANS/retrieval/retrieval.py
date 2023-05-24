@@ -1802,7 +1802,7 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = True):
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = True, pRT_reference = None):
         """
         Plot the PT profile with error contours
 
@@ -1820,6 +1820,9 @@ class Retrieval:
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
                 retrieval that is still running. If False no new spectrum will be calculated and the plot will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for calculating
+                the contribution function, instead of generating a new pRT object at R = 1000.
 
         Returns:
             fig : matplotlib.figure
@@ -1883,7 +1886,8 @@ class Retrieval:
                 samples_use[best_fit_index, :-1],
                 parameters_read,
                 contribution=True,
-                refresh=refresh
+                refresh=refresh,
+                pRT_reference = pRT_reference
             )
             nu = nc.c / bf_wlen
             mean_diff_nu = -np.diff(nu)
