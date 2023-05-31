@@ -1,8 +1,8 @@
 Installation
 ============
 
-Pre-installation: download the opacity data
-___________________________________________
+Before installation: download the opacity data
+______________________________________________
 
 Before you install pRT, please download the opacity data, at least the
 low-resolution version (:math:`\lambda/\Delta\lambda=1000`), as it
@@ -52,8 +52,24 @@ species you downloaded in there.
 
 .. _`via Keeper here`: https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/
 
-Installation via pip install
-____________________________
+If you want to run retrievals: install Multinest
+________________________________________________
+
+If you want to use pRT's retrieval package, you need to install Multinest.
+This is because for retrievals pRT uses the PyMultiNest package,
+which is a Python wrapper of the nested sampling code called MultiNest.
+To install Multinest, please follow the instructions provided on the
+`Multinest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
+
+After installation, it is important to copy the resulting library files to a location where PyMultiNest can find them.
+In that case you also need to copy the `multinest/lib/*` files generated during the installation
+into the `lib` folder that your Python binary sees.
+If you use anaconda, this folder should be called something like `/opt/miniconda3/envs/name_of_your conda_environment/lib/`,
+at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your `LD_LIBRARY_PATH`")
+does not appear to work, at least not on a Mac.
+
+Installation of petitRADTRANS via pip install
+_____________________________________________
 
 To install pRT via pip install just type
 
@@ -80,7 +96,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
 Windows 10 and 11 instructions
 _____________________
 
-The installation of pRT on Windows machines, just as in the Linux case, requires C and Fortran compilers. Those can be obtained from, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_. The installation process is otherwise the same as in Linux.
+The installation of pRT on Windows machines, just as in the Linux/Mac case, requires C and Fortran compilers. Those can be obtained from, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_. The installation process is otherwise the same as in Linux.
 
 **Important note:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see below).
 
@@ -242,3 +258,16 @@ This should produce the following output:
 		
      Read line opacities of CH4...
     Done.
+
+
+Common issues
+_____________
+
+It may happen that after installation you get the following error message when trying to import pRT:
+
+.. code-block:: bash
+
+    ImportError: cannot import name 'fort_input' from partially initialized module 'petitRADTRANS' (most likely due to a circular import)
+
+This usually occurs if there are multiple (conflicting) Python installations. In this case, we recommend
+installing in in a new (clean) Python environment (e.g., using conda).
