@@ -59,13 +59,13 @@ If you want to use pRT's retrieval package, you need to install Multinest.
 This is because for retrievals pRT uses the PyMultiNest package,
 which is a Python wrapper of the nested sampling code called MultiNest.
 To install Multinest, please follow the instructions provided on the
-`Multinest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
+`PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
 
 After installation, it is important to copy the resulting library files to a location where PyMultiNest can find them.
-In that case you also need to copy the `multinest/lib/*` files generated during the installation
-into the `lib` folder that your Python binary sees.
-If you use anaconda, this folder should be called something like `/opt/miniconda3/envs/name_of_your conda_environment/lib/`,
-at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your `LD_LIBRARY_PATH`")
+In that case you also need to copy the ``multinest/lib/*`` files generated during the installation
+into the ``lib`` folder that your Python binary sees.
+If you use anaconda, this folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``,
+at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your ``LD_LIBRARY_PATH``")
 does not appear to work, at least not on a Mac.
 
 Installation of petitRADTRANS via pip install
@@ -270,4 +270,4 @@ It may happen that after installation you get the following error message when t
     ImportError: cannot import name 'fort_input' from partially initialized module 'petitRADTRANS' (most likely due to a circular import)
 
 This usually occurs if there are multiple (conflicting) Python installations. In this case, we recommend
-installing in in a new (clean) Python environment (e.g., using conda).
+installing pRT in a new (clean) Python environment (e.g., using conda).
