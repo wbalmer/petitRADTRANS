@@ -26,6 +26,7 @@ from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weig
 # TODO c-k binned directly to user-provided wavelength grid
 
 class RetrievalParameter:
+    # TODO put into retrieval module
     available_priors = [
         'log',
         'uniform',

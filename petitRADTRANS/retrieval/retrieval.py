@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import sys
+import warnings
+
 import numpy as np
 
 # Plotting
@@ -224,9 +226,11 @@ class Retrieval:
 
         prefix = self.output_dir + 'out_PMN/' + self.retrieval_name + '_'
 
-        if len(self.output_dir + 'out_PMN/') > 200:
-            logging.error("PyMultinest requires output directory names to be <200 characters.")
-            sys.exit(3)
+        if len(self.output_dir + 'out_PMN/') > 100:
+            warnings.warn("old versions of MultiNest requires output directory names to be < 100 characters "
+                          f"long (current directory was {len(self.output_dir + 'out_PMN/')} characters long); "
+                          "using more characters may cause MultiNest failure or filename truncation if not using the "
+                          "latest MultiNest version")
 
         # How many free parameters?
         n_params = 0
@@ -279,10 +283,12 @@ class Retrieval:
             lo, hi = m['1sigma']
             med = m['median']
             sigma = (hi - lo) / 2
+
             if sigma == 0:
                 i = 3
             else:
                 i = max(0, int(-np.floor(np.log10(sigma))) + 1)
+
             fmt = '%%.%df' % i
             fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
             print(fmts % (p, med, sigma))
@@ -609,7 +615,7 @@ class Retrieval:
             log_likelihood : float
                 The (negative) log likelihood of the model given the data.
         """
-
+        invalid_value = -1e98
         log_likelihood = 0.
         log_prior = 0.
         additional_logl = 0.
@@ -626,29 +632,30 @@ class Retrieval:
                 dd.scale_factor = self.parameters[name + "_scale_factor"].value
 
         for name, dd in self.data.items():
-            # Only calculate spectra within a given
-            # wlen range once
-
+            # Only calculate spectra within a given wlen range once
             if dd.external_pRT_reference is None:
                 if not self.PT_plot_mode:
                     # Compute the model
-                    retVal = \
-                        dd.model_generating_function(dd.pRT_object,
-                                                     self.parameters,
-                                                     self.PT_plot_mode,
-                                                     AMR=self.rd.AMR)
-                    if len(retVal) == 3:
-                        wlen_model, spectrum_model, additional_logl = retVal
+                    model_returned_values = dd.model_generating_function(
+                        dd.pRT_object,
+                        self.parameters,
+                        self.PT_plot_mode,
+                        AMR=self.rd.AMR
+                    )  # TODO the generating function should always return the same number of values
+
+                    if len(model_returned_values) == 3:
+                        wlen_model, spectrum_model, additional_logl = model_returned_values
                     else:
-                        wlen_model, spectrum_model = retVal
+                        wlen_model, spectrum_model = model_returned_values
                         additional_logl = 0.
+
+                    # Ensure that the spectrum model has no masked values, so that no conversion to NaN is required
+                    if isinstance(spectrum_model, np.ma.MaskedArray):
+                        spectrum_model = spectrum_model.filled(0)
 
                     # Sanity checks on outputs
                     if spectrum_model is None:
-                        return -1e98  # TODO why switching to 1e98 ?
-
-                    # if np.isnan(spectrum_model).any():  # TODO make it work with jagged arrays
-                    #     return -1e98
+                        return invalid_value  # TODO why switching to 1e98 ?
 
                     # Calculate log likelihood
                     # TODO uniformize convolve/rebin handling
@@ -657,6 +664,9 @@ class Retrieval:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
                             # Second dimension of data must be a function of wavelength
                             for i, data in enumerate(dd.flux):
+                                if np.isnan(spectrum_model[i][~dd.mask[i]]).any():
+                                    return invalid_value
+
                                 log_likelihood += dd.log_likelihood_gibson(
                                     spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
                                     alpha=1.0,
@@ -667,6 +677,9 @@ class Retrieval:
                             # Third dimension of data must be a function of wavelength
                             for i, detector in enumerate(dd.flux):
                                 for j, data in enumerate(detector):
+                                    if np.isnan(spectrum_model[i, j][~dd.mask[i, j]]).any():
+                                        return invalid_value
+
                                     log_likelihood += dd.log_likelihood_gibson(
                                         spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
                                         alpha=1.0,
@@ -677,6 +690,9 @@ class Retrieval:
                                              f"and have {np.ndim(dd.flux)} dimensions, "
                                              f"but must have 1 to 2")
                     else:
+                        if np.isnan(spectrum_model).any():
+                            return invalid_value
+
                         if np.ndim(dd.flux) == 1:
                             # Convolution and rebin are cared of in get_chisq
                             log_likelihood += dd.get_chisq(
@@ -744,10 +760,10 @@ class Retrieval:
                 if dede.external_pRT_reference is not None:
                     if dede.external_pRT_reference == name:
                         if spectrum_model is None:
-                            return -1e99
+                            return invalid_value
 
                         if np.isnan(spectrum_model).any():
-                            return -1e99
+                            return invalid_value
 
                         log_likelihood += dede.get_chisq(
                             wlen_model,
@@ -757,13 +773,14 @@ class Retrieval:
                         ) + additional_logl
 
         if log_likelihood + log_prior < -9e98:
-            return -1e98
+            return invalid_value
 
         if np.abs(log_likelihood + log_prior) < 1e-98:
             return 1e-98
 
         if self.ultranest and np.isinf(log_likelihood + log_prior):
-            return -1e98
+            return invalid_value
+
         return log_likelihood + log_prior
 
     @staticmethod
