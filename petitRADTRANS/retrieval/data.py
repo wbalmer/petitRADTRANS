@@ -446,7 +446,7 @@ class Data:
 
         return log_l
 
-    def get_log_likelihood(self, spectrum_model, alpha=1.0):
+    def get_log_likelihood(self, spectrum_model):
         """Calculate the log-likelihood between the model and the data.
 
         The spectrum model must be on the same wavelength grid than the data.
@@ -454,8 +454,6 @@ class Data:
         Args:
             spectrum_model: numpy.ndarray
                 The model flux in the same units as the data.
-            alpha: float, optional
-                Model scaling coefficient.
 
         Returns:
             logL : float
@@ -465,12 +463,11 @@ class Data:
             model=spectrum_model,
             data=self.flux,
             uncertainties=self.flux_error,
-            alpha=alpha,
             beta=self.scale_factor
         )
 
     @staticmethod
-    def log_likelihood_gibson(model, data, uncertainties, alpha=1.0, beta=None):
+    def log_likelihood_gibson(model, data, uncertainties, beta=None):
         """Calculate the log-likelihood between the model and the data.
 
         The spectrum model must be on the same wavelength grid than the data.
@@ -508,8 +505,6 @@ class Data:
                 The data.
             uncertainties: numpy.ndarray
                 The uncertainties on the data.
-            alpha: float, optional
-                Model scaling coefficient.
             beta: float, optional
                 Noise scaling coefficient. If None,
 
@@ -519,7 +514,6 @@ class Data:
         """
         if beta is None:
             # "Automatically optimise" for beta
-            model = alpha * model
             chi2 = data - model
             chi2 /= uncertainties
             chi2 *= chi2
@@ -528,7 +522,6 @@ class Data:
             return - 0.5 * data.size * np.log(chi2 / data.size)
         else:
             # Classical log-likelihood
-            model = alpha * model
             uncertainties = beta * uncertainties
             chi2 = data - model
             chi2 /= uncertainties

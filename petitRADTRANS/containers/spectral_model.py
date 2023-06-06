@@ -1424,8 +1424,8 @@ class BaseSpectralModel:
 
     def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties, retrieval_directory,
                        retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
-                       mode='emission', update_parameters=False, telluric_transmittances=None,
-                       instrumental_deformations=None, noise_matrix=None,
+                       mode='emission', uncertainties_mode='default', update_parameters=False,
+                       telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
                        scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                        reduce=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
@@ -1523,6 +1523,7 @@ class BaseSpectralModel:
         retrieval = Retrieval(
             run_definition=retrieval_configuration,
             output_dir=retrieval_directory,
+            uncertainties_mode=uncertainties_mode,
             **kwargs
         )
 
@@ -1837,6 +1838,12 @@ class BaseSpectralModel:
             if hasattr(value, 'value'):
                 p[key] = p[key].value
 
+        # Handle beta
+        if 'beta' in p:
+            beta = copy.deepcopy(p['beta'])
+        else:
+            beta = None
+
         # Put retrieved species into imposed mass mixing ratio
         imposed_mass_mixing_ratios = {}
 
@@ -1871,7 +1878,7 @@ class BaseSpectralModel:
         for key, value in imposed_mass_mixing_ratios.items():
             p['imposed_mass_mixing_ratios'][key] = value
 
-        return spectrum_model.get_spectrum_model(
+        wavelengths, model = spectrum_model.get_spectrum_model(
             radtrans=prt_object,
             mode=mode,
             parameters=p,
@@ -1887,6 +1894,8 @@ class BaseSpectralModel:
             rebin=rebin,
             reduce=reduce
         )
+
+        return wavelengths, model, beta
 
     @staticmethod
     def run_retrieval(retrieval: Retrieval, n_live_points=100, resume=False, sampling_efficiency=0.8,

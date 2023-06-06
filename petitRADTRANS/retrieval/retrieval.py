@@ -59,20 +59,23 @@ class Retrieval:
             test_plotting parameter is True.
     """
 
-    def __init__(self,
-                 run_definition,
-                 output_dir="",
-                 test_plotting=False,
-                 sample_spec=False,
-                 ultranest=False,
-                 sampling_efficiency=None,
-                 const_efficiency_mode=None,
-                 n_live_points=None,
-                 resume=None,
-                 bayes_factor_species=None,
-                 corner_plot_names=None,
-                 short_names=None,
-                 pRT_plot_style=True):
+    def __init__(
+        self,
+        run_definition,
+        output_dir="",
+        test_plotting=False,
+        sample_spec=False,
+        ultranest=False,
+        sampling_efficiency=None,
+        const_efficiency_mode=None,
+        n_live_points=None,
+        resume=None,
+        bayes_factor_species=None,
+        corner_plot_names=None,
+        short_names=None,
+        pRT_plot_style=True,
+        uncertainties_mode="default"
+    ):
         self.rd = run_definition
         print(f"Starting retrieval {self.rd.retrieval_name}")
 
@@ -85,6 +88,8 @@ class Retrieval:
         self.run_mode = self.rd.run_mode
         self.parameters = self.rd.parameters
         self.ultranest = ultranest
+
+        self.uncertainties_mode = uncertainties_mode
 
         self.output_dir = output_dir
         if self.output_dir != "" and not self.output_dir.endswith("/"):
@@ -620,6 +625,21 @@ class Retrieval:
         log_prior = 0.
         additional_logl = 0.
 
+        retrieve_uncertainties = False
+        beta = 1.0
+
+        if self.uncertainties_mode == "default":
+            beta = 1.0
+        elif self.uncertainties_mode == "optimize":
+            warnings.warn("automatically optimizing for uncertainties, be sure of what you are doing...")
+            beta = None
+        elif self.uncertainties_mode == "retrieve":
+            warnings.warn("retrieving uncertainties, be sure of what you are doing...")
+            retrieve_uncertainties = True
+        else:
+            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve', "
+                             f"but was '{self.uncertainties_mode}'")
+
         i_p = 0  # parameter count
 
         for pp in self.parameters:
@@ -643,11 +663,21 @@ class Retrieval:
                         AMR=self.rd.AMR
                     )  # TODO the generating function should always return the same number of values
 
-                    if len(model_returned_values) == 3:
-                        wlen_model, spectrum_model, additional_logl = model_returned_values
+                    if retrieve_uncertainties:
+                        if len(model_returned_values) == 4:
+                            wlen_model, spectrum_model, beta, additional_logl = model_returned_values
+                        else:
+                            wlen_model, spectrum_model, beta = model_returned_values
+                            additional_logl = 0.
                     else:
-                        wlen_model, spectrum_model = model_returned_values
-                        additional_logl = 0.
+                        if len(model_returned_values) == 3:
+                            wlen_model, spectrum_model, additional_logl = model_returned_values
+                        else:
+                            wlen_model, spectrum_model = model_returned_values
+                            additional_logl = 0.
+
+                    if additional_logl is None:
+                        additional_logl = 0
 
                     # Ensure that the spectrum model has no masked values, so that no conversion to NaN is required
                     if isinstance(spectrum_model, np.ma.MaskedArray):
@@ -669,8 +699,7 @@ class Retrieval:
 
                                 log_likelihood += dd.log_likelihood_gibson(
                                     spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
-                                    alpha=1.0,
-                                    beta=1.0
+                                    beta=beta
                                 )
                         elif np.ndim(dd.flux) == 2:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -682,8 +711,7 @@ class Retrieval:
 
                                     log_likelihood += dd.log_likelihood_gibson(
                                         spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
-                                        alpha=1.0,
-                                        beta=1.0
+                                        beta=beta
                                     )
                         else:
                             raise ValueError(f"observation is an array containing object, "
@@ -707,8 +735,7 @@ class Retrieval:
                             for i, data in enumerate(dd.flux):
                                 log_likelihood += dd.log_likelihood_gibson(
                                     spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
-                                    alpha=1.0,
-                                    beta=1.0
+                                    beta=beta
                                 )
                         elif np.ndim(dd.flux) == 3:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -717,8 +744,7 @@ class Retrieval:
                                 for j, data in enumerate(detector):
                                     log_likelihood += dd.log_likelihood_gibson(
                                         spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
-                                        alpha=1.0,
-                                        beta=1.0
+                                        beta=beta
                                     )
                         else:
                             raise ValueError(f"observations have {np.ndim(dd.flux)} dimensions, but must have 1 to 3")
