@@ -644,8 +644,8 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations
     shape_a = copy.copy(spectrum_shape)
     shape_c = copy.copy(spectrum_shape)
 
-    shape_a.insert(0, shape_a.pop(-1))
-    shape_c.insert(0, shape_c.pop(-2))
+    shape_a.insert(0, shape_a.pop(-1))  # (..., order, exposure)
+    shape_c.insert(0, shape_c.pop(-2))  # (..., order, wavelength)
 
     uncertainties_squared_inverted = 1 / reduced_data_uncertainties ** 2
     spectrum_uncertainties_squared = reduced_data * uncertainties_squared_inverted
