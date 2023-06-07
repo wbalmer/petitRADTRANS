@@ -1841,6 +1841,8 @@ class BaseSpectralModel:
         # Handle beta
         if 'beta' in p:
             beta = copy.deepcopy(p['beta'])
+        elif 'log10_beta' in p:
+            beta = copy.deepcopy(10 ** p['log10_beta'])
         else:
             beta = None
 

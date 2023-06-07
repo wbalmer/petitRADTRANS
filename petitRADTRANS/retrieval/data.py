@@ -459,7 +459,7 @@ class Data:
             logL : float
                 The log likelihood of the model given the data.
         """
-        return self.log_likelihood_gibson(
+        return self.log_likelihood(
             model=spectrum_model,
             data=self.flux,
             uncertainties=self.flux_error,
@@ -467,13 +467,14 @@ class Data:
         )
 
     @staticmethod
-    def log_likelihood_gibson(model, data, uncertainties, beta=None):
+    def log_likelihood(model, data, uncertainties, beta=None, beta_mode='multiply'):
         """Calculate the log-likelihood between the model and the data.
 
         The spectrum model must be on the same wavelength grid than the data.
 
         From Gibson et al. 2020 (https://doi.org/10.1093/mnras/staa228). Constant terms are dropped and constant
         coefficients are set to 1.
+        The 'add' beta mode comes from Line et al. 2015 (DOI 10.1088/0004-637X/807/2/183).
 
         Set:
             chi2(A, B) = sum(((f_i - A * m_i) / (B * sig_i)) ** 2),  implicit sum on i
@@ -506,7 +507,9 @@ class Data:
             uncertainties: numpy.ndarray
                 The uncertainties on the data.
             beta: float, optional
-                Noise scaling coefficient. If None,
+                Noise scaling coefficient. If None, the noise scaling is "automatically optimised".
+            beta_mode: string, optional
+
 
         Returns:
             logL : float
@@ -522,13 +525,21 @@ class Data:
             return - 0.5 * data.size * np.log(chi2 / data.size)
         else:
             # Classical log-likelihood
-            uncertainties = beta * uncertainties
+            if beta_mode == 'multiply':
+                uncertainties = uncertainties * beta
+                penalty_term = - data.size * np.log(beta)
+            elif beta_mode == 'add':
+                uncertainties = uncertainties + beta
+                penalty_term = - np.sum(np.log(uncertainties))
+            else:
+                raise ValueError(f"beta mode must be 'multiply'|'add', but was '{beta_mode}'")
+
             chi2 = data - model
             chi2 /= uncertainties
             chi2 *= chi2
             chi2 = chi2.sum()
 
-            return - data.size * np.log(beta) - 0.5 * chi2
+            return penalty_term - 0.5 * chi2
 
     @staticmethod
     def convolve(input_wavelength,

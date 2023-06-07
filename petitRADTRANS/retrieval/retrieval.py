@@ -627,6 +627,7 @@ class Retrieval:
 
         retrieve_uncertainties = False
         beta = 1.0
+        beta_mode = "multiply"
 
         if self.uncertainties_mode == "default":
             beta = 1.0
@@ -634,10 +635,15 @@ class Retrieval:
             warnings.warn("automatically optimizing for uncertainties, be sure of what you are doing...")
             beta = None
         elif self.uncertainties_mode == "retrieve":
-            warnings.warn("retrieving uncertainties, be sure of what you are doing...")
+            warnings.warn("retrieving uncertainties (multiply mode), be sure of what you are doing...")
             retrieve_uncertainties = True
+            beta_mode = "multiply"
+        elif self.uncertainties_mode == "retrieve_add":
+            warnings.warn("retrieving uncertainties (add mode), be sure of what you are doing...")
+            retrieve_uncertainties = True
+            beta_mode = "add"
         else:
-            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve', "
+            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
                              f"but was '{self.uncertainties_mode}'")
 
         i_p = 0  # parameter count
@@ -697,9 +703,10 @@ class Retrieval:
                                 if np.isnan(spectrum_model[i][~dd.mask[i]]).any():
                                     return invalid_value
 
-                                log_likelihood += dd.log_likelihood_gibson(
+                                log_likelihood += dd.log_likelihood(
                                     spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
-                                    beta=beta
+                                    beta=beta,
+                                    beta_mode=beta_mode
                                 )
                         elif np.ndim(dd.flux) == 2:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -709,9 +716,10 @@ class Retrieval:
                                     if np.isnan(spectrum_model[i, j][~dd.mask[i, j]]).any():
                                         return invalid_value
 
-                                    log_likelihood += dd.log_likelihood_gibson(
+                                    log_likelihood += dd.log_likelihood(
                                         spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
-                                        beta=beta
+                                        beta=beta,
+                                        beta_mode=beta_mode
                                     )
                         else:
                             raise ValueError(f"observation is an array containing object, "
@@ -733,18 +741,20 @@ class Retrieval:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
                             # Second dimension of data must be a function of wavelength
                             for i, data in enumerate(dd.flux):
-                                log_likelihood += dd.log_likelihood_gibson(
+                                log_likelihood += dd.log_likelihood(
                                     spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
-                                    beta=beta
+                                    beta=beta,
+                                    beta_mode=beta_mode
                                 )
                         elif np.ndim(dd.flux) == 3:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
                             # Third dimension of data must be a function of wavelength
                             for i, detector in enumerate(dd.flux):
                                 for j, data in enumerate(detector):
-                                    log_likelihood += dd.log_likelihood_gibson(
+                                    log_likelihood += dd.log_likelihood(
                                         spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
-                                        beta=beta
+                                        beta=beta,
+                                        beta_mode=beta_mode
                                     )
                         else:
                             raise ValueError(f"observations have {np.ndim(dd.flux)} dimensions, but must have 1 to 3")
