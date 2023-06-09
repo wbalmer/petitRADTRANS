@@ -1,5 +1,8 @@
+import importlib.metadata
 import os
 import sys
+
+__version__ = importlib.metadata.version("petitRADTRANS")
 
 # Link to the libs folders on Windows
 extra_dll_dir = os.path.join(os.path.dirname(__file__), '.libs')

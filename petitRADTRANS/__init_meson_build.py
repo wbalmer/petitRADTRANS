@@ -1,6 +1,6 @@
 """Script to automatically make meson builds in submodules.
 Since meson does not support wildcards (https://mesonbuild.com/FAQ.html#why-cant-i-specify-target-files-with-a-wildcard)
-this is a way of quickly setup petitRADTRANS to be sure that every python files is included in the build.
+this is a way of quickly setup petitRADTRANS to be sure that every python files are included in the build.
 """
 import copy
 import os
@@ -92,11 +92,15 @@ def init_meson_build():
             install_str = "py.install_sources([\n"
 
             for file in content['files']:
-                install_str += f"    {file},\n"
+                install_str += f"    '{file}',\n"
+
+            install_str += "    ],\n"
 
             if directory[len(directory) - len(root):] != root:  # if directory is not root, add the 'subdir' keyword
-                install_str += "    ],\n" \
-                               f"    subdir: '{os.path.join(root, directory.rsplit(root + os.path.sep, 1)[1])}'\n"
+                subdir = '/'.join((root, directory.rsplit(root + os.path.sep, 1)[1]))
+                install_str += f"    subdir: '{subdir}'\n"
+            else:
+                install_str += f"    subdir: '{root}'\n"
 
             install_str += ")\n"
 
@@ -104,11 +108,14 @@ def init_meson_build():
 
         meson_build_file = os.path.join(directory, 'meson.build')
 
-        print(f"Writing meson build file '{meson_build_file}'...", end="")
+        if os.path.isfile(meson_build_file):
+            print(f"Updating meson build file '{meson_build_file}'...", end="")
+        else:
+            print(f"Writing new meson build file '{meson_build_file}'...", end="")
 
         with open(meson_build_file, 'w') as f:
             f.write(lines)
 
-        print(f" Done")
+        print(" Done")
 
-    print("petitRADTRANS setup for install")
+    print("petitRADTRANS ready for meson install")

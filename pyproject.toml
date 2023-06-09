@@ -1,0 +1,44 @@
+[build-system]
+build-backend = 'mesonpy'
+requires = [
+    "meson-python>=0.12.1",
+    "ninja>=1.8.2",
+    "Cython>=0.29.35",
+    "pybind11>=2.10.4",
+    "numpy"
+]
+
+[project]
+name = "petitRADTRANS"
+version = "3.0.0a53"
+description = "Exoplanet spectral synthesis tool for retrievals"
+repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
+documentation = "https://petitradtrans.readthedocs.io/en/latest/"
+authors = [
+    {name = "Paul Mollière", email = "molliere@mpia.de"},
+]
+readme = "README.rst"
+license = {file = "LICENSE"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Fortran",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy"
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "corner",
+    "h5py",
+    "matplotlib",
+    "molmass",
+    "pymultinest",
+    "pyvo",
+    "seaborn"
+]
