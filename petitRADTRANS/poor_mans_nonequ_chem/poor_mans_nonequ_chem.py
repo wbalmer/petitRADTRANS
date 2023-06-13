@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.poor_mans_nonequ_chem.chem_fortran_util import chem_fortran_util as cfu
+from petitRADTRANS.chem_fortran_util import chem_fortran_util as cfu
 
 path = petitradtrans_config['Paths']['pRT_input_data_path']
 

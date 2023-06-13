@@ -3,7 +3,7 @@
 project('petitRADTRANS',
     'c',
     # version must be updated here as well
-    version : '3.0.0a52',
+    version : '3.0.0a54',
     license: 'MIT',
     meson_version: '>=1.1.0',
     default_options : [
@@ -19,14 +19,17 @@ py_mod = import('python')
 py = py_mod.find_installation(pure: false)
 py_dep = py.dependency()
 
-# Prepare for compilation
+# Include f2py directories for compilation
+# Use relative paths to prevent meson for complaining about absolute paths
 incdir_numpy = run_command(py,
-    ['-c', 'import os; os.chdir(".."); import numpy; print(numpy.get_include())'],
+    ['-c',
+    'import os; os.chdir(".."); import numpy; print(os.path.relpath(numpy.get_include(), "./petitRADTRANS"))'],
     check : true
 ).stdout().strip()
 
 incdir_f2py = run_command(py,
-    ['-c', 'import os; os.chdir(".."); import numpy.f2py; print(numpy.f2py.get_include())'],
+    ['-c',
+    'import os; os.chdir(".."); import numpy.f2py; print(os.path.relpath(numpy.f2py.get_include(), "./petitRADTRANS"))'],
     check : true
 ).stdout().strip()
 
@@ -50,21 +53,12 @@ foreach extension_name : extension_names
 endforeach
 
 # Add extensions
-#if sys.OS() is 'Windows':  # TODO fix this
-#    compiler = '--compiler=mingw32'
-#endif
-
-#if sys.OS() is not 'Windows':
-#    compiler = ''
-#endif
-
-
 foreach extension_name, extension_file : extensions
     extension_module = extension_name + 'module.c'
     extension_source = custom_target(extension_module,
         input : [extension_file],
         output : [extension_module, extension_name + '-f2pywrappers2.f90'],
-        command : [py, '-m', 'numpy.f2py', compiler, '-m', extension_name, '@INPUT@']
+        command : [py, '-m', 'numpy.f2py', '-m', extension_name, '@INPUT@']
     )  # inform meson that the .f90 file need to be compiled using f2py
 
     py.extension_module(extension_name,

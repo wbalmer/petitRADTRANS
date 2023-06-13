@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a53] - 2023-06-09
+## [3.0.0-a54] - 2023-06-13
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed
-- 
+- petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
 - Functions and arguments now have clearer names.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.

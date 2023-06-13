@@ -1539,7 +1539,7 @@ module fort_spec
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-        subroutine get_rg_N(gravity, rho, rho_p, temp, MMW, frain, &
+        subroutine get_rg_n(gravity, rho, rho_p, temp, MMW, frain, &
              sigma_n, Kzz, r_g, struc_len, N_cloud_spec)
 
           use constants_block
@@ -1600,7 +1600,7 @@ module fort_spec
 
           end do
 
-        end subroutine get_rg_N
+        end subroutine get_rg_n
 
         subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain, &
                 b_h,Kzz,a_h,struc_len,N_cloud_spec)

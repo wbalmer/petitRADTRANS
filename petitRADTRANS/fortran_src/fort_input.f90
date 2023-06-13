@@ -646,7 +646,7 @@ module fort_input
         end subroutine mix_opas_ck
 
 
-        subroutine CIA_read(cpair,opacity_path_str,CIA_cpair_lambda, &
+        subroutine cia_read(cpair,opacity_path_str,CIA_cpair_lambda, &
                             CIA_cpair_temp,CIA_cpair_alpha_grid,temp, wlen)
             ! """
             ! Subroutine to read the CIA opacities.
@@ -729,7 +729,7 @@ module fort_input
             end do
 
             close(11)
-        end subroutine CIA_read
+        end subroutine cia_read
 
 
         subroutine get_arr_len_array_bords(wlen_min_read, wlen_max_read, &

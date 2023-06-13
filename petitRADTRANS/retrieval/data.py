@@ -7,7 +7,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 import petitRADTRANS.nat_cst as nc
-from .rebin_give_width import rebin_give_width
+from petitRADTRANS.rebin_give_width import rebin as rgw
 
 
 class Data:
@@ -387,10 +387,12 @@ class Data:
                                                    self.data_resolution)
 
                 # Rebin to model observation
-                flux_rebinned = rebin_give_width(wlen_model,
-                                                 spectrum_model,
-                                                 self.wlen,
-                                                 self.wlen_bins)
+                flux_rebinned = rgw.rebin_give_width(
+                    wlen_model,
+                    spectrum_model,
+                    self.wlen,
+                    self.wlen_bins
+                )
         else:
             flux_rebinned = \
                 self.photometric_transformation_function(wlen_model,

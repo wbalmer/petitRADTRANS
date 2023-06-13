@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.0.0a53"
+version = "3.0.0a54"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"
@@ -42,3 +42,19 @@ dependencies = [
     "pyvo",
     "seaborn"
 ]
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.pytest]
+norecursedirs = [
+    ".tox",
+    "build",
+    "docs",
+    "petitRADTRANS",
+    "testing",
+    "scripts"
+]
+
+#[tool.tox]  # TODO add when tox fully supports toml, for now setup is in setup.cfg
+#legacy_tox_ini = """"""

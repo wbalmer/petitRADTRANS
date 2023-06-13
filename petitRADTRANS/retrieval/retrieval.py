@@ -20,7 +20,7 @@ from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
 from petitRADTRANS.utils import running_mean
 from scipy.stats import binned_statistic
 
-from petitRADTRANS.retrieval.rebin_give_width import rebin_give_width as rgw
+from petitRADTRANS.rebin_give_width import rebin as rgw
 from petitRADTRANS.retrieval.util import bin_species_exok
 
 
