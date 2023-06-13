@@ -1,7 +1,7 @@
 subdir('retrieval')
 subdir('containers')
 subdir('config')
-subdir('slurm_runs')
+#subdir('slurm_runs')
 subdir('poor_mans_nonequ_chem')
 subdir('cli')
 subdir('ccf')
