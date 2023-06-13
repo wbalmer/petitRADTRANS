@@ -20,7 +20,7 @@ py = py_mod.find_installation(pure: false)
 py_dep = py.dependency()
 
 # Include f2py directories for compilation
-# Use relative paths to prevent meson for complaining about absolute paths
+# Use relative paths to prevent meson from complaining about absolute paths
 incdir_numpy = run_command(py,
     ['-c',
     'import os; os.chdir(".."); import numpy; print(os.path.relpath(numpy.get_include(), "./petitRADTRANS"))'],
