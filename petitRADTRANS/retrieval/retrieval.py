@@ -1880,6 +1880,18 @@ class Retrieval:
                          color='red', label='1 sig',
                          zorder=3)
 
+        '''
+        np.savetxt('pRT_PT_envelopes.dat',
+                   np.column_stack((pressures,
+                                    temps_sort[int(len_samp * (0.5 - 0.997 / 2.)), :],
+                                    temps_sort[int(len_samp * (0.5 - 0.95 / 2.)), :],
+                                    temps_sort[int(len_samp * (0.5 - 0.68 / 2.)), :],
+                                    temps_sort[int(len_samp * 0.5), :],
+                                    temps_sort[int(len_samp * (0.5 + 0.68 / 2.)), :],
+                                    temps_sort[int(len_samp * (0.5 + 0.95 / 2.)), :],
+                                    temps_sort[int(len_samp * (0.5 + 0.997 / 2.)), :])))
+        '''
+
         if contribution:
             self.PT_plot_mode = False
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
@@ -1954,6 +1966,8 @@ class Retrieval:
                     linewidth=1.,
                     label='Spectrally weighted contribution',
                     zorder=5)
+
+            #np.savetxt('spectrally_weighted_constribution.dat', np.column_stack((pressures, contr_em_weigh)))
 
         ax.set_yscale('log')
         try:
