@@ -239,6 +239,8 @@ class Data:
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
         self.wlen = obs[:,0]
+        if np.mean(self.wlen) > 1e2:
+            self.wlen/=1000
         self.flux = obs[:,1]
         self.flux_error = obs[:,2]
         self.update_covariance_from_flux_error()

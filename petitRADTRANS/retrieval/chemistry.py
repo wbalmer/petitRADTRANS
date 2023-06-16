@@ -125,8 +125,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             # Free cloud abundance
             clouds[cname] = 10**parameters['log_X_cb_'+cloud.split("_")[0]].value
         # Free cloud bases
-        if 'Pbase_'+cname in parameters.keys():
+        if 'log_Pbase_'+cname in parameters.keys():
             Pbases[cname] = 10**parameters['log_Pbase_'+cname].value
+        elif 'Pbase_'+cname in parameters.keys():
+            Pbases[cname] = parameters['Pbase_'+cname].value
         # Equilibrium locations
         elif 'Fe/H' in parameters.keys():
             Pbases[cname] = fc.simple_cdf(cname, pressures, temperatures,
