@@ -1579,10 +1579,10 @@ def radiosity_model(prt_object, parameters):
         abundances,
         10 ** parameters['log_g'].value,
         mmw,
-        Tstar=parameters['star_effective_temperature'].value,
-        Rstar=parameters['Rstar'].value,
+        t_star=parameters['star_effective_temperature'].value,
+        r_star=parameters['Rstar'].value,
         semimajoraxis=parameters['semi_major_axis'].value,
-        Pcloud=10 ** parameters['log_Pcloud'].value,
+        p_cloud=10 ** parameters['log_Pcloud'].value,
         #stellar_intensity=parameters['star_spectral_radiosity'].value
     )
 
@@ -1962,8 +1962,8 @@ def transit_radius_model(prt_object, parameters):
         abunds=abundances,
         gravity=10 ** parameters['log_g'].value,
         mmw=mmw,
-        P0_bar=parameters['reference_pressure'].value,
-        R_pl=parameters['R_pl'].value
+        p0_bar=parameters['reference_pressure'].value,
+        r_pl=parameters['R_pl'].value
     )
 
     # Transform the outputs into the units of our data.

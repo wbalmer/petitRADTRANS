@@ -545,8 +545,15 @@ class Retrieval:
                 if dd.opacity_mode == 'lbl' and dd.model_resolution is not None:
                     lbl_samp = int(1e6 / dd.model_resolution)
 
+                # Create random P-T profile to create RT arrays of the Radtrans object.
+                if self.rd.AMR:
+                    p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
+                else:
+                    p = self.rd.p_global
+
                 # Set up the pRT objects for the given dataset
                 rt_object = Radtrans(
+                    pressures=p,
                     line_species=cp.copy(species),
                     rayleigh_species=cp.copy(self.rd.rayleigh_species),
                     continuum_opacities=cp.copy(self.rd.continuum_opacities),
@@ -557,12 +564,6 @@ class Retrieval:
                     lbl_opacity_sampling=lbl_samp
                 )
 
-                # Create random P-T profile to create RT arrays of the Radtrans object.
-                if self.rd.AMR:
-                    p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
-                else:
-                    p = self.rd.p_global
-                rt_object.setup_opa_structure(p)
                 dd.pRT_object = rt_object
 
         if exo_k_check:
@@ -961,18 +962,6 @@ class Retrieval:
         parameters["contribution"] = Parameter("contribution", False, value=contribution)
 
         # Set up the pRT object
-        if pRT_object is not None:
-            atmosphere = pRT_object
-        elif pRT_reference is not None:
-            atmosphere = self.data[pRT_reference].pRT_object
-        else:
-            atmosphere = Radtrans(line_species=cp.copy(self.rd.line_species),
-                                  rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                                  continuum_opacities=cp.copy(self.rd.continuum_opacities),
-                                  cloud_species=cp.copy(self.rd.cloud_species),
-                                  mode='c-k',
-                                  wlen_bords_micron=[wmin * 0.98, wmax * 1.02],
-                                  do_scat_emis=self.rd.scattering)
         if self.rd.AMR:
             p = self.rd._setup_pres()
             parameters["pressure_scaling"] = self.parameters["pressure_scaling"]
@@ -980,7 +969,22 @@ class Retrieval:
             parameters["pressure_simple"] = self.parameters["pressure_simple"]
         else:
             p = self.rd.p_global
-        atmosphere.setup_opa_structure(p)
+
+        if pRT_object is not None:
+            atmosphere = pRT_object
+        elif pRT_reference is not None:
+            atmosphere = self.data[pRT_reference].pRT_object
+        else:
+            atmosphere = Radtrans(
+                pressures=p,
+                line_species=cp.copy(self.rd.line_species),
+                rayleigh_species=cp.copy(self.rd.rayleigh_species),
+                continuum_opacities=cp.copy(self.rd.continuum_opacities),
+                cloud_species=cp.copy(self.rd.cloud_species),
+                mode='c-k',
+                wlen_bords_micron=[wmin * 0.98, wmax * 1.02],
+                do_scat_emis=self.rd.scattering
+            )
 
         # Check what model function we're using
         if model_generating_func is None:
@@ -1330,19 +1334,22 @@ class Retrieval:
         for spec in self.rd.line_species:
             species.append(spec + "_R_" + str(resolution))
 
-        prt_object = Radtrans(line_species=cp.copy(self.rd.line_species),
-                              rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                              continuum_opacities=cp.copy(self.rd.continuum_opacities),
-                              cloud_species=cp.copy(self.rd.cloud_species),
-                              mode='c-k',
-                              wlen_bords_micron=[0.5, 28],
-                              do_scat_emis=self.rd.scattering)
         if self.rd.AMR:
             p = self.rd._setup_pres()
         else:
             p = self.rd.p_global
 
-        prt_object.setup_opa_structure(p)
+        prt_object = Radtrans(
+            pressures=p,
+            line_species=cp.copy(self.rd.line_species),
+            rayleigh_species=cp.copy(self.rd.rayleigh_species),
+            continuum_opacities=cp.copy(self.rd.continuum_opacities),
+            cloud_species=cp.copy(self.rd.cloud_species),
+            mode='c-k',
+            wlen_bords_micron=[0.5, 28],
+            do_scat_emis=self.rd.scattering
+        )
+
         tdict = {}
 
         for name in ret_names:

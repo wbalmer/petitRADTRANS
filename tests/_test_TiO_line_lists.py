@@ -49,8 +49,8 @@ R_pl = 1.838*nc.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
-atmosphere.calc_transm(temperature, abundances, gravity, MMW, R_pl=R_pl, P0_bar=P0)
-atmosphere2.calc_transm(temperature, abundances, gravity, MMW, R_pl=R_pl, P0_bar=P0)
+atmosphere.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere2.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 #import pdb
 #pdb.set_trace()
@@ -70,8 +70,8 @@ plt.show()
 
 temperature = 200. * np.ones_like(pressures)
 
-atmosphere.calc_transm(temperature, abundances, gravity, MMW, R_pl=R_pl, P0_bar=P0)
-atmosphere2.calc_transm(temperature, abundances, gravity, MMW, R_pl=R_pl, P0_bar=P0)
+atmosphere.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere2.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean, label = 'Plez')
 plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere2.transm_rad/nc.r_jup_mean, label = 'Exomol')

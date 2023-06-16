@@ -52,8 +52,8 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
         geometry='non-isotropic',
-        Tstar=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        Rstar=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
+        r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
         theta_star=radtrans_parameters['stellar_parameters']['incidence_angle']
     )

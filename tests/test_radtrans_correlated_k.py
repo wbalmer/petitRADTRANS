@@ -65,7 +65,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        Kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
         contribution=True
@@ -92,7 +92,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        Kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal']
     )
@@ -118,7 +118,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        Kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         b_hans=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['b_hansen'],
         dist='hansen'
@@ -142,8 +142,8 @@ def test_correlated_k_transmission_spectrum():
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure']
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
     # Comparison
@@ -164,8 +164,8 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
         kappa_zero=radtrans_parameters['cloud_parameters']['kappa_zero'],
         gamma_scat=radtrans_parameters['cloud_parameters']['gamma_scattering']
     )
@@ -188,9 +188,9 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        Pcloud=radtrans_parameters['cloud_parameters']['cloud_pressure']
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        p_cloud=radtrans_parameters['cloud_parameters']['cloud_pressure']
     )
 
     # Comparison
@@ -211,8 +211,8 @@ def test_correlated_k_transmission_spectrum_rayleigh():
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
         haze_factor=radtrans_parameters['cloud_parameters']['haze_factor']
     )
 
@@ -237,8 +237,8 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
         radius={'Mg2SiO4(c)': radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['radius']},
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal']
     )
@@ -264,9 +264,9 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        Kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
         contribution=True
@@ -297,9 +297,9 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
         abunds=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        R_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        Kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal']
     )

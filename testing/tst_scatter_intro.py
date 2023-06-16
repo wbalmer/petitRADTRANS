@@ -63,8 +63,8 @@ if case1:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW, \
-                           Kzz = Kzz, fsed=fsed, sigma_lnorm = sigma_lnorm, \
-                           contribution = False)
+                         kzz= Kzz, fsed=fsed, sigma_lnorm = sigma_lnorm, \
+                         contribution = False)
     plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.flux/1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
     contribution_scat = atmosphere.contr_em
@@ -120,9 +120,9 @@ if case2:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW, \
-                         Kzz=Kzz, fsed=fsed, sigma_lnorm=sigma_lnorm, \
-                         geometry='non-isotropic', Tstar=5778, \
-                         Rstar=nc.r_sun, semimajoraxis=0.05 * nc.AU, \
+                         kzz=Kzz, fsed=fsed, sigma_lnorm=sigma_lnorm, \
+                         geometry='non-isotropic', t_star=5778, \
+                         r_star=nc.r_sun, semimajoraxis=0.05 * nc.AU, \
                          theta_star=30.)
     plt.plot(nc.c / atmosphere.freq / 1e-4, atmosphere.flux / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
@@ -181,9 +181,9 @@ if case3:
         atmosphere.reflectance = r * np.ones_like(atmosphere.freq)
 
         atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW, \
-                             Kzz=Kzz, fsed=fsed, sigma_lnorm=sigma_lnorm, \
-                             geometry='planetary_ave', Tstar=5778, \
-                             Rstar=nc.r_sun, semimajoraxis=nc.AU)
+                             kzz=Kzz, fsed=fsed, sigma_lnorm=sigma_lnorm, \
+                             geometry='planetary_ave', t_star=5778, \
+                             r_star=nc.r_sun, semimajoraxis=nc.AU)
 
         plt.semilogy(nc.c / atmosphere.freq / 1e-4, atmosphere.flux / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)

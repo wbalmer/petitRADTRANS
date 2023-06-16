@@ -672,10 +672,10 @@ class SpectralModelLegacy:
             abunds=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
             mmw=mean_molar_mass,
-            Tstar=parameters['star_effective_temperature'].value,
-            Rstar=parameters['star_radius'].value,
+            t_star=parameters['star_effective_temperature'].value,
+            r_star=parameters['star_radius'].value,
             semimajoraxis=parameters['semi_major_axis'].value,
-            Pcloud=10 ** parameters['log10_cloud_pressure'].value,
+            p_cloud=10 ** parameters['log10_cloud_pressure'].value,
             # stellar_intensity=parameters['star_spectral_radiosity'].value
         )
 
@@ -698,8 +698,8 @@ class SpectralModelLegacy:
             abunds=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
             mmw=mean_molar_mass,
-            P0_bar=parameters['reference_pressure'].value,
-            R_pl=parameters['planet_radius'].value
+            p0_bar=parameters['reference_pressure'].value,
+            r_pl=parameters['planet_radius'].value
         )
 
         # Transform the outputs into the units of our data.
@@ -816,10 +816,10 @@ class SpectralModelLegacy:
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
-            Tstar=planet.star_effective_temperature,
-            Rstar=planet.star_radius,
+            t_star=planet.star_effective_temperature,
+            r_star=planet.star_radius,
             semimajoraxis=planet.orbit_semi_major_axis,
-            Pcloud=self.p_cloud
+            p_cloud=self.p_cloud
         )
 
         flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.freq)
@@ -836,9 +836,9 @@ class SpectralModelLegacy:
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
-            R_pl=planet.radius,
-            P0_bar=planet.reference_pressure,
-            Pcloud=self.p_cloud,
+            r_pl=planet.radius,
+            p0_bar=planet.reference_pressure,
+            p_cloud=self.p_cloud,
             haze_factor=self.haze_factor,
         )
 

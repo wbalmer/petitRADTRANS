@@ -397,8 +397,8 @@ def _transit_radius_model(prt_object, parameters):
         abunds=abundances,
         gravity=surface_gravity,
         mmw=mmw,
-        P0_bar=parameters['reference_pressure'].value,
-        R_pl=pr
+        p0_bar=parameters['reference_pressure'].value,
+        r_pl=pr
     )
 
     # Transform the outputs into the units of our data.

@@ -199,9 +199,9 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
         abundances,
         10 ** parameters['log_g'].value,
         mmw,
-        R_pl=parameters['R_pl'].value,
-        P0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        Pcloud=10 ** parameters['log_Pcloud'].value
+        r_pl=parameters['R_pl'].value,
+        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        p_cloud=10 ** parameters['log_Pcloud'].value
     )
 
     # Transform the outputs into the units of our data.

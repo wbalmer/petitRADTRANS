@@ -41,6 +41,6 @@ mass_fractions['K'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-atmosphere.calc_transm(temperature, mass_fractions, gravity, MMW, R_pl=R_pl, P0_bar=P0)
+atmosphere.calc_transm(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW)
