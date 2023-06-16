@@ -971,7 +971,7 @@ def sysrem(n_data, n_spectra, data_in, errors_in):
         # two sets a & c.
         cor1 = a1 * c1
 
-    data_out = np.copy(data_in - cor1)
+    data_out = np.copy(data_in / cor1)  # divide instead of subtract to respect Eq. 16
 
     return data_out, cor1
 

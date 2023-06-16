@@ -273,8 +273,10 @@ def find_best_detector_selection(first_guess, detector_list, ccf_norm_select, rv
 
 
 def get_model(planet, wavelengths_instrument, system_observer_radial_velocities, kp_range, ccf_velocities,
-              orbital_phases, airmass, uncertainties, detector_selection,
+              times, mid_transit_time, airmass, uncertainties, detector_selection,
               tellurics_mask_threshold=0.5, mode='transmission'):
+    # Mock_observations
+    print('Initializing model...')
     spectral_model = SpectralModel(
         # Radtrans object parameters
         pressures=np.logspace(-10, 2, 100),  # bar
@@ -283,6 +285,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
             'CO_all_iso',
             'H2O_main_iso',
             # 'H2S_main_iso',
+            # 'HCN_main_iso',
             # 'NH3_main_iso'
         ],
         rayleigh_species=['H2', 'He'],
@@ -308,15 +311,22 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         planet_surface_gravity=planet.surface_gravity,  # cm.s-2
         reference_pressure=1e-2,  # bar
         cloud_pressure=1e2,
+        # haze_factor=1,
+        # scattering_opacity_350nm=1e-6,
+        # scattering_opacity_coefficient=-12,
         # Instrument parameters
         new_resolving_power=9.2e4,
-        output_wavelengths=wavelengths_instrument,  # um
+        output_wavelengths=wavelengths_instrument[:, 0],  # um
         # Scaling parameters
         star_radius=planet.star_radius,  # cm
         # Orbital parameters
+        times=times,
         star_mass=planet.star_mass,  # g
-        semi_major_axis=planet.orbit_semi_major_axis,  # cm
-        orbital_phases=orbital_phases,
+        orbit_semi_major_axis=planet.orbit_semi_major_axis,  # cm
+        mid_transit_time=mid_transit_time,  # TODO +0
+        orbital_period=planet.orbital_period,
+        orbital_inclination=planet.orbital_inclination,
+        transit_duration=planet.transit_duration,
         system_observer_radial_velocities=system_observer_radial_velocities,  # cm.s-1
         planet_rest_frame_velocity_shift=0.0,  # cm.s-1
         planet_orbital_inclination=planet.orbital_inclination,
@@ -328,21 +338,21 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         apply_throughput_removal=True,
         apply_telluric_lines_removal=True,
         # Special parameters
+        rebin_range_margin_power=3,
         constance_tolerance=1e300,  # force constant convolve
         detector_selection=detector_selection
     )
 
     retrieval_velocities = spectral_model.get_retrieval_velocities(
         planet_radial_velocity_amplitude_range=kp_range,
-        planet_rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities))
+        planet_rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities)),
+        mid_transit_times_range=(0, 0)
     )
-
-    retrieval_velocities[0] -= 5e5
-    retrieval_velocities[1] += 5e5
 
     spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
         relative_velocities=retrieval_velocities
     )
+    print(kp_range, (np.min(ccf_velocities), np.max(ccf_velocities)), spectral_model.wavelengths_boundaries)
 
     radtrans = spectral_model.get_radtrans()
 
@@ -403,6 +413,26 @@ def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
         observations = observations[:, :, truncate + 5:-truncate]
         uncertainties = uncertainties[:, :, truncate + 5:-truncate]
         wavelengths_instrument = wavelengths_instrument[:, :, truncate + 5:-truncate]
+
+    nan_orders = np.all(np.all(np.isnan(observations), axis=-1), axis=-1)  # all wavelengths, all exposures
+
+    if np.any(nan_orders):
+        print(f"Removing all-nans orders {list(np.nonzero(nan_orders)[0])}...")
+        wavelengths_instrument = np.delete(
+            wavelengths_instrument,
+            nan_orders,
+            axis=0
+        )
+        observations = np.delete(
+            observations,
+            nan_orders,
+            axis=0
+        )
+        uncertainties = np.delete(
+            uncertainties,
+            nan_orders,
+            axis=0
+        )
 
     # Mask invalid points
     observations = np.ma.masked_invalid(observations)
@@ -541,7 +571,7 @@ def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, da
     if data_source == 'rico':
         wavelengths_instrument, observations, uncertainties, times = load_rico_data(
             os.path.join(module_dir, 'crires', planet.name.lower().replace(' ', '_'),
-                         'hd209_crires_v2', dates[night], 'correct_wavelengths'),
+                         'hd209_crires_v3', dates[night], 'correct_wavelengths'),
             interpolate_to_common_wl=True,
             nodes=nodes
         )
@@ -578,21 +608,21 @@ def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, da
     times = (times - mid_transit_time) * nc.snc.day
     orbital_phases = planet.get_orbital_phases(0, planet.orbital_period, times)
 
-    wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,
-                                 times <= planet_transit_duration / 2))[0]
-
-    if len(wh) == 0:
-        raise ValueError(f"no in-transit data found "
-                         f"(times: [{np.min(times)}, {np.max(times)}], mid transit: {mid_transit_time})")
-
-    wavelengths_instrument = wavelengths_instrument[:, wh, :]
-    observations = observations[:, wh, :]
-    uncertainties = uncertainties[:, wh, :]
-    times = times[wh]
-
-    orbital_phases = orbital_phases[wh]
-    berv = berv[wh]
-    airmass = airmass[wh]
+    # wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,
+    #                              times <= planet_transit_duration / 2))[0]
+    #
+    # if len(wh) == 0:
+    #     raise ValueError(f"no in-transit data found "
+    #                      f"(times: [{np.min(times)}, {np.max(times)}], mid transit: {mid_transit_time})")
+    #
+    # wavelengths_instrument = wavelengths_instrument[:, wh, :]
+    # observations = observations[:, wh, :]
+    # uncertainties = uncertainties[:, wh, :]
+    # times = times[wh]
+    #
+    # orbital_phases = orbital_phases[wh]
+    # berv = berv[wh]
+    # airmass = airmass[wh]
 
     kp = planet.calculate_orbital_velocity(planet.star_mass, planet.orbit_semi_major_axis)
     v_sys = planet.star_radial_velocity - berv * 1e2
@@ -614,7 +644,7 @@ def main():
     additional_data_directory = os.path.join(output_directory, 'data')
 
     planet = Planet.get(planet_name)
-    night = 0
+    night = 2
     lsf_fwhm = 1.9e5
     pixels_per_resolution_element = 2
     kp_factor = 1.5
@@ -665,7 +695,7 @@ def main():
                 night=night,
                 mid_transit_time=mid_transit_time,
                 data_source='rico',
-                nodes='both'
+                nodes='B'
             )
 
         ccf_velocities = ccf_radial_velocity(
@@ -720,13 +750,15 @@ def main():
         kpj = None
 
     print("Generating model...")
+    print(times)
     wavelengths_model, model, spectral_model, radtrans = get_model(
         planet=planet,
         wavelengths_instrument=wavelengths_instrument,
         system_observer_radial_velocities=v_sys,
         kp_range=np.array([-kp, kp]) * kp_factor,
         ccf_velocities=ccf_velocities,
-        orbital_phases=orbital_phases,
+        times=times,
+        mid_transit_time=mid_transit_time,
         airmass=airmass,
         uncertainties=uncertainties,
         detector_selection=None,
@@ -771,13 +803,14 @@ def main():
             telluric_transmittances=telluric_transmittances,
             instrumental_deformations=variable_throughput,
             noise_matrix=noise_matrix,
+            use_transit_light_loss=True,
             scale=True,
             shift=True,
             convolve=True,
             rebin=True
         )
 
-        print("Preparing mock data...")
+        print("Preparing model...")
         prepared_mock_data, reprocessing_mock_matrix, prepared_mock_data_uncertainties = spectral_model.pipeline(
             spectrum=mock_observations,
             wavelength=wavelengths_instrument,
@@ -827,7 +860,7 @@ def main():
             ccf_sum_axes=None,
             planet_radial_velocity_amplitude=kp,
             system_observer_radial_velocities=v_sys,
-            orbital_phases=orbital_phases,
+            orbital_longitudes=np.rad2deg(orbital_phases * 2 * np.pi),
             planet_orbital_inclination=planet.orbital_inclination,
             line_spread_function_fwhm=lsf_fwhm,
             pixels_per_resolution_element=pixels_per_resolution_element,
@@ -846,7 +879,7 @@ def main():
         kp_factor=kp_factor
     )
 
-    detector_selection = np.array(range(5, 22))
+    detector_selection = np.arange(0, observations.shape[0])
 
     ccf_sum = np.array([np.sum(ccfs[detector_selection], axis=0)])
 

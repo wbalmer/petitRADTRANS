@@ -428,7 +428,7 @@ def _pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations,
 
             for i, det in enumerate(data_):
                 for j, data in enumerate(det):
-                    logl += Data.log_likelihood_gibson(
+                    logl += Data.log_likelihood(
                         model=s[i, j, ~mask_[i, j, :]],
                         data=data,
                         uncertainties=error_[i, j],

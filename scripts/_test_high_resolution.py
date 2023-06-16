@@ -21,7 +21,7 @@ from scripts.mock_observation import add_telluric_lines, add_variable_throughput
     get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
 from scripts.model_containers import SpectralModelLegacy
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, pipeline_validity_test
+from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import guillot_global, doppler_shift
@@ -863,12 +863,12 @@ def init_parameters(planet, line_species_str, mode,
     noiseless_reduced_spectra, _, _ = preparing_pipeline(ts * deformation_matrix, airmass=airmass, mean=median,
                                                          uncertainties=true_parameters['data_noise'].value)
 
-    pipeline_test_noiseless = pipeline_validity_test(
+    pipeline_test_noiseless = bias_pipeline_metric(
         reduced_true_model=r,
         reduced_mock_observations=noiseless_reduced_spectra
     )
 
-    pipeline_test = pipeline_validity_test(
+    pipeline_test = bias_pipeline_metric(
         reduced_true_model=r,
         reduced_mock_observations=reduced_mock_observations,
         mock_observations_reduction_matrix=reduction_matrix,
@@ -1217,7 +1217,7 @@ def log_likelihood_3d(model, data, error):
 
     for i, det in enumerate(data):
         for j, spectrum in enumerate(det):
-            logl += Data.log_likelihood_gibson(
+            logl += Data.log_likelihood(
                 model=model[i, j, ~data.mask[i, j, :]],
                 data=spectrum[~data.mask[i, j, :]],
                 uncertainties=error[i, j, ~data.mask[i, j, :]],
@@ -1540,7 +1540,7 @@ def pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations, 
 
             for i, det in enumerate(data_):
                 for j, data in enumerate(det):
-                    logl += Data.log_likelihood_gibson(
+                    logl += Data.log_likelihood(
                         model=s[i, j, ~mask_[i, j, :]],
                         data=data,
                         uncertainties=error_[i, j],

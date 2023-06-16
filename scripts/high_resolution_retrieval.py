@@ -12,7 +12,7 @@ import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
-from petitRADTRANS.retrieval.preparing import preparing_pipeline, pipeline_validity_test
+from petitRADTRANS.retrieval.preparing import preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import get_PHOENIX_spec
@@ -410,7 +410,7 @@ def _pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations,
 
             for i, det in enumerate(data_):
                 for j, data in enumerate(det):
-                    logl += Data.log_likelihood_gibson(
+                    logl += Data.log_likelihood(
                         model=s[i, j, ~mask_[i, j, :]],
                         data=data,
                         uncertainties=error_[i, j],
@@ -962,12 +962,12 @@ def init_mock_observations(planet, line_species_str, mode,
     true_parameters['true_log_l'] = Param(true_log_l[0][0])
     true_parameters['true_chi2'] = Param(true_chi2)
 
-    pipeline_test_noiseless = pipeline_validity_test(
+    pipeline_test_noiseless = bias_pipeline_metric(
         reduced_true_model=r,
         reduced_mock_observations=fmtd
     )
 
-    pipeline_test = pipeline_validity_test(
+    pipeline_test = bias_pipeline_metric(
         reduced_true_model=r,
         reduced_mock_observations=reduced_mock_observations,
         mock_observations_reduction_matrix=reduction_matrix,

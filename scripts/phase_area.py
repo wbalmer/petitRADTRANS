@@ -1,6 +1,6 @@
 import numpy as np
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.retrieval.rebin_give_width import rebin_give_width as rgw
+from petitRADTRANS.rebin_give_width import rebin as rgw
 import time
 
 '''
