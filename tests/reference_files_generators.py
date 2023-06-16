@@ -556,7 +556,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_hansen_radius_ref(plot_
     __save_emission_spectrum(
         reference_filenames['correlated_k_emission_cloud_hansen_radius'], atmosphere_ck, plot_figure,
         'Correlated-k emission spectrum, with non-gray cloud using Hansen radius',
-        prt_version=petitRADTRANS.version.version
+        prt_version=petitRADTRANS.__version__
     )
 
 

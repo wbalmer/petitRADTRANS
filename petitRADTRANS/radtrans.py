@@ -11,7 +11,6 @@ from scipy.interpolate import interp1d
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS import phoenix
-from petitRADTRANS import pyth_input as pyi
 from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.fort_spec import fort_spec as fs
@@ -474,6 +473,93 @@ class Radtrans:
             line_struc_kappas, line_struc_kappas_comb, total_tau, line_abundances, cloud_mass_fracs, r_g
 
     @staticmethod
+    def _sort_opa_pt_grid(path_ptg):
+        # Read the Ps and Ts
+        p_ts = np.genfromtxt(path_ptg)
+
+        # Read the file names
+        with open(path_ptg, 'r') as f:
+            lines = f.readlines()
+
+        n_entries = len(lines)
+
+        # Prepare the array to contain the
+        # pressures, temperatures, indices in the unsorted list.
+        # Also prepare the list of unsorted names
+        p_tind = np.ones(n_entries * 3).reshape(n_entries, 3)
+        names = []
+
+        # Fill the array and name list
+        for i_line in range(n_entries):
+
+            line = lines[i_line]
+            lsp = line.split(' ')
+
+            p_tind[i_line, 0], p_tind[i_line, 1], p_tind[i_line, 2] = \
+                p_ts[i_line, 0], p_ts[i_line, 1], i_line
+
+            if lsp[-1][-1] == '\n':
+                names.append(lsp[-1][:-1])
+            else:
+                names.append(lsp[-1])
+
+        # Sort the array by temperature
+        tsortind = np.argsort(p_tind[:, 1])
+        p_tind = p_tind[tsortind, :]
+
+        # Sort the array entries with constant
+        # temperatures by pressure
+        diff_ps = 0
+        t_start = p_tind[0, 1]
+
+        for i in range(n_entries):
+            if np.abs(p_tind[i, 1] - t_start) > 1e-10:
+                break
+            diff_ps = diff_ps + 1
+
+        diff_ts = int(n_entries / diff_ps)
+        for i_dT in range(diff_ts):
+            subsort = p_tind[i_dT * diff_ps:(i_dT + 1) * diff_ps, :]
+            psortind = np.argsort(subsort[:, 0])
+            subsort = subsort[psortind, :]
+            p_tind[i_dT * diff_ps:(i_dT + 1) * diff_ps, :] = subsort
+
+        names_sorted = []
+        for i_line in range(n_entries):
+            names_sorted.append(names[int(p_tind[i_line, 2] + 0.01)])
+
+        # Convert from bars to cgs
+        p_tind[:, 0] = p_tind[:, 0] * 1e6
+
+        return [p_tind[:, :-1][:, ::-1], names_sorted, diff_ts, diff_ps]
+
+    def get_custom_pt_grid(self, path, mode, species):
+        """Check if custom grid exists, if yes return sorted P-T array with corresponding sorted path_input_data names,
+        return None otherwise.
+
+        Args:
+            path:
+            mode:
+            species:
+
+        Returns:
+
+        """
+        path_test = path + '/opacities/lines/'
+
+        if mode == 'lbl':
+            path_test = path_test + 'line_by_line/'
+        elif mode == 'c-k':
+            path_test = path_test + 'corr_k/'
+
+        path_test = path_test + species + '/PTpaths.ls'
+
+        if not os.path.isfile(path_test):
+            return None
+        else:
+            return self._sort_opa_pt_grid(path_test)
+
+    @staticmethod
     def calc_borders(x):
         # Return bin borders for midpoints.
         xn = [x[0] - (x[1] - x[0]) / 2.]
@@ -602,9 +688,9 @@ class Radtrans:
         # Calc. H- opacity
         if self.Hminus:
             self.continuum_opa = \
-                self.continuum_opa + pyi.hminus_opacity(self.lambda_angstroem,
-                                                        self.border_lambda_angstroem,
-                                                        self.temp, self.press, mmw, abundances)
+                self.continuum_opa + hminus_opacity(self.lambda_angstroem,
+                                                    self.border_lambda_angstroem,
+                                                    self.temp, self.press, mmw, abundances)
 
         # Add mock gray cloud opacity here
         if self.gray_opacity is not None:
@@ -2148,7 +2234,7 @@ class Radtrans:
             len(self.line_TP_grid[:, 1]), 2), dtype='d', order='F')
 
         # Check if species has custom P-T grid and reads in this grid.
-        # Grid must be sorted appropriately, but the pyi.get_custom_grid()
+        # Grid must be sorted appropriately, but the get_custom_grid()
         # will do that for the user in case a randomly ordered PTpaths.ls
         # is specified by the user in the opacity folder of the relevant species.
         # Only condition: it needs to be rectangular.
@@ -2176,9 +2262,9 @@ class Radtrans:
                 if not chubb:
                     # Check and sort custom grid for species, if defined.
                     custom_grid_data = \
-                        pyi.get_custom_PT_grid(path_input_data,
-                                               self.mode,
-                                               self.line_species[i_spec])
+                        self.get_custom_pt_grid(path_input_data,
+                                                self.mode,
+                                                self.line_species[i_spec])
 
                     # If no custom grid was specified (no PTpaths.ls found):
                     # take nominal grid. This assumes that the files indeed
@@ -2333,7 +2419,6 @@ class Radtrans:
                         self.line_grid_kappas_custom_PT[self.line_species[i_spec]] = \
                             self.line_grid_kappas_custom_PT[
                                 self.line_species[i_spec]][:, ::self.lbl_opacity_sampling, :]
-
                 else:  # read in the Exomol k-table by Katy Chubb if requested by the user
                     print('  Read line opacities of ' + self.line_species[i_spec] + '...')
 
@@ -2451,6 +2536,112 @@ class Radtrans:
         self.cloud_lambdas = np.array(cloud_lambdas, dtype='d', order='F')
         self.cloud_rad_bins = np.array(cloud_rad_bins, dtype='d', order='F')
         self.cloud_radii = np.array(cloud_radii, dtype='d', order='F')
+
+
+def __sigma_hm_ff(lambda_angstroem, temp, P_e):
+    """
+    Returns the H- free-free cross-section in units of cm^2
+    per H per e- pressure (in cgs), as defined on page 156 of
+    "The Observation and Analysis of Stellar Photospheres"
+    by David F. Gray
+    """
+
+    index = (lambda_angstroem >= 2600.) & (lambda_angstroem <= 113900.)
+    lamb_use = lambda_angstroem[index]
+
+    if temp >= 2500.:
+        # Convert to Angstrom (from cgs)
+        theta = 5040. / temp
+
+        f0 = -2.2763 - 1.6850 * np.log10(lamb_use) \
+            + 0.76661*np.log10(lamb_use)**2. \
+            - 0.053346*np.log10(lamb_use)**3.
+        f1 = 15.2827 - 9.2846 * np.log10(lamb_use) \
+            + 1.99381*np.log10(lamb_use)**2. \
+            - 0.142631*np.log10(lamb_use)**3.
+        f2 = -197.789 + 190.266 * np.log10(lamb_use) - 67.9775*np.log10(lamb_use)**2. \
+            + 10.6913*np.log10(lamb_use)**3. - 0.625151*np.log10(lamb_use)**4.
+
+        ret_val = np.zeros_like(lambda_angstroem)
+        ret_val[index] = 1e-26 * P_e * 1e1 ** (
+                f0 + f1 * np.log10(theta) + f2 * np.log10(theta) ** 2.)
+        return ret_val
+
+    else:
+
+        return np.zeros_like(lambda_angstroem)
+
+
+def __sigma_bf_mean(border_lambda_angstroem):
+    """
+    Returns the H- bound-free cross-section in units of cm^2 \
+    per H-, as defined on page 155 of
+    "The Observation and Analysis of Stellar Photospheres"
+    by David F. Gray
+    """
+
+    left = border_lambda_angstroem[:-1]
+    right = border_lambda_angstroem[1:]
+    diff = np.diff(border_lambda_angstroem)
+
+    a = [
+        1.99654,
+        -1.18267e-5,
+        2.64243e-6,
+        -4.40524e-10,
+        3.23992e-14,
+        -1.39568e-18,
+        2.78701e-23
+    ]
+
+    ret_val = np.zeros_like(border_lambda_angstroem[1:])
+
+    index = right <= 1.64e4
+
+    for i_a in range(len(a)):
+        ret_val[index] += a[i_a] * (
+                right[index] ** (i_a + 1) - left[index] ** (i_a + 1)
+        ) / (i_a + 1)
+
+    index_bracket = (left < 1.64e4) & (right > 1.64e4)
+    for i_a in range(len(a)):
+        ret_val[index_bracket] += a[i_a] * (1.64e4 ** (i_a + 1) -
+                                            left[index_bracket] ** (i_a + 1)) / (i_a + 1)
+
+    index = (left + right) / 2. > 1.64e4
+    ret_val[index] = 0.
+    index = ret_val < 0.
+    ret_val[index] = 0.
+
+    return ret_val * 1e-18 / diff
+
+
+def hminus_opacity(lambda_angstroem, border_lambda_angstroem,
+                   temp, press, mmw, abundances):
+    """ Calc the H- opacity."""
+
+    ret_val = np.array(np.zeros(len(lambda_angstroem) * len(press)).reshape(
+        len(lambda_angstroem),
+        len(press)), dtype='d', order='F')
+
+    # Calc. electron number fraction
+    # e- mass in amu:
+    m_e = 5.485799e-4
+    n_e = mmw / m_e * abundances['e-']
+
+    # Calc. e- partial pressure
+    p_e = press * n_e
+
+    kappa_hminus_bf = __sigma_bf_mean(border_lambda_angstroem) / nc.amu
+
+    for i_struct in range(len(n_e)):
+        kappa_hminus_ff = __sigma_hm_ff(lambda_angstroem, temp[i_struct],
+                                        p_e[i_struct]) / nc.amu * abundances['H'][i_struct]
+
+        ret_val[:, i_struct] = kappa_hminus_bf * abundances['H-'][i_struct] \
+            + kappa_hminus_ff
+
+    return ret_val
 
 
 def py_calc_cloud_opas(
