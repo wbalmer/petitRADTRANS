@@ -571,9 +571,11 @@ class Radtrans:
         if "hansen" in dist.lower():
             if isinstance(b_hans, np.ndarray):
                 if not b_hans.shape == (self.press.shape[0], len(self.cloud_species)):
-                    print("b_hans must be a float, a dictionary with arrays for each cloud species,")
-                    print("or a numpy array with shape (pressures.shape[0],len(cloud_species)).")
-                    sys.exit(15)
+                    raise ValueError(
+                        "b_hans must be a float, a dictionary with arrays for each cloud species, "
+                        f"or a numpy array with shape {(self.press.shape[0],len(self.cloud_species))}, "
+                        f"but was of shape {np.shape(b_hans)}"
+                    )
             elif isinstance(b_hans, dict):
                 b_hans = np.array(list(b_hans.values()), dtype='d', order='F').T
             elif isinstance(b_hans, float):
@@ -1345,9 +1347,9 @@ class Radtrans:
                     distribution normalized by the particle area (1/a_hans^2)
         """
         if not self.do_scat_emis:
-            print('Error: pRT must run in do_scat_emis = True mode to calculate'
-                  ' kappa_Rosseland and kappa_Planck')
-            sys.exit(1)
+            raise ValueError(
+                "pRT must run in do_scat_emis = True mode to calculate kappa_Rosseland and kappa_Planck'"
+            )
 
         self.Pcloud = p_cloud
         self.haze_factor = haze_factor

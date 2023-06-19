@@ -1049,6 +1049,7 @@ class BaseSpectralModel:
         Returns:
             optimal_wavelengths_boundaries: (um) the optimal wavelengths boundaries for the spectrum
         """
+        # TODO fix automatic wavelengths boundaries being sometimes not wide enough by a very small amount
         if output_wavelengths is None:
             output_wavelengths = self.model_parameters['output_wavelengths']
 
