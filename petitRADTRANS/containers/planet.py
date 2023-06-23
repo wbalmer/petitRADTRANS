@@ -890,7 +890,6 @@ class Planet:
 
             if not skip_unit_conversion:
                 value *= np.deg2rad(1e-3 / 3600 / nc.snc.year)
-
         elif key == 'hostname':
             key = 'host_name'
         elif key == 'discoverymethod':
@@ -940,6 +939,22 @@ class Planet:
             key = key[3:]
 
         return value, key
+
+    @staticmethod
+    def bjd_utc2bjd_tmd(times_utc, ra, dec, site_name=None, latitude=None, longitude=None, height=None):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        times_utc = Time(times_utc, format='jd', scale='utc')
+        times_tmd = times_utc.tdb + times_utc.light_travel_time(target_coordinates, location=observer_location)
+
+        return times_tmd.value
 
     @staticmethod
     def calculate_full_transit_duration(total_transit_duration, planet_radius, star_radius, impact_parameter):
@@ -1021,7 +1036,7 @@ class Planet:
         return f"{directory}{os.path.sep}planet_{name.replace(' ', '_')}.h5"
 
     @staticmethod
-    def get_astropy_coordinates(ra, dec,  site_name=None, latitude=None, longitude=None, height=None):
+    def get_astropy_coordinates(ra, dec, site_name=None, latitude=None, longitude=None, height=None):
         if site_name is not None:
             observer_location = EarthLocation.of_site(site_name)
         else:
