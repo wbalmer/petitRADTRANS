@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a57] - 2023-06-19
+## [3.0.0-a58] - 2023-06-24
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -15,14 +15,15 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed
-- petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
 - Functions and arguments now have clearer names.
-- Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
+- Improved memory usage of Radtrans.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Some functions have moved from the module `nat_cst` to another, more specific module.
-- Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
+- Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
+- Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
+- petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
 - Package structure.
 - Code clean-up.
 
