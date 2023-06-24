@@ -143,6 +143,7 @@ def contour_corner(sampledict,
             # TODO complete docstring
         color_list :
             color list to use to represent each samples
+            # TODO fix color list needing 1 more color than samples
         kwargs : dict
             Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
             the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
@@ -175,13 +176,12 @@ def contour_corner(sampledict,
         mpl.rc('font', **font)
 
         if color_list is None:
-            color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
-                          "#B429FF"]
+            color_list = [
+                '#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
+                "#B429FF"
+            ]
     elif color_list is None:
         color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
-
-        # from .plot_style import prt_colours
-    # color_list = prt_colours
 
     handles = []
     count = 0
