@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a58] - 2023-06-24
+## [3.0.0-a59] - 2023-06-26
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to retrieve or optimize uncertainties.
 - Module `configuration` to manage paths.
 - Function `utils.feature_scaling` to normalize arrays.
+- Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed

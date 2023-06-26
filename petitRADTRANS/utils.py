@@ -5,8 +5,51 @@ import warnings
 
 import h5py
 import numpy as np
+from scipy.special import erfinv, lambertw
 
 from petitRADTRANS.fort_rebin import fort_rebin as fr
+
+
+def bayes_factor2sigma(bayes_factor):
+    """
+    Convert a Bayes factor, or "evidence", into a sigma significance. For Bayes factor higher than exp(25), the function
+    is approximated with a square root function.
+    Note: sometimes algorithms return the "log-evidence", or ln(z). The Bayes factor is z.
+    Source: Benneke et al. 2013 https://iopscience.iop.org/article/10.1088/0004-637X/778/2/153
+    Molliere part by Paul Mollière.
+    :param bayes_factor: Bayes factor (aka "evidence")
+    :return: sigma significance
+    """
+    molliere_threshold = 72004899337  # ~exp(25), roughly where numerical errors start to be significant
+    is_scalar = True
+
+    if not hasattr(bayes_factor, '__iter__'):
+        bayes_factor = np.array([bayes_factor])
+    elif not isinstance(bayes_factor, np.ndarray):
+        is_scalar = False
+        bayes_factor = np.array(bayes_factor)
+
+    benneke_part = np.nonzero(np.less_equal(bayes_factor, molliere_threshold))
+    molliere_part = np.nonzero(np.greater(bayes_factor, molliere_threshold))
+
+    sigma = np.zeros(np.shape(bayes_factor))
+
+    if np.size(benneke_part) > 0:
+        a = -1 / (np.exp(1) * bayes_factor[benneke_part])
+        rho = np.real(np.exp(lambertw(a, -1)))  # the solution to x * log(x) = a is the lambert W function of a
+        sigma[benneke_part] = np.sqrt(2) * erfinv(1 - rho)
+
+    if np.size(molliere_part) > 0:
+        a = -1 / (np.exp(1) * molliere_threshold)
+        rho = np.real(np.exp(lambertw(a, -1)))  # the solution to x * log(x) = a is the lambert W function of a
+        offset = np.sqrt(2) * erfinv(1 - rho) - np.sqrt(2 * np.log(molliere_threshold))
+
+        sigma[molliere_part] = np.sqrt(2 * np.log(bayes_factor[molliere_part])) + offset
+
+    if is_scalar:
+        return sigma[0]
+    else:
+        return sigma
 
 
 def box_car_conv(array, points):
