@@ -6,172 +6,19 @@ Try:
     sudo mpiexec -n N --allow-run-as-root ...
 If for some reason the script crashes.
 """
-import argparse
-import copy
 import json
-import os
-import pathlib
-import shutil
-import time
-import warnings
 
-import matplotlib.pyplot as plt
 import matplotlib.colors
 import numpy as np
 import scipy.special
-from astropy.io import fits
 
-import petitRADTRANS.nat_cst as nc
-from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
-from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.plotting import contour_corner
-from petitRADTRANS.retrieval.preparing import preparing_pipeline, preparing_pipeline_sysrem
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.retrieval.retrieval import Retrieval
-from petitRADTRANS.utils import calculate_reduced_chi2, fill_object
+from petitRADTRANS.utils import calculate_reduced_chi2
 
+from scripts._hr_retrieval_script_carmenes import *
+from scripts.plot.style import *
 
-def _init_parser():
-    # Arguments definition
-    _parser = argparse.ArgumentParser(
-        description='Launch HR retrieval script'
-    )
-
-    _parser.add_argument(
-        '--planet-name',
-        default='HD 189733 b',
-        help='planet name'
-    )
-
-    _parser.add_argument(
-        '--output-directory',
-        default=pathlib.Path.home(),
-        help='directory where to save the results'
-    )
-
-    _parser.add_argument(
-        '--additional-data-directory',
-        default=pathlib.Path.home(),
-        help='directory where the additional data are stored'
-    )
-
-    _parser.add_argument(
-        '--mode',
-        default='transmission',
-        help='spectral model mode, emission or transmission'
-    )
-
-    _parser.add_argument(
-        '--retrieval-name',
-        default='',
-        help='name of the retrieval'
-    )
-
-    _parser.add_argument(
-        '--retrieval-parameters',
-        nargs='+',
-        default='temperature',
-        help='parameters to retrieve'
-    )
-
-    _parser.add_argument(
-        '--detector-selection-name',
-        default='strict',
-        help='detector selection name'
-    )
-
-    _parser.add_argument(
-        '--n-live-points',
-        type=int,
-        default=100,
-        help='number of live points to use in the retrieval'
-    )
-
-    _parser.add_argument(
-        '--resume',
-        action='store_true',
-        help='if activated, resume retrievals'
-    )
-
-    _parser.add_argument(
-        '--tellurics-mask-threshold',
-        type=float,
-        default=0.5,
-        help='telluric mask threshold for reprocessing'
-    )
-
-    _parser.add_argument(
-        '--retrieve-mock-observations',
-        action='store_true',
-        help='if activated, retrieve mock observations instead of the real data'
-    )
-
-    _parser.add_argument(
-        '--use-simulated-uncertainties',
-        action='store_true',
-        help='if activated, use simulated uncertainties instead opf the real uncertainties'
-    )
-
-    _parser.add_argument(
-        '--add-noise',
-        action='store_true',
-        help='if activated, add noise to the mock observations'
-    )
-
-    _parser.add_argument(
-        '--n-transits',
-        type=float,
-        default=1.0,
-        help='number of planetary transits for mock observations'
-    )
-
-    _parser.add_argument(
-        '--check',
-        action='store_true',
-        help='if activated, check the validity of the reprocessing pipeline'
-    )
-
-    _parser.add_argument(
-        '--no-retrieval',
-        action='store_false',
-        help='if activated, run the retrieval'
-    )
-
-    _parser.add_argument(
-        '--no-archive',
-        action='store_false',
-        help='if activated, archive the output directory'
-    )
-
-    _parser.add_argument(
-        '--no-scale',
-        action='store_false',
-        help='if activated, scale the model spectrum'
-    )
-
-    _parser.add_argument(
-        '--no-shift',
-        action='store_false',
-        help='if activated, shift the model spectrum'
-    )
-
-    _parser.add_argument(
-        '--no-convolve',
-        action='store_false',
-        help='if activated, convolve the model spectrum'
-    )
-
-    _parser.add_argument(
-        '--no-rebin',
-        action='store_false',
-        help='if activated, rebin the model spectrum'
-    )
-
-    return _parser
-
-
-parser = _init_parser()
 
 detector_selection_ref = {
     'older': np.array([4, 6, 7, 9, 10, 12, 13, 25, 26, 28, 29, 30, 46, 47, 49, 54]),
@@ -218,835 +65,6 @@ detector_selection_ref = {
 }
 
 
-def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_transit_time_range,
-                              external_parameters_ref=None):
-    retrieved_parameters_ref = {
-        'new_resolving_power': {
-            'prior_parameters': [1e3, 1e5],
-            'prior_type': 'uniform',
-            'figure_name': 'Resolving power',
-            'figure_title': r'$\mathcal{R}_C$',
-            'figure_label': 'Resolving power',
-            'retrieval_name': 'R'
-        },
-        'mid_transit_time': {
-            'prior_parameters': [-mid_transit_time_range, mid_transit_time_range],
-            'prior_type': 'uniform',
-            'figure_title': r'$T_0$',
-            'figure_label': r'$T_0$ (s)',
-            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
-            'retrieval_name': 'T0'
-        },
-        'planet_radial_velocity_amplitude': {
-            'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
-            'prior_type': 'uniform',
-            'figure_title': r'$K_p$',
-            'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'Kp'
-        },
-        'planet_rest_frame_velocity_shift': {
-            'prior_parameters': [-20e5, 20e5],
-            'prior_type': 'uniform',
-            'figure_title': r'$V_\mathrm{rest}$',
-            'figure_label': r'$V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'V0'
-        },
-        'planet_radius': {
-            'prior_parameters': np.array([0.8, 1.25]),
-            'prior_type': 'uniform',
-            'figure_title': r'$R_p$',
-            'figure_label': r'$R_p$ (km)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'Rp'
-        },
-        'log10_planet_surface_gravity': {
-            'prior_parameters': [2.5, 4.0],
-            'prior_type': 'uniform',
-            'figure_title': r'$[g]$',
-            'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
-            'retrieval_name': 'g'
-        },
-        'temperature': {
-            'prior_parameters': [100, 4000],
-            'prior_type': 'uniform',
-            'figure_title': r'T',
-            'figure_label': r'T (K)',
-            'retrieval_name': 'tiso'
-        },
-        'CH4_hargreaves_main_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[CH$_4$]',
-            'figure_label': r'$\log_{10}$(MMR) CH$_4$',
-            'retrieval_name': 'CH4'
-        },
-        'CO_all_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[CO]',
-            'figure_label': r'$\log_{10}$(MMR) CO',
-            'retrieval_name': 'CO'
-        },
-        'H2O_main_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[H$_2$O]',
-            'figure_label': r'$\log_{10}$(MMR) H$_2$O',
-            'retrieval_name': 'H2O'
-        },
-        'H2S_main_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[H$_2$S]',
-            'figure_label': r'$\log_{10}$(MMR) H$_2$S',
-            'retrieval_name': 'H2S'
-        },
-        'HCN_main_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[HCN]',
-            'figure_label': r'$\log_{10}$(MMR) HCN',
-            'retrieval_name': 'HCN'
-        },
-        'NH3_main_iso': {
-            'prior_parameters': [-12, 0],
-            'prior_type': 'uniform',
-            'figure_title': r'[NH$_3$]',
-            'figure_label': r'$\log_{10}$(MMR) NH$_3$',
-            'retrieval_name': 'NH3'
-        },
-        'mean_molar_masses_offset': {
-            'prior_parameters': [-1, 10],
-            'prior_type': 'uniform',
-            'retrieval_name': 'mmwo'
-        },  # correlated with gravity
-        'log10_cloud_pressure': {
-            'prior_parameters': [-10, 2],
-            'prior_type': 'uniform',
-            'figure_title': r'[$P_c$]',
-            'figure_label': r'$\log_{10}(P_c)$ ([Pa])',
-            'retrieval_name': 'Pc',
-            'figure_offset': 5
-        },
-        'log10_haze_factor': {
-            'prior_parameters': [-3, 3],
-            'prior_type': 'uniform',
-            'figure_title': r'[$h_x$]',
-            'figure_label': r'$\log_{10}(h_x)$',
-            'retrieval_name': 'hx'
-        },
-        'log10_scattering_opacity_350nm': {
-            'prior_parameters': [-6, 2],
-            'prior_type': 'uniform',
-            'figure_title': r'[$\kappa_0$]',
-            'figure_label': r'$\log_{10}(\kappa_0)$',
-            'retrieval_name': 'k0'
-        },
-        'scattering_opacity_coefficient': {
-            'prior_parameters': [-12, 1],
-            'prior_type': 'uniform',
-            'figure_title': r'$\gamma$',
-            'figure_label': r'$\gamma$',
-            'retrieval_name': 'gams'
-        },
-        'beta': {
-            'prior_parameters': [1, 1e2],
-            'prior_type': 'uniform',
-            'figure_title': r'$\beta$',
-            'figure_label': r'$\beta$',
-            'retrieval_name': 'beta'
-        },
-        'log10_beta': {
-            'prior_parameters': [-15, 2],
-            'prior_type': 'uniform',
-            'figure_title': r'[$\beta$]',
-            'figure_label': r'$\log_{10}(\beta)$',
-            'retrieval_name': 'lbeta'
-        },
-    }
-
-    # Initialisation
-    retrieved_parameters = {}
-
-    for parameter in retrieval_parameters:
-        if parameter not in retrieved_parameters_ref:
-            raise KeyError(f"parameter '{parameter}' was not initialized")
-        else:
-            retrieved_parameters[parameter] = retrieved_parameters_ref[parameter]
-
-    if external_parameters_ref is not None:
-        for parameter in external_parameters_ref:
-            if parameter in retrieved_parameters:
-                for prop, value in external_parameters_ref[parameter][()].items():
-                    retrieved_parameters[parameter][prop] = value
-
-    return retrieved_parameters_ref, retrieved_parameters
-
-
-def get_orange_simulation_model(directory, base_name,
-                                additional_data_directory, spectral_model,
-                                extension='dat', reduce=False, **kwargs):
-    kwargs_ = copy.deepcopy(kwargs)
-    orange_simulation_file = os.path.join(directory, 'orange_hd_189733_b_transmission.npz')
-
-    if not os.path.isfile(orange_simulation_file):
-        wavelengths, data = load_orange_simulation_dat(
-            directory=directory,
-            base_name=base_name,
-            extension=extension
-        )
-
-        np.savez_compressed(file=orange_simulation_file, wavelengths=wavelengths, data=data)
-    else:
-        data = np.load(orange_simulation_file)
-
-        wavelengths = data['wavelengths']
-        data = data['data']
-
-    telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
-        load_orange_tellurics(
-            data_dir=additional_data_directory,
-            wavelengths_instrument=kwargs_['output_wavelengths'],
-            airmasses=kwargs_['airmass'],
-            resolving_power=kwargs_['new_resolving_power']
-        )
-
-    telluric_transmittances[np.nonzero(np.less(telluric_transmittances, 1e-6))] = 1e-6  # re-bin has trouble with 0s
-
-    kwargs_['telluric_transmittances_wavelengths'] = telluric_transmittances_wavelengths
-    kwargs_['telluric_transmittances'] = telluric_transmittances
-
-    wavelengths, model, _ = spectral_model.modify_spectrum(
-        wavelengths=wavelengths,
-        spectrum=data,
-        scale_function=spectral_model.scale_spectrum,
-        shift_wavelengths_function=spectral_model.shift_wavelengths,
-        transit_fractional_light_loss_function=spectral_model.calculate_transit_fractional_light_loss,
-        convolve_function=spectral_model.convolve,
-        rebin_spectrum_function=spectral_model.rebin_spectrum,
-        **kwargs_
-    )
-
-    if reduce:
-        model, _, reduced_uncertainties = spectral_model.pipeline(
-            model,
-            wavelengths=wavelengths,
-            **kwargs_
-        )
-    else:
-        reduced_uncertainties = None
-
-    return wavelengths, model, reduced_uncertainties
-
-
-def load_additional_data(data_dir, wavelengths_instrument, airmasses, times, resolving_power, simulate_snr=True,
-                         add_airmass=False):
-    # Tellurics
-    telluric_transmittance_file = \
-        os.path.join(data_dir, f"transmission_carmenes.npz")
-
-    print(f"Loading transmittance from file '{telluric_transmittance_file}'...")
-    wavelength_range_rebin = SpectralModel.calculate_optimal_wavelengths_boundaries(
-        output_wavelengths=wavelengths_instrument,
-        shift_wavelengths_function=SpectralModel.shift_wavelengths,
-        relative_velocities=None  # telluric lines are not shifted
-    )
-
-    # Ensure that all the necessary wavelengths are fetched for
-    # Skycalc returns all wavelengths within the wavelengths boundaries, not including the boundaries themselves
-    wavelength_range_rebin[0] -= wavelength_range_rebin[0] / 1e6  # 1e6 is the default resolving power of Skycalc
-    wavelength_range_rebin[-1] += wavelength_range_rebin[-1] / 1e6
-
-    # Add extra wavelengths to be sure that we are in the intermediate grid
-    # TODO should be automated
-    wavelength_range_rebin[0] -= 1e-3
-    wavelength_range_rebin[-1] += 2e-3
-
-    wavelengths_telluric, telluric_transmittance_0 = get_tellurics_npz(
-        telluric_transmittance_file, wavelength_range_rebin
-    )
-
-    # Variable throughput
-    # variable_throughput_file = os.path.join(data_dir, 'metis', 'brogi_crires_test', 'algn.npy')
-
-    # print(f"Loading variable throughput from file '{variable_throughput_file}'...")
-    # variable_throughput = load_variable_throughput_brogi(
-    #     variable_throughput_file, times.size, wavelengths_instrument.shape[-1]
-    # )
-
-    # variable_throughput = np.tile(variable_throughput, (wavelengths_instrument.shape[0], 1, 1))
-    variable_throughput = np.load(os.path.join(data_dir, 'instrumental_deformations_carmenes.npy'))
-
-    # SNR
-    if simulate_snr:
-        # Convolve telluric transmittances to correctly reproduce the effect on SNR
-        telluric_transmittance_snr_0 = SpectralModel.convolve(
-            input_wavelengths=wavelengths_telluric,
-            input_spectrum=telluric_transmittance_0,
-            new_resolving_power=resolving_power,
-            constance_tolerance=1e300
-        )
-
-        telluric_transmittance_snr_0 = np.ma.masked_less_equal(telluric_transmittance_snr_0, 0.0)
-        telluric_transmittance_snr_0 = SpectralModel.rebin_spectrum(
-            input_wavelengths=wavelengths_telluric,
-            input_spectrum=telluric_transmittance_snr_0,
-            output_wavelengths=wavelengths_instrument[:, 0, :]
-        )[1]
-
-        telluric_transmittance_snr_0 = np.tile(telluric_transmittance_snr_0, (airmasses.size, 1, 1))
-        telluric_transmittance_snr_0 = np.moveaxis(telluric_transmittance_snr_0, 0, 1)
-
-        telluric_transmittance_snr = np.ma.masked_less(
-            np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance_snr_0, 1, 2)) * airmasses), 2, 1),
-            0.0
-        ).filled(0.0)
-
-        simulated_snr = np.sqrt(np.ma.masked_less_equal(telluric_transmittance_snr, 0.0)).filled(0.0)
-    else:
-        simulated_snr = None
-
-    if add_airmass:
-        # Add airmass
-        print('Adding airmass effect to transmittances...')
-        telluric_transmittance = np.tile(telluric_transmittance_0, (airmasses.size, 1))
-        wavelengths_telluric = np.tile(wavelengths_telluric, (airmasses.size, 1))
-
-        telluric_transmittance = np.ma.masked_less(
-            np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance, 0, 1)) * airmasses), 1, 0),
-            0.0
-        ).filled(0.0)
-    else:
-        telluric_transmittance = np.ma.masked_less(telluric_transmittance_0, 0.0).filled(0.0)
-
-    return variable_throughput,  wavelengths_telluric, telluric_transmittance, simulated_snr
-
-
-def load_orange_simulation_dat(directory, base_name, extension='dat', i_start=0):
-    wavelengths = np.array([])
-    data = np.array([])
-
-    i = i_start
-    filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
-
-    while os.path.isfile(filename):
-        file_data = np.loadtxt(filename)
-        wavelengths = np.append(wavelengths, file_data[:, 0])
-        data = np.append(data, file_data[:, 1])
-
-        i += 1
-        filename = f"{os.path.join(os.path.abspath(directory), base_name)}_{i:02d}.{extension}"
-
-    wavelengths_id_sorted = np.argsort(wavelengths)
-    wavelengths = wavelengths[wavelengths_id_sorted]
-    data = data[wavelengths_id_sorted]
-
-    wavelengths, wavelengths_id_unique = np.unique(wavelengths, return_index=True)
-    data = data[wavelengths_id_unique]
-
-    data = np.sqrt(data / np.pi)  # area to radius
-
-    return wavelengths, data
-
-
-def load_orange_tellurics(data_dir, wavelengths_instrument, airmasses, resolving_power, simulate_snr=True,
-                          add_airmass=False):
-    # Tellurics
-    telluric_transmittance_file = \
-        os.path.join(data_dir, f"transmission_carmenes_orange.npz")
-
-    print(f"Loading transmittance from file '{telluric_transmittance_file}'...")
-    wavelength_range_rebin = SpectralModel.calculate_optimal_wavelengths_boundaries(
-        output_wavelengths=wavelengths_instrument,
-        shift_wavelengths_function=SpectralModel.shift_wavelengths,
-        relative_velocities=None  # telluric lines are not shifted
-    )
-
-    # Ensure that all the necessary wavelengths are fetched for
-    # Skycalc returns all wavelengths within the wavelengths boundaries, not including the boundaries themselves
-    wavelength_range_rebin[0] -= wavelength_range_rebin[0] / 1e6  # 1e6 is the default resolving power of Skycalc
-    wavelength_range_rebin[-1] += wavelength_range_rebin[-1] / 1e6
-
-    wavelengths_telluric, telluric_transmittance_0 = get_tellurics_npz(
-        telluric_transmittance_file, wavelength_range_rebin
-    )
-
-    # SNR
-    if simulate_snr:
-        # Convolve telluric transmittances to correctly reproduce the effect on SNR
-        telluric_transmittance_snr_0 = SpectralModel.convolve(
-            input_wavelengths=wavelengths_telluric,
-            input_spectrum=telluric_transmittance_0,
-            new_resolving_power=resolving_power,
-            constance_tolerance=1e300
-        )
-
-        telluric_transmittance_snr_0 = np.ma.masked_less_equal(telluric_transmittance_snr_0, 0.0)
-        telluric_transmittance_snr_0 = SpectralModel.rebin_spectrum(
-            input_wavelengths=wavelengths_telluric,
-            input_spectrum=telluric_transmittance_snr_0,
-            output_wavelengths=wavelengths_instrument
-        )[1]
-
-        telluric_transmittance_snr_0 = np.tile(telluric_transmittance_snr_0, (airmasses.size, 1, 1))
-        telluric_transmittance_snr_0 = np.moveaxis(telluric_transmittance_snr_0, 0, 1)
-
-        telluric_transmittance_snr = np.ma.masked_less(
-            np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance_snr_0, 1, 2)) * airmasses), 2, 1),
-            0.0
-        ).filled(0.0)
-
-        simulated_snr = np.sqrt(np.ma.masked_less_equal(telluric_transmittance_snr, 0.0)).filled(0.0)
-    else:
-        simulated_snr = None
-
-    if add_airmass:
-        # Add airmass
-        print('Adding airmass effect to transmittances...')
-        telluric_transmittance = np.tile(telluric_transmittance_0, (airmasses.size, 1))
-        wavelengths_telluric = np.tile(wavelengths_telluric, (airmasses.size, 1))
-
-        telluric_transmittance = np.ma.masked_less(
-            np.moveaxis(np.exp(np.ma.log(np.moveaxis(telluric_transmittance, 0, 1)) * airmasses), 1, 0),
-            0.0
-        ).filled(0.0)
-    else:
-        telluric_transmittance = np.ma.masked_less(telluric_transmittance_0, 0.0).filled(0.0)
-
-    return wavelengths_telluric, telluric_transmittance, simulated_snr
-
-
-def load_variable_throughput_brogi(file, times_size, wavelengths_size):
-    variable_throughput = np.load(file)
-
-    variable_throughput = np.max(variable_throughput[0], axis=1)
-    variable_throughput = variable_throughput / np.max(variable_throughput)
-
-    xp = np.linspace(0, 1, np.size(variable_throughput))
-    x = np.linspace(0, 1, times_size)
-    variable_throughput = np.interp(x, xp, variable_throughput)
-
-    return np.tile(variable_throughput, (wavelengths_size, 1)).T
-
-
-def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_uncertainties,
-                     scale, shift, use_transit_light_loss, convolve, rebin, reduce, correct_uncertainties=False):
-    p = copy.deepcopy(parameters)
-    m = copy.deepcopy(model)
-    logls = []
-    wavelengths = []
-    retrieval_models = []
-
-    if hasattr(data, 'mask'):
-        data, data_uncertainties, data_mask = m.remove_mask(
-            data=data,
-            data_uncertainties=data_uncertainties
-        )
-    else:
-        data_mask = fill_object(copy.deepcopy(data), False)
-
-    def retrieval_model(prt_object_, p_):
-        return m.retrieval_model_generating_function(
-            prt_object=prt_object_,
-            parameters=p_,
-            spectrum_model=m,
-            mode='transmission',
-            update_parameters=True,
-            telluric_transmittances=None,
-            instrumental_deformations=None,
-            noise_matrix=None,
-            scale=scale,
-            shift=shift,
-            use_transit_light_loss=use_transit_light_loss,
-            convolve=convolve,
-            rebin=rebin,
-            reduce=reduce
-        )
-
-    p['correct_uncertainties'] = correct_uncertainties
-    print(f"correct uncertainties with k_sigma: {correct_uncertainties}")
-
-    for lag in v_rest:
-        p['planet_rest_frame_velocity_shift'] = lag
-        logls.append([])
-        wavelengths.append([])
-        retrieval_models.append([])
-
-        for kp_ in kps:
-            p['planet_radial_velocity_amplitude'] = kp_
-
-            w, s, _ = retrieval_model(prt_object, p)
-            wavelengths[-1].append(w)
-            retrieval_models[-1].append(s)
-
-            logl = 0
-
-            for i, det in enumerate(data):
-                for j, data in enumerate(det):
-                    logl += Data.log_likelihood(
-                        model=s[i, j, ~data_mask[i, j, :]],
-                        data=data,
-                        uncertainties=data_uncertainties[i, j],
-                        beta=1.0
-                    )
-
-            logls[-1].append(logl)
-
-    logls = np.transpose(logls)
-
-    return logls, retrieval_models
-
-
-def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wavelengths, telluric_transmittances,
-                    instrumental_deformations, noise_matrix,
-                    scale, shift, use_transit_light_loss, convolve, rebin,
-                    filename='./validity.npz', do_pseudo_retrieval=True, save=True,
-                    full=False):
-    print('Initializing spectra...')
-    p = copy.deepcopy(simulated_data_model.model_parameters)
-
-    for key, value in simulated_data_model.model_parameters['imposed_mass_mixing_ratios'].items():
-        p[key] = np.log10(value)
-
-    print(' True spectrum...')
-    true_wavelengths, true_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
-        prt_object=radtrans,
-        parameters=p,
-        spectrum_model=simulated_data_model,
-        mode='transmission',
-        update_parameters=True,
-        telluric_transmittances_wavelengths=None,
-        telluric_transmittances=None,
-        instrumental_deformations=None,
-        noise_matrix=None,
-        scale=scale,
-        shift=shift,
-        use_transit_light_loss=use_transit_light_loss,
-        convolve=convolve,
-        rebin=rebin,
-        reduce=False
-    )
-
-    print(' Deformed spectrum...')
-    _, deformed_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
-        prt_object=radtrans,
-        parameters=p,
-        spectrum_model=simulated_data_model,
-        mode='transmission',
-        update_parameters=True,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        noise_matrix=None,
-        scale=scale,
-        shift=shift,
-        use_transit_light_loss=use_transit_light_loss,
-        convolve=convolve,
-        rebin=rebin,
-        reduce=False
-    )
-
-    print(' Reprocessed spectrum...')
-    _, reprocessed_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
-        prt_object=radtrans,
-        parameters=p,
-        spectrum_model=simulated_data_model,
-        mode='transmission',
-        update_parameters=True,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        noise_matrix=noise_matrix,
-        scale=scale,
-        shift=shift,
-        use_transit_light_loss=use_transit_light_loss,
-        convolve=convolve,
-        rebin=rebin,
-        reduce=True
-    )
-
-    deformation_matrix = deformed_spectrum / true_spectrum
-
-    if noise_matrix is None:
-        noise_matrix = np.zeros(reprocessed_spectrum.shape)
-
-    print(' Reprocessed true spectrum...')
-    reprocessed_true_spectrum, reprocessed_matrix_true, _ = simulated_data_model.pipeline(
-        spectrum=true_spectrum,
-        wavelengths=true_wavelengths,
-        **simulated_data_model.model_parameters
-    )
-
-    print(' Reprocessed deformed spectrum...')
-    reprocessed_deformed_spectrum, reprocessed_matrix_deformed, _ = simulated_data_model.pipeline(
-        spectrum=true_spectrum * deformation_matrix,
-        wavelengths=true_wavelengths,
-        **simulated_data_model.model_parameters
-    )
-
-    print(' Reprocessed noisy spectrum...')
-    reprocessed_noisy_spectrum, reprocessed_matrix_noisy, _ = simulated_data_model.pipeline(
-        spectrum=true_spectrum * deformation_matrix + noise_matrix,
-        wavelengths=true_wavelengths,
-        **simulated_data_model.model_parameters
-    )
-
-    print('Checking framework validity (noisy)...', end='')
-
-    try:
-        assert np.allclose(
-            reprocessed_spectrum,
-            (true_spectrum * deformation_matrix + noise_matrix) * reprocessed_matrix_noisy,
-            atol=1e-10,
-            rtol=1e-10
-        )
-        print(' OK')
-    except AssertionError:
-        print('Validity not respected!')
-
-    noiseless_validity = 1 - reprocessed_true_spectrum / reprocessed_deformed_spectrum
-
-    print('Reprocessing pipeline validity (noiseless):')
-    print(f" {np.ma.mean(noiseless_validity):.3e} +/- {np.ma.std(noiseless_validity):.3e} "
-          f"({np.ma.min(noiseless_validity):.3e} <= val <= {np.ma.max(noiseless_validity):.3e})")
-
-    noisy_validity = 1 - (reprocessed_true_spectrum + noise_matrix * reprocessed_matrix_noisy) \
-        / reprocessed_noisy_spectrum
-
-    print('Reprocessing pipeline validity (noisy):')
-    print(f" {np.ma.mean(noisy_validity):.3e} +/- {np.ma.std(noisy_validity):.3e} "
-          f"({np.ma.min(noisy_validity):.3e} <= val <= {np.ma.max(noisy_validity):.3e})")
-
-    if do_pseudo_retrieval:
-        print('Running pseudo retrieval...')
-        true_log_l, retrieval_models = pseudo_retrieval(
-            prt_object=radtrans,
-            parameters=p,
-            kps=[simulated_data_model.model_parameters['planet_radial_velocity_amplitude']],
-            v_rest=[simulated_data_model.model_parameters['planet_rest_frame_velocity_shift']],
-            model=simulated_data_model,
-            data=reprocessed_spectrum,
-            data_uncertainties=simulated_data_model.model_parameters['reduced_uncertainties'],
-            scale=scale,
-            shift=shift,
-            use_transit_light_loss=use_transit_light_loss,
-            convolve=convolve,
-            rebin=rebin,
-            reduce=True
-        )
-
-        # assert np.allclose(retrieval_models[0][0], reprocessed_true_spectrum, atol=0.0, rtol=1e-14)
-
-        true_chi2 = -2 * true_log_l[0][0] / np.size(reprocessed_spectrum[~reprocessed_spectrum.mask])
-
-        # Check Log L and chi2 when using the true set of parameter
-        print(f'True log L = {true_log_l[0][0]}')
-        print(f'True chi2 = {true_chi2}')
-    else:
-        print('No pseudo retrieval...')
-        true_log_l = None
-        true_chi2 = None
-
-    if save:
-        np.savez_compressed(
-            file=filename,
-            noisy_validity=noisy_validity,
-            noiseless_validity=noiseless_validity,
-            wavelengths=true_wavelengths,
-            true_spectrum=true_spectrum,
-            deformed_spectrum=deformed_spectrum,
-            reprocessed_true_spectrum=reprocessed_true_spectrum,
-            reprocessed_deformed_spectrum=reprocessed_deformed_spectrum,
-            reprocessed_noisy_spectrum=reprocessed_noisy_spectrum,
-            reprocessing_matrix_deformed=reprocessed_matrix_deformed,
-            reprocessing_matrix_noisy=reprocessed_matrix_noisy,
-            noise_matrix=noise_matrix,
-            true_log_l=true_log_l,
-            true_chi2=true_chi2
-        )
-
-    if full:
-        return noisy_validity, true_log_l, true_chi2, noiseless_validity, \
-               true_wavelengths, true_spectrum, deformed_spectrum, reprocessed_spectrum, reprocessed_true_spectrum, \
-               reprocessed_deformed_spectrum, reprocessed_noisy_spectrum, \
-               reprocessed_matrix_true, reprocessed_matrix_deformed, reprocessed_matrix_noisy
-    else:
-        return noisy_validity, true_log_l, true_chi2
-
-
-def load_carmenes_data(directory, mid_transit_jd, times_format='TMD'):
-    # 58004.425291 # for 2017-09-07 source https://astro.swarthmore.edu/transits
-
-    with fits.open(os.path.join(directory, 'airmass.fits')) as f:
-        airmass = f[0].data
-
-    with fits.open(os.path.join(directory, 'bary.fits')) as f:
-        barycentric_velocities = f[0].data
-
-    if times_format == 'UTC':
-        warnings.warn('loading BJD_UTC times (most time references are in BJD_TMD)')
-        with fits.open(os.path.join(directory, 'mod_julian_date.fits')) as f:
-            dates = f[0].data  # in MJD - 0.5 format, corresponds to 2017-09-07
-    elif times_format == 'TMD':
-        print('Loading BJD_TMD times...')
-        dates = np.load(os.path.join(directory, 'mod_julian_date_tmd.npz'))
-        dates = dates['times']
-    else:
-        raise ValueError(f"time format must be 'TMD'|'UTC', but was '{times_format}'")
-
-    with fits.open(os.path.join(directory, 'noise.fits')) as f:  # is it actually 1/noise ?... or SNR?
-        noise = f[0].data
-
-    with fits.open(os.path.join(directory, 'phase.fits')) as f:  # is it actually 1/noise ?... or SNR?
-        orbital_phases = f[0].data
-
-    with fits.open(os.path.join(directory, 'original_spectra.fits')) as f:
-        spectra = f[0].data
-
-    with fits.open(os.path.join(directory, 'wavelength.fits')) as f:
-        wavelengths = f[0].data
-
-    # Init
-    spectra = np.moveaxis(spectra, 0, 2)
-    spectra = np.reshape(spectra, (45, int(4080 / 2), 28 * 2), order='F')  # separate the 2 CCD
-    spectra = np.moveaxis(spectra, 2, 0)
-
-    wavelengths = np.reshape(wavelengths, (45, int(4080 / 2), 28 * 2), order='F')
-    wavelengths = np.moveaxis(wavelengths, 2, 0)
-
-    noise = np.reshape(noise, (45, int(4080 / 2), 28 * 2), order='F')
-    noise = np.moveaxis(noise, 2, 0)
-    noise = np.ma.masked_invalid(noise)
-    noise = np.ma.masked_less_equal(noise, 0)
-
-    mid_transit = np.mod(mid_transit_jd, 1.0) * 24 * 3600  # for 2017-09-07 source https://astro.swarthmore.edu/transits
-    times = np.mod(dates, 1.0) * 24 * 3600  # seconds
-    # orbital_phases = np.mod((times - mid_transit) / planet_orbital_period - 0.5, 1.0) - 0.5
-
-    spectra = np.ma.masked_invalid(spectra)
-    spectra = np.ma.masked_less_equal(spectra, 0)
-    spectra = np.ma.masked_where(noise.mask, spectra)
-
-    noise = np.ma.masked_where(spectra.mask, noise)
-
-    snr = spectra / noise
-
-    return wavelengths, spectra, snr, noise, orbital_phases, airmass, barycentric_velocities, times, mid_transit
-
-# Figures
-# Matplotlib sizes
-TINY_FIGURE_FONT_SIZE = 40  # 0.5 text width 16/9
-SMALL_FIGURE_FONT_SIZE = 22  # 0.25 text width
-MEDIUM_FIGURE_FONT_SIZE = 16  # 0.5 text width
-LARGE_FIGURE_FONT_SIZE = 22  # 1.0 text width
-
-large_figsize = [19.20, 10.80]  # 1920 x 1080 for 100 dpi (default)
-
-wavenumber_units = r'cm$^{-1}$'
-wavelength_units = r'm'
-spectral_radiosity_units = r'W$\cdot$m${-2}$/cm$^{-1}$'
-
-species_color = {
-    'CH4': 'C7',
-    'CO': 'C3',
-    'CO2': 'C5',
-    'FeH': 'C4',
-    'H2O': 'C0',
-    'H2S': 'olive',
-    'HCN': 'darkblue',
-    'K': 'C8',
-    'Na': 'gold',
-    'NH3': 'C9',
-    'PH3': 'C1',
-    'TiO': 'C2',
-    'VO': 'darkgreen',
-}
-
-other_gases_color = {
-    'Al': 'C7',
-    'Ar': 'violet',
-    'AsH3': 'm',
-    'Ca': 'peru',
-    'Co': 'aliceblue',
-    'Cr': 'skyblue',
-    'Cu': 'tan',
-    'Fe': 'C4',
-    'GeH4': 'olivedrab',
-    'H': 'dimgray',
-    'H2': 'k',
-    'HCl': 'palegreen',
-    'HF': 'y',
-    'He': 'r',
-    'KCl': 'darkolivegreen',
-    'Kr': 'lightgrey',
-    'Li': 'c',
-    'Mg': 'darkorange',
-    'Mn': 'olive',
-    'N2': 'b',
-    'NaCl': 'yellowgreen',
-    'Ne': 'brown',
-    'Ni': 'lightcoral',
-    'P': 'wheat',
-    'P2': 'navajowhite',
-    'PH2': 'papayawhip',
-    'PO': 'sandybrown',
-    'SiH4': 'plum',
-    'SiO': 'darkred',
-    'Ti': 'lime',
-    'TiO2': 'mediumseagreen',
-    'V': 'forestgreen',
-    'VO2': 'seagreen',
-    'Xe': 'dodgerblue',
-    'Zn': 'salmon'
-}
-
-cloud_color = {
-    # condensation profiles
-    'NH3': 'C9',
-    'NH4SH': 'C1',
-    'H2O': 'C0',
-    'NH4Cl': 'C6',
-    'H3PO4': 'wheat',
-    'ZnS': 'C3',
-    'KCl': 'C8',
-    'Na2S': 'gold',
-    'MnS': 'olive',
-    'Cr': 'skyblue',
-    'Cr2O3': 'deepskyblue',
-    'MgSiO3': 'darkorange',
-    'Mg2SiO4': 'C5',
-    'SiO2': 'darkred',
-    'TiN': 'lime',
-    'VO': 'forestgreen',
-    'Fe': 'C4',
-    'CaTiO3': 'peru',
-    'Al2O3': 'C7',
-}
-
-
-def update_figure_font_size(font_size):
-    """
-    Update the figure font size in a nice way.
-    :param font_size: new font size
-    """
-    plt.rc('font', size=font_size)  # controls default text sizes
-    plt.rc('axes', titlesize=font_size)  # fontsize of the axes title
-    plt.rc('axes', labelsize=font_size)  # fontsize of the x and y labels
-    plt.rc('axes.formatter', use_mathtext=True)  # fontsize of the x and y labels
-    plt.rc('xtick', labelsize=font_size)  # fontsize of the tick labels
-    plt.rc('xtick', direction='in')  # fontsize of the tick labels
-    plt.rc('xtick.major', width=font_size / 10 * 0.8, size=font_size / 10 * 3.5)  # fontsize of the tick labels
-    plt.rc('xtick.minor', width=font_size / 10 * 0.6, size=font_size / 10 * 2)  # fontsize of the tick labels
-    plt.rc('ytick', labelsize=font_size)  # fontsize of the tick labels
-    plt.rc('ytick', direction='in')  # fontsize of the tick labels
-    plt.rc('ytick.major', width=font_size / 10 * 0.8, size=font_size / 10 * 3.5)  # fontsize of the tick labels
-    plt.rc('ytick.minor', width=font_size / 10 * 0.6, size=font_size / 10 * 2)  # fontsize of the tick labels
-    plt.rc('legend', fontsize=font_size)  # legend fontsize
-    plt.rc('figure', titlesize=font_size)  # fontsize of the figure title
-
-
 def plot_broken_yaxis(*args, axis_high, axis_low, plot_function_name, y_min, y_low, y_high, y_max,
                       markersize=12, marker_vertical_ratio=0.5, mew=1, linestyle="none", color='k', mec='k',
                       plot_colors=None, **kwargs):
@@ -1082,7 +100,7 @@ def plot_broken_yaxis(*args, axis_high, axis_low, plot_function_name, y_min, y_l
 
 
 def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
-                      path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
+                     path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
     update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
     plt.rc('legend', fontsize=14)  # legend fontsize
     orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
@@ -1377,230 +395,6 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
 
         plt.savefig(os.path.join(path_outputs, figure_name + '.' + image_format))
-    finally:
-        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
-
-
-def plot_model_stepst(spectral_model, radtrans, mode, ccd_id,
-                      path_outputs, xlim=None, figure_name='model_steps', image_format='pdf'):
-    # Same as above, but for testing (faster to use rng arrays as placeholders than calculated spectra)
-    update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
-    plt.rc('legend', fontsize=11)  # legend fontsize
-    orbital_phases = spectral_model.model_parameters['orbital_longitudes'] / 360
-    mid_phase = np.argmin(np.abs(orbital_phases))
-
-    t23 = Planet.calculate_full_transit_duration(
-        total_transit_duration=spectral_model.model_parameters['transit_duration'],
-        planet_radius=spectral_model.model_parameters['planet_radius'],
-        star_radius=spectral_model.model_parameters['star_radius'],
-        impact_parameter=Planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
-            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
-            star_radius=spectral_model.model_parameters['star_radius']
-        )
-    )
-
-    t1535 = (spectral_model.model_parameters['transit_duration'] + t23) / 2
-
-    t_to_t0 = spectral_model.model_parameters['times'] - spectral_model.model_parameters['mid_transit_time']
-
-    phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
-    phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
-
-    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
-    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
-
-    yy = np.random.default_rng().random(1000) * 0.01
-
-    # Step 1-3
-    true_wavelengths_instrument, true_spectrum_instrument = np.array([np.linspace(1.4, 1.6, 1000)]), np.array([yy * 100])
-
-    # Step 4
-    _, spectra_scale = None, np.array([1 - yy])
-
-    # Step 5
-    w_shift, spectra_shift = np.moveaxis(np.zeros((1000, 35)) + np.linspace(-0.01, 0.01, 35), 0, -1) + true_wavelengths_instrument, \
-        np.ones((35, 1000)) * spectra_scale[0]
-
-    # Step 6
-    spectra_tlloss = np.ones(spectra_shift.shape)
-    spectra_tlloss[:phase_15+1] = spectra_shift[:phase_15+1] / np.max(spectra_shift[:phase_15+1])
-    spectra_tlloss[phase_35:] = spectra_shift[phase_35:] / np.max(spectra_shift[phase_35:])
-
-    # Step 7
-    _, spectra_convolve = None, spectra_tlloss
-
-    # Step 8
-    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
-        radtrans=radtrans,
-        mode=mode,
-        update_parameters=True,
-        # telluric_transmittances=telluric_transmittance,
-        telluric_transmittances=None,
-        # instrumental_deformations=variable_throughput,
-        instrumental_deformations=None,
-        noise_matrix=None,
-        scale=True,
-        use_transit_light_loss=True,
-        shift=True,
-        convolve=True,
-        rebin=True,
-        reduce=False
-    )
-
-    # Init
-    w_shift = w_shift * 1e-6  # um to m
-    wavelengths_instrument = wavelengths_instrument[ccd_id] * 1e-6  # um to m
-    true_wavelengths_instrument = true_wavelengths_instrument[0] * 1e-6  # um to m
-    true_spectrum_instrument = true_spectrum_instrument[0] * 1e-2  # cm to m
-
-    # Plots
-    default_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    custom_cycle = [default_cycle[3], default_cycle[2], default_cycle[0]]
-
-    try:
-        fig = plt.figure(figsize=(6.4, 7 * 1.6))
-        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=custom_cycle)
-
-        # Base grid
-        gs0 = fig.add_gridspec(7, 1, top=0.975, bottom=0.055, left=0.15, right=0.98, hspace=0.3)
-
-        # Steps 3 to 5: no broken axis
-        gs00 = gs0[:3].subgridspec(3, 1, hspace=0.3)
-
-        ax0 = fig.add_subplot(gs00[0])
-        ax0.plot(true_wavelengths_instrument, true_spectrum_instrument, color='C2')
-        ax0.tick_params(labelbottom=False)
-        ax0.set_title('Step 3: base model')
-
-        ax1 = fig.add_subplot(gs00[1], sharex=ax0)
-        ax1.plot(true_wavelengths_instrument, spectra_scale[0], color='C2')
-        ax1.tick_params(labelbottom=False)
-        ax1.set_title('Step 4: scaling')
-
-        ax2 = fig.add_subplot(gs00[2], sharex=ax0)
-        ax2.plot(
-            w_shift[phase_15], spectra_shift[phase_15], label=rf'$\Phi$ = {orbital_phases[phase_15]:.3f}', color='C3'
-        )
-        ax2.plot(
-            w_shift[phase_35], spectra_shift[phase_35], label=rf'$\Phi$ = {orbital_phases[phase_35]:.3f}', color='C0'
-        )
-        ax2.tick_params(labelbottom=False)
-        ax2.legend(loc=4)
-        ax2.set_title('Step 5: shifting')
-
-        # Step 6: broken axis required
-        gs01 = gs0[3].subgridspec(2, 1, hspace=0.1)
-
-        ax3_high = fig.add_subplot(gs01[0], sharex=ax0)
-        ax3_low = fig.add_subplot(gs01[1], sharex=ax0)
-
-        features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
-
-        xs = np.array([w_shift[phase_15], w_shift[mid_phase], w_shift[phase_35]]).T
-        ys = np.array([spectra_tlloss[phase_15], spectra_tlloss[mid_phase], spectra_tlloss[phase_35]]).T
-        labels = [
-            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
-            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
-            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
-        ]
-
-        ax3_high, ax3_low = plot_broken_yaxis(
-            xs, ys,
-            axis_high=ax3_high,
-            axis_low=ax3_low,
-            plot_function_name='plot',
-            y_min=None,
-            y_low=np.max(spectra_tlloss[mid_phase]) + 0.1 * features_amplitude,
-            y_high=np.min(spectra_tlloss[phase_15]) - 0.1 * features_amplitude,
-            y_max=None,
-            label=labels
-        )
-
-        ax3_low.tick_params(labelbottom=False)
-        ax3_low.legend(loc=4)
-        ax3_high.set_title('Step 6: adding transit effect')
-
-        # Step 7: broken axis required
-        gs02 = gs0[4].subgridspec(2, 1, hspace=0.1)
-
-        ax4_high = fig.add_subplot(gs02[0], sharex=ax0)
-        ax4_low = fig.add_subplot(gs02[1], sharex=ax0)
-
-        features_amplitude = np.max(spectra_tlloss[mid_phase]) - np.min(spectra_tlloss[mid_phase])
-
-        ys = np.array([spectra_convolve[phase_15], spectra_convolve[mid_phase], spectra_convolve[phase_35]]).T
-        labels = [
-            rf'$\Phi$ = {orbital_phases[phase_15]:.3f}',
-            rf'$\Phi$ = {orbital_phases[mid_phase]:.3f}',
-            rf'$\Phi$ = {orbital_phases[phase_35]:.3f}'
-        ]
-
-        ax4_high, ax4_low = plot_broken_yaxis(
-            xs, ys,
-            axis_high=ax4_high,
-            axis_low=ax4_low,
-            plot_function_name='plot',
-            y_min=None,
-            y_low=np.max(spectra_convolve[mid_phase]) + 0.1 * features_amplitude,
-            y_high=np.min(spectra_convolve[phase_15]) - 0.1 * features_amplitude,
-            y_max=None,
-            label=labels
-        )
-
-        ax4_low.tick_params(labelbottom=False)
-        ax4_low.legend(loc=4)
-        ax4_high.set_title('Step 7: convolving')
-
-        # Step 8: no broken axis
-        gs03 = gs0[5:].subgridspec(2, 1, hspace=0.3)
-
-        ax5 = fig.add_subplot(gs03[0], sharex=ax0)
-        ax5.pcolormesh(
-            wavelengths_instrument,
-            orbital_phases,
-            np.moveaxis(np.moveaxis(spectra_final[ccd_id], -1, 0) / np.max(spectra_final[ccd_id], axis=-1), 0, -1),
-            shading='nearest',
-            cmap='viridis'
-        )
-        ax5.tick_params(labelbottom=False)
-        ax5.set_title('Step 8: re-binning (normalised)')
-
-        ax6 = fig.add_subplot(gs03[1], sharex=ax0)
-        ax6.pcolormesh(
-            wavelengths_instrument,
-            orbital_phases,
-            spectra_final[ccd_id],
-            shading='nearest',
-            cmap='viridis'
-        )
-        ax6.set_title('Step 8: re-binning')
-
-        if xlim is None:
-            xlim = (wavelengths_instrument[0], wavelengths_instrument[-1])
-
-        ax6.set_xlim(xlim)
-        x_ticks = ax6.get_xticks()
-        ax6.set_xticks(x_ticks[1::2])
-        ax6.set_xlim(xlim)
-        ax6.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
-        ax5.set_ylim((orbital_phases[phase_t1], orbital_phases[phase_t4]))
-
-        #plt.tight_layout()
-
-        matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
-
-        spectral_axes = fig.add_subplot(gs0[0:1], frameon=False)
-        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-        spectral_axes.set_ylabel(r'$m_{\theta,0}$ (m)', labelpad=20)
-
-        spectral_axes = fig.add_subplot(gs0[1:5], frameon=False)
-        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-        spectral_axes.set_ylabel('Arbitrary units', labelpad=20)
-
-        spectral_axes = fig.add_subplot(gs0[5:], frameon=False)
-        spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
-        spectral_axes.set_ylabel(r'$\Phi$', labelpad=20)
     finally:
         matplotlib.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=default_cycle)  # back to default
 
@@ -2032,7 +826,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reprocessed_data_noiseless_fake[0],
         cmap='viridis'
     )
-    axes[0].set_title(r'Prepared noiseless simulated data ($\sigma_{\epsilon,\mathrm{sim}}$)')
+    axes[0].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N},\mathrm{sim}}$)')
 
     axes[1].pcolormesh(
         wavelengths,
@@ -2040,7 +834,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reprocessed_data_noiseless[0],
         cmap='viridis'
     )
-    axes[1].set_title(r'Prepared noiseless simulated data ($\sigma_\epsilon$)')
+    axes[1].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N}}$)')
 
     axes[2].pcolormesh(
         wavelengths,
@@ -2048,7 +842,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reprocessed_data_noisy[0],
         cmap='viridis'
     )
-    axes[2].set_title(r'Prepared noisy simulated data ($\sigma_\epsilon$)')
+    axes[2].set_title(r'Prepared noisy simulated data ($\sigma_{\mathbf{N}}$)')
 
     axes[3].pcolormesh(
         wavelengths,
@@ -2177,7 +971,7 @@ def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_direc
     plt.savefig(os.path.join(figure_directory, 'corner_mock_mplus_ttt0.5_2' + '.' + image_format))
 
 
-def _prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=None):
+def prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=None):
     if np.ndim(result_directory) > 0:
         sd = []
         sample_dict = {}
@@ -2213,19 +1007,21 @@ def _prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=N
             parameter_names_ref = np.array(parameter_names_dict[sample])
             parameter_ranges_dict[sample] = parameter_ranges
         else:
+            parameter_ranges_dict[sample] = copy.deepcopy(parameter_ranges_dict[samples[0]])
+
             for j, range_ in enumerate(parameter_ranges):
                 if parameter_names_dict[sample][j] not in parameter_names_ref:
                     raise KeyError(f"parameter '{parameter_names_dict[sample][j]}' was not in first sample")
 
-                for k, parameter_name in enumerate(parameter_names_dict[samples[i - 1]]):
+                for k, parameter_name in enumerate(parameter_names_dict[samples[0]]):
                     if parameter_name == parameter_names_dict[sample][j]:
-                        if range_[0] > parameter_ranges_dict[samples[i - 1]][k][0]:
-                            parameter_ranges[j][0] = parameter_ranges_dict[samples[i - 1]][k][0]
+                        if range_[0] < parameter_ranges_dict[samples[0]][k][0]:
+                            parameter_ranges_dict[samples[0]][k][0] = range_[0]
 
-                        if range_[1] < parameter_ranges_dict[samples[i - 1]][k][1]:
-                            parameter_ranges[j][1] = parameter_ranges_dict[samples[i - 1]][k][1]
+                        if range_[1] > parameter_ranges_dict[samples[0]][k][1]:
+                            parameter_ranges_dict[samples[0]][k][1] = range_[1]
 
-            parameter_ranges_dict[sample] = parameter_ranges
+                        break
 
             parameter_plot_indices_dict[sample] = np.zeros(np.size(parameter_names_dict[sample]), dtype=int)
 
@@ -2236,8 +1032,8 @@ def _prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=N
 
                 parameter_plot_indices_dict[sample][j] = (parameter_names_ref == parameter_name).nonzero()[0][0]
 
-    for sample in samples[:-1]:
-        parameter_ranges_dict[sample] = parameter_ranges_dict[samples[-1]]
+    for sample in samples[1:]:
+        parameter_ranges_dict[sample] = parameter_ranges_dict[samples[0]]
 
     if true_values is not None:
         if isinstance(true_values, dict):
@@ -2257,7 +1053,7 @@ def plot_result_corner(result_directory, retrieved_parameters,
                        figure_directory, figure_name, image_format='pdf', true_values=None, sm=None, figure_font_size=8,
                        save=True, **kwargs):
     sample_dict, parameter_names_dict, parameter_plot_indices_dict, parameter_ranges_dict, true_values_dict, \
-        fig_titles, fig_labels = _prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm)
+        fig_titles, fig_labels = prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm)
 
     if 'hist2d_kwargs' in kwargs:
         kwargs['hist2d_kwargs']['titles'] = list(fig_titles.values())[0]
@@ -2712,574 +1508,6 @@ def plot_ccf(v_rest, kps, ccf, title=None, true_vr=None, true_kp=None):
         plt.title(title)
 
 
-def plot_all_figures(retrieved_parameters,
-                     figure_directory=r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\
-                                        HD_189733_b_CARMENES',
-                     image_format='pdf'):
-    # Init
-    retrieval_directory = r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
-    additional_data_directory = 'C:\\Users\\Doriann\\Documents\\work\\run_outputs\\petitRADTRANS\\data'
-    sm = SpectralModel.load(
-        retrieval_directory +
-        r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_cn12345_c816_100lp\simulated_data_model.h5'
-    )
-    radtrans = sm.get_radtrans()
-
-    sd, true_values = plot_init(
-        retrieved_parameters,
-        retrieval_directory +
-        r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
-        sm
-    )
-
-    wavelengths_instrument, observed_spectra, instrument_snr, uncertainties, orbital_phases, airmasses, \
-        barycentric_velocities, times, mid_transit_time = load_carmenes_data(
-            directory=os.path.join(
-                r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data',
-                'carmenes',
-                'hd_189733_b'
-            ),
-            mid_transit_jd=58004.424877#58004.425291
-        )
-
-    instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
-        load_additional_data(
-            data_dir=r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data',
-            wavelengths_instrument=wavelengths_instrument,
-            airmasses=airmasses,
-            times=times,
-            resolving_power=sm.model_parameters['new_resolving_power']
-        )
-
-    detector_selection = sm.model_parameters['detector_selection']
-    # detector_selection = np.arange(0, 56)  # all
-    ccd_id = np.asarray(detector_selection == 46).nonzero()[0][0]
-    planet = Planet.get('HD 189733 b')
-
-    # Modify TD
-    planet_transit_duration = planet.transit_duration + np.max(
-        retrieved_parameters['mid_transit_time']['prior_parameters']) \
-        - np.min(retrieved_parameters['mid_transit_time']['prior_parameters'])
-
-    wavelengths_instrument_0 = copy.deepcopy(wavelengths_instrument[:, 0])
-    observed_spectra_0 = copy.deepcopy(observed_spectra)
-
-    wavelengths_instrument, observed_spectra, uncertainties, instrument_snr, instrumental_deformations, \
-        telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr, orbital_phases, airmasses, \
-        barycentric_velocities, times = \
-        data_selection(
-            wavelengths_instrument=wavelengths_instrument,
-            observed_spectra=observed_spectra,
-            uncertainties=uncertainties,
-            instrument_snr=instrument_snr,
-            instrumental_deformations=instrumental_deformations,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            simulated_snr=simulated_snr,
-            times=times,
-            mid_transit_time=mid_transit_time,
-            transit_duration=planet_transit_duration,
-            orbital_phases=orbital_phases,
-            airmasses=airmasses,
-            barycentric_velocities=barycentric_velocities,
-            detector_selection=detector_selection,
-            n_transits=1,
-            use_t23=False,
-            use_t1535=False
-        )
-
-    simulated_uncertainties = np.moveaxis(
-        np.moveaxis(simulated_snr, 2, 0) / np.mean(simulated_snr, axis=2) * np.mean(uncertainties, axis=2),
-        0,
-        2
-    )
-    simulated_uncertainties = np.ma.masked_where(uncertainties.mask, simulated_uncertainties)
-
-    noise_matrix = sm.model_parameters['noise_matrix']
-
-    sm.model_parameters['uncertainties'] = np.ma.masked_where(
-        copy.deepcopy(uncertainties.mask),
-        sm.model_parameters['uncertainties']
-    )
-
-    sm.model_parameters['imposed_mass_mixing_ratios'] = {
-        'CH4_hargreaves_main_iso': 3.4e-5,
-        'CO_all_iso': 1.8e-2,
-        'H2O_main_iso': 5.4e-3,
-        'H2S_main_iso': 1.0e-3,
-        'HCN_main_iso': 2.7e-7,
-        'NH3_main_iso': 7.9e-6
-    }
-
-    # print(f'Reprocessing data...')
-    # reprocessed_data, reprocessing_matrix, reprocessed_data_uncertainties = sm.pipeline(
-    #     observed_spectra,
-    #     wavelengths=wavelengths_instrument,
-    #     **sm.model_parameters
-    # )
-
-    xlim = (1.519 * 1e-6, 1.522 * 1e-6)
-
-    print('Starting making figures...')
-    # Figure 1 from Alex
-
-    # Model steps
-    plot_model_steps(
-        spectral_model=sm,
-        radtrans=radtrans,
-        mode='transmission',
-        ccd_id=ccd_id,
-        xlim=xlim,
-        path_outputs=figure_directory,
-        image_format=image_format
-    )
-
-    plot_model_steps_model(
-        spectral_model=sm,
-        radtrans=radtrans,
-        mode='transmission',
-        ccd_id=ccd_id,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        noise_matrix=noise_matrix,
-        xlim=xlim,
-        path_outputs=figure_directory,
-        image_format=image_format,
-        noise_factor=10
-    )
-
-    # TODO Expected MMRs
-    # TODO Expected TP
-    # Contribution (not kept in final version)
-    plot_contribution(sm, radtrans, figure_directory, image_format)
-
-    # Species contribution
-    plot_species_contribution(wavelengths_instrument_0, figure_directory, image_format, observations=observed_spectra_0)
-
-    # Reprocessing steps
-    plot_reprocessing_effect_1d(
-        spectral_model=sm,
-        radtrans=radtrans,
-        uncertainties=uncertainties,
-        mode='transmission',
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        ccd_id=ccd_id,
-        orbital_phase_id=8,
-        xlim=xlim,
-        path_outputs=figure_directory,
-        image_format=image_format
-    )
-
-    # Reprocessing effect
-    retrieval_data = np.load(
-        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
-        r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_c816_100lp'
-        r'\retrieved_parameters.npz'
-    )
-    reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
-
-    plot_reprocessing_effect(
-        spectral_model=sm,
-        radtrans=radtrans,
-        reprocessed_data=reprocessed_data,
-        mode='transmission',
-        simulated_uncertainties=simulated_uncertainties,
-        ccd_id=ccd_id,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        noise_matrix=noise_matrix,
-        xlim=xlim,
-        path_outputs=figure_directory,
-        image_format=image_format
-    )
-
-    # Reprocessing effect SysRem
-    retrieval_data = np.load(
-        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
-        r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sys-sub_c816_100lp'
-        r'\retrieved_parameters.npz'
-    )
-    reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
-
-    plot_reprocessing_effect(
-        spectral_model=sm,
-        radtrans=radtrans,
-        reprocessed_data=reprocessed_data,
-        mode='transmission',
-        simulated_uncertainties=simulated_uncertainties,
-        ccd_id=ccd_id,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        instrumental_deformations=instrumental_deformations,
-        noise_matrix=noise_matrix,
-        xlim=xlim,
-        path_outputs=figure_directory,
-        image_format=image_format,
-        figure_name='preparing_effect_sysrem',
-        use_sysrem=True
-    )
-
-    # Validity
-    plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, False)
-
-    # Expected retrieval corner plot
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim3d_f2_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
-                          ],
-        sm=None,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_simulated_retrievals',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=true_values,
-        figure_font_size=8,
-        save=True
-    )
-
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
-                          ],
-        sm=None,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_simulated_retrievals',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=true_values,
-        figure_font_size=8,
-        save=True
-    )
-
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex3_c812_1000lp',
-                          ],
-        sm=sm,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex3_c812_1000lp',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=None,
-        figure_font_size=8,
-        save=True
-    )
-
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\old\HD_189733_b_transmission_'
-                          r'R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_c2_1000lp',
-                          ],
-        sm=sm,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_t1535_t23_1000lp_e8',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=None,
-        figure_font_size=8,
-        save=True
-    )
-
-    directories = []
-
-    for f in os.scandir(retrieval_directory):
-        if f.is_dir() and 'HD_189733_b_transmission' in f.path and '_sim' not in f.path:
-            directories.append(f.path)
-
-    spectral_models, log_es, log_ls, chi2s, sds = all_best_fit_stats(directories)
-
-    parameter_names_ref = [
-        retrieved_parameters['planet_radial_velocity_amplitude']['figure_label'],
-        retrieved_parameters['planet_rest_frame_velocity_shift']['figure_label'],
-        retrieved_parameters['temperature']['figure_label'],
-        retrieved_parameters['H2O_main_iso']['figure_label'],
-        retrieved_parameters['CH4_hargreaves_main_iso']['figure_label'],
-        retrieved_parameters['CO_all_iso']['figure_label'],
-        retrieved_parameters['H2S_main_iso']['figure_label'],
-        retrieved_parameters['HCN_main_iso']['figure_label'],
-        retrieved_parameters['NH3_main_iso']['figure_label'],
-        retrieved_parameters['log10_cloud_pressure']['figure_label'],
-        retrieved_parameters['log10_scattering_opacity_350nm']['figure_label'],
-        retrieved_parameters['scattering_opacity_coefficient']['figure_label'],
-        retrieved_parameters['new_resolving_power']['figure_label'],
-        retrieved_parameters['log10_planet_surface_gravity']['figure_label'],
-    ]
-
-    # A00: exp_CCD_param
-    directories_hist = {
-        'TTR-01': 'HD_189733_b_transmission_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_c5_100lp',
-        'TTR-02': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_c3_100lp',
-        'TTR-03': 'HD_189733_b_transmission_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t1535_t23_c2_100lp',
-        'TTR-04': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_k0_gams_alex2_t1535_t23_c21_100lp',
-        'TTR-05': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_alex2_t1535_t23_c211_100lp',
-        # 'TTR-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_k0_gams_alex2_t1535_t23_c21_100lp',
-        'TTR-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_alex2_t1535_t23_c211_100lp',
-
-        #'T23-01': 'HD_189733_b_transmission_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t23_c2_100lp',
-        'T23-02': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t23_c2_100lp',
-        'T23-03': 'HD_189733_b_transmission_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_t23_c2_100lp',
-        'T23-04': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_k0_gams_alex2_t23_c21_100lp',
-        'T23-05': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_alex2_t23_c21_100lp',
-        'T23-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_alex2_t23_c21_100lp',
-
-        'T14-01': 'HD_189733_b_transmission_R_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_c5_100lp',
-        'T14-02': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_c5_100lp',
-        'T14-03': 'HD_189733_b_transmission_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_alex2_c5_100lp',
-        'T14-04': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_k0_gams_alex2_c21_100lp',
-        'T14-05': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_alex2_c211_100lp',
-        'T14-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_alex2_c211_100lp',
-    }
-
-    colors = {
-        'TTR-01': 'C0',
-        'TTR-02': 'C0',
-        'TTR-03': 'C0',
-        'TTR-04': 'C0',
-        'TTR-05': 'C0',
-        'TTR-06': 'C0',
-
-        # 'T23-01': 'C1',
-        'T23-02': 'C1',
-        'T23-03': 'C1',
-        'T23-04': 'C1',
-        'T23-05': 'C1',
-        'T23-06': 'C1',
-
-        'T14-01': 'C3',
-        'T14-02': 'C3',
-        'T14-03': 'C3',
-        'T14-04': 'C3',
-        'T14-05': 'C3',
-        'T14-06': 'C3',
-    }
-
-    for d in directories_hist:
-        directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
-
-    plot_multiple_hists_data(
-        result_directory=directories_hist,
-        sm=sm,
-        retrieved_parameters=retrieved_parameters,
-        true_values=None,
-        parameter_names_ref=parameter_names_ref,
-        figure_font_size=10,
-        save=True,
-        color=colors,
-        add_rectangle=5,
-        figure_directory=figure_directory,
-        figure_name='retrievals_posteriors',
-        image_format=image_format
-    )
-
-    # A00: exp_CCD_param
-    parameter_names_ref = [
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
-        'temperature',
-        'H2O_main_iso',
-        'mid_transit_time',
-        'new_resolving_power',
-        'log10_planet_surface_gravity',
-    ]
-
-    directories_hist = {
-        'Poly-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_c813_100lp',
-        'Poly-O:N-B:Y-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
-        'SysS-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
-        'SysD-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
-
-        'Poly-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
-        'Poly-O:Y-B:Y-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
-        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
-        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
-
-        'Poly-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
-        'Poly-O:N-B:Y-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
-        'SysS-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
-        'SysD-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
-
-        'Poly-O:Y-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
-        'Poly-O:Y-B:Y-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
-        # 'SysS-O:Y-B:N-02': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
-        # 'SysD-O:Y-B:N-02': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
-        #
-        'Poly-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_g_tiso_H2O_tmt0.80_alex4_c813_100lp',
-        'Poly-O:N-B:Y-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
-        'SysS-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
-        'SysD-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
-
-        'Poly-O:Y-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
-        'Poly-O:Y-B:Y-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
-        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
-        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
-
-        'Poly-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
-        'Poly-O:N-B:Y-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
-        'SysS-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
-        'SysD-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
-
-        'Poly-O:Y-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
-        'Poly-O:Y-B:Y-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
-        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
-        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
-
-        'Poly-G:N-05': 'HD_189733_b_transmission_R_T0_g_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
-        'Poly-G:Y-05': 'HD_189733_b_transmission_R_T0_g_Kp_V0_tiso_H2O_gp_tmt0.80_alex4_c813_100lp',
-        'SysS-G:N-05': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_gp_tmt0.80_alex4_sys-sub_c813_100lp',
-        'SysS-O:N-B:N-05': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
-    }
-
-    colors = {
-        'Poly-O:N-B:N-01': 'C0',
-        'Poly-O:N-B:Y-01': 'C0',
-        'SysS-O:N-B:N-01': 'C0',
-        'SysD-O:N-B:N-01': 'C0',
-
-        'Poly-O:Y-B:N-01': 'C1',
-        'Poly-O:Y-B:Y-01': 'C1',
-        'SysS-O:Y-B:N-01': 'C1',
-        'SysD-O:Y-B:N-01': 'C1',
-
-        'Poly-O:N-B:N-02': 'C0',
-        'Poly-O:N-B:Y-02': 'C0',
-        'SysS-O:N-B:N-02': 'C0',
-        'SysD-O:N-B:N-02': 'C0',
-
-        'Poly-O:Y-B:N-02': 'C1',
-        'Poly-O:Y-B:Y-02': 'C1',
-        'SysS-O:Y-B:N-02': 'C1',
-        'SysD-O:Y-B:N-02': 'C1',
-
-        'Poly-O:N-B:N-03': 'C0',
-        'Poly-O:N-B:Y-03': 'C0',
-        'SysS-O:N-B:N-03': 'C0',
-        'SysD-O:N-B:N-03': 'C0',
-
-        'Poly-O:Y-B:N-03': 'C1',
-        'Poly-O:Y-B:Y-03': 'C1',
-        'SysS-O:Y-B:N-03': 'C1',
-        'SysD-O:Y-B:N-03': 'C1',
-
-        'Poly-O:Y-B:N-04': 'C0',
-        'Poly-O:Y-B:Y-04': 'C0',
-        'SysS-O:Y-B:N-04': 'C0',
-        'SysD-O:Y-B:N-04': 'C0',
-    }
-
-    for d in directories_hist:
-        directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
-
-    plot_multiple_hists_data(
-        result_directory=directories_hist,
-        sm=sm,
-        retrieved_parameters=retrieved_parameters,
-        true_values=None,
-        parameter_names_ref=parameter_names_ref,
-        figure_font_size=10,
-        save=True,
-        color=colors,
-        add_rectangle=None,
-        figure_directory=figure_directory,
-        figure_name='retrievals_posteriors',
-        image_format=image_format
-    )
-
-    # A00: exp_CCD_param
-    directories_hist = {
-        'TTR-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_alex2_t1535_t23_c211_100lp',
-        'A': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_strictt15353_t1535_t23_c_1000lp',
-        'B': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_bad3_t1535_t23_c_1000lp',
-    }
-
-    for i, d in enumerate(directories_hist):
-        if i > 0:
-            directories_hist[d] = os.path.join(retrieval_directory, 'old', directories_hist[d])
-        else:
-            directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
-
-    plot_multiple_hists_data(
-        result_directory=directories_hist,
-        sm=sm,
-        retrieved_parameters=retrieved_parameters,
-        true_values=None,
-        parameter_names_ref=parameter_names_ref,
-        figure_font_size=11,
-        fig_size=6.4,
-        save=True,
-        color='C0',
-        add_rectangle=None,
-        figure_directory=figure_directory,
-        figure_name='retrievals_posteriors_test',
-        image_format=image_format
-    )
-
-    # 3D comparison figure
-    base_wavelengths, base_spectrum = sm.get_spectrum_model(
-        radtrans=radtrans,
-        mode='transmission',
-        update_parameters=True,
-        telluric_transmittances_wavelengths=None,
-        telluric_transmittances=None,
-        instrumental_deformations=None,
-        noise_matrix=None,
-        scale=False,
-        shift=False,
-        convolve=False,
-        rebin=False,
-        reduce=False
-    )
-
-    orange_model_with_rotation = np.load(
-        'C:/Users/Doriann/Documents/work/run_outputs/petitRADTRANS/data/carmenes/hd_189733_b/simu_orange/'
-        'orange_hd_189733_b_transmission.npz'
-    )
-
-    orange_wavelengths_no_rotation, orange_spectrum_no_rotation = load_orange_simulation_dat(
-        'C:/Users/Doriann/Documents/work/run_outputs/petitRADTRANS/data/carmenes/hd_189733_b/simu_orange/no_rotation',
-        'range', 'dat', 31
-    )
-
-    plt.figure(figsize=(6.4, 4.8))
-    update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
-    plt.plot(base_wavelengths[0, 110000:120000] * 1e-6,
-             base_spectrum[0, 110000:120000] * 1e-5,
-             color='k', label='1-D model')
-    plt.plot(orange_wavelengths_no_rotation * 1e-6, orange_spectrum_no_rotation * 1e-5,
-             color='C4', label='3-D model')
-    plt.plot(orange_model_with_rotation['wavelengths'] * 1e-6, orange_model_with_rotation['data'] * 1e-5,
-             color='C1', label='3-D model (rotation + wind)')
-    plt.xlim(np.array([1.5205 - 0.0005, 1.5205 + 0.0005]) * 1e-6)
-    plt.xlabel('Wavelength (m)')
-    plt.ylabel(r'$R_p$ (km)')
-    plt.tight_layout()
-    plt.legend()
-    plt.savefig(os.path.join(figure_directory, '3d_model_comparison' + '.' + image_format))
-
-
 # Exo-REM
 def load_result(file, **kwargs):
     """
@@ -3462,7 +1690,7 @@ def plot_stepfig(w, s, label, imshow=False, y=None, vmin=1, vmax=1):
 
 
 def plot_hist(d, label=None, true_value=None, cmp=None, bins=15, color='C0',
-              axe=None, y_max=None, y_label='Probability density', tight_layout=True):
+              axe=None, y_max=None, y_label='Probability density', tight_layout=True, fmt='.2f'):
     if axe is None:
         fig, axe = plt.subplots(1, 1)
 
@@ -3488,7 +1716,7 @@ def plot_hist(d, label=None, true_value=None, cmp=None, bins=15, color='C0',
     if cmp is not None:
         plt.errorbar(true_value, y_max * 0.1, xerr=[[cmp[0]], [cmp[1]]], color='C1', capsize=2, marker='o')
 
-    fmt = "{{0:{0}}}".format('.2f').format
+    fmt = "{{0:{0}}}".format(fmt).format
     title = r"${{{0}}}_{{-{1}}}^{{+{2}}}$"
     title = title.format(fmt(median), fmt(median - sm), fmt(sp - median))
 
@@ -3571,17 +1799,21 @@ def plot_multiple_data(x, y, data, **kwargs):
             axes[i, j].set_title(data_i)
 
 
-def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_values=None, add_rectangle=None,
+def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidences=None, true_values=None,
+                             add_rectangle=None,
                              parameter_names_ref=None, bins=15, color='C0', figure_font_size=11, use_titles=True,
                              save=False, figure_directory='./', figure_name='fig', image_format='png', fig_size=19.2):
     if isinstance(result_directory, dict):
         result_names = list(result_directory.keys())
         result_directory = list(result_directory.values())
+
+        if log_evidences is not None:
+            result_names = [result_name + f' ({log_evidences[i]:.2f})' for i, result_name in enumerate(result_names)]
     else:
         result_names = None
 
     sample_dict, parameter_names_dict, parameter_plot_indices_dict, parameter_ranges_dict, true_values_dict, \
-        fig_titles = _prepare_plot_hist(result_directory, retrieved_parameters, true_values)
+        fig_titles, _ = prepare_plot_hist(result_directory, retrieved_parameters, true_values)
 
     lengths = [len(names) for names in parameter_names_dict.values()]
 
@@ -3589,41 +1821,33 @@ def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_va
     ncols = np.max(lengths)
 
     fig_titles_ref = []
+    id_ref = np.zeros(np.max(lengths), dtype=int)
 
     if parameter_names_ref is None:
         parameter_names_ref = parameter_names_dict[str(np.argmax(lengths))]
+        id_ref = np.arange(0, np.max(lengths))
+
         if use_titles:
             fig_titles_ref = fig_titles[str(np.argmax(lengths))]
         else:
             fig_titles_ref = parameter_names_dict[str(np.argmax(lengths))]
     else:
-        for parameter_name in parameter_names_ref:
+        for i, parameter_name in enumerate(parameter_names_ref):
+            if parameter_name not in parameter_names_dict[str(np.argmax(lengths))]:
+                raise ValueError(f"unknown parameter '{parameter_name}'")
+
             for j, pn in enumerate(parameter_names_dict[str(np.argmax(lengths))]):
                 if pn == parameter_name:
+                    id_ref[i] = j
+
                     if use_titles:
                         fig_titles_ref.append(fig_titles[str(np.argmax(lengths))][j])
                     else:
                         fig_titles_ref.append(parameter_names_dict[str(np.argmax(lengths))][j])
 
-    parameters_range = np.array([np.inf, -np.inf])
-    parameters_range = np.vstack([parameters_range] * ncols)
-
-    for i in sample_dict:
-        for j in range(ncols):
-            for k, parameter_name in enumerate(parameter_names_dict[i]):
-                if parameter_name not in parameter_names_ref:
-                    raise KeyError(f"unknown parameter '{parameter_name}'")
-                elif parameter_name == parameter_names_ref[j]:
-                    if parameter_ranges_dict[i][k][0] < parameters_range[j][0]:
-                        parameters_range[j][0] = parameter_ranges_dict[i][k][0]
-
-                    if parameter_ranges_dict[i][k][1] > parameters_range[j][1]:
-                        parameters_range[j][1] = parameter_ranges_dict[i][k][1]
-
                     break
 
-    print(parameters_range)
-
+    print(fig_titles_ref)
     update_figure_font_size(figure_font_size)
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_size, fig_size / ncols * nrows), sharex='col')
@@ -3643,7 +1867,7 @@ def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_va
             c = color
 
         for j in range(ncols):
-            axes[int(i), j].set_xlim(parameters_range[j])
+            axes[int(i), j].set_xlim(parameter_ranges_dict[i][id_ref[j]])
 
             if parameter_names_ref[j] not in parameter_names_dict[i]:
                 axes[int(i), j].axis('off')
@@ -3655,6 +1879,11 @@ def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_va
                     if parameter_name not in parameter_names_ref:
                         raise KeyError(f"unknown parameter '{parameter_name}'")
                     elif parameter_name == parameter_names_ref[j]:
+                        if parameter_name == 'new_resolving_power':
+                            fmt = '.0f'
+                        else:
+                            fmt = '.2f'
+
                         plot_hist(
                             sample_dict[i].T[k],
                             label=fig_titles_ref[j],
@@ -3664,7 +1893,8 @@ def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_va
                             color=c,
                             axe=axes[int(i), j],
                             y_label=None,
-                            tight_layout=False
+                            tight_layout=False,
+                            fmt=fmt
                         )
                         axes[int(i), j].set_yticks([])
 
@@ -3697,6 +1927,8 @@ def plot_multiple_hists_data(result_directory, sm, retrieved_parameters, true_va
             )
         )
 
+    fig.tight_layout()
+
     if save:
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
 
@@ -3718,12 +1950,11 @@ def all_best_fit_models(directories, additional_data_directory, resolving_power,
             mid_transit_jd=58004.42319302507
         )
 
-    instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
+    instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_sn, _ = \
         load_additional_data(
             data_dir=additional_data_directory,
             wavelengths_instrument=wavelengths_instrument,
             airmasses=airmasses,
-            times=times,
             resolving_power=resolving_power
         )
 
@@ -3865,16 +2096,17 @@ def all_best_fit_stats(directories, build_table=True, retrieval_name='R-', retri
 
         for i, directory in enumerate(directories):
             _, _, _, fig_titles, _, _ = get_parameter_range(sds[i], retrieved_parameters, None)
+            fig_titles = [fig_title.replace('[', '').replace(']', '') for fig_title in fig_titles]
             retrievals_titles.append(fig_titles)
 
         sorted_ids = np.argsort(delta_log_es)
 
         for i, sorted_id in enumerate(sorted_ids):
-            print(f"{retrieval_name}{i:02d}: {', '.join(retrievals_titles[sorted_id])}\t& "
-                  f"{delta_log_es[sorted_id]:.2f}\t& "
-                  f"{log_ls[sorted_id]:.2f}\t& "
-                  f"{chi2s[sorted_id]:.3f}\t& "
-                  f"{k_sigmas[sorted_id]:.3f} "
+            print(f"({retrieval_name}{i:02d}): {', '.join(retrievals_titles[sorted_id])}\t& "
+                  f"${delta_log_es[sorted_id]:.2f}$\t& "
+                  f"${log_ls[sorted_id]:.2f}$\t& "
+                  f"${chi2s[sorted_id]:.3f}$\t& "
+                  f"${k_sigmas[sorted_id]:.3f}$ "
                   r"\\")
 
     return spectral_models, log_es, log_ls, chi2s, sds
@@ -5024,508 +3256,196 @@ def quick_ccf(rebined_model, wavelengths_instrument, prepared_data, sm):
         v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths
 
 
-# Main
-def main(planet_name, output_directory, additional_data_directory, mode, retrieval_name, retrieval_parameters,
-         detector_selection_name, n_live_points, resume, tellurics_mask_threshold,
-         retrieve_mock_observations, use_simulated_uncertainties, add_noise, n_transits, check, retrieve, archive,
-         scale, shift, convolve, rebin, use_t23, use_t1535):
-    from mpi4py import MPI
+def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_transit_time_range,
+                              external_parameters_ref=None):
+    retrieved_parameters_ref = {
+        'temperature': {
+            'prior_parameters': [100, 4000],
+            'prior_type': 'uniform',
+            'figure_title': r'T',
+            'figure_label': r'T (K)',
+            'retrieval_name': 'tiso'
+        },
+        'CH4_hargreaves_main_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[CH$_4$]',
+            'figure_label': r'$\log_{10}$(MMR) CH$_4$',
+            'retrieval_name': 'CH4'
+        },
+        'CO_all_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[CO]',
+            'figure_label': r'$\log_{10}$(MMR) CO',
+            'retrieval_name': 'CO'
+        },
+        'H2O_main_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[H$_2$O]',
+            'figure_label': r'$\log_{10}$(MMR) H$_2$O',
+            'retrieval_name': 'H2O'
+        },
+        'H2S_main_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[H$_2$S]',
+            'figure_label': r'$\log_{10}$(MMR) H$_2$S',
+            'retrieval_name': 'H2S'
+        },
+        'HCN_main_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[HCN]',
+            'figure_label': r'$\log_{10}$(MMR) HCN',
+            'retrieval_name': 'HCN'
+        },
+        'NH3_main_iso': {
+            'prior_parameters': [-12, 0],
+            'prior_type': 'uniform',
+            'figure_title': r'[NH$_3$]',
+            'figure_label': r'$\log_{10}$(MMR) NH$_3$',
+            'retrieval_name': 'NH3'
+        },
+        'mean_molar_masses_offset': {
+            'prior_parameters': [-1, 10],
+            'prior_type': 'uniform',
+            'retrieval_name': 'mmwo'
+        },  # correlated with gravity
+        'log10_cloud_pressure': {
+            'prior_parameters': [-10, 2],
+            'prior_type': 'uniform',
+            'figure_title': r'[$P_c$]',
+            'figure_label': r'$\log_{10}(P_c)$ ([Pa])',
+            'retrieval_name': 'Pc'
+        },
+        'log10_haze_factor': {
+            'prior_parameters': [-3, 3],
+            'prior_type': 'uniform',
+            'figure_title': r'[$h_x$]',
+            'figure_label': r'$\log_{10}(h_x)$',
+            'retrieval_name': 'hx'
+        },
+        'log10_scattering_opacity_350nm': {
+            'prior_parameters': [-6, 2],
+            'prior_type': 'uniform',
+            'figure_title': r'[$\kappa_0$]',
+            'figure_label': r'$\log_{10}(\kappa_0)$',
+            'retrieval_name': 'k0'
+        },
+        'scattering_opacity_coefficient': {
+            'prior_parameters': [-12, 1],
+            'prior_type': 'uniform',
+            'figure_title': r'$\gamma$',
+            'figure_label': r'$\gamma$',
+            'retrieval_name': 'gams'
+        },
+        'planet_radius': {
+            'prior_parameters': np.array([0.8, 1.25]),
+            'prior_type': 'uniform',
+            'figure_title': r'$R_p$',
+            'figure_label': r'$R_p$ (km)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'Rp'
+        },
+        'log10_planet_surface_gravity': {
+            'prior_parameters': [2.5, 4.0],
+            'prior_type': 'uniform',
+            'figure_title': r'$[g]$',
+            'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
+            'retrieval_name': 'g'
+        },
+        'planet_radial_velocity_amplitude': {
+            'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
+            'prior_type': 'uniform',
+            'figure_title': r'$K_p$',
+            'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'Kp'
+        },
+        'planet_rest_frame_velocity_shift': {
+            'prior_parameters': [-20e5, 20e5],
+            'prior_type': 'uniform',
+            'figure_title': r'$V_\mathrm{rest}$',
+            'figure_label': r'$V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'V0'
+        },
+        'new_resolving_power': {
+            'prior_parameters': [1e3, 1e5],
+            'prior_type': 'uniform',
+            'figure_name': 'Resolving power',
+            'figure_title': r'$\mathcal{R}_C$',
+            'figure_label': 'Resolving power',
+            'retrieval_name': 'R'
+        },
+        'mid_transit_time': {
+            'prior_parameters': [-mid_transit_time_range, mid_transit_time_range],
+            'prior_type': 'uniform',
+            'figure_title': r'$T_0$',
+            'figure_label': r'$T_0$ (s)',
+            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
+            'retrieval_name': 'T0'
+        },
+        'beta': {
+            'prior_parameters': [1, 1e2],
+            'prior_type': 'uniform',
+            'figure_title': r'$\beta$',
+            'figure_label': r'$\beta$',
+            'retrieval_name': 'beta'
+        },
+        'log10_beta': {
+            'prior_parameters': [-15, 2],
+            'prior_type': 'uniform',
+            'figure_title': r'[$\beta$]',
+            'figure_label': r'$\log_{10}(\beta)$',
+            'retrieval_name': 'lbeta'
+        }
+    }
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
+    # Initialisation
+    retrieved_parameters = {}
 
-    retrieve_mock_3d = False
-
-    mid_transit_time_jd = 58004.424877  # 58004.42319302507  # 58004.425291
-    mid_transit_time_range = 600
-
-    retrieved_parameters_ref, retrieved_parameters = _init_retrieved_parameters(
-        retrieval_parameters,
-        mid_transit_time_jd,
-        mid_transit_time_range
-    )
-    detector_selection = detector_selection_ref[detector_selection_name]
-
-    if retrieval_name != '':
-        retrieval_name = '_' + retrieval_name
-
-    for parameter_dict in retrieved_parameters.values():
-        retrieval_name += f"_{parameter_dict['retrieval_name']}"
-
-    retrieval_name += f'_{detector_selection_name}'
-
-    if retrieve_mock_observations:
-        retrieval_name += '_sim'
-
-    planet = Planet.get(planet_name)
-
-    # Overriding to Rosenthal et al. 2021
-    planet.star_radius = 0.78271930158600000 * nc.r_sun
-    planet.star_radius_error_upper = +0.01396094224705000 * nc.r_sun
-    planet.star_radius_error_lower = -0.01396094224705000 * nc.r_sun
-
-    if use_t23:
-        print(f"Using full transit time (T23), not total transit time (T14)")
-        planet_transit_duration = planet.calculate_full_transit_duration(
-            total_transit_duration=planet.transit_duration,
-            planet_radius=planet.radius,
-            star_radius=planet.star_radius,
-            impact_parameter=planet.calculate_impact_parameter(
-                planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-                planet_orbital_inclination=planet.orbital_inclination,
-                star_radius=planet.star_radius
-            )
-        )
-
-        if use_t1535:
-            print(f"Adding exposures of half-eclipses")
-            planet_transit_duration += (planet.transit_duration - planet_transit_duration) / 2
-
-    else:
-        planet_transit_duration = planet.transit_duration
-
-    if 'mid_transit_time' in retrieved_parameters:
-        planet_transit_duration += np.max(retrieved_parameters['mid_transit_time']['prior_parameters']) \
-            - np.min(retrieved_parameters['mid_transit_time']['prior_parameters'])
-
-    resolving_power = 8.04e4
-    retrieval_name = f"{planet_name.replace(' ', '_')}_{mode}{retrieval_name}_{n_live_points}lp"
-
-    retrieval_directory = os.path.join(output_directory, 'retrievals', 'carmenes_retrievals', retrieval_name)
-
-    # Load
-    if rank == 0:
-        print('Loading data...')
-
-        wavelengths_instrument, observed_spectra, instrument_snr, uncertainties, orbital_phases, airmasses, \
-            barycentric_velocities, times, mid_transit_time = load_carmenes_data(
-                directory=os.path.join(additional_data_directory, 'carmenes', 'hd_189733_b'),
-                mid_transit_jd=mid_transit_time_jd
-            )
-
-        instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr = \
-            load_additional_data(
-                data_dir=additional_data_directory,
-                wavelengths_instrument=wavelengths_instrument,
-                airmasses=airmasses,
-                times=times,
-                resolving_power=resolving_power
-            )
-
-        wavelengths_instrument, observed_spectra, uncertainties, instrument_snr, instrumental_deformations, \
-            telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr, orbital_phases, airmasses, \
-            barycentric_velocities, times = \
-            data_selection(
-                wavelengths_instrument=wavelengths_instrument,
-                observed_spectra=observed_spectra,
-                uncertainties=uncertainties,
-                instrument_snr=instrument_snr,
-                instrumental_deformations=instrumental_deformations,
-                telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-                telluric_transmittances=telluric_transmittances,
-                simulated_snr=simulated_snr,
-                times=times,
-                mid_transit_time=mid_transit_time,
-                transit_duration=planet_transit_duration,
-                orbital_phases=orbital_phases,
-                airmasses=airmasses,
-                barycentric_velocities=barycentric_velocities,
-                detector_selection=detector_selection,
-                n_transits=n_transits
-            )
-
-        simulated_uncertainties = np.moveaxis(
-            np.moveaxis(simulated_snr, 2, 0) / np.mean(simulated_snr, axis=2) * np.mean(uncertainties, axis=2),
-            0,
-            2
-        )
-
-        if use_simulated_uncertainties:
-            model_uncertainties = simulated_uncertainties
+    for parameter in retrieval_parameters:
+        if parameter not in retrieved_parameters_ref:
+            raise KeyError(f"parameter '{parameter}' was not initialized")
         else:
-            model_uncertainties = copy.deepcopy(uncertainties)
+            retrieved_parameters[parameter] = retrieved_parameters_ref[parameter]
 
-        data_shape = observed_spectra.shape
+    if external_parameters_ref is not None:
+        for parameter in external_parameters_ref:
+            if parameter in retrieved_parameters:
+                for prop, value in external_parameters_ref[parameter][()].items():
+                    retrieved_parameters[parameter][prop] = value
 
-        if add_noise:
-            print('Generating noise...')
-            noise_matrix = np.random.default_rng().normal(loc=0, scale=uncertainties, size=data_shape)
-        else:
-            noise_matrix = None
-
-        # Mock_observations
-        print('Initializing model...')
-        spectral_model = SpectralModel(
-            # Radtrans object parameters
-            pressures=np.logspace(-10, 2, 100),  # bar
-            line_species=[
-                'CH4_hargreaves_main_iso',
-                'CO_all_iso',
-                'H2O_main_iso',
-                'H2S_main_iso',
-                'NH3_main_iso'
-            ],
-            rayleigh_species=['H2', 'He'],
-            continuum_opacities=['H2-H2', 'H2-He'],
-            opacity_mode='lbl',
-            lbl_opacity_sampling=4,
-            times=times,
-            # Temperature profile parameters
-            temperature_profile_mode='isothermal',
-            temperature=planet.equilibrium_temperature,  # K
-            # Chemical parameters
-            use_equilibrium_chemistry=False,
-            imposed_mass_mixing_ratios={
-                'CH4_hargreaves_main_iso': 3.4e-5,
-                'CO_all_iso': 1.8e-2,
-                'H2O_main_iso': 5.4e-3,
-                'H2S_main_iso': 1.0e-3,
-                'HCN_main_iso': 2.7e-7,
-                'NH3_main_iso': 7.9e-6
-            },
-            fill_atmosphere=True,
-            # Transmission spectrum parameters (radtrans.calc_transm)
-            planet_radius=planet.radius,  # cm
-            planet_surface_gravity=planet.surface_gravity,  # cm.s-2
-            reference_pressure=1e-2,  # bar
-            cloud_pressure=1e-1,
-            # Instrument parameters
-            new_resolving_power=8.04e4,
-            output_wavelengths=wavelengths_instrument,  # um
-            # Scaling parameters
-            star_radius=planet.star_radius,  # cm
-            # Orbital parameters
-            star_mass=planet.star_mass,  # g
-            orbit_semi_major_axis=planet.orbit_semi_major_axis,  # cm
-            orbital_phases=orbital_phases,
-            mid_transit_time=mid_transit_time,
-            orbital_period=planet.orbital_period,
-            orbital_inclination=planet.orbital_inclination,
-            transit_duration=planet.transit_duration,
-            system_observer_radial_velocities=planet.star_radial_velocity - barycentric_velocities * 1e5,  # cm.s-1
-            planet_rest_frame_velocity_shift=0.0,  # cm.s-1
-            planet_orbital_inclination=planet.orbital_inclination,
-            # Reprocessing parameters
-            uncertainties=model_uncertainties,
-            airmass=airmasses,
-            tellurics_mask_threshold=tellurics_mask_threshold,
-            polynomial_fit_degree=2,
-            apply_throughput_removal=True,
-            apply_telluric_lines_removal=True,
-            # Special parameters
-            mean_molar_masses_offset=0.5,
-            constance_tolerance=1e300,  # force constant convolve
-            detector_selection=detector_selection
-        )
-
-        if 'planet_radial_velocity_amplitude' in retrieved_parameters:
-            retrieved_parameters['planet_radial_velocity_amplitude']['prior_parameters'] *= \
-                spectral_model.model_parameters['planet_radial_velocity_amplitude']
-
-        if 'planet_radius' in retrieved_parameters:
-            retrieved_parameters['planet_radius']['prior_parameters'] *= \
-                spectral_model.model_parameters['planet_radius']
-
-        if 'mid_transit_time' in retrieved_parameters:
-            retrieved_parameters['mid_transit_time']['prior_parameters'] += \
-                spectral_model.model_parameters['mid_transit_time']
-
-        retrieval_velocities = spectral_model.get_retrieval_velocities(
-            planet_radial_velocity_amplitude_range=retrieved_parameters[
-                'planet_radial_velocity_amplitude']['prior_parameters'],
-            planet_rest_frame_velocity_shift_range=retrieved_parameters[
-                'planet_rest_frame_velocity_shift']['prior_parameters'],
-            mid_transit_times_range=retrieved_parameters[
-                'mid_transit_time']['prior_parameters'],
-        )
-
-        spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
-            relative_velocities=retrieval_velocities
-        )
-    else:
-        print(f"Rank {rank} waiting for main process to finish...")
-
-        spectral_model = None
-        telluric_transmittances_wavelengths = None
-        telluric_transmittances = None
-        instrumental_deformations = None
-        noise_matrix = None
-        retrieved_parameters = None
-        observed_spectra = None
-        wavelengths_instrument = None
-
-    if rank == 0:
-        print('Broadcasting model and data...')
-
-    comm.barrier()
-
-    spectral_model = comm.bcast(spectral_model, root=0)
-    telluric_transmittances_wavelengths = comm.bcast(telluric_transmittances_wavelengths, root=0)
-    telluric_transmittances = comm.bcast(telluric_transmittances, root=0)
-    instrumental_deformations = comm.bcast(instrumental_deformations, root=0)
-    noise_matrix = comm.bcast(noise_matrix, root=0)
-    retrieved_parameters = comm.bcast(retrieved_parameters, root=0)
-    observed_spectra = comm.bcast(observed_spectra, root=0)
-    wavelengths_instrument = comm.bcast(wavelengths_instrument, root=0)
-
-    def calculate_mean_molar_masses(mass_mixing_ratios, mean_molar_masses_offset, **kwargs):
-        mmw = SpectralModel.calculate_mean_molar_masses(mass_mixing_ratios, **kwargs)
-
-        return mmw + mean_molar_masses_offset
-
-    spectral_model.calculate_mean_molar_masses = calculate_mean_molar_masses
-
-    if rank == 0:
-        print("Broadcasting done!")
-
-    comm.barrier()
-
-    radtrans = spectral_model.get_radtrans()
-
-    comm.barrier()
-
-    if rank == 0 and check:
-        print('Validity checks...')
-        validity, true_log_l, true_chi2 = validity_checks(
-            simulated_data_model=copy.deepcopy(spectral_model),
-            radtrans=radtrans,
-            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-            telluric_transmittances=telluric_transmittances,
-            # telluric_transmittances=None,
-            instrumental_deformations=instrumental_deformations,
-            # instrumental_deformations=deformation_matrix,
-            noise_matrix=noise_matrix,
-            scale=scale,
-            shift=shift,
-            use_transit_light_loss=True,
-            convolve=convolve,
-            rebin=rebin
-        )
-
-        spectral_model.model_parameters['pipeline_validity'] = validity
-        spectral_model.model_parameters['true_log_l'] = true_log_l
-        spectral_model.model_parameters['true_chi2'] = true_chi2
-
-    if retrieve_mock_observations:
-        if rank == 0:
-            if retrieve_mock_3d:
-                print("Reprocessing simulated 3D data...")
-            else:
-                print("Initializing simulated data...")
-
-        comm.barrier()
-
-        if retrieve_mock_3d:
-            wavelengths_instrument, reprocessed_data, reprocessed_data_uncertainties = get_orange_simulation_model(
-                directory=os.path.join(additional_data_directory, 'carmenes', 'hd_189733_b', 'simu_orange'),
-                additional_data_directory=additional_data_directory,
-                base_name='range',
-                mode=mode,
-                telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-                telluric_transmittances=telluric_transmittances,
-                instrumental_deformations=instrumental_deformations,
-                noise_matrix=noise_matrix,
-                scale=scale,
-                shift=shift,
-                convolve=convolve,
-                rebin=rebin,
-                reduce=True,
-                **spectral_model.model_parameters
-            )
-        else:
-            wavelengths_instrument, reprocessed_data = spectral_model.get_spectrum_model(
-                radtrans=radtrans,
-                mode=mode,
-                update_parameters=True,
-                telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-                telluric_transmittances=telluric_transmittances,
-                # telluric_transmittances=None,
-                instrumental_deformations=instrumental_deformations,
-                # instrumental_deformations=deformation_matrix,
-                noise_matrix=noise_matrix,
-                scale=scale,
-                shift=shift,
-                convolve=convolve,
-                rebin=rebin,
-                reduce=True
-            )
-
-        reprocessed_data_uncertainties = copy.deepcopy(spectral_model.model_parameters['reduced_uncertainties'])
-        plot_true_values = True
-    else:
-        reprocessed_data, reprocessing_matrix, reprocessed_data_uncertainties = spectral_model.pipeline(
-            spectrum=observed_spectra,
-            wavelength=wavelengths_instrument,
-            **spectral_model.model_parameters
-        )
-        plot_true_values = False
-
-    if rank == 0:
-        print("Saving model...")
-        if not os.path.isdir(retrieval_directory):
-            os.mkdir(retrieval_directory)
-
-        spectral_model.model_parameters['n_transits'] = n_transits
-        spectral_model.save(os.path.join(retrieval_directory, 'simulated_data_model.h5'))
-
-    if rank == 0:
-        print("Initializing retrieval...")
-
-    comm.barrier()
-
-    retrieval_model = copy.deepcopy(spectral_model)
-
-    retrieval = retrieval_model.init_retrieval(
-        radtrans=radtrans,
-        data=reprocessed_data,
-        data_wavelengths=wavelengths_instrument,
-        data_uncertainties=reprocessed_data_uncertainties,
-        retrieval_directory=retrieval_directory,
-        retrieved_parameters=retrieved_parameters,
-        retrieval_name=retrieval_name,
-        mode=mode,
-        update_parameters=True,
-        # telluric_transmittances=telluric_transmittance,
-        telluric_transmittances=None,
-        # instrumental_deformations=variable_throughput,
-        instrumental_deformations=None,
-        scale=scale,
-        shift=shift,
-        convolve=convolve,
-        rebin=rebin,
-        reduce=True,
-        run_mode='retrieval',
-        scattering=True
-    )
-
-    if retrieve:
-        if rank == 0:
-            save = True
-        else:
-            save = False
-
-        spectral_model.run_retrieval(
-            retrieval=retrieval,
-            n_live_points=n_live_points,
-            resume=resume,
-            save=save
-        )
-
-        if rank == 0:
-            sample_dict, parameter_dict = retrieval.get_samples(
-                output_dir=retrieval_directory + os.path.sep,
-                ret_names=[retrieval_name]
-            )
-
-            n_param = len(parameter_dict[retrieval_name])
-            parameter_plot_indices = {retrieval_name: np.arange(0, n_param)}
-
-            if plot_true_values:
-                true_values = {retrieval_name: []}
-
-                for p in parameter_dict[retrieval_name]:
-                    if p not in spectral_model.model_parameters and 'log10_' not in p:
-                        true_values[retrieval_name].append(
-                            np.mean(np.log10(spectral_model.model_parameters['imposed_mass_mixing_ratios'][p]))
-                        )
-                    elif p not in spectral_model.model_parameters and 'log10_' in p:
-                        p = p.split('log10_', 1)[1]
-                        true_values[retrieval_name].append(np.mean(np.log10(spectral_model.model_parameters[p])))
-                    else:
-                        true_values[retrieval_name].append(np.mean(spectral_model.model_parameters[p]))
-            else:
-                true_values = None
-
-            contour_corner(
-                sample_dict, parameter_dict, os.path.join(retrieval_directory, f'corner_{retrieval_name}.png'),
-                parameter_plot_indices=parameter_plot_indices,
-                true_values=true_values, prt_plot_style=False
-            )
-
-            if archive:
-                print(f"Creating archive '{retrieval_directory}.tar.gz'...")
-                root_dir, base_dir = retrieval_directory.rsplit(os.sep, 1)
-                shutil.make_archive(retrieval_directory, 'gztar', root_dir, base_dir)
+    return retrieved_parameters_ref, retrieved_parameters
 
 
-def _main():
-    # Manual initialisation
-    use_t23 = False
-    use_t1535 = False
-    planet_name = 'HD 189733 b'
-    output_directory = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
-                                       + '../../../../../work/run_outputs/petitRADTRANS')
-    additional_data_directory = os.path.join(output_directory, 'data')
-    # output_dir = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
-    #                              + '../../../../run_outputs/petitRADTRANS/simulation_retrievals/CARMENES')
-    # data_dir = os.path.abspath(os.path.abspath(os.path.dirname(__file__))
-    #                            + '../../../../run_inputs/petitRADTRANS/additional_data')
-    mode = 'transmission'
+def load_variable_throughput_brogi(file, times_size, wavelengths_size):
+    variable_throughput = np.load(file)
 
-    retrieval_name = 'test_data'  # 'iso_CO_CO36_CO2_H2O_H2S'
-    n_live_points = 15
-    resume = False
-    tellurics_mask_threshold = 0.5
+    variable_throughput = np.max(variable_throughput[0], axis=1)
+    variable_throughput = variable_throughput / np.max(variable_throughput)
 
-    retrieve_mock_observations = True
-    use_simulated_uncertainties = False
-    add_noise = False
-    n_transits = 1
+    xp = np.linspace(0, 1, np.size(variable_throughput))
+    x = np.linspace(0, 1, times_size)
+    variable_throughput = np.interp(x, xp, variable_throughput)
 
-    check = False
-    retrieve = False
-    archive = True
+    return np.tile(variable_throughput, (wavelengths_size, 1)).T
 
-    scale = True
-    shift = True
-    convolve = True
-    rebin = True
 
-    detector_selection_name = 'testd'
-
-    retrieval_parameters = [
-        'new_resolving_power',
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
-        'mid_transit_time',
-        'planet_radius',
-        'log10_planet_surface_gravity',
-        'temperature',
-        'CH4_hargreaves_main_iso',
-        'CO_all_iso',
-        'H2O_main_iso',
-        'H2S_main_iso',
-        'HCN_main_iso',
-        'NH3_main_iso',
-        'log10_cloud_pressure',
-        'log10_scattering_opacity_350nm',
-        'scattering_opacity_coefficient'
-    ]
-
-    main(
-        planet_name=planet_name,
-        output_directory=output_directory,
-        additional_data_directory=additional_data_directory,
-        mode=mode,
-        retrieval_name=retrieval_name,
-        retrieval_parameters=retrieval_parameters,
-        detector_selection_name=detector_selection_name,
-        n_live_points=n_live_points,
-        resume=resume,
-        tellurics_mask_threshold=tellurics_mask_threshold,
-        retrieve_mock_observations=retrieve_mock_observations,
-        use_simulated_uncertainties=use_simulated_uncertainties,
-        add_noise=add_noise,
-        n_transits=n_transits,
-        check=check,
-        retrieve=retrieve,
-        archive=archive,
-        scale=scale,
-        shift=shift,
-        convolve=convolve,
-        rebin=rebin,
-        use_t23=use_t23,
-        use_t1535=use_t1535
+def save_to_alex(file, wavelengths, data, prepared_data, mask, times, barycentric_velocities, airmass, order_selection):
+    np.savez_compressed(
+        file=file,
+        wavelengths=wavelengths,
+        data=data,
+        prepared_data=prepared_data,
+        mask=mask,
+        times=times,
+        barycentric_velocities=barycentric_velocities,
+        airmass=airmass,
+        order_selection=order_selection
     )
 
 
@@ -5601,57 +3521,545 @@ def quick_figure_setup(external_parameters_ref=None):
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r600_alex4_sim_c_c815_100lp\simulated_data_model.h5'
+        r'Kp_V0_tiso_H2O_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp\simulated_data_model.h5'
     )
 
 
-def save_to_alex(file, wavelengths, data, prepared_data, mask, times, barycentric_velocities, airmass, order_selection):
-    np.savez_compressed(
-        file=file,
-        wavelengths=wavelengths,
-        data=data,
-        prepared_data=prepared_data,
-        mask=mask,
-        times=times,
-        barycentric_velocities=barycentric_velocities,
-        airmass=airmass,
-        order_selection=order_selection
+def plot_all_figures(retrieved_parameters,
+                     figure_directory=r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\
+                                        HD_189733_b_CARMENES',
+                     image_format='pdf'):
+    # Init
+    retrieval_directory = r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
+    sm = SpectralModel.load(
+        retrieval_directory +
+        r'\HD_189733_b_transmission_'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_cn12345_c816_100lp\simulated_data_model.h5'
     )
+    radtrans = sm.get_radtrans()
+
+    sd, true_values = plot_init(
+        retrieved_parameters,
+        retrieval_directory +
+        r'\HD_189733_b_transmission_'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
+        sm
+    )
+
+    wavelengths_instrument, observed_spectra, instrument_snr, uncertainties, orbital_phases, airmasses, \
+        barycentric_velocities, times, mid_transit_time = load_carmenes_data(
+            directory=os.path.join(
+                r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data',
+                'carmenes',
+                'hd_189733_b'
+            ),
+            mid_transit_jd=58004.424877#58004.425291
+        )
+
+    instrumental_deformations, telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr, _ = \
+        load_additional_data(
+            data_dir=r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data',
+            wavelengths_instrument=wavelengths_instrument,
+            airmasses=airmasses,
+            resolving_power=sm.model_parameters['new_resolving_power']
+        )
+
+    detector_selection = sm.model_parameters['detector_selection']
+    # detector_selection = np.arange(0, 56)  # all
+    ccd_id = np.asarray(detector_selection == 46).nonzero()[0][0]
+    planet = Planet.get('HD 189733 b')
+
+    # Modify TD
+    planet_transit_duration = planet.transit_duration + np.max(
+        retrieved_parameters['mid_transit_time']['prior_parameters']) \
+        - np.min(retrieved_parameters['mid_transit_time']['prior_parameters'])
+
+    wavelengths_instrument_0 = copy.deepcopy(wavelengths_instrument[:, 0])
+    observed_spectra_0 = copy.deepcopy(observed_spectra)
+
+    wavelengths_instrument, observed_spectra, uncertainties, instrument_snr, instrumental_deformations, \
+        telluric_transmittances_wavelengths, telluric_transmittances, simulated_snr, orbital_phases, airmasses, \
+        barycentric_velocities, times = \
+        data_selection(
+            wavelengths_instrument=wavelengths_instrument,
+            observed_spectra=observed_spectra,
+            uncertainties=uncertainties,
+            instrument_snr=instrument_snr,
+            instrumental_deformations=instrumental_deformations,
+            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+            telluric_transmittances=telluric_transmittances,
+            simulated_snr=simulated_snr,
+            times=times,
+            mid_transit_time=mid_transit_time,
+            transit_duration=planet_transit_duration,
+            orbital_phases=orbital_phases,
+            airmasses=airmasses,
+            barycentric_velocities=barycentric_velocities,
+            detector_selection=detector_selection,
+            n_transits=1,
+            use_t23=False,
+            use_t1535=False
+        )
+
+    simulated_uncertainties = np.moveaxis(
+        np.moveaxis(simulated_snr, 2, 0) / np.mean(simulated_snr, axis=2) * np.mean(uncertainties, axis=2),
+        0,
+        2
+    )
+    simulated_uncertainties = np.ma.masked_where(uncertainties.mask, simulated_uncertainties)
+
+    if 'noise_matrix' in sm.model_parameters:
+        noise_matrix = sm.model_parameters['noise_matrix']
+    else:
+        noise_matrix = np.random.default_rng(seed=12345).normal(loc=0, scale=uncertainties, size=uncertainties.shape)
+
+    sm.model_parameters['uncertainties'] = np.ma.masked_where(
+        copy.deepcopy(uncertainties.mask),
+        sm.model_parameters['uncertainties']
+    )
+
+    sm.model_parameters['imposed_mass_mixing_ratios'] = {
+        'CH4_hargreaves_main_iso': 3.4e-5,
+        'CO_all_iso': 1.8e-2,
+        'H2O_main_iso': 5.4e-3,
+        'H2S_main_iso': 1.0e-3,
+        'HCN_main_iso': 2.7e-7,
+        'NH3_main_iso': 7.9e-6
+    }
+
+    # print(f'Reprocessing data...')
+    # reprocessed_data, reprocessing_matrix, reprocessed_data_uncertainties = sm.pipeline(
+    #     observed_spectra,
+    #     wavelengths=wavelengths_instrument,
+    #     **sm.model_parameters
+    # )
+
+    xlim = (1.519 * 1e-6, 1.522 * 1e-6)
+
+    print('Starting making figures...')
+    # Figure 1 from Alex
+
+    # Model steps
+    plot_model_steps(
+        spectral_model=sm,
+        radtrans=radtrans,
+        mode='transmission',
+        ccd_id=ccd_id,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format
+    )
+
+    plot_model_steps_model(
+        spectral_model=sm,
+        radtrans=radtrans,
+        mode='transmission',
+        ccd_id=ccd_id,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=noise_matrix,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format,
+        noise_factor=10
+    )
+
+    # TODO Expected MMRs
+    # TODO Expected TP
+    # Contribution (not kept in final version)
+    plot_contribution(sm, radtrans, figure_directory, image_format)
+
+    # Species contribution
+    plot_species_contribution(wavelengths_instrument_0, figure_directory, image_format, observations=observed_spectra_0)
+
+    # Reprocessing steps
+    plot_reprocessing_effect_1d(
+        spectral_model=sm,
+        radtrans=radtrans,
+        uncertainties=uncertainties,
+        mode='transmission',
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        ccd_id=ccd_id,
+        orbital_phase_id=8,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format
+    )
+
+    # Reprocessing effect
+    retrieval_data = np.load(
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
+        r'\HD_189733_b_transmission_'
+        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_c816_100lp'
+        r'\retrieved_parameters.npz'
+    )
+    reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
+
+    plot_reprocessing_effect(
+        spectral_model=sm,
+        radtrans=radtrans,
+        reprocessed_data=reprocessed_data,
+        mode='transmission',
+        simulated_uncertainties=simulated_uncertainties,
+        ccd_id=ccd_id,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=noise_matrix,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format
+    )
+
+    # Reprocessing effect SysRem
+    retrieval_data = np.load(
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
+        r'\HD_189733_b_transmission_'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sys-sub_c816_100lp'
+        r'\retrieved_parameters.npz'
+    )
+    reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
+
+    plot_reprocessing_effect(
+        spectral_model=sm,
+        radtrans=radtrans,
+        reprocessed_data=reprocessed_data,
+        mode='transmission',
+        simulated_uncertainties=simulated_uncertainties,
+        ccd_id=ccd_id,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=noise_matrix,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format,
+        figure_name='preparing_effect_sysrem',
+        use_sysrem=True
+    )
+
+    # Validity
+    plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, False)
+
+    # Expected retrieval corner plot
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim3d_f2_c_c816_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simulated_retrievals',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        figure_font_size=8,
+        save=True
+    )
+
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simulated_retrievals',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        figure_font_size=8,
+        save=True
+    )
+
+    # Results
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simple_retrieval',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=None,
+        figure_font_size=8,
+        save=True
+    )
+
+    directories = []
+
+    for f in os.scandir(retrieval_directory):
+        if f.is_dir() and 'HD_189733_b_transmission' in f.path and '_sim' not in f.path and 'sys-sub' not in f.path \
+                and 't0r300' in f.path and 'c817' in f.path and 'alex4' in f.path:
+            directories.append(f.path)
+
+    spectral_models, log_es, log_ls, chi2s, sds = all_best_fit_stats(directories, retrieved_parameters=retrieved_parameters)
+
+    parameter_names_ref = [
+        'temperature',
+        'CH4_hargreaves_main_iso',
+        'CO_all_iso',
+        'H2O_main_iso',
+        'H2S_main_iso',
+        'HCN_main_iso',
+        'NH3_main_iso',
+        'log10_cloud_pressure',
+        'log10_scattering_opacity_350nm',
+        'scattering_opacity_coefficient',
+        'log10_planet_surface_gravity',
+        'planet_radial_velocity_amplitude',
+        'planet_rest_frame_velocity_shift',
+        'new_resolving_power',
+        'mid_transit_time'
+    ]
+
+    # A00: exp_CCD_param
+    directories_hist = {
+        'P-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-12': 'HD_189733_b_transmission_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-13': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-14': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-15': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+
+        'S-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-15': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+    }
+
+    colors = {'P': 'C0', 'S': 'C2'}
+    colors = {key: colors[key.split('-', 1)[0]] for key in directories_hist}
+
+    log_evidences = np.zeros(len(directories_hist))
+
+    for i, d in enumerate(directories_hist):
+        directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
+
+        # for j, dd in enumerate(directories):
+        #     if dd == d:
+        #         log_evidences[i] = log_es[j]
+
+    plot_multiple_hists_data(
+        result_directory=directories_hist,
+        retrieved_parameters=retrieved_parameters,
+        true_values=None,
+        parameter_names_ref=parameter_names_ref,
+        figure_font_size=9.5,
+        save=True,
+        color=colors,
+        add_rectangle=6,
+        figure_directory=figure_directory,
+        figure_name='retrievals_posteriors',
+        image_format=image_format
+    )
+
+    # A00: exp_CCD_param
+    parameter_names_ref = [
+        'planet_radial_velocity_amplitude',
+        'planet_rest_frame_velocity_shift',
+        'temperature',
+        'H2O_main_iso',
+        'mid_transit_time',
+        'new_resolving_power',
+        'log10_planet_surface_gravity',
+    ]
+
+    directories_hist = {
+        'Poly-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_c813_100lp',
+        'Poly-O:N-B:Y-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
+        'SysS-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
+        'SysD-O:N-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
+
+        'Poly-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
+        'Poly-O:Y-B:Y-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
+        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
+        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
+
+        'Poly-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
+        'Poly-O:N-B:Y-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
+        'SysS-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
+        'SysD-O:N-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
+
+        'Poly-O:Y-B:N-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
+        'Poly-O:Y-B:Y-02': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
+        # 'SysS-O:Y-B:N-02': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
+        # 'SysD-O:Y-B:N-02': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
+        #
+        'Poly-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_g_tiso_H2O_tmt0.80_alex4_c813_100lp',
+        'Poly-O:N-B:Y-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
+        'SysS-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
+        'SysD-O:N-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
+
+        'Poly-O:Y-B:N-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
+        'Poly-O:Y-B:Y-03': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
+        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
+        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
+
+        'Poly-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
+        'Poly-O:N-B:Y-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_bxctlloss_c813_100lp',
+        'SysS-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
+        'SysD-O:N-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_sys-div_c813_100lp',
+
+        'Poly-O:Y-B:N-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_c813_100lp',
+        'Poly-O:Y-B:Y-04': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_alex4_adddoff_bxctlloss_c813_100lp',
+        # 'SysS-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-sub_c813_100lp',
+        # 'SysD-O:Y-B:N-01': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_adddoff_sys-div_c813_100lp',
+
+        'Poly-G:N-05': 'HD_189733_b_transmission_R_T0_g_Kp_V0_tiso_H2O_tmt0.80_alex4_c813_100lp',
+        'Poly-G:Y-05': 'HD_189733_b_transmission_R_T0_g_Kp_V0_tiso_H2O_gp_tmt0.80_alex4_c813_100lp',
+        'SysS-G:N-05': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_gp_tmt0.80_alex4_sys-sub_c813_100lp',
+        'SysS-O:N-B:N-05': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_H2O_tmt0.80_alex4_sys-sub_c813_100lp',
+    }
+
+    colors = {
+        'Poly-O:N-B:N-01': 'C0',
+        'Poly-O:N-B:Y-01': 'C0',
+        'SysS-O:N-B:N-01': 'C0',
+        'SysD-O:N-B:N-01': 'C0',
+
+        'Poly-O:Y-B:N-01': 'C1',
+        'Poly-O:Y-B:Y-01': 'C1',
+        'SysS-O:Y-B:N-01': 'C1',
+        'SysD-O:Y-B:N-01': 'C1',
+
+        'Poly-O:N-B:N-02': 'C0',
+        'Poly-O:N-B:Y-02': 'C0',
+        'SysS-O:N-B:N-02': 'C0',
+        'SysD-O:N-B:N-02': 'C0',
+
+        'Poly-O:Y-B:N-02': 'C1',
+        'Poly-O:Y-B:Y-02': 'C1',
+        'SysS-O:Y-B:N-02': 'C1',
+        'SysD-O:Y-B:N-02': 'C1',
+
+        'Poly-O:N-B:N-03': 'C0',
+        'Poly-O:N-B:Y-03': 'C0',
+        'SysS-O:N-B:N-03': 'C0',
+        'SysD-O:N-B:N-03': 'C0',
+
+        'Poly-O:Y-B:N-03': 'C1',
+        'Poly-O:Y-B:Y-03': 'C1',
+        'SysS-O:Y-B:N-03': 'C1',
+        'SysD-O:Y-B:N-03': 'C1',
+
+        'Poly-O:Y-B:N-04': 'C0',
+        'Poly-O:Y-B:Y-04': 'C0',
+        'SysS-O:Y-B:N-04': 'C0',
+        'SysD-O:Y-B:N-04': 'C0',
+    }
+
+    for d in directories_hist:
+        directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
+
+    plot_multiple_hists_data(
+        result_directory=directories_hist,
+        sm=sm,
+        retrieved_parameters=retrieved_parameters,
+        true_values=None,
+        parameter_names_ref=parameter_names_ref,
+        figure_font_size=10,
+        save=True,
+        color=colors,
+        add_rectangle=None,
+        figure_directory=figure_directory,
+        figure_name='retrievals_posteriors',
+        image_format=image_format
+    )
+
+    # A00: exp_CCD_param
+    directories_hist = {
+        'TTR-06': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_alex2_t1535_t23_c211_100lp',
+        'A': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_strictt15353_t1535_t23_c_1000lp',
+        'B': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_bad3_t1535_t23_c_1000lp',
+    }
+
+    for i, d in enumerate(directories_hist):
+        if i > 0:
+            directories_hist[d] = os.path.join(retrieval_directory, 'old', directories_hist[d])
+        else:
+            directories_hist[d] = os.path.join(retrieval_directory, directories_hist[d])
+
+    plot_multiple_hists_data(
+        result_directory=directories_hist,
+        sm=sm,
+        retrieved_parameters=retrieved_parameters,
+        true_values=None,
+        parameter_names_ref=parameter_names_ref,
+        figure_font_size=11,
+        fig_size=6.4,
+        save=True,
+        color='C0',
+        add_rectangle=None,
+        figure_directory=figure_directory,
+        figure_name='retrievals_posteriors_test',
+        image_format=image_format
+    )
+
+    # 3D comparison figure
+    base_wavelengths, base_spectrum = sm.get_spectrum_model(
+        radtrans=radtrans,
+        mode='transmission',
+        update_parameters=True,
+        telluric_transmittances_wavelengths=None,
+        telluric_transmittances=None,
+        instrumental_deformations=None,
+        noise_matrix=None,
+        scale=False,
+        shift=False,
+        convolve=False,
+        rebin=False,
+        reduce=False
+    )
+
+    orange_model_with_rotation = np.load(
+        'C:/Users/Doriann/Documents/work/run_outputs/petitRADTRANS/data/carmenes/hd_189733_b/simu_orange/'
+        'orange_hd_189733_b_transmission.npz'
+    )
+
+    orange_wavelengths_no_rotation, orange_spectrum_no_rotation = load_orange_simulation_dat(
+        'C:/Users/Doriann/Documents/work/run_outputs/petitRADTRANS/data/carmenes/hd_189733_b/simu_orange/no_rotation',
+        'range', 'dat', 31
+    )
+
+    plt.figure(figsize=(6.4, 4.8))
+    update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
+    plt.plot(base_wavelengths[0, 110000:120000] * 1e-6,
+             base_spectrum[0, 110000:120000] * 1e-5,
+             color='k', label='1-D model')
+    plt.plot(orange_wavelengths_no_rotation * 1e-6, orange_spectrum_no_rotation * 1e-5,
+             color='C4', label='3-D model')
+    plt.plot(orange_model_with_rotation['wavelengths'] * 1e-6, orange_model_with_rotation['data'] * 1e-5,
+             color='C1', label='3-D model (rotation + wind)')
+    plt.xlim(np.array([1.5205 - 0.0005, 1.5205 + 0.0005]) * 1e-6)
+    plt.xlabel('Wavelength (m)')
+    plt.ylabel(r'$R_p$ (km)')
+    plt.tight_layout()
+    plt.legend()
+    plt.savefig(os.path.join(figure_directory, '3d_model_comparison' + '.' + image_format))
 
 
 if __name__ == '__main__':
-    t0 = time.time()
-
-    parser_args = parser.parse_args()
-
-    print(f'rm: {parser_args.retrieve_mock_observations}')
-    print(f'a: {parser_args.no_archive}')
-    print(f'convolve: {parser_args.no_convolve}')
-
-    main(
-        planet_name=parser_args.planet_name,
-        output_directory=parser_args.output_directory,
-        additional_data_directory=parser_args.additional_data_directory,
-        mode=parser_args.mode,
-        retrieval_name=parser_args.retrieval_name,
-        retrieval_parameters=parser_args.retrieval_parameters,
-        detector_selection_name=parser_args.detector_selection_name,
-        n_live_points=parser_args.n_live_points,
-        resume=parser_args.resume,
-        tellurics_mask_threshold=parser_args.tellurics_mask_threshold,
-        retrieve_mock_observations=parser_args.retrieve_mock_observations,
-        use_simulated_uncertainties=parser_args.use_simulated_uncertainties,
-        add_noise=parser_args.add_noise,
-        n_transits=parser_args.n_transits,
-        check=parser_args.check,
-        retrieve=parser_args.no_retrieval,
-        archive=parser_args.no_archive,
-        scale=parser_args.no_scale,
-        shift=parser_args.no_shift,
-        convolve=parser_args.no_convolve,
-        rebin=parser_args.no_rebin,
-        use_t23=parser_args.use_t23,
-        use_t1535=parser_args.use_t1535
-    )
-
-    print(f"Done in {time.time() - t0} s")
+    pass

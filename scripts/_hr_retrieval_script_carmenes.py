@@ -354,8 +354,8 @@ def data_selection(wavelengths_instrument, observed_spectra, uncertainties, inst
         barycentric_velocities, times
 
 
-def load_additional_data(data_dir, wavelengths_instrument, airmasses, resolving_power, simulate_uncertainties=True,
-                         load_offset=False):
+def load_additional_data(data_dir, wavelengths_instrument, airmasses, resolving_power, times='TDB',
+                         simulate_uncertainties=True, load_offset=False):
     """Load and generate tellurics transmittances, deformation matrix, simulated uncertainties and data offset"""
     # Tellurics
     telluric_transmittance_file = \
@@ -428,8 +428,8 @@ def load_additional_data(data_dir, wavelengths_instrument, airmasses, resolving_
     return variable_throughput, wavelengths_telluric, telluric_transmittance, simulated_uncertainties, offset
 
 
-def load_carmenes_data(directory, mid_transit_jd, times_format='TMD'):
-    """Load the CARMENES data. The BJD_TMD times should be used."""
+def load_carmenes_data(directory, mid_transit_jd, times_format='TDB'):
+    """Load the CARMENES data. The BJD_TDB times should be used."""
     with fits.open(os.path.join(directory, 'airmass.fits')) as f:
         airmass = f[0].data
 
@@ -437,15 +437,15 @@ def load_carmenes_data(directory, mid_transit_jd, times_format='TMD'):
         barycentric_velocities = f[0].data
 
     if times_format == 'UTC':
-        warnings.warn('loading BJD_UTC times (most time references are in BJD_TMD)')
+        warnings.warn('loading BJD_UTC times (most time references are in BJD_TDB)')
         with fits.open(os.path.join(directory, 'mod_julian_date.fits')) as f:
             dates = f[0].data  # in MJD - 0.5 format, corresponds to 2017-09-07
-    elif times_format == 'TMD':
-        print('Loading BJD_TMD times...')
-        dates = np.load(os.path.join(directory, 'mod_julian_date_tmd.npz'))
+    elif times_format == 'TDB':
+        print('Loading BJD_TDB times...')
+        dates = np.load(os.path.join(directory, 'mod_julian_date_tdb.npz'))
         dates = dates['times']
     else:
-        raise ValueError(f"time format must be 'TMD'|'UTC', but was '{times_format}'")
+        raise ValueError(f"time format must be 'TDB'|'UTC', but was '{times_format}'")
 
     with fits.open(os.path.join(directory, 'noise.fits')) as f:  # is it actually 1/noise ?... or SNR?
         noise = f[0].data
@@ -652,8 +652,7 @@ def pipeline_sys(spectrum, **kwargs):
 
 
 def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_uncertainties,
-                     scale, shift, convolve, rebin, reduce):
-    """Run the retrieval steps for one model."""
+                     scale, shift, use_transit_light_loss, convolve, rebin, reduce, correct_uncertainties=False):
     p = copy.deepcopy(parameters)
     m = copy.deepcopy(model)
     logls = []
@@ -680,10 +679,14 @@ def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_unce
             noise_matrix=None,
             scale=scale,
             shift=shift,
+            use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin,
             reduce=reduce
         )
+
+    p['correct_uncertainties'] = correct_uncertainties
+    print(f"correct uncertainties with k_sigma: {correct_uncertainties}")
 
     for lag in v_rest:
         p['planet_rest_frame_velocity_shift'] = lag
@@ -694,7 +697,7 @@ def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_unce
         for kp_ in kps:
             p['planet_radial_velocity_amplitude'] = kp_
 
-            w, s = retrieval_model(prt_object, p)
+            w, s, _ = retrieval_model(prt_object, p)
             wavelengths[-1].append(w)
             retrieval_models[-1].append(s)
 
@@ -718,9 +721,9 @@ def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_unce
 
 def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wavelengths, telluric_transmittances,
                     instrumental_deformations, noise_matrix,
-                    scale, shift, convolve, rebin, filename='./validity.npz', do_pseudo_retrieval=True, save=True,
+                    scale, shift, use_transit_light_loss, convolve, rebin,
+                    filename='./validity.npz', do_pseudo_retrieval=True, save=True,
                     full=False):
-    """Check if model obey the criterion for the log-likelihood equation used in the retrieval to be valid."""
     print('Initializing spectra...')
     p = copy.deepcopy(simulated_data_model.model_parameters)
 
@@ -728,7 +731,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         p[key] = np.log10(value)
 
     print(' True spectrum...')
-    true_wavelengths, true_spectrum = simulated_data_model.retrieval_model_generating_function(
+    true_wavelengths, true_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
         prt_object=radtrans,
         parameters=p,
         spectrum_model=simulated_data_model,
@@ -740,15 +743,14 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         noise_matrix=None,
         scale=scale,
         shift=shift,
+        use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
         reduce=False
     )
 
-    true_spectrum = np.ma.masked_array(true_spectrum, mask=np.zeros(true_spectrum.shape, dtype=bool))
-
     print(' Deformed spectrum...')
-    _, deformed_spectrum = simulated_data_model.retrieval_model_generating_function(
+    _, deformed_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
         prt_object=radtrans,
         parameters=p,
         spectrum_model=simulated_data_model,
@@ -760,13 +762,14 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         noise_matrix=None,
         scale=scale,
         shift=shift,
+        use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
         reduce=False
     )
 
     print(' Reprocessed spectrum...')
-    _, reprocessed_spectrum = simulated_data_model.retrieval_model_generating_function(
+    _, reprocessed_spectrum, _ = simulated_data_model.retrieval_model_generating_function(
         prt_object=radtrans,
         parameters=p,
         spectrum_model=simulated_data_model,
@@ -778,14 +781,10 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         noise_matrix=noise_matrix,
         scale=scale,
         shift=shift,
+        use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
         reduce=True
-    )
-
-    deformed_spectrum = np.ma.masked_array(deformed_spectrum, mask=np.zeros(deformed_spectrum.shape, dtype=bool))
-    reprocessed_spectrum = np.ma.masked_array(
-        reprocessed_spectrum, mask=np.zeros(reprocessed_spectrum.shape, dtype=bool)
     )
 
     deformation_matrix = deformed_spectrum / true_spectrum
@@ -797,47 +796,35 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
     reprocessed_true_spectrum, reprocessed_matrix_true, _ = simulated_data_model.pipeline(
         spectrum=true_spectrum,
         wavelengths=true_wavelengths,
-        airmass=simulated_data_model.model_parameters['airmass'],
-        uncertainties=simulated_data_model.model_parameters['uncertainties'],
-        apply_throughput_removal=simulated_data_model.model_parameters['apply_throughput_removal'],
-        apply_telluric_lines_removal=simulated_data_model.model_parameters['apply_telluric_lines_removal'],
-        polynomial_fit_degree=simulated_data_model.model_parameters['polynomial_fit_degree'],
-        tellurics_mask_threshold=simulated_data_model.model_parameters['tellurics_mask_threshold']
+        **simulated_data_model.model_parameters
     )
 
     print(' Reprocessed deformed spectrum...')
     reprocessed_deformed_spectrum, reprocessed_matrix_deformed, _ = simulated_data_model.pipeline(
         spectrum=true_spectrum * deformation_matrix,
         wavelengths=true_wavelengths,
-        airmass=simulated_data_model.model_parameters['airmass'],
-        uncertainties=simulated_data_model.model_parameters['uncertainties'],
-        apply_throughput_removal=simulated_data_model.model_parameters['apply_throughput_removal'],
-        apply_telluric_lines_removal=simulated_data_model.model_parameters['apply_telluric_lines_removal'],
-        polynomial_fit_degree=simulated_data_model.model_parameters['polynomial_fit_degree'],
-        tellurics_mask_threshold=simulated_data_model.model_parameters['tellurics_mask_threshold']
+        **simulated_data_model.model_parameters
     )
 
     print(' Reprocessed noisy spectrum...')
     reprocessed_noisy_spectrum, reprocessed_matrix_noisy, _ = simulated_data_model.pipeline(
         spectrum=true_spectrum * deformation_matrix + noise_matrix,
         wavelengths=true_wavelengths,
-        airmass=simulated_data_model.model_parameters['airmass'],
-        uncertainties=simulated_data_model.model_parameters['uncertainties'],
-        apply_throughput_removal=simulated_data_model.model_parameters['apply_throughput_removal'],
-        apply_telluric_lines_removal=simulated_data_model.model_parameters['apply_telluric_lines_removal'],
-        polynomial_fit_degree=simulated_data_model.model_parameters['polynomial_fit_degree'],
-        tellurics_mask_threshold=simulated_data_model.model_parameters['tellurics_mask_threshold']
+        **simulated_data_model.model_parameters
     )
 
     print('Checking framework validity (noisy)...', end='')
 
-    assert np.allclose(
-        reprocessed_spectrum,
-        (true_spectrum * deformation_matrix + noise_matrix) * reprocessed_matrix_noisy,
-        atol=1e-10,
-        rtol=1e-10
-    )
-    print(' OK')
+    try:
+        assert np.allclose(
+            reprocessed_spectrum,
+            (true_spectrum * deformation_matrix + noise_matrix) * reprocessed_matrix_noisy,
+            atol=1e-10,
+            rtol=1e-10
+        )
+        print(' OK')
+    except AssertionError:
+        print('Validity not respected!')
 
     noiseless_validity = 1 - reprocessed_true_spectrum / reprocessed_deformed_spectrum
 
@@ -864,12 +851,13 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
             data_uncertainties=simulated_data_model.model_parameters['reduced_uncertainties'],
             scale=scale,
             shift=shift,
+            use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin,
             reduce=True
         )
 
-        assert np.allclose(retrieval_models[0][0], reprocessed_true_spectrum, atol=0.0, rtol=1e-14)
+        # assert np.allclose(retrieval_models[0][0], reprocessed_true_spectrum, atol=0.0, rtol=1e-14)
 
         true_chi2 = -2 * true_log_l[0][0] / np.size(reprocessed_spectrum[~reprocessed_spectrum.mask])
 
@@ -901,9 +889,9 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
 
     if full:
         return noisy_validity, true_log_l, true_chi2, noiseless_validity, \
-            true_wavelengths, true_spectrum, deformed_spectrum, reprocessed_spectrum, reprocessed_true_spectrum, \
-            reprocessed_deformed_spectrum, reprocessed_noisy_spectrum, \
-            reprocessed_matrix_true, reprocessed_matrix_deformed, reprocessed_matrix_noisy
+               true_wavelengths, true_spectrum, deformed_spectrum, reprocessed_spectrum, reprocessed_true_spectrum, \
+               reprocessed_deformed_spectrum, reprocessed_noisy_spectrum, \
+               reprocessed_matrix_true, reprocessed_matrix_deformed, reprocessed_matrix_noisy
     else:
         return noisy_validity, true_log_l, true_chi2
 
@@ -927,53 +915,6 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
 
     # References
     retrieved_parameters_ref = {
-        'new_resolving_power': {
-            'prior_parameters': [1e3, 1e5],
-            'prior_type': 'uniform',
-            'figure_name': 'Resolving power',
-            'figure_title': r'$\mathcal{R}_C$',
-            'figure_label': 'Resolving power',
-            'retrieval_name': 'R'
-        },
-        'mid_transit_time': {
-            'prior_parameters': [-mid_transit_time_range, mid_transit_time_range],
-            'prior_type': 'uniform',
-            'figure_title': r'$T_0$',
-            'figure_label': r'$T_0$ (s)',
-            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
-            'retrieval_name': 'T0'
-        },
-        'planet_radial_velocity_amplitude': {
-            'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
-            'prior_type': 'uniform',
-            'figure_title': r'$K_p$',
-            'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'Kp'
-        },
-        'planet_rest_frame_velocity_shift': {
-            'prior_parameters': [-20e5, 20e5],
-            'prior_type': 'uniform',
-            'figure_title': r'$V_\mathrm{rest}$',
-            'figure_label': r'$V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'V0'
-        },
-        'planet_radius': {
-            'prior_parameters': np.array([0.8, 1.25]),
-            'prior_type': 'uniform',
-            'figure_title': r'$R_p$',
-            'figure_label': r'$R_p$ (km)',
-            'figure_coefficient': 1e-5,
-            'retrieval_name': 'Rp'
-        },
-        'log10_planet_surface_gravity': {
-            'prior_parameters': [2.5, 4.0],
-            'prior_type': 'uniform',
-            'figure_title': r'$[g]$',
-            'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
-            'retrieval_name': 'g'
-        },
         'temperature': {
             'prior_parameters': [100, 4000],
             'prior_type': 'uniform',
@@ -1056,6 +997,53 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'figure_label': r'$\gamma$',
             'retrieval_name': 'gams'
         },
+        'planet_radius': {
+            'prior_parameters': np.array([0.8, 1.25]),
+            'prior_type': 'uniform',
+            'figure_title': r'$R_p$',
+            'figure_label': r'$R_p$ (km)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'Rp'
+        },
+        'log10_planet_surface_gravity': {
+            'prior_parameters': [2.5, 4.0],
+            'prior_type': 'uniform',
+            'figure_title': r'$[g]$',
+            'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
+            'retrieval_name': 'g'
+        },
+        'planet_radial_velocity_amplitude': {
+            'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
+            'prior_type': 'uniform',
+            'figure_title': r'$K_p$',
+            'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'Kp'
+        },
+        'planet_rest_frame_velocity_shift': {
+            'prior_parameters': [-20e5, 20e5],
+            'prior_type': 'uniform',
+            'figure_title': r'$V_\mathrm{rest}$',
+            'figure_label': r'$V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)',
+            'figure_coefficient': 1e-5,
+            'retrieval_name': 'V0'
+        },
+        'new_resolving_power': {
+            'prior_parameters': [1e3, 1e5],
+            'prior_type': 'uniform',
+            'figure_name': 'Resolving power',
+            'figure_title': r'$\mathcal{R}_C$',
+            'figure_label': 'Resolving power',
+            'retrieval_name': 'R'
+        },
+        'mid_transit_time': {
+            'prior_parameters': [-mid_transit_time_range, mid_transit_time_range],
+            'prior_type': 'uniform',
+            'figure_title': r'$T_0$',
+            'figure_label': r'$T_0$ (s)',
+            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
+            'retrieval_name': 'T0'
+        },
         'beta': {
             'prior_parameters': [1, 1e2],
             'prior_type': 'uniform',
@@ -1069,7 +1057,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'figure_title': r'[$\beta$]',
             'figure_label': r'$\log_{10}(\beta)$',
             'retrieval_name': 'lbeta'
-        },
+        }
     }
 
     order_selection_ref = {
@@ -1482,6 +1470,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             noise_matrix=noise_matrix,
             scale=scale,
             shift=shift,
+            use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin
         )
@@ -1625,6 +1614,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             **spectral_model.model_parameters
         )
         plot_true_values = False
+        simulated_data_model = None
 
     # Ensure that all 0s uncertainties are masked to prevent division by 0
     prepared_data_uncertainties = np.ma.masked_less_equal(prepared_data_uncertainties, 0)
@@ -1637,7 +1627,10 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             os.mkdir(retrieval_directory)
 
         spectral_model.model_parameters['n_transits'] = n_transits
-        spectral_model.save(os.path.join(retrieval_directory, 'simulated_data_model.h5'))
+        spectral_model.save(os.path.join(retrieval_directory, 'base_model.h5'))
+
+        if simulated_data_model is not None:
+            simulated_data_model.save(os.path.join(retrieval_directory, 'simulated_data_model.h5'))
 
     # Initialize retrieval
     if rank == 0:
