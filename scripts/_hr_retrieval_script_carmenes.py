@@ -864,6 +864,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         # Check Log L and chi2 when using the true set of parameter
         print(f'True log L = {true_log_l[0][0]}')
         print(f'True chi2 = {true_chi2}')
+        print(f'N non-masked points = {np.size(reprocessed_spectrum[~reprocessed_spectrum.mask])}')
     else:
         print('No pseudo retrieval...')
         true_log_l = None
@@ -974,6 +975,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'prior_type': 'uniform',
             'figure_title': r'[$P_c$]',
             'figure_label': r'$\log_{10}(P_c)$ ([Pa])',
+            'figure_offset': 5,  # [bar] to [Pa]
             'retrieval_name': 'Pc'
         },
         'log10_haze_factor': {

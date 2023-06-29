@@ -9,7 +9,6 @@ If for some reason the script crashes.
 import json
 
 import matplotlib.colors
-import numpy as np
 import scipy.special
 
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
@@ -124,8 +123,8 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
     phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
 
-    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
-    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
+    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) #+ 1  # +1 to get OOT
+    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) #- 1  # -1 to get OOT
 
     # Step 1-3
     true_wavelengths_instrument, true_spectrum_instrument = spectral_model.get_spectrum_model(
@@ -425,8 +424,8 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
     phase_35 = np.argmin(np.abs(t_to_t0 - t1535 / 2))
     phase_15 = np.argmin(np.abs(t_to_t0 + t1535 / 2))
 
-    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) + 1  # +1 to get OOT
-    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) - 1  # -1 to get OOT
+    phase_t4 = np.argmin(np.abs(t_to_t0 - spectral_model.model_parameters['transit_duration'] / 2)) #+ 1  # +1 to get OOT
+    phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) #- 1  # -1 to get OOT
 
     # Step 6 bis
     w_shift, spectra_shift = spectral_model.get_spectrum_model(
@@ -946,7 +945,7 @@ def plot_init(retrieved_parameters, expected_retrieval_directory, sm):
 def plot_partial_corners(retrieved_parameters, sd, sm, true_values, figure_directory, image_format, split_at=5):
     update_figure_font_size(11)
 
-    parameter_ranges, _, fig_labels, fig_titles, _, _ = get_parameter_range(sd, sm, retrieved_parameters)
+    parameter_ranges, _, fig_labels, fig_titles, _, _, sd = get_parameter_range(sd, sm, retrieved_parameters)
 
     contour_corner(
         {'': np.array(list(sd.values())).T[:, :split_at]}, {'': fig_labels[:split_at]},
@@ -978,10 +977,10 @@ def prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=No
 
         for i, directory in enumerate(result_directory):
             sd.append(static_get_sample(directory))
-            sample_dict[f'{i}'] = np.array(list(sd[i].values())).T
+            sample_dict[f'{i}'] = None
     else:
         sd = [static_get_sample(result_directory)]
-        sample_dict = {'': np.array(list(sd[0].values())).T}
+        sample_dict = {'': None}
 
     parameter_names_dict = {}
     parameter_plot_indices_dict = {}
@@ -994,8 +993,10 @@ def prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=No
     samples = list(sample_dict.keys())
 
     for i, sample in enumerate(samples):
-        parameter_ranges, parameter_names, fig_labels, fig_titles, coefficients, offsets = \
+        parameter_ranges, parameter_names, fig_labels, fig_titles, coefficients, offsets, sd[i] = \
             get_parameter_range(sd[i], retrieved_parameters, sm)
+
+        sample_dict[sample] = np.array(list(sd[i].values())).T
 
         sample_dict[sample] = sample_dict[sample] * coefficients + offsets
         parameter_names_dict[sample] = parameter_names
@@ -1034,6 +1035,13 @@ def prepare_plot_hist(result_directory, retrieved_parameters, true_values, sm=No
 
     for sample in samples[1:]:
         parameter_ranges_dict[sample] = parameter_ranges_dict[samples[0]]
+
+        parameter_ranges_dict_tmp = copy.deepcopy(parameter_ranges_dict[sample])
+
+        for j, plot_indice in enumerate(parameter_plot_indices_dict[sample]):
+            parameter_ranges_dict_tmp[plot_indice] = parameter_ranges_dict[sample][j]
+
+        parameter_ranges_dict[sample] = copy.deepcopy(parameter_ranges_dict_tmp)
 
     if true_values is not None:
         if isinstance(true_values, dict):
@@ -1085,7 +1093,7 @@ def plot_result_corner(result_directory, retrieved_parameters,
 def plot_corner(retrieved_parameters, sd, sm, true_values, figure_directory, image_format, save=False):
     update_figure_font_size(11)
 
-    parameter_ranges, _, fig_names, fig_titles, _, _ = get_parameter_range(sd, retrieved_parameters, sm)
+    parameter_ranges, _, fig_names, fig_titles, _, _, sd = get_parameter_range(sd, retrieved_parameters, sm)
 
     contour_corner(
         {'': np.array(list(sd.values())).T[:, :]}, {'': fig_names},
@@ -1184,8 +1192,13 @@ def plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, sy
     data_only_pipeline = np.ma.log10(
         np.abs(1 - (true_spectrum + noise_matrix * reprocessed_matrix_noisy) / reprocessed_noisy_spectrum)
     )
-    colors = ['k', 'C1', 'C0', 'C3']
-    labels = ['No pipeline', 'Data-only pipeline', 'Data+model pipeline', 'Data+model Sys-Rem']
+
+    if sysrem:
+        colors = ['k', 'C1', 'C0', 'C3']
+        labels = ['No pipeline', 'Data-only pipeline', 'Data+model pipeline', 'Data+model Sys-Rem']
+    else:
+        colors = ['k', 'C1', 'C0']
+        labels = ['No pipeline', 'Data-only pipeline', 'Data+model pipeline']
 
     for i, d in enumerate([no_pipeline, data_only_pipeline]):
         d = np.ma.masked_invalid(d)
@@ -1847,7 +1860,6 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
 
                     break
 
-    print(fig_titles_ref)
     update_figure_font_size(figure_font_size)
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_size, fig_size / ncols * nrows), sharex='col')
@@ -1867,7 +1879,7 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
             c = color
 
         for j in range(ncols):
-            axes[int(i), j].set_xlim(parameter_ranges_dict[i][id_ref[j]])
+            axes[int(i), j].set_xlim(parameter_ranges_dict[list(sample_dict.keys())[0]][id_ref[j]])
 
             if parameter_names_ref[j] not in parameter_names_dict[i]:
                 axes[int(i), j].axis('off')
@@ -2095,7 +2107,7 @@ def all_best_fit_stats(directories, build_table=True, retrieval_name='R-', retri
         retrievals_titles = []
 
         for i, directory in enumerate(directories):
-            _, _, _, fig_titles, _, _ = get_parameter_range(sds[i], retrieved_parameters, None)
+            _, _, _, fig_titles, _, _, sds[i] = get_parameter_range(sds[i], retrieved_parameters, None)
             fig_titles = [fig_title.replace('[', '').replace(']', '') for fig_title in fig_titles]
             retrievals_titles.append(fig_titles)
 
@@ -2157,7 +2169,7 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
     for parameter, value in parameters_best_fit.items():
         if parameter not in sm_best_fit.model_parameters:
             if parameter in sm_best_fit.model_parameters['imposed_mass_mixing_ratios']:
-                sm_best_fit.model_parameters['imposed_mass_mixing_ratios'][parameter] = value
+                sm_best_fit.model_parameters['imposed_mass_mixing_ratios'][parameter] = 10 ** value
             else:
                 if parameter.split('log10_', 1)[1] in sm_best_fit.model_parameters:
                     parameter = parameter.split('log10_', 1)[1]
@@ -2168,7 +2180,7 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
                 else:
                     raise ValueError(f"parameter '{parameter}' not found in model '{name}'")
 
-            sm_best_fit.model_parameters[parameter] = value
+        sm_best_fit.model_parameters[parameter] = value
 
     if radtrans is not None:
         wavelengths, spectrum, _ = SpectralModel.retrieval_model_generating_function(
@@ -2184,6 +2196,13 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
             reduce=True
         )
     else:
+        sm_best_fit.temperatures, sm_best_fit.mass_mixing_ratios, sm_best_fit.mean_molar_masses, \
+            sm_best_fit.model_parameters = sm_best_fit.get_spectral_calculation_parameters(
+                pressures=np.array([1]),
+                wavelengths=np.array([1]),
+                line_species=sm_best_fit.line_species,
+                **sm_best_fit.model_parameters
+            )
         wavelengths = None
         spectrum = None
 
@@ -2339,14 +2358,31 @@ def get_parameter_range(sd, retrieved_parameters, sm=None):
     coefficients = []
     offsets = []
 
+    ordered_id = []
+    sd_keys = list(sd.keys())
+    sd_non_parameter_keys = []
+
+    if 'log_likelihood' in sd:
+        sd_non_parameter_keys.append('log_likelihood')
+
+    if 'stats' in sd:
+        sd_non_parameter_keys.append('stats')
+
     for key in sd:
         if key not in retrieved_parameters:
-            if key != 'log_likelihood' and key != 'stats':
+            if key not in sd_non_parameter_keys:
                 raise KeyError(f"Key '{key}' not in retrieved parameters")
             else:
                 continue
 
+    for i, key in enumerate(retrieved_parameters):
+        if key not in sd:
+            continue
+
+        ordered_id.append(sd_keys.index(key))
         dictionary = retrieved_parameters[key]
+
+        prior_parameters = np.array(dictionary['prior_parameters'])
 
         # pRT corner range
         mean = np.mean(sd[key])
@@ -2378,9 +2414,13 @@ def get_parameter_range(sd, retrieved_parameters, sm=None):
             if sm is not None:
                 if key == 'mid_transit_time':
                     figure_offset = sm.model_parameters['mid_transit_time']
+                    prior_parameters += sm.model_parameters['mid_transit_time']
                 else:
                     figure_offset = 0
             else:
+                if key == 'mid_transit_time':
+                    prior_parameters -= dictionary['figure_offset']
+
                 figure_offset = 0
 
             figure_offset += dictionary['figure_offset']
@@ -2392,7 +2432,7 @@ def get_parameter_range(sd, retrieved_parameters, sm=None):
             figure_offset = 0
             offsets.append(0)
 
-        low, high = np.array(dictionary['prior_parameters']) * figure_coefficient + figure_offset
+        low, high = prior_parameters * figure_coefficient + figure_offset
         low = np.max((low_ref, low))
         high = np.min((high_ref, high))
 
@@ -2409,8 +2449,18 @@ def get_parameter_range(sd, retrieved_parameters, sm=None):
         else:
             parameter_titles.append(None)
 
+    sd_tmp = {}
+
+    for i in ordered_id:
+        sd_tmp[sd_keys[i]] = copy.deepcopy(sd[sd_keys[i]])
+
+    for k in sd_non_parameter_keys:
+        sd_tmp[k] = copy.deepcopy(sd[k])
+
+    sd = copy.deepcopy(sd_tmp)
+
     return parameter_ranges, parameter_names, parameter_labels, parameter_titles, \
-        np.array(coefficients), np.array(offsets)
+        np.array(coefficients), np.array(offsets), sd
 
 
 def get_species_string(string):
@@ -3256,6 +3306,50 @@ def quick_ccf(rebined_model, wavelengths_instrument, prepared_data, sm):
         v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths
 
 
+def quick_ccf2(shifted_model, shifted_model_wavelengths, wavelengths_instrument, prepared_data, sm):
+    from petitRADTRANS.ccf.ccf import ccf_analysis
+
+    model_base = shifted_model
+    wvlx = SpectralModel.resolving_space(wavelengths_instrument.min(), wavelengths_instrument.max(), 8.04e4)
+
+    print('Preparing model...')
+    rdbxi = np.array([np.interp(wvlx, shifted_model_wavelengths[i], rdbxx) for i, rdbxx in enumerate(model_base)])
+    unc = copy.deepcopy(sm.model_parameters['uncertainties'])
+    unc = np.moveaxis(unc, 0, 1).reshape((unc.shape[-2], unc.shape[-3] * unc.shape[-1]))
+    unci = np.array([np.interp(wvlx, wavelengths_instrument.flatten(), uncx) for uncx in unc])
+    unci = np.ma.masked_invalid(unci)
+    unci = np.ma.masked_less_equal(unci, 1e-15)
+
+    rdbxi = np.array([rdbxi])
+    unci = np.ma.array([unci])
+    wvlx = np.tile(wvlx, (rdbxi.shape[0], 1))
+
+    rdbxi, rmb, rub = sm.pipeline(
+        rdbxi,
+        uncertainties=unci,
+        wavelengths=wvlx,
+        airmass=sm.model_parameters['airmass'],
+        tellurics_mask_threshold=sm.model_parameters['tellurics_mask_threshold'],
+        polynomial_fit_degree=sm.model_parameters['polynomial_fit_degree'],
+        apply_throughput_removal=sm.model_parameters['apply_throughput_removal'],
+        apply_telluric_lines_removal=sm.model_parameters['apply_telluric_lines_removal']
+    )
+
+    print('CCF...')
+    co_added_cross_correlations_snr, co_added_cross_correlations, \
+        v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths = ccf_analysis(
+            wavelengths_instrument[1:-1], prepared_data[1:-1], wvlx, rdbxi,
+            planet_radial_velocity_amplitude=sm.model_parameters['planet_radial_velocity_amplitude'],
+            model_velocities=sm.model_parameters['relative_velocities'],
+            system_observer_radial_velocities=sm.model_parameters['system_observer_radial_velocities'],
+            orbital_longitudes=sm.model_parameters['orbital_longitudes'],
+            planet_orbital_inclination=sm.model_parameters['planet_orbital_inclination'],
+            line_spread_function_fwhm=2.6e5, velocity_interval_extension_factor=-0.0, ccf_sum_axes=[0])
+
+    return co_added_cross_correlations_snr, co_added_cross_correlations, \
+        v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths
+
+
 def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_transit_time_range,
                               external_parameters_ref=None):
     retrieved_parameters_ref = {
@@ -3534,9 +3628,22 @@ def plot_all_figures(retrieved_parameters,
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_cn12345_c816_100lp\simulated_data_model.h5'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp\simulated_data_model.h5'
     )
     radtrans = sm.get_radtrans()
+
+    sm.model_parameters['imposed_mass_mixing_ratios'] = {
+        'CH4_hargreaves_main_iso': 3.4e-5,
+        'CO_all_iso': 1.8e-2,
+        'H2O_main_iso': 5.4e-3,
+        'H2S_main_iso': 1.0e-3,
+        'HCN_main_iso': 2.7e-7,
+        'NH3_main_iso': 7.9e-6
+    }
+
+    sm.model_parameters['cloud_pressure'] = 1
+    sm.model_parameters['scattering_opacity_350nm'] = 1e-3
+    sm.model_parameters['scattering_opacity_coefficient'] = -4
 
     sd, true_values = plot_init(
         retrieved_parameters,
@@ -3618,15 +3725,6 @@ def plot_all_figures(retrieved_parameters,
         sm.model_parameters['uncertainties']
     )
 
-    sm.model_parameters['imposed_mass_mixing_ratios'] = {
-        'CH4_hargreaves_main_iso': 3.4e-5,
-        'CO_all_iso': 1.8e-2,
-        'H2O_main_iso': 5.4e-3,
-        'H2S_main_iso': 1.0e-3,
-        'HCN_main_iso': 2.7e-7,
-        'NH3_main_iso': 7.9e-6
-    }
-
     # print(f'Reprocessing data...')
     # reprocessed_data, reprocessing_matrix, reprocessed_data_uncertainties = sm.pipeline(
     #     observed_spectra,
@@ -3693,7 +3791,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_c816_100lp'
+        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -3718,7 +3816,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sys-sub_c816_100lp'
+        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -3745,76 +3843,6 @@ def plot_all_figures(retrieved_parameters,
     plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, False)
 
     # Expected retrieval corner plot
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim3d_f2_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
-                          ],
-        sm=None,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_simulated_retrievals',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=true_values,
-        figure_font_size=8,
-        save=True
-    )
-
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_sys-sub_c816_100lp',
-                          ],
-        sm=None,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_simulated_retrievals',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=true_values,
-        figure_font_size=8,
-        save=True
-    )
-
-    # Results
-    plot_result_corner(
-        result_directory=[retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-                          retrieval_directory +
-                          r'\HD_189733_b_transmission_'
-                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-                          ],
-        sm=None,
-        retrieved_parameters=retrieved_parameters,
-        figure_directory=figure_directory,
-        figure_name='corner_simple_retrieval',
-        label_kwargs={'fontsize': 10},
-        title_kwargs={'fontsize': 8},
-        true_values=None,
-        figure_font_size=8,
-        save=True
-    )
-
-    directories = []
-
-    for f in os.scandir(retrieval_directory):
-        if f.is_dir() and 'HD_189733_b_transmission' in f.path and '_sim' not in f.path and 'sys-sub' not in f.path \
-                and 't0r300' in f.path and 'c817' in f.path and 'alex4' in f.path:
-            directories.append(f.path)
-
-    spectral_models, log_es, log_ls, chi2s, sds = all_best_fit_stats(directories, retrieved_parameters=retrieved_parameters)
-
     parameter_names_ref = [
         'temperature',
         'CH4_hargreaves_main_iso',
@@ -3833,20 +3861,156 @@ def plot_all_figures(retrieved_parameters,
         'mid_transit_time'
     ]
 
+    retrieved_parameters_tmp = {}
+
+    for k in parameter_names_ref:
+        retrieved_parameters_tmp[k] = copy.deepcopy(retrieved_parameters[k])
+
+    retrieved_parameters = copy.deepcopy(retrieved_parameters_tmp)
+    del retrieved_parameters_tmp
+
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_c817_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim3d_f2_c_c817_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_sys-sub_c817_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simulated_retrievals',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        figure_font_size=8,
+        save=True
+    )
+
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_sys-sub_c817_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_noisy_simulated_retrievals',
+        label_kwargs={'fontsize': 10},
+        title_kwargs={'fontsize': 8},
+        true_values=true_values,
+        figure_font_size=8,
+        color_list=['C0', 'C2', 'C1'],
+        save=True
+    )
+
+    # Results
+    plot_result_corner(
+        result_directory=[retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+                          retrieval_directory +
+                          r'\HD_189733_b_transmission_'
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+                          ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simple_retrieval',
+        label_kwargs={'fontsize': 16},
+        title_kwargs={'fontsize': 13},
+        true_values=None,
+        figure_font_size=12,
+        color_list=['C0', 'C2', 'C1'],
+        save=True
+    )
+
+    plot_result_corner(
+        result_directory=[
+            retrieval_directory +
+            r'\HD_189733_b_transmission_'
+            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_c817_100lp',
+            retrieval_directory +
+            r'\HD_189733_b_transmission_'
+            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_sys-sub_c817_100lp',
+        ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters,
+        figure_directory=figure_directory,
+        figure_name='corner_simple_retrieval_all_orders',
+        label_kwargs={'fontsize': 16},
+        title_kwargs={'fontsize': 13},
+        true_values=None,
+        figure_font_size=12,
+        color_list=['C0', 'C2', 'C1'],
+        save=True
+    )
+
+    external_parameters_ref2 = np.load(
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals' + '/HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r2000_all_c817_100lp/retrieved_parameters.npz',
+        allow_pickle=True)
+    retrieved_parameters_ref2, retrieved_parameters2 = init_retrieved_parameters(
+        retrieval_parameters,
+        mid_transit_time_jd,
+        mid_transit_time_range,
+        external_parameters_ref=external_parameters_ref2
+    )
+    plot_result_corner(
+        result_directory=[
+            retrieval_directory +
+            r'\HD_189733_b_transmission_'
+            r'R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r2000_alex4_c817_100lp',
+            retrieval_directory +
+            r'\HD_189733_b_transmission_'
+            r'R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r2000_alex4_sys-sub_c817_100lp',
+        ],
+        sm=None,
+        retrieved_parameters=retrieved_parameters2,
+        figure_directory=figure_directory,
+        figure_name='corner_simple_retrieval_t02000s',
+        label_kwargs={'fontsize': 16},
+        title_kwargs={'fontsize': 13},
+        true_values=None,
+        color_list=['C0', 'C2', 'C1'],
+        figure_font_size=12,
+        save=True
+    )
+
+    directories = []
+
+    for f in os.scandir(retrieval_directory):
+        if f.is_dir() and 'HD_189733_b_transmission' in f.path and '_sim' not in f.path and 'sys-sub' not in f.path \
+                and 't0r300' in f.path and 'c817' in f.path and 'alex4' in f.path:
+            directories.append(f.path)
+
+    spectral_models, log_es, log_ls, chi2s, sds = all_best_fit_stats(directories, retrieved_parameters=retrieved_parameters)
+
     # A00: exp_CCD_param
     directories_hist = {
         'P-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
         'P-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-12': 'HD_189733_b_transmission_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-13': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-14': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-15': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-12': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-15': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-17': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_c817_100lp',
         'P-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
 
         'S-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
         'S-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-15': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
         'S-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
     }
 
@@ -3870,7 +4034,7 @@ def plot_all_figures(retrieved_parameters,
         figure_font_size=9.5,
         save=True,
         color=colors,
-        add_rectangle=6,
+        add_rectangle=8,
         figure_directory=figure_directory,
         figure_name='retrievals_posteriors',
         image_format=image_format
