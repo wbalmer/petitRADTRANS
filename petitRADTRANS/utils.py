@@ -5,7 +5,7 @@ import warnings
 
 import h5py
 import numpy as np
-from scipy.special import erfinv, lambertw
+from scipy.special import erf, erfinv, lambertw
 
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
@@ -21,12 +21,12 @@ def bayes_factor2sigma(bayes_factor):
     :return: sigma significance
     """
     molliere_threshold = 72004899337  # ~exp(25), roughly where numerical errors start to be significant
-    is_scalar = True
+    is_scalar = False
 
     if not hasattr(bayes_factor, '__iter__'):
+        is_scalar = True
         bayes_factor = np.array([bayes_factor])
     elif not isinstance(bayes_factor, np.ndarray):
-        is_scalar = False
         bayes_factor = np.array(bayes_factor)
 
     benneke_part = np.nonzero(np.less_equal(bayes_factor, molliere_threshold))
@@ -465,3 +465,15 @@ def savez_compressed_record(file, numpy_record_array):
     """Apply numpy.savez_compressed on a record array."""
     data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
     np.savez_compressed(file, **data_dict)
+
+
+def sigma2bayes_factor(sigma):
+    """
+    Convert a sigma significance into a Bayes factor, or "evidence".
+    Note: sometimes algorithms return the "log-evidence", or ln(z). The Bayes factor is z.
+    Source: Benneke et al. 2013 https://iopscience.iop.org/article/10.1088/0004-637X/778/2/153
+    :param sigma: sigma significance
+    :return: Bayes factor (aka "evidence")
+    """
+    rho = 1 - erf(sigma / np.sqrt(2))
+    return - 1 / (np.exp(1) * rho * np.log(rho))
