@@ -329,7 +329,7 @@ Contributed atom and ion opacities:
      - :math:`\rm CH_3D`, HITRAN, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
      - --
    * - CH4_Hargreaves_main_iso
-     - CH4_main_iso
+     - CH4_Hargreaves_main_iso
      - Main isotopologue, HITEMP, see `Hargreaves et al. (2020) <https://ui.adsabs.harvard.edu/abs/2020ApJS..247...55H/abstract>`_
      - --
    * - CO2_main_iso
