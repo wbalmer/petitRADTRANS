@@ -11,6 +11,41 @@ from scipy.stats import binned_statistic
 import petitRADTRANS.nat_cst as nc
 
 
+def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list, color_list,
+                 truths_list, contour_kwargs, hist_kwargs, quantiles=None, hist2d_levels=None, fig=None,
+                 smooth=True, show_titles=True, title_fmt=".2f", truth_color='r', plot_contours=True, **hist2d_kwargs):
+    if quantiles is None:
+        quantiles = (0.16, 0.5, 0.84)  # using default title_quantiles, the 1-sigma quantile is actually erf(1)
+
+    if hist2d_levels is None:
+        hist2d_levels = (1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-4.5))  # 1, 2 and 3 sigma
+    else:
+        hist2d_levels = [1 - np.exp(-sigma ** 2 / 2) for sigma in hist2d_levels]
+
+    fig = corner.corner(
+        data=np.array(data_list).T,
+        range=range_list,
+        color=color_list,
+        smooth=smooth,
+        labels=labels_list,
+        label_kwargs=label_kwargs,
+        show_titles=show_titles,
+        title_fmt=title_fmt,
+        title_kwargs=title_kwargs,
+        truths=truths_list,
+        truth_color=truth_color,
+        quantiles=quantiles,
+        fig=fig,
+        hist_kwargs=hist_kwargs,
+        **hist2d_kwargs,
+        plot_contours=plot_contours,
+        contour_kwargs=contour_kwargs,
+        levels=hist2d_levels
+    )
+
+    return fig
+
+
 def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=None):
     # TODO write generic plotting functions rather than copy pasting code.
     # Deprecated
@@ -98,6 +133,8 @@ def contour_corner(sampledict,
                    parameter_plot_indices=None,
                    true_values=None,
                    short_name=None,
+                   quantiles=None,
+                   hist2d_levels=None,
                    legend=False,
                    prt_plot_style=True,
                    plot_best_fit=False,
@@ -134,6 +171,15 @@ def contour_corner(sampledict,
             A dictionary with keys for each retrieval name as in sampledict. Each value
             contains the names to be plotted in the corner plot legend. If non, uses the
             retrieval names used as keys for sampledict
+        quantiles : list
+            A list with the quantiles to plot over the 1D histograms.
+            Note: the conversion from sigma to quantile is:
+                quantile_m = (1 - erf(sigma / sqrt(2))) / 2
+                quantile_p = 1 - quantile_m
+        hist2d_levels :  list
+            A list with the sigmas-level to plot over the 2D histograms. The sigmas are converted into their
+            corresponding level-value following the formula for 2D normal distribution
+            (see https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4358977/pdf/pone.0118537.pdf).
         legend : bool
             Turn the legend on or off
         prt_plot_style : bool
@@ -271,44 +317,47 @@ def contour_corner(sampledict,
             contour_kwargs = kwargs["contour_kwargs"]
 
         if count == 0:
-            fig = corner.corner(np.array(data_list).T,
-                                smooth=True,
-                                title_fmt=".2f",
-                                show_titles=True,
-                                title_kwargs=title_kwargs,
-                                labels=labels_list,
-                                label_kwargs=label_kwargs,
-                                range=range_list,
-                                color=color_list[count],
-                                quantiles=[0.16, 0.5, 0.84],
-                                **hist2d_kwargs,
-                                plot_contours=True,
-                                truths=truths_list,
-                                truth_color='r',
-                                contour_kwargs=contour_kwargs,
-                                hist_kwargs=hist_kwargs,
-                                levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)]
-                                )
+            fig = _corner_wrap(
+                data_list=data_list,
+                title_kwargs=title_kwargs,
+                labels_list=labels_list,
+                label_kwargs=label_kwargs,
+                range_list=range_list,
+                color_list=color_list[count],
+                hist_kwargs=hist_kwargs,
+                truths_list=truths_list,
+                contour_kwargs=contour_kwargs,
+                quantiles=quantiles,
+                hist2d_levels=hist2d_levels,
+                **hist2d_kwargs,
+                smooth=True,
+                show_titles=True,
+                title_fmt=".2f",
+                truth_color='r',
+                plot_contours=True
+            )
             count += 1
         else:
-            corner.corner(np.array(data_list).T,
-                          fig=fig,
-                          smooth=True,
-                          title_fmt=".2f",
-                          title_kwargs=title_kwargs,
-                          show_titles=False,
-                          range=range_list,
-                          color=color_list[count],
-                          labels=labels_list,
-                          label_kwargs=label_kwargs,
-                          **hist2d_kwargs,
-                          plot_contours=True,
-                          contour_kwargs=contour_kwargs,
-                          truths=truths_list,
-                          truth_color='r',
-                          hist_kwargs=hist_kwargs,
-                          levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)]
-                          )
+            _ = _corner_wrap(
+                data_list=data_list,
+                title_kwargs=title_kwargs,
+                labels_list=labels_list,
+                label_kwargs=label_kwargs,
+                range_list=range_list,
+                color_list=color_list[count],
+                hist_kwargs=hist_kwargs,
+                truths_list=truths_list,
+                contour_kwargs=contour_kwargs,
+                quantiles=quantiles,
+                hist2d_levels=hist2d_levels,
+                fig=fig,
+                **hist2d_kwargs,
+                smooth=True,
+                show_titles=False,  # only show titles (median +1sigma -1sigma) for the first sample
+                title_fmt=".2f",
+                truth_color='r',
+                plot_contours=True
+            )
             count += 1
 
         if short_name is None:
