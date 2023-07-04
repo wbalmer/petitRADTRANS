@@ -213,6 +213,8 @@ resolution, see `Baudino et al. (2017) <http://adsabs.harvard.edu/abs/2017ApJ...
      - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+16 <http://dx.doi.org/10.1093/mnras/stw1969>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
 
+*: see information box at the top of the page for mass fraction key handling.
+
 Contributed atom and ion opacities:
 
 .. list-table::
@@ -304,6 +306,8 @@ Contributed atom and ion opacities:
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
      - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+
+*: see information box at the top of the page for mass fraction key handling.
 
 **Line absorbers, high resolution mode** (``"lbl"``, with :math:`\lambda/\Delta\lambda=10^6`)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -497,6 +501,8 @@ Contributed atom and ion opacities:
      - Main isotopologue, Exomol, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
      - --
 
+*: see information box at the top of the page for mass fraction key handling.
+
 Contributed atom and ion opacities, high resolution mode
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -594,6 +600,8 @@ Contributed atom and ion opacities, high resolution mode
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
      - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+
+*: see information box at the top of the page for mass fraction key handling.
 
 Cloud opacities
 _______________
@@ -726,7 +734,7 @@ _________________________
    :header-rows: 1
 		 
    * - Species name
-     - Required in mass fraction dictionary*
+     - Required in mass fraction dictionary
      - Descripton
    * - H2-H2
      - H2
