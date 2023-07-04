@@ -9,6 +9,7 @@ If for some reason the script crashes.
 import json
 
 import matplotlib.colors
+from scipy.special import erf
 import scipy.special
 
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
@@ -1109,6 +1110,196 @@ def plot_corner(retrieved_parameters, sd, sm, true_values, figure_directory, ima
         plt.savefig(os.path.join(figure_directory, 'corner_mock_mplus_ttt0.5_1' + '.' + image_format))
 
 
+def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans=None, resolving_power=None, rebin=True,
+                             planet_radius_offset_exorem=0, planet_radius_offset=0,
+                             envelope=None, colors=None, labels=None, linestyles=None,
+                             data_color='r', data_label='', data_linestyle='', data_marker='+',
+                             xlim=None, legend=True,
+                             save=False, figure_directory='./', figure_name='cmp', image_format='pdf',
+                             figure_font_size=18, figsize=(6.4 * 3, 4.8 * 1.5), **kwargs):
+    """
+    Plot the different contributions in the transmission spectrum.
+    :param exorem_file: spectrum file
+    :param planet_radius_offset_exorem: (m) altitude offset of the transmission spectrum
+    :param cloud_altitude: (m) add an opaque cloud deck at the given altitude
+    :param wvn2wvl: convert wavenumbers (cm-1) into wavelengths (m)
+    :param xlim: x-axis boundaries
+    :param legend: plot the legend
+    :param exclude: list of label to exclude (e.g. ['H2O', 'clouds'])
+    :param kwargs: keyword arguments for plot
+    """
+    update_figure_font_size(figure_font_size)
+    fig, axe = plt.subplots(figsize=figsize)
+
+    if colors is None:
+        colors = ['k']
+
+        for i in range(len(model_directories)):
+            colors.append(f"C{i % 8}")
+
+    if labels is None:
+        labels = [''] * (len(model_directories) + 1)
+
+    if linestyles is None:
+        linestyles = ['-'] * (len(model_directories) + 1)
+
+    if envelope is None:
+        envelope = [False] * len(model_directories)
+
+    exorem_dict = load_result(exorem_file)
+
+    x_axis = np.asarray(exorem_dict['outputs']['spectra']['wavenumber'])
+    x_axis = 1e-2 / x_axis  # cm-1 to m
+
+    x_axis_label = rf'Wavelength ({wavelength_units})'
+
+    y_axis = np.asarray(exorem_dict['outputs']['spectra']['transmission']['transit_depth'])
+
+    if planet_radius_offset_exorem != 0:
+        star_radius = exorem_dict['model_parameters']['light_source']['radius'][()]
+        planet_radius_0 = star_radius * np.sqrt(y_axis)
+        y_axis = ((planet_radius_0 + planet_radius_offset_exorem) / star_radius) ** 2
+
+    if data is not None:
+        w_min = data[:, 0] * 1e-6
+        w_max = data[:, 1] * 1e-6
+        spectrum = data[:, 2]
+        uncertainties = data[:, 3]
+        wavelengths = (w_min + w_max) / 2
+        xerr = np.mean((wavelengths - w_min, w_max - wavelengths), axis=0)
+
+        axe.errorbar(wavelengths, spectrum, yerr=uncertainties, xerr=xerr,
+                     color=data_color, ls=data_linestyle, marker=data_marker, label=data_label)
+
+    axe.plot(x_axis, y_axis * 1e6, color=colors[0], label=labels[0], ls=linestyles[0], **kwargs)
+
+    sms_best_fit = []
+    wavelengths_best_fits = []
+    spectrum_best_fits = []
+
+    for i, directory in enumerate(model_directories):
+        print(f"Generating model from '{directory}' ({i+1}/{len(model_directories)})...")
+        sm_best_fit, _, _, sd = get_best_fit_model(directory)
+
+        if radtrans is None:
+            radtrans = sm_best_fit.get_radtrans()
+
+        if resolving_power is not None:
+            sm_best_fit.model_parameters['new_resolving_power'] = resolving_power
+
+        sm_best_fit.model_parameters['planet_radius'] += planet_radius_offset
+
+        if envelope[i]:
+            sigmas = (1, 3)
+            parameters_sets = get_envelope_parameter_sets(sd, sigmas=sigmas)
+
+            for sigma in sigmas[::-1]:  # reverse to get lower sigmas on top
+                s_min = None
+                s_max = None
+                w_env = None
+
+                for set_id, parameters_set in enumerate(parameters_sets[sigma]):
+                    print(f"Generating models at {sigma} sigma ({set_id + 1}/{len(parameters_sets[sigma])})...")
+                    sm_set = get_model_from_parameters(sm_best_fit, parameters_set)
+
+                    if resolving_power is not None:
+                        sm_set.model_parameters['new_resolving_power'] = resolving_power
+
+                    w, s = sm_set.get_spectrum_model(
+                        radtrans,
+                        'transmission',
+                        update_parameters=True,
+                        scale=True,
+                        convolve=True,
+                        rebin=rebin,
+                        shift=False,
+                        use_transit_light_loss=False,
+                        reduce=False
+                    )
+
+                    if w_env is None:
+                        w_env = w
+
+                    if s_min is None:
+                        s_min = s
+
+                    if s_max is None:
+                        s_max = s
+
+                    s_min = np.minimum(s_min, s)
+                    s_max = np.maximum(s_max, s)
+
+                s_min = s_min[:, 0]
+                s_max = s_max[:, 0]
+
+                if rebin:
+                    for j, order in enumerate(s_min):
+                        print(f"Plotting envelope of order {j}/{len(s_min) - 1}")
+                        axe.fill_between(
+                            w_env[j] * 1e-6, (1 - s_min[j]) * 1e6, (1 - s_max[j]) * 1e6,
+                            color=colors[i + 1], label=None,
+                            ls='', alpha=0.3,
+                            **kwargs
+                        )
+                else:
+                    axe.fill_between(
+                        w_env * 1e-6, (1 - s_min) * 1e6, (1 - s_max) * 1e6,
+                        color=colors[i + 1], label=None,
+                        ls='', alpha=0.3,
+                        **kwargs
+                    )
+
+        w, s = sm_best_fit.get_spectrum_model(
+            radtrans,
+            'transmission',
+            update_parameters=True,
+            scale=True,
+            convolve=True,
+            rebin=rebin,
+            shift=False,
+            use_transit_light_loss=False,
+            reduce=False
+        )
+
+        sms_best_fit.append(sm_best_fit)
+        wavelengths_best_fits.append(w)
+        spectrum_best_fits.append(s)
+
+        s = s[:, 0]
+
+        if rebin:
+            for j, order in enumerate(s):
+                print(f"Plotting order {j}/{len(s)-1}")
+                if j == 0:
+                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, color=colors[i + 1], label=labels[i + 1], ls=linestyles[i + 1],
+                             **kwargs)
+                else:
+                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, color=colors[i + 1], label=None, ls=linestyles[i + 1],
+                             **kwargs)
+        else:
+            axe.plot(w * 1e-6, (1 - s) * 1e6, color=colors[i + 1], label=labels[i + 1], ls=linestyles[i + 1], **kwargs)
+
+    axe.ticklabel_format(useMathText=True)
+
+    if xlim is None:
+        axe.set_xlim([np.min(x_axis), np.max(x_axis)])
+    else:
+        axe.set_xlim(xlim)
+
+    axe.set_ylim([None, None])
+    axe.set_xlabel(x_axis_label)
+    axe.set_ylabel(f'Transit depth (ppm)')
+    fig.tight_layout()
+
+    if legend:
+        axe.legend()
+
+    if save:
+        plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
+
+    return sms_best_fit, wavelengths_best_fits, spectrum_best_fits, x_axis, y_axis, fig, axe
+
+
 def plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, sysrem=False):
     print('Polyfit pipeline...')
     validity, true_log_l, true_chi2, noiseless_validity, true_wavelengths, true_spectrum, deformed_spectrum, \
@@ -1566,60 +1757,61 @@ def plot_transmission_contribution_spectra(file, offset=0.0, cloud_altitude=None
     else:
         x_axis_label = rf'Wavenumber ({wavenumber_units})'
 
-    for key in data_dict['outputs']['spectra']['transmission']['contributions']:
-        if key == 'cia_rayleigh' or key == 'clouds':
-            continue
+    if 'all' not in exclude:
+        for key in data_dict['outputs']['spectra']['transmission']['contributions']:
+            if key == 'cia_rayleigh' or key == 'clouds':
+                continue
 
-        color = None
+            color = None
 
-        for species in species_color:
-            if species == key:
-                color = species_color[species]
-                break
+            for species in species_color:
+                if species == key:
+                    color = species_color[species]
+                    break
 
-        label = key
+            label = key
 
-        if np.any(exclude == label):
-            continue
+            if np.any(exclude == label):
+                continue
 
-        label = get_species_string(label)
+            label = get_species_string(label)
 
-        y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions'][key])
+            y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions'][key])
 
-        if offset != 0:
+            if offset != 0:
+                star_radius = data_dict['model_parameters']['light_source']['radius'][()]
+                planet_radius_0 = star_radius * np.sqrt(y_axis)
+                y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
+
+            plt.plot(x_axis, y_axis * 1e6, color=color, label=label, **kwargs)
+
+        if cloud_altitude is not None:
             star_radius = data_dict['model_parameters']['light_source']['radius'][()]
-            planet_radius_0 = star_radius * np.sqrt(y_axis)
-            y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
+            planet_radius = data_dict['model_parameters']['target']['radius_1e5Pa'][()]
 
-        plt.plot(x_axis, y_axis * 1e6, color=color, label=label, **kwargs)
+            planet_radius_0 = planet_radius + cloud_altitude
+            y_axis = np.ones(np.size(x_axis)) * ((planet_radius_0 + offset) / star_radius) ** 2
 
-    if cloud_altitude is not None:
-        star_radius = data_dict['model_parameters']['light_source']['radius'][()]
-        planet_radius = data_dict['model_parameters']['target']['radius_1e5Pa'][()]
+            plt.plot(x_axis, y_axis * 1e6, color='k', ls='--', label='cloud')
+        elif 'clouds' not in exclude:
+            y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions']['clouds'])
 
-        planet_radius_0 = planet_radius + cloud_altitude
-        y_axis = np.ones(np.size(x_axis)) * ((planet_radius_0 + offset) / star_radius) ** 2
+            if offset != 0:
+                star_radius = data_dict['model_parameters']['light_source']['radius'][()]
+                planet_radius_0 = star_radius * np.sqrt(y_axis)
+                y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
 
-        plt.plot(x_axis, y_axis * 1e6, color='k', ls='--', label='cloud')
-    elif 'clouds' not in exclude:
-        y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions']['clouds'])
+            plt.plot(x_axis, y_axis * 1e6, color='k', ls='--', label='clouds')
 
-        if offset != 0:
-            star_radius = data_dict['model_parameters']['light_source']['radius'][()]
-            planet_radius_0 = star_radius * np.sqrt(y_axis)
-            y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
+        if 'cia' not in exclude:
+            y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions']['cia_rayleigh'])
 
-        plt.plot(x_axis, y_axis * 1e6, color='k', ls='--', label='clouds')
+            if offset != 0:
+                star_radius = data_dict['model_parameters']['light_source']['radius'][()]
+                planet_radius_0 = star_radius * np.sqrt(y_axis)
+                y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
 
-    if 'cia' not in exclude:
-        y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['contributions']['cia_rayleigh'])
-
-        if offset != 0:
-            star_radius = data_dict['model_parameters']['light_source']['radius'][()]
-            planet_radius_0 = star_radius * np.sqrt(y_axis)
-            y_axis = ((planet_radius_0 + offset) / star_radius) ** 2
-
-        plt.plot(x_axis, y_axis * 1e6, color='k', ls=':', label='CIA+Ray')
+            plt.plot(x_axis, y_axis * 1e6, color='k', ls=':', label='CIA+Ray')
 
     y_axis = np.asarray(data_dict['outputs']['spectra']['transmission']['transit_depth'])
 
@@ -2143,6 +2335,59 @@ def all_log_evidences(directories, build_table=True):
     return log_es
 
 
+def get_envelope_parameter_sets(sd, sigmas=None):
+    if sigmas is None:
+        sigmas = (1, 3)
+
+    parameters = {}
+    parameters_sets = {}
+
+    for i, sigma in enumerate(sigmas):
+        quantile_0 = (1 - erf(sigma / np.sqrt(2))) / 2
+        quantile_1 = 1 - quantile_0
+
+        parameters[sigma] = {}
+        parameters_sets[sigma] = []
+        selection = None
+
+        for key, value in sd.items():
+            if key == 'log_likelihood' or key == 'stats':
+                continue
+
+            parameters[sigma][key] = [np.quantile(value, quantile_0), np.quantile(value, quantile_1)]
+
+            if selection is None:
+                selection = np.ones(np.size(value), dtype=bool)
+
+            selection = np.logical_and(
+                selection,
+                np.logical_and(
+                    np.greater_equal(value, parameters[sigma][key][0]),
+                    np.less_equal(value, parameters[sigma][key][1])
+                )
+            )
+
+        selection = np.nonzero(selection)
+
+        for key, value in sd.items():
+            if key == 'log_likelihood' or key == 'stats':
+                continue
+
+            id_min = np.argmin(value[selection])
+            id_max = np.argmax(value[selection])
+
+            for j in (id_min, id_max):
+                parameters_sets[sigma].append({})
+
+                for key2, value2 in sd.items():
+                    if key2 == 'log_likelihood' or key2 == 'stats':
+                        continue
+
+                    parameters_sets[sigma][-1][key2] = value2[selection][j]
+
+    return parameters_sets
+
+
 # Utils
 def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=None,
                        uncertainties_correction_factor=1.171):
@@ -2156,8 +2401,6 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
     sd = static_get_sample(directory, name=name, add_log_likelihood=True, add_stats=True)
     log_evidence = sd['stats']['global evidence']
 
-    sm_best_fit = copy.deepcopy(spectral_model)
-
     best_fit_id = np.greater(np.equal(sd['log_likelihood'], np.max(sd['log_likelihood'])), 0)
 
     parameters_best_fit = {
@@ -2166,21 +2409,7 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
     }
     log_l_best_fit = sd['log_likelihood'][best_fit_id][0]
 
-    for parameter, value in parameters_best_fit.items():
-        if parameter not in sm_best_fit.model_parameters:
-            if parameter in sm_best_fit.model_parameters['imposed_mass_mixing_ratios']:
-                sm_best_fit.model_parameters['imposed_mass_mixing_ratios'][parameter] = 10 ** value
-            else:
-                if parameter.split('log10_', 1)[1] in sm_best_fit.model_parameters:
-                    parameter = parameter.split('log10_', 1)[1]
-                    value = 10 ** value
-                elif 'log10_' + parameter in sm_best_fit.model_parameters:
-                    parameter = 'log10_' + parameter
-                    value = np.log10(value)
-                else:
-                    raise ValueError(f"parameter '{parameter}' not found in model '{name}'")
-
-        sm_best_fit.model_parameters[parameter] = value
+    sm_best_fit = get_model_from_parameters(spectral_model, parameters_best_fit)
 
     if radtrans is not None:
         wavelengths, spectrum, _ = SpectralModel.retrieval_model_generating_function(
@@ -2236,6 +2465,29 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
             uncertainties_correction_factor, sd
 
     return sm_best_fit, log_evidence, log_l_best_fit, sd
+
+
+def get_model_from_parameters(spectral_model, parameters):
+    # TODO classmethod
+    new_spectral_model = copy.deepcopy(spectral_model)
+
+    for parameter, value in parameters.items():
+        if parameter not in new_spectral_model.model_parameters:
+            if parameter in new_spectral_model.model_parameters['imposed_mass_mixing_ratios']:
+                new_spectral_model.model_parameters['imposed_mass_mixing_ratios'][parameter] = 10 ** value
+            else:
+                if parameter.split('log10_', 1)[1] in new_spectral_model.model_parameters:
+                    parameter = parameter.split('log10_', 1)[1]
+                    value = 10 ** value
+                elif 'log10_' + parameter in new_spectral_model.model_parameters:
+                    parameter = 'log10_' + parameter
+                    value = np.log10(value)
+                else:
+                    raise ValueError(f"parameter '{parameter}' not found in model")
+
+        new_spectral_model.model_parameters[parameter] = value
+
+    return new_spectral_model
 
 
 def get_log_evidence(directory):
@@ -3962,6 +4214,15 @@ def plot_all_figures(retrieved_parameters,
         mid_transit_time_range,
         external_parameters_ref=external_parameters_ref2
     )
+
+    retrieved_parameters_tmp = {}
+
+    for k in parameter_names_ref:
+        retrieved_parameters_tmp[k] = copy.deepcopy(retrieved_parameters2[k])
+
+    retrieved_parameters2 = copy.deepcopy(retrieved_parameters_tmp)
+    del retrieved_parameters_tmp
+
     plot_result_corner(
         result_directory=[
             retrieval_directory +
@@ -4223,6 +4484,48 @@ def plot_all_figures(retrieved_parameters,
     plt.tight_layout()
     plt.legend()
     plt.savefig(os.path.join(figure_directory, '3d_model_comparison' + '.' + image_format))
+
+    # Best fit figure
+    hst_data = np.loadtxt(r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data\hst_wfc3\hd_189733_b\transit_depths_kilpatrick2020.dat')
+    model_files = r'\\wsl$\Debian\home\dblain\exorem\outputs\exorem\hd_1899733_b_z10_t100_co0.55_nocloud.h5'
+    dir_best_fits = [
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_c817_100lp',
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+    ]
+
+    colors = ['k', 'C0', 'C2', 'C0', 'C2']
+    linestyles = ['-', ':', ':', '-', '-']
+    labels = [r'Exo-REM (Z = 10)', 'Polyfit (P-01)', 'SysRem (S-01)', 'Polyfit (P-18)', 'SysRem (S-13)']
+    envelope = [False, False, True, True]
+
+    sms_best_fit, wavelengths_best_fits, spectrum_best_fits, w_er, s_er, fig, axe = plot_best_fit_comparison(
+        exorem_file=model_files,
+        model_directories=dir_best_fits,
+        data=hst_data,
+        radtrans=radtrans,
+        resolving_power=500,
+        rebin=True,
+        planet_radius_offset_exorem=+2400e3,
+        planet_radius_offset=+3600e3 * 1e2,
+        colors=colors,
+        labels=labels,
+        linestyles=linestyles,
+        envelope=envelope,
+        data_color='r',
+        data_linestyle='',
+        data_marker='+',
+        data_label='HST WFC3 data (Kilpatrick et al. 2020)',
+        xlim=[np.min(wavelengths_instrument) * 1e-6 - 0.01e-6, np.max(wavelengths_instrument) * 1e-6 + 0.11e-6],
+        legend=True,
+        save=True,
+        figure_directory=figure_directory,
+        figure_name='best_fit_comparison',
+        image_format='pdf',
+        figure_font_size=18,
+        figsize=(6.4 * 3, 4.8 * 1.5)
+    )
 
 
 if __name__ == '__main__':
