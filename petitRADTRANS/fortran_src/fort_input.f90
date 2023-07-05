@@ -182,8 +182,8 @@ module fort_input
 
                 open(unit=20,file=filename)
                 
-                write(*,*) ' Read line opacities of '//trim(adjustl(species_names_tot(species_name_inds(1, &
-                  i_spec):species_name_inds(2,i_spec))))//'...'
+                write(*, '(A)') ' Reading line opacities of species '''//trim(adjustl(&
+                    species_names_tot(species_name_inds(1, i_spec):species_name_inds(2,i_spec))))//'''...'
                 read(20,*)
                 read(20,'(A2)') species_id
                 read(20,*)
@@ -238,7 +238,7 @@ module fort_input
                 opa_grid_kappas(:,:,i_spec,:) = opa_grid_kappas(:,:,i_spec,:)/molparam
             end do
             
-            write(*,*) 'Done.'
+            write(*, *) 'Done.'
         end subroutine read_in_molecular_opacities
         
 
