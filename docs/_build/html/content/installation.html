@@ -9,7 +9,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Installation &mdash; petitRADTRANS 2.3.1 documentation</title>
+  <title>Installation &mdash; petitRADTRANS 2.4.8 documentation</title>
   
 
   
@@ -70,7 +70,7 @@
             
             
               <div class="version">
-                2.3
+                2.4
               </div>
             
           
@@ -100,6 +100,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#pre-installation-download-the-opacity-data">Pre-installation: download the opacity data</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#installation-via-pip-install">Installation via pip install</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#compiling-prt-from-source">Compiling pRT from source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#apple-m1-instructions">Apple M1 instructions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#testing-the-installation">Testing the installation</a></li>
 </ul>
 </li>
@@ -209,11 +210,11 @@ low-resolution version (<span class="math notranslate nohighlight">\(\lambda/\De
 provides all relevant input files for pRT to run, and contains the
 necessary folder structure if you want to install high-resolution
 opacities later (<span class="math notranslate nohighlight">\(\lambda/\Delta\lambda=10^6\)</span>).</p>
-<p>Thus, to get started download the <a class="reference external" href="https://keeper.mpdl.mpg.de/f/f5aba635d3a244adb3c0/?dl=1">opacity and input data</a>
+<p>Thus, to get started download the <a class="reference external" href="https://keeper.mpdl.mpg.de/f/78b3c66857924b5aacdd/?dl=1">opacity and input data</a>
 (12.1 GB), unzip them, and put the “input_data” folder somewhere on
 your computer (it does not matter where).</p>
 <p>Next, please add the following environment variable to your
-“.bash_profile” or “.bashrc” file (depending on your operating system)
+“.bash_profile”, “.bashrc”, or “.zshrc” file (depending on your operating system and shell type)
 by typing</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">echo</span> <span class="s1">&#39;export pRT_input_data_path=&quot;absolute/path/of/the/folder/input_data&quot;&#39;</span> &gt;&gt;~/.bash_profile
 </pre></div>
@@ -263,6 +264,36 @@ opacities either before or after to actually run pRT, see
 <li><p>Type the following in the terminal <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">setup.py</span> <span class="pre">install</span></code>, and press
 Enter.</p></li>
 </ul>
+</section>
+<section id="apple-m1-instructions">
+<h2>Apple M1 instructions<a class="headerlink" href="#apple-m1-instructions" title="Permalink to this headline">¶</a></h2>
+<p>The installation of pRT on Apple machines with the M1 chip requires Intel emulation with Rosetta.</p>
+<p>First make sure that Rosetta is installed. Then go to the Terminal icon at the Applications, right click, choose “Get Info”, and select the “Open using Rosetta” box. It is also possible to first duplicate the shortcut, to have both a regular shortcut and one with the Rosetta support.</p>
+<p>Now open the Rosetta Terminal and check that you are indeed using the Inter emulator:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>arch
+</pre></div>
+</div>
+<p>This command should return <code class="docutils literal notranslate"><span class="pre">i386</span></code>. Next, it is easiest to install <a class="reference external" href="https://brew.sh">Homebrew</a>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>/bin/bash -c <span class="s2">&quot;</span><span class="k">$(</span>curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh<span class="k">)</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>With the Intel emulation, Homebrew is installed at <code class="docutils literal notranslate"><span class="pre">/usr/local/bin/brew</span></code> instead of the M1 location at <code class="docutils literal notranslate"><span class="pre">/opt/homebrew/bin/brew</span></code>. It is therefore possible to work with two Homebrew installations if needed.</p>
+<p>Now install <code class="docutils literal notranslate"><span class="pre">gfortran</span></code> with the Homebrew version that uses the Intel emulation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>/usr/local/bin/brew install gfortran
+</pre></div>
+</div>
+<p>In case a regular M1 installation of Homebrew is used in parallel, then it is important that the correct <code class="docutils literal notranslate"><span class="pre">gfortran</span></code> compiler is used when installing pRT. Optionally, it could help to uninstall <code class="docutils literal notranslate"><span class="pre">gfortran</span></code> from the M1 installation of Homebrew:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>/opt/homebrew/bin/brew uninstall gfortran
+</pre></div>
+</div>
+<p>Next, activate your favorite Python installation/environment and install NumPy:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip install numpy
+</pre></div>
+</div>
+<p>And finally install pRT:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip install petitRADTRANS
+</pre></div>
+</div>
 </section>
 <section id="testing-the-installation">
 <h2>Testing the installation<a class="headerlink" href="#testing-the-installation" title="Permalink to this headline">¶</a></h2>

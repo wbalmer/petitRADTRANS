@@ -6,7 +6,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 # Read external packages
 import numpy as np
 import copy as cp
-
+import pymultinest
 import json
 import logging
 from scipy.stats import binned_statistic
@@ -821,6 +821,8 @@ class Retrieval:
         """
         if ret_name is None:
             ret_name = self.retrieval_name
+        # Check if the files already exist so that we don't have to recalculate
+
 
         # Check if the files already exist so that we don't have to recalculate
         if self.rd.AMR:
@@ -1743,6 +1745,7 @@ class Retrieval:
             pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
             temps.append(t)
 
+        logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
         temps = np.array(temps)
         temps_sort = np.sort(temps, axis=0)
 

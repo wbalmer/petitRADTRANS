@@ -412,7 +412,6 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
-
     if abundances is None:
         return None, None
     if PT_plot_mode:

@@ -3,9 +3,9 @@ import os
 import numpy as np
 import logging
 from scipy.ndimage import gaussian_filter
+from astropy.io import fits
 import petitRADTRANS.nat_cst as nc
 from .rebin_give_width import rebin_give_width
-
 class Data:
     """
     This class stores the spectral data to be retrieved from a single instrument or observation.
@@ -146,6 +146,7 @@ class Data:
         self.bval = -np.inf
 
         # Bins and photometry
+        # Bins and photometry
         self.wlen_bins = wlen_bins
         self.photometry = photometry
         self.photometric_transformation_function = \
@@ -217,7 +218,8 @@ class Data:
         obs = np.genfromtxt(path,delimiter = delimiter, comments = comments)
         # Input sanity checks
         if np.isnan(obs).any():
-            obs = np.genfromtxt(path, delimiter = ' ', comments = comments)
+            #obs = np.genfromtxt(path, delimiter = ' ', comments = comments)
+            obs = np.genfromtxt(path)
         if len(obs.shape) < 2:
             obs = np.genfromtxt(path, comments = comments)
         if obs.shape[1] == 4:
@@ -268,6 +270,24 @@ class Data:
         self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
         self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
 
+    def load_jwst(self,path):
+        """
+        Load in an x1d fits file as produced by the STSci JWST pipeline.
+        Expects units of Jy for the flux and micron for the wavelength.
+
+        Args:
+            path : str
+                Directory and filename of the data.
+        """
+        hdul = fits.open(path)
+        self.wlen = hdul["EXTRACT1D"].data["WAVELENGTH"]
+        self.flux = hdul["EXTRACT1D"].data["FLUX"]
+        self.flux_error = hdul["EXTRACT1D"].data["FLUX_ERROR"]
+
+        # Convert from Jy to W/m^2/micron
+        self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
+        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
+
     def loadfits(self,path):
         """
         Load in a particular style of fits file.
@@ -288,7 +308,6 @@ class Data:
             self.covariance = fits.getdata(path,'SPECTRUM').field("COVARIANCE")
             self.inv_cov = np.linalg.inv(self.covariance)
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
-
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.

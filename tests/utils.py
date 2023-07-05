@@ -8,6 +8,7 @@ import os
 import numpy as np
 
 from .context import petitRADTRANS
+from petitRADTRANS.physics import guillot_global
 
 version = "2.4.5"  # petitRADTRANS.version.version used to generate last tests
 
@@ -288,7 +289,7 @@ def compare_from_reference_file(reference_file, comparison_dict, relative_tolera
 
 # Initializations
 def init_guillot_2010_temperature_profile():
-    temperature_guillot = petitRADTRANS.nat_cst.guillot_global(
+    temperature_guillot = guillot_global(
         P=radtrans_parameters['pressures'],
         kappa_IR=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
