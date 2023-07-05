@@ -853,4 +853,64 @@ module fort_input
 
             close(49)
         end subroutine read_kappa
+
+        subroutine get_file_size(file_path, arr_len)
+            ! """
+            ! Subroutine to read the kappa array in the high-res case.
+            ! """
+            implicit none
+
+            character(len=*), intent(in)     :: file_path
+            integer, intent(out) :: arr_len
+
+            integer          :: io
+            doubleprecision :: dump
+
+            open(unit=49, file=trim(adjustl(file_path)), form = 'unformatted', ACCESS='stream')
+
+            arr_len = 0
+
+            do
+                read(49, iostat=io) dump
+                arr_len = arr_len + 1
+
+                if (mod(arr_len, 100000) == 0) then
+                    write(*, *) arr_len, dump, io
+                end if
+
+                if(io < 0) then
+                    exit
+                end if
+            end do
+
+            close(49)
+
+            arr_len = arr_len - 1
+        end subroutine get_file_size
+
+
+        subroutine read_all_kappa(file_path, arr_len, kappa)
+            ! """
+            ! Subroutine to read the kappa array in the high-res case.
+            ! """
+            implicit none
+
+            character(len=*), intent(in)     :: file_path
+            integer, intent(in) :: arr_len
+            double precision, intent(out) :: kappa(arr_len)
+
+            integer          :: i
+
+            open(unit=49, file=trim(adjustl(file_path)), form = 'unformatted', ACCESS='stream')
+
+            do i = 1, arr_len
+                read(49) kappa(i)
+
+                if (mod(i, 100000) == 0) then
+                    write(*, *) i
+                end if
+            end do
+
+            close(49)
+        end subroutine read_all_kappa
 end module fort_input
