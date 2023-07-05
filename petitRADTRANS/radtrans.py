@@ -78,7 +78,6 @@ class Radtrans:
             stellar_intensity=None,
             geometry='dayside_ave',
             mu_star=1.,
-            semimajoraxis=None,
             anisotropic_cloud_scattering='auto',
             hack_cloud_photospheric_tau=None,
             path_input_data=petitradtrans_config['Paths']['prt_input_data_path']
@@ -139,9 +138,6 @@ class Radtrans:
         # For feautrier scattering of direct stellar light
         self.geometry = geometry
         self.mu_star = mu_star
-
-        # Distance from the star (AU)
-        self.semimajoraxis = semimajoraxis  # TODO remove as it is never used
 
         # Line-by-line or corr-k
         self.mode = mode
@@ -1661,10 +1657,11 @@ class Radtrans:
         self.hack_cloud_photospheric_tau = None
         self.Pcloud = p_cloud
         self.gray_opacity = gray_opacity
-        self.interpolate_species_opa(temp)
         self.haze_factor = haze_factor
         self.kappa_zero = kappa_zero
         self.gamma_scat = gamma_scat
+
+        self.interpolate_species_opa(temp)
 
         auto_anisotropic_cloud_scattering = False
 
@@ -1729,15 +1726,15 @@ class Radtrans:
         self.temp = temp
 
         if len(self.line_species) > 0:
-            for i_spec in range(len(self.line_species)):
-                self.line_struc_kappas[:, :, i_spec, :] = fi.interpol_opa_ck(
+            for i, species in enumerate(self.line_species):
+                self.line_struc_kappas[:, :, i, :] = fi.interpol_opa_ck(
                     self.press,
                     temp,
-                    self.custom_line_TP_grid[self.line_species[i_spec]],
-                    self.custom_grid[self.line_species[i_spec]],
-                    self.custom_diffTs[self.line_species[i_spec]],
-                    self.custom_diffPs[self.line_species[i_spec]],
-                    self.line_grid_kappas_custom_PT[self.line_species[i_spec]]
+                    self.custom_line_TP_grid[species],
+                    self.custom_grid[species],
+                    self.custom_diffTs[species],
+                    self.custom_diffPs[species],
+                    self.line_grid_kappas_custom_PT[species]
                 )
         else:
             self.line_struc_kappas = np.zeros_like(self.line_struc_kappas)
@@ -2123,13 +2120,12 @@ class Radtrans:
                 * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
                 layers)
         """
-
         # How many layers are there?
         struc_len = np.size(press)
         freq_len = np.size(line_struc_kappas, axis=1)
 
-        # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric
-        # structure (temperature, pressure, mmw), gravity, reference pressure and radius.
+        # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
+        # (temperature, pressure, mmw), gravity, reference pressure and radius.
         radius = self.calc_radius_hydrostatic_equilibrium(
             temperatures=temp,
             mmws=mmw,
