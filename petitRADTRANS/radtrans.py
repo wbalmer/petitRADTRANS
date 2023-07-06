@@ -19,6 +19,12 @@ from petitRADTRANS import nat_cst as nc
 # from petitRADTRANS import phoenix
 from petitRADTRANS import pyth_input as pyi
 
+from jax import config
+config.update("jax_enable_x64", True)
+import jax
+import jax.numpy as jnp
+from jax import grad, jit, vmap, lax, ops, pure_callback,ShapeDtypeStruct
+from time import time
 
 class Radtrans(_read_opacities.ReadOpacities):
     r""" Class defining objects for carrying out spectral calculations for a
@@ -1023,7 +1029,6 @@ class Radtrans(_read_opacities.ReadOpacities):
                 self.geometry,
                 self.mu_star
             )
-
             self.kappa_rosseland = \
                 fs.calc_kappa_rosseland(self.line_struc_kappas[:, :, 0, :], self.temp,
                                         self.w_gauss, self.border_freqs,
