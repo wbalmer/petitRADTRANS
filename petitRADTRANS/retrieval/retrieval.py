@@ -1566,16 +1566,15 @@ class Retrieval:
         for name, dd in self.data.items():
             # If the user has specified a resolution, rebin to that
             if not dd.photometry:
-                try:
-                    # Sometimes this fails, I'm not super sure why. # TODO find why and fix
-                    resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
-                    ratio = resolution_data / self.rd.plot_kwargs["resolution"]
+                # Sometimes this fails, I'm not super sure why. # TODO find why and fix
+                resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
+                ratio = resolution_data / self.rd.plot_kwargs["resolution"]
 
-                    if int(ratio) > 1:
-                        flux, edges, _ = binned_statistic(dd.wlen, dd.flux, 'mean', dd.wlen.shape[0] / ratio)
-                        error, _, _ = binned_statistic(dd.wlen, dd.flux_error,
-                                                       'mean', dd.wlen.shape[0] / ratio) / np.sqrt(ratio)
-                        wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
+                if int(ratio) > 1:
+                    flux, edges, _ = binned_statistic(dd.wlen, dd.flux, 'mean', dd.wlen.shape[0] / ratio)
+                    error, _, _ = binned_statistic(dd.wlen, dd.flux_error,
+                                                    'mean', dd.wlen.shape[0] / ratio) / np.sqrt(ratio)
+                    wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -1742,8 +1741,6 @@ class Retrieval:
         # Making the plots pretty
         if "xscale" in self.rd.plot_kwargs.keys():
             ax.set_xscale(self.rd.plot_kwargs["xscale"])
-        except:  # TODO find exception expected here
-            pass
         try:
             ax.set_yscale(self.rd.plot_kwargs["yscale"])
         except:  # TODO find exception expected here
@@ -1802,8 +1799,6 @@ class Retrieval:
         ax_r.yaxis.set_minor_locator(AutoMinorLocator())
         ax_r.tick_params(axis='both', which='minor',
                          bottom=True, top=True, left=True, right=True,
-
-    def plot_sampled(self,sample_dict,parameter_dict, downsample_factor = None, save_outputs = True, ret_names = None,colours = None):
                          direction='in', length=5)
         ax_r.set_ylabel(r"Residuals [$\sigma$]")
         ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
