@@ -351,7 +351,8 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), scaling_factor = None, PBase_lim = None, fixed_abund = None,fixed_base=None):
+    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), scaling_factor = None, 
+                          PBase_lim = None, fixed_abund = None, fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -430,7 +431,9 @@ class RetrievalConfig:
                     value=fixed_base
                 )
 
-    def add_data(self, name, path,
+    def add_data(self, 
+                 name, 
+                 path,
                  model_generating_function,
                  data_resolution = None,
                  model_resolution = None,
@@ -441,23 +444,13 @@ class RetrievalConfig:
                  wlen_range_micron = None,
                  external_pRT_reference = None,
                  opacity_mode = 'c-k',
-                 wlen_bins = None):
-                 data_resolution=None,
-                 model_resolution=None,
-                 distance=None,
-                 scale=False,
-                 scale_err=False,
-                 wlen_range_micron=None,
-                 external_pRT_reference=None,
-                 opacity_mode='c-k',
                  wlen_bins=None,
                  pRT_grid=False,
                  pRT_object=None,
                  wlen=None,
                  flux=None,
                  flux_error=None,
-                 mask=None
-                 ):
+                 mask=None):
         """
         Create a Data class object.
         # TODO complete docstring

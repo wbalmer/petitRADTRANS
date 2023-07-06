@@ -6,19 +6,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from matplotlib.lines import Line2D
-<<<<<<< HEAD
 from matplotlib import colors
 from scipy.stats import binned_statistic
+from scipy.ndimage import uniform_filter1d
 from petitRADTRANS import nat_cst as nc
 import scicomap as sc
 import holoviews as hv
 from .data import Data
-=======
-from scipy.ndimage import uniform_filter1d
-from scipy.stats import binned_statistic
-import petitRADTRANS.nat_cst as nc
 
->>>>>>> master
 
 def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=None):
     # TODO write generic plotting functions rather than copy pasting code.
@@ -110,6 +105,8 @@ def contour_corner(sampledict,
                    legend=False,
                    prt_plot_style=True,
                    plot_best_fit = False,
+                   colors = None,
+                   quintiles = [0.16, 0.5, 0.84],
                    **kwargs):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
@@ -178,37 +175,18 @@ def contour_corner(sampledict,
         mpl.rc('ytick.minor', **ymin)
         mpl.rc('font', **font)
 
-<<<<<<< HEAD
-        color_list = ['#009FB8','#FF695C', '#6171FF', '#FFBB33', '#70FF92', "#FF1F69", "#52AC25", '#E574FF', "#FF261D", "#B429FF" ]
-    else:
-        colors = hv.Cycle().values#prt_colours
-        color_list = [colors[0], colors[2], colors[7], colors[3], colors[5], colors[1], colors[6]]
-        mpl.rcParams.update(mpl.rcParamsDefault)
-
-        #from .plot_style import prt_colours
-    #color_list = colors=['tab:blue','midnightblue']#["tab:blue", "tab:orange", "tab:green"]
-    tcolor = 'k'
-    N_samples = []
-    range_list = []
-    handles = []
-    count = 0
-    for key,samples in sampledict.items():
-        print(key)
-=======
         color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
                       "#B429FF"]
     else:
         color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
 
-        # from .plot_style import prt_colours
-    # color_list = prt_colours
-
+    if colors is not None:
+         color_list = colors
     handles = []
     count = 0
     fig = None
 
     for key, samples in sampledict.items():
->>>>>>> master
         if prt_plot_style and count > len(color_list):
             print("Not enough colors to continue plotting. Please add to the list.")
             print("Outputting first " + str(count) + " retrievals.")
@@ -259,13 +237,6 @@ def contour_corner(sampledict,
             else:
                 range_take = (parameter_ranges[key][i][0], parameter_ranges[key][i][1])
                 range_list.append(range_take)
-<<<<<<< HEAD
-        if true_values:
-            best_fit = true_values
-            tcolor = 'k'
-            #print(best_fit)
-        #fig = plt.figure(figsize = (60,60),dpi=80)
-=======
 
         if parameter_plot_indices is not None and true_values is not None:
             truths_list = []
@@ -281,7 +252,6 @@ def contour_corner(sampledict,
         else:
             truths_list = None
 
->>>>>>> master
         label_kwargs = None
         title_kwargs = None
         hist_kwargs = None
@@ -316,29 +286,10 @@ def contour_corner(sampledict,
         for i,label in enumerate(labels_list):
             labels_list[i] = label +'\n'
         if count == 0:
+            # levels should be {1,2,3}^2/2 to enclose standard
+            # confidence intervals in 2D.
             fig = corner.corner(np.array(data_list).T,
                                 smooth=True,
-<<<<<<< HEAD
-                                title_fmt = ".2f",
-                                show_titles = True,
-                                title_kwargs = title_kwargs,
-                                labels = labels_list,
-                                label_kwargs = label_kwargs,
-                                range = range_list,
-                                color = color_list[count],
-                                quantiles=[],
-                                hist2d_kwargs = hist2d_kwargs,
-                                plot_contours = True,
-                                contour_kwargs = contour_kwargs,
-                                hist_kwargs = hist_kwargs,
-                                levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
-                                #truths=best_fit,
-                                #truth_color=tcolor
-                                )
-            if len(list(sampledict.keys()))==1:
-                plt.savefig(output_file, bbox_inches='tight')
-                return fig
-=======
                                 title_fmt=".2f",
                                 show_titles=True,
                                 title_kwargs=title_kwargs,
@@ -346,7 +297,7 @@ def contour_corner(sampledict,
                                 label_kwargs=label_kwargs,
                                 range=range_list,
                                 color=color_list[count],
-                                quantiles=[0.16, 0.5, 0.84],
+                                quantiles=quintiles,
                                 **hist2d_kwargs,
                                 plot_contours=True,
                                 truths=truths_list,
@@ -356,12 +307,10 @@ def contour_corner(sampledict,
                                 levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)]
                                 )
             count += 1
->>>>>>> master
         else:
             corner.corner(np.array(data_list).T,
                           fig=fig,
                           smooth=True,
-<<<<<<< HEAD
                           title_fmt = None,
                           title_kwargs = None,
                           show_titles = False,
@@ -376,50 +325,14 @@ def contour_corner(sampledict,
                           hist_kwargs = hist_kwargs,
                           levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
                           truths=best_fit,
-                          truth_color=tcolor
+                          truth_color='k'
                           )
         #if dimensions == 1:
         #    plt.tight_layout(h_pad=0, w_pad=0)
-=======
-                          title_fmt=".2f",
-                          title_kwargs=title_kwargs,
-                          show_titles=False,
-                          range=range_list,
-                          color=color_list[count],
-                          labels=labels_list,
-                          label_kwargs=label_kwargs,
-                          **hist2d_kwargs,
-                          plot_contours=True,
-                          contour_kwargs=contour_kwargs,
-                          truths=truths_list,
-                          truth_color='r',
-                          hist_kwargs=hist_kwargs,
-                          levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)]
-                          )
-            count += 1
-
->>>>>>> master
         if short_name is None:
             label = key
         else:
             label = short_name[key]
-<<<<<<< HEAD
-        handles.append(Line2D([0], [0], marker = 'o',color=color_list[count], label = label,markersize = 15))
-        count += 1
-    corner.overplot_lines(fig, best_fit, color="k", linewidth = 2.5)
-
-    #fig.subplots_adjust( wspace=0.005, hspace=0.005)
-    if legend:
-        fig.get_axes()[2].legend(handles = handles,
-                                 loc = 'upper right' ,
-                                 fontsize = 20)
-    for ax in fig.get_axes():
-        ax.tick_params(axis='both', which='major', labelsize=14)
-        ax.tick_params(axis='both', which='minor', labelsize=10)
-    plt.savefig(output_file,dpi=300, bbox_inches='tight')
-    if prt_plot_style:
-        import petitRADTRANS.retrieval.plot_style
-=======
 
         handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
 
@@ -430,7 +343,6 @@ def contour_corner(sampledict,
     if output_file is not None:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
 
->>>>>>> master
     return fig
 
 
@@ -882,8 +794,5 @@ def nice_corner(samples,
     if dimensions == 1:
         plt.tight_layout(h_pad=0, w_pad=0)
     plt.savefig(output_file)
-<<<<<<< HEAD
-=======
     # plt.show()
     # plt.clf()
->>>>>>> master
