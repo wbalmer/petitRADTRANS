@@ -14,9 +14,14 @@ if path is None:
                   "setting it to the value hardcoded into tests/context.py\n"
                   "Change it if necessary (this will become unnecessary in a future update)")
     os.environ["pRT_input_data_path"] = r"/Users/molliere/Documents/programm_data/petitRADTRANS_public/input_data"
-    # os.environ["pRT_input_data_path"] = r"/home/dblain/petitradtrans/input_data"
+    #os.environ["pRT_input_data_path"] = r"/home/dblain/petitradtrans/input_data"
 
 import petitRADTRANS
+import petitRADTRANS.ccf
+import petitRADTRANS.ccf.ccf
+import petitRADTRANS.containers
+import petitRADTRANS.containers.planet
+import petitRADTRANS.containers.spectral_model
 import petitRADTRANS.fort_rebin
 import petitRADTRANS.nat_cst
 import petitRADTRANS.poor_mans_nonequ_chem
@@ -25,6 +30,5 @@ import petitRADTRANS.retrieval
 import petitRADTRANS.version
 
 # Future imports
-# import petitRADTRANS.ccf.spectra_utils
 # import petitRADTRANS.phoenix
 # import petitRADTRANS.physics

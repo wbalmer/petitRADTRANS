@@ -1533,7 +1533,7 @@ subroutine get_rg_N(gravity,rho,rho_p,temp,MMW,frain,cloud_mass_fracs, &
   INTEGER, intent(in)  :: struc_len, N_cloud_spec
   DOUBLE PRECISION, intent(in) :: gravity, rho(struc_len), rho_p(N_cloud_spec), temp(struc_len), &
        MMW(struc_len), frain(N_cloud_spec), cloud_mass_fracs(struc_len,N_cloud_spec), &
-       sigma_n, Kzz(struc_len)
+       sigma_n, Kzz(struc_len)  ! TODO remove cloud_mass_fracs, which is never used in that function
   DOUBLE PRECISION, intent(out) :: r_g(struc_len,N_cloud_spec)
   ! Internal
   INTEGER, parameter :: N_fit = 100
@@ -1973,7 +1973,7 @@ subroutine combine_opas_sample_ck(line_struc_kappas, g_gauss, weights, &
          ! Interpolate new corr-k table if more than one species is to be considered
          if (take_spec(i_freq, i_struc) > thresh_integer_fast-1) then
 
-            call wrap_quicksort_swap(nsample, sampled_opa_weights(:, :, i_freq, i_struc))
+           call wrap_quicksort_swap_mrgnk(nsample, sampled_opa_weights(:, :, i_freq, i_struc))
 
             sampled_opa_weights(:, 2, i_freq, i_struc) = &
                sampled_opa_weights(:, 2, i_freq, i_struc) / &
@@ -2142,7 +2142,7 @@ subroutine combine_opas_ck(line_struc_kappas, g_gauss, weights, &
                sampled_opa_weights(:,1) = k_out(1:nsample)
                sampled_opa_weights(:,2) = g_presort(1:nsample)
 
-               call wrap_quicksort_swap(nsample, sampled_opa_weights)
+               call wrap_quicksort_swap_mrgnk(nsample, sampled_opa_weights)
 
                sampled_opa_weights(:, 2) = &
                         sampled_opa_weights(:, 2) / &
@@ -2304,19 +2304,23 @@ subroutine feautrier_rad_trans(border_freqs, &
   ! Internal
   INTEGER                         :: j,i,k,l
   DOUBLE PRECISION                :: I_J(struc_len,N_mu), I_H(struc_len,N_mu)
-  DOUBLE PRECISION                :: source(N_g,freq_len_p_1-1,struc_len), &
+  DOUBLE PRECISION                :: source(struc_len), &
        J_planet_scat(N_g,freq_len_p_1-1,struc_len), &
        photon_destruct(N_g,freq_len_p_1-1,struc_len), &
-       source_planet_scat_n(N_g,freq_len_p_1-1,struc_len), &
-       source_planet_scat_n1(N_g,freq_len_p_1-1,struc_len), &
-       source_planet_scat_n2(N_g,freq_len_p_1-1,struc_len), &
-       source_planet_scat_n3(N_g,freq_len_p_1-1,struc_len)
+       source_planet_scat_n(struc_len), &
+       source_planet_scat_n1(struc_len), &
+       source_planet_scat_n2(struc_len), &
+       source_planet_scat_n3(struc_len), &
+       source_save(N_g,freq_len_p_1-1,struc_len)
    DOUBLE PRECISION                :: J_star_ini(N_g,freq_len_p_1-1,struc_len)
    DOUBLE PRECISION                :: I_star_calc(N_g,N_mu,struc_len,freq_len_p_1-1)
-   DOUBLE PRECISION                :: flux_old(freq_len_p_1-1), conv_val
+   DOUBLE PRECISION                :: conv_val, conv_test_variable, conv_test_variable_old
   ! tridag variables
-  DOUBLE PRECISION                :: a(struc_len),b(struc_len),c(struc_len),r(struc_len), &
-       planck(struc_len), plancks(struc_len, freq_len_p_1-1)
+  DOUBLE PRECISION                :: a(struc_len,N_mu), &
+          b(struc_len,N_mu), &
+          c(struc_len,N_mu), &
+          r(struc_len), &
+          planck(struc_len), plancks(struc_len, freq_len_p_1-1)
   DOUBLE PRECISION                :: f1,f2,f3, deriv1, deriv2, I_plus, I_minus
 
   ! quantities for P-T structure iteration
@@ -2344,6 +2348,8 @@ subroutine feautrier_rad_trans(border_freqs, &
   ! Variables for surface scattering
   DOUBLE PRECISION                :: I_plus_surface(N_mu, N_g, freq_len_p_1-1)
 
+  ! For a general desription of this routine, see the Molliere (2017) PhD thesis:
+  ! http://www.ub.uni-heidelberg.de/archiv/23252
 
   I_plus_surface = 0d0
   I_minus = 0d0
@@ -2352,8 +2358,18 @@ subroutine feautrier_rad_trans(border_freqs, &
   GCM_read = .FALSE.
   iter_scat = 1000
   source = 0d0
-  flux_old = 0d0
   flux = 0d0
+
+  a = 0d0
+  b = 0d0
+  c = 0d0
+  lambda_loc = 0d0
+  inv_del_tau_min = 1d10
+
+  J_planet_scat = 0d0
+  J_bol = 0d0
+  I_GCM = 0d0
+
 
   source_planet_scat_n = 0d0
   source_planet_scat_n1 = 0d0
@@ -2362,24 +2378,27 @@ subroutine feautrier_rad_trans(border_freqs, &
 
   photon_destruct = photon_destruct_in
 
+  conv_test_variable = 0d0
+  conv_test_variable_old = 0d0
+
   ! DO THE STELLAR ATTENUATION CALCULATION
 
   J_star_ini = 0d0
 
-
+  ! Calculate the initial stellar intensity moving downward in the atmosphere
   do i = 1, freq_len_p_1-1
     ! Irradiation treatment
     ! Dayside ave: multiply flux by 1/2.
     ! Planet ave: multiply flux by 1/4
 
     do i_mu = 1, N_mu
-      if (trim(adjustl(geom)) .EQ. 'dayside_ave') then
+      if (trim(adjustl(geom)) == 'dayside_ave') then
            I_star_calc(:,i_mu,:,i) = 0.5* abs(I_star_0(i))*exp(-tau_approx_scat(:,i,:)/mu(i_mu))
            J_star_ini(:,i,:) = J_star_ini(:,i,:)+0.5d0*I_star_calc(:,i_mu,:,i)*w_gauss_mu(i_mu)
-      else if (trim(adjustl(geom)) .EQ. 'planetary_ave') then
+      else if (trim(adjustl(geom)) == 'planetary_ave') then
            I_star_calc(:,i_mu,:,i) = 0.25* abs(I_star_0(i))*exp(-tau_approx_scat(:,i,:)/mu(i_mu))
            J_star_ini(:,i,:) = J_star_ini(:,i,:)+0.5d0*I_star_calc(:,i_mu,:,i)*w_gauss_mu(i_mu)
-      else if (trim(adjustl(geom)) .EQ. 'non-isotropic') then
+      else if (trim(adjustl(geom)) == 'non-isotropic') then
            J_star_ini(:,i,:) = abs(I_star_0(i)/4.*exp(-tau_approx_scat(:,i,:)/mu_star))
       else
           write(*,*) 'Invalid geometry'
@@ -2394,44 +2413,33 @@ subroutine feautrier_rad_trans(border_freqs, &
 
   end do
 
-  do i_iter_scat = 1, iter_scat
+  do k = 1, struc_len
+      do i = 1, freq_len_p_1-1
+          do l = 1, N_g
+              if (photon_destruct(l,i,k) < 1d-10) THEN
+                  photon_destruct(l,i,k) = 1d-10
+              end if
+          end do
+      end do
+  end do
 
-    flux_old = flux
+  ! Calculate RT, using Feautrier's method.
+  do i = 1, freq_len_p_1-1
 
-    lambda_loc = 0d0
+      J_bol_a = 0d0
 
-    J_planet_scat = 0d0
+      I_GCM(:,i) = 0d0
 
-    inv_del_tau_min = 1d10
-    J_bol(1) = 0d0
-    I_GCM = 0d0
+      r = plancks(:, i)
+      planck = plancks(:, i)
 
-    do i = 1, freq_len_p_1-1
+      do l = 1, N_g
 
-       flux(i) = 0d0
-       J_bol_a = 0d0
+          J_planet_scat(l,i,:) = 0d0
 
-       r = 0
-
-       ! TODO: only needs to be calculated once, not for every scattering iteration: fix!
-       !call planck_f_lr(struc_len,temp(1:struc_len),border_freqs(i),border_freqs(i+1),r)
-       !planck = r
-       r = plancks(:, i)
-       planck = plancks(:, i)
-
-       do l = 1, N_g
-
-          if (i_iter_scat .EQ. 1) then
-             source(l,i,:) = photon_destruct(l,i,:)*r +  (1d0-photon_destruct(l,i,:))*J_star_ini(l,i,:)
-          else
-             r = source(l,i,:)
-
-          end if
-
-
+          ! Calculate a, b, c: the three "bands" of the tri-diagonal matrix of the Feautrier method.
+          ! Calcute lambda_loc: the local accelerated lambda operator.
           do j = 1, N_mu
-
-
 
              ! Own boundary treatment
              f1 = mu(j)/(tau_approx_scat(l,i,1+1)-tau_approx_scat(l,i,1))
@@ -2440,13 +2448,13 @@ subroutine feautrier_rad_trans(border_freqs, &
              if (f1 > inv_del_tau_min) then
                 f1 = inv_del_tau_min
              end if
-             if (f1 .NE. f1) then
+             if (f1 /= f1) then
                 f1 = inv_del_tau_min
              end if
 
-             b(1) = 1d0 + 2d0 * f1 * (1d0 + f1)
-             c(1) = -2d0*f1**2d0
-             a(1) = 0d0
+             b(1,j) = 1d0 + 2d0 * f1 * (1d0 + f1)
+             c(1,j) = -2d0*f1**2d0
+             a(1,j) = 0d0
 
              ! Calculate the local approximate lambda iterator
              lambda_loc(l,i,1) = lambda_loc(l,i,1) + &
@@ -2462,25 +2470,25 @@ subroutine feautrier_rad_trans(border_freqs, &
                 if (f1 > 0.5d0*inv_del_tau_min) then
                    f1 = 0.5d0*inv_del_tau_min
                 end if
-                if (f1 .NE. f1) then
+                if (f1 /= f1) then
                    f1 = 0.5d0*inv_del_tau_min
                 end if
                 if (f2 > inv_del_tau_min) then
                    f2 = inv_del_tau_min
                 end if
-                if (f2 .NE. f2) then
+                if (f2 /= f2) then
                    f2 = inv_del_tau_min
                 end if
                 if (f3 > inv_del_tau_min) then
                    f3 = inv_del_tau_min
                 end if
-                if (f3 .NE. f3) then
+                if (f3 /= f3) then
                    f3 = inv_del_tau_min
                 end if
 
-                b(k) = 1d0 + f1*(f2+f3)
-                c(k) = -f1*f2
-                a(k) = -f1*f3
+                b(k,j) = 1d0 + f1*(f2+f3)
+                c(k,j) = -f1*f2
+                a(k,j) = -f1*f3
 
                 ! Calculate the local approximate lambda iterator
                 lambda_loc(l,i,k) = lambda_loc(l,i,k) + &
@@ -2495,148 +2503,153 @@ subroutine feautrier_rad_trans(border_freqs, &
              if (f1 > inv_del_tau_min) then
                 f1 = inv_del_tau_min
              end if
-             if (f1 .NE. f1) then
+             if (f1 /= f1) then
                 f1 = inv_del_tau_min
              end if
 
-  !!$              b(struc_len) = 1d0 + 2d0*f1**2d0
-  !!$              c(struc_len) = 0d0
-  !!$              a(struc_len) = -2d0*f1**2d0
-  !!$
-  !!$              ! Calculate the local approximate lambda iterator
-  !!$              lambda_loc(l,i,struc_len) = lambda_loc(l,i,struc_len) + &
-  !!$                   w_gauss_mu(j)/(1d0 + 2d0*f1**2d0)
-
-             ! TEST PAUL SCAT
-             b(struc_len) = 1d0
-             c(struc_len) = 0d0
-             a(struc_len) = 0d0
-
-             ! r(struc_len) = I_J(struc_len) = 0.5[I_plus + I_minus]
-             ! where I_plus is the light that goes downwards and
-             ! I_minus is the light that goes upwards.
-             !!!!!!!!!!!!!!!!!! ALWAYS NEEDED !!!!!!!!!!!!!!!!!!
-             I_plus = I_plus_surface(j, l, i)
-
-                            !!!!!!!!!!!!!!! EMISSION ONLY TERM !!!!!!!!!!!!!!!!
-             I_minus = surf_emi(i)*planck(struc_len) &
-                           !!!!!!!!!!!!!!! SURFACE SCATTERING !!!!!!!!!!!!!!!!
-                           ! ----> of the emitted/scattered atmospheric light
-                           ! + surf_refl(i) * SUM(I_plus_surface(:, l, i) * w_gauss_mu) ! OLD PRE 091220
-                           + surf_refl(i) * 2d0 * SUM(I_plus_surface(:, l, i) * mu * w_gauss_mu)
-                           ! ----> of the direct stellar beam (depends on geometry)
-             if  (trim(adjustl(geom)) .NE. 'non-isotropic') then
-               I_minus = I_minus + surf_refl(i) &
-                    ! * SUM(I_star_calc(l,:, struc_len, i) * w_gauss_mu) ! OLD PRE 091220
-                    * 2d0 * SUM(I_star_calc(l,:, struc_len, i) * mu * w_gauss_mu)
-             else
-               !I_minus = I_minus + surf_refl(i) *J_star_ini(l,i,struc_len)  !to be checked! ! OLD PRE 091220
-               I_minus = I_minus + surf_refl(i) *J_star_ini(l,i,struc_len) * 4d0 * mu_star
-             end if
-
-             !sum to get I_J
-             r(struc_len)=0.5*(I_plus + I_minus)
+             b(struc_len,j) = 1d0
+             c(struc_len,j) = 0d0
+             a(struc_len,j) = 0d0
 
              ! Calculate the local approximate lambda iterator
              lambda_loc(l,i,struc_len) = lambda_loc(l,i,struc_len) + &
                   w_gauss_mu(j)/(1d0 + 2d0*f1**2d0)
 
-              call tridag_own(a,b,c,r,I_J(:,j),struc_len)
+          end do
 
-             I_H(1,j) = -I_J(1,j)
+          ! Do the RT, iterate the scattering source function.
+          do i_iter_scat = 1, iter_scat
 
-             do k = 1+1, struc_len-1
-                f1 = mu(j)/(tau_approx_scat(l,i,k+1)-tau_approx_scat(l,i,k))
-                f2 = mu(j)/(tau_approx_scat(l,i,k)-tau_approx_scat(l,i,k-1))
-                if (f1 > inv_del_tau_min) then
-                   f1 = inv_del_tau_min
-                end if
-                if (f2 > inv_del_tau_min) then
-                   f2 = inv_del_tau_min
-                end if
-                deriv1 = f1*(I_J(k+1,j)-I_J(k,j))
-                deriv2 = f2*(I_J(k,j)-I_J(k-1,j))
-                I_H(k,j) = -(deriv1+deriv2)/2d0
+              ! Variables for checking for convergence
+              conv_test_variable_old = conv_test_variable
 
-                ! TEST PAUL SCAT
-                if (k .EQ. struc_len - 1) then
-                   I_plus_surface(j, l, i) = &
-                        I_J(struc_len,j)  - deriv1
-                end if
-                ! END TEST PAUL SCAT
-             end do
+              if (i_iter_scat .EQ. 1) then
+                   source = photon_destruct(l,i,:)*r +  (1d0-photon_destruct(l,i,:))*J_star_ini(l,i,:)
+              else
+                   r = source
+              end if
 
-             I_H(struc_len,j) = 0d0
+              ! Loop over directions
+              do j = 1, N_mu
 
-             ! TEST PAUL SCAT
-             !I_plus_surface(j, l, i) = I_J(struc_len-1,j)+I_H(struc_len-1,j)
-             ! END TEST PAUL SCAT
+                  ! r(struc_len) = I_J(struc_len) = 0.5[I_plus + I_minus]
+                  ! where I_plus is the light that goes downwards and
+                  ! I_minus is the light that goes upwards.
+                  !!!!!!!!!!!!!!!!!! ALWAYS NEEDED !!!!!!!!!!!!!!!!!!
+                  I_plus = I_plus_surface(j, l, i)
+
+                               !!!!!!!!!!!!!!! EMISSION ONLY TERM !!!!!!!!!!!!!!!!
+                  I_minus = surf_emi(i)*planck(struc_len) &
+                               !!!!!!!!!!!!!!! SURFACE SCATTERING !!!!!!!!!!!!!!!!
+                               ! ----> of the emitted/scattered atmospheric light
+                               ! + surf_refl(i) * SUM(I_plus_surface(:, l, i) * w_gauss_mu) ! OLD PRE 091220
+                               + surf_refl(i) * 2d0 * SUM(I_plus_surface(:, l, i) * mu * w_gauss_mu)
+                               ! ----> of the direct stellar beam (depends on geometry)
+                  if  (trim(adjustl(geom)) .NE. 'non-isotropic') then
+                      I_minus = I_minus + surf_refl(i) &
+                            ! * SUM(I_star_calc(l,:, struc_len, i) * w_gauss_mu) ! OLD PRE 091220
+                            * 2d0 * SUM(I_star_calc(l,:, struc_len, i) * mu * w_gauss_mu)
+                  else
+                      !I_minus = I_minus + surf_refl(i) *J_star_ini(l,i,struc_len)  !to be checked! ! OLD PRE 091220
+                      I_minus = I_minus + surf_refl(i) *J_star_ini(l,i,struc_len) * 4d0 * mu_star
+                  end if
+
+                  !sum to get I_J
+                  r(struc_len)=0.5*(I_plus + I_minus)
+
+                  ! Solve the Feautrier problem
+                  call tridag_own(a(:,j), &
+                                  b(:,j), &
+                                  c(:,j), &
+                                  r, &
+                                  I_J(:,j), &
+                                  struc_len)
+
+                  I_H(1,j) = -I_J(1,j)
+
+                  do k = 1+1, struc_len-1
+                      f1 = mu(j)/(tau_approx_scat(l,i,k+1)-tau_approx_scat(l,i,k))
+                      f2 = mu(j)/(tau_approx_scat(l,i,k)-tau_approx_scat(l,i,k-1))
+                      if (f1 > inv_del_tau_min) then
+                          f1 = inv_del_tau_min
+                      end if
+                      if (f2 > inv_del_tau_min) then
+                         f2 = inv_del_tau_min
+                      end if
+                      deriv1 = f1*(I_J(k+1,j)-I_J(k,j))
+                      deriv2 = f2*(I_J(k,j)-I_J(k-1,j))
+                      I_H(k,j) = -(deriv1+deriv2)/2d0
+
+                      ! TEST PAUL SCAT
+                      if (k .EQ. struc_len - 1) then
+                         I_plus_surface(j, l, i) = &
+                              I_J(struc_len,j)  - deriv1
+                      end if
+                      ! END TEST PAUL SCAT
+                   end do
+
+                   I_H(struc_len,j) = 0d0
+
+              end do
+
+              J_bol_g = 0d0
+
+              conv_test_variable = 0d0
+              do j = 1, N_mu
+
+                  J_bol_g = J_bol_g + I_J(:,j) * w_gauss_mu(j)
+                  conv_test_variable = conv_test_variable + I_H(1,j) * mu(j) * w_gauss_mu(j)
+
+              end do
+
+              J_planet_scat(l,i,:) = J_bol_g
+
+
+              ! Check for convergence
+              conv_val = ABS((conv_test_variable-conv_test_variable_old)/conv_test_variable)
+              if ((conv_val < 1d-3) .AND. (i_iter_scat > 9)) then
+                  source_save(l,i,:) = source
+                  exit
+              end if
+
+             ! Update the source function using results from the current iteration.
+             r = plancks(:, i)
+             source = (photon_destruct(l,i,:)*r+(1d0-photon_destruct(l,i,:))* &
+                   (J_star_ini(l,i,:)+J_planet_scat(l,i,:)-lambda_loc(l,i,:)*source)) / &
+                   (1d0-(1d0-photon_destruct(l,i,:))*lambda_loc(l,i,:))
+
+              source_planet_scat_n3 = source_planet_scat_n2
+              source_planet_scat_n2 = source_planet_scat_n1
+              source_planet_scat_n1 = source_planet_scat_n
+              source_planet_scat_n  = source
+
+              ! Accelerate the source function convergence with Ng acceleration
+              if (mod(i_iter_scat,4) == 0) then
+                 call NG_source_approx(source_planet_scat_n,source_planet_scat_n1, &
+                      source_planet_scat_n2,source_planet_scat_n3,source, &
+                      1,1,struc_len)
+              end if
 
           end do
 
-          J_bol_g = 0d0
-
+          ! Calculate the flux at the top of the atmosphere
           do j = 1, N_mu
-
-             J_bol_g = J_bol_g + I_J(:,j) * w_gauss_mu(j)
-             flux(i) = flux(i) - I_H(1,j)*mu(j) &
-                  * 4d0*pi * w_gauss_ck(l) * w_gauss_mu(j)
+              flux(i) = flux(i) - I_H(1,j)*mu(j) &
+                   * 4d0*pi * w_gauss_ck(l) * w_gauss_mu(j)
           end do
-
-          ! Save angle-dependent surface flux
+          ! Save angle-dependent surface flux, in case GCM postprocessing is desired
           if (GCM_read) then
-             do j = 1, N_mu
-                I_GCM(j,i) = I_GCM(j,i) - 2d0*I_H(1,j)*w_gauss_ck(l)
-             end do
+              do j = 1, N_mu
+                  I_GCM(j,i) = I_GCM(j,i) - 2d0*I_H(1,j)*w_gauss_ck(l)
+              end do
           end if
 
-          J_planet_scat(l,i,:) = J_bol_g
+      end do
 
-       end do
-
-    end do
-
-    do k = 1, struc_len
-       do i = 1, freq_len_p_1-1
-          do l = 1, N_g
-             if (photon_destruct(l,i,k) < 1d-10) THEN
-                photon_destruct(l,i,k) = 1d-10
-             end if
-          end do
-       end do
-    end do
-
-    do i = 1, freq_len_p_1-1
-       call planck_f_lr(struc_len,temp(1:struc_len),border_freqs(i),border_freqs(i+1),r)
-       do l = 1, N_g
-         source(l,i,:) = (photon_destruct(l,i,:)*r+(1d0-photon_destruct(l,i,:))* &
-               (J_star_ini(l,i,:)+J_planet_scat(l,i,:)-lambda_loc(l,i,:)*source(l,i,:))) / &
-               (1d0-(1d0-photon_destruct(l,i,:))*lambda_loc(l,i,:))
-       end do
-    end do
-
-    source_planet_scat_n3 = source_planet_scat_n2
-    source_planet_scat_n2 = source_planet_scat_n1
-    source_planet_scat_n1 = source_planet_scat_n
-    source_planet_scat_n  = source
-
-    if (mod(i_iter_scat,4) .EQ. 0) then
-       !write(*,*) 'Ng acceleration!'
-       call NG_source_approx(source_planet_scat_n,source_planet_scat_n1, &
-            source_planet_scat_n2,source_planet_scat_n3,source, &
-            N_g,freq_len_p_1,struc_len)
-    end if
-
-    conv_val = MAXVAL(ABS((flux-flux_old)/flux))
-    if ((conv_val < 1d-3) .AND. (i_iter_scat > 9)) then
-        exit
-    end if
-
- end do
+  end do
 
   ! Calculate the contribution function.
   ! Copied from flux_ck, here using "source" as the source function
-  ! (before it was the Planck function).
 
   contr_em = 0d0
   if (contribution) then
@@ -2659,7 +2672,7 @@ subroutine feautrier_rad_trans(border_freqs, &
           transm_all_loc = transm_all(i_freq,:)
           ! Calc Eq. 9 of manuscript (em_deriv.pdf)
           do i_str = 1, struc_len
-             r(i_str) = sum(source(:,i_freq,i_str)*w_gauss_ck)
+             r(i_str) = sum(source_save(:,i_freq,i_str)*w_gauss_ck)
           end do
           do i_str = 1, struc_len-1
              contr_em(i_str,i_freq) = contr_em(i_str,i_freq)+ &
@@ -2681,7 +2694,6 @@ subroutine feautrier_rad_trans(border_freqs, &
   end if
 
 end subroutine feautrier_rad_trans
-
 
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2849,6 +2861,247 @@ subroutine wrap_quicksort_swap(length, array)
   array(:,2) = swapped_array(2,:)
 
 end subroutine wrap_quicksort_swap
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+! Faster sorting routine from Nick Wogan
+subroutine wrap_quicksort_swap_mrgnk(length, array)
+  !use mrgrnk_mod, only: mrgrnk
+
+  implicit none
+  integer, intent(in) :: length
+  double precision, intent(inout) :: array(length, 2)
+
+  integer :: inds(length)
+
+  call mrgrnk(array(:, 1), length, inds)
+  array(:,1) = array(inds,1)
+  array(:,2) = array(inds,2)
+
+end subroutine wrap_quicksort_swap_mrgnk
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+! MRGRNK for opacity sorting. Taken from ORDERPACK2.0, http://www.fortran-2000.com/rank/
+! by Michel Olagnon
+! Thanks to Nick Wogan for uncovering this as the fastest option!
+! See his discussion here:
+! https://fortran-lang.discourse.group/t/fastest-sorting-for-a-specific-genre-of-unordered-numbers/3217
+
+Subroutine mrgrnk (XDONT, arr_len, IRNGT)
+! __________________________________________________________
+!   MRGRNK = Merge-sort ranking of an array
+!   For performance reasons, the first 2 passes are taken
+!   out of the standard loop, and use dedicated coding.
+! __________________________________________________________
+! __________________________________________________________
+      Integer, Intent (In) :: arr_len
+      DOUBLE PRECISION , Intent (In) :: XDONT(arr_len)
+      Integer, Intent (Out) :: IRNGT(arr_len)
+! __________________________________________________________
+      DOUBLE PRECISION :: XVALA, XVALB
+!
+      Integer, Dimension (SIZE(IRNGT)) :: JWRKT
+      Integer :: LMTNA, LMTNC, IRNG1, IRNG2
+      Integer :: NVAL, IIND, IWRKD, IWRK, IWRKF, JINDA, IINDA, IINDB
+!
+      NVAL = Min (SIZE(XDONT), SIZE(IRNGT))
+      Select Case (NVAL)
+      Case (:0)
+         Return
+      Case (1)
+         IRNGT (1) = 1
+         Return
+      Case Default
+         Continue
+      End Select
+!
+!  Fill-in the index array, creating ordered couples
+!
+      Do IIND = 2, NVAL, 2
+         If (XDONT(IIND-1) <= XDONT(IIND)) Then
+            IRNGT (IIND-1) = IIND - 1
+            IRNGT (IIND) = IIND
+         Else
+            IRNGT (IIND-1) = IIND
+            IRNGT (IIND) = IIND - 1
+         End If
+      End Do
+      If (Modulo(NVAL, 2) /= 0) Then
+         IRNGT (NVAL) = NVAL
+      End If
+!
+!  We will now have ordered subsets A - B - A - B - ...
+!  and merge A and B couples into     C   -   C   - ...
+!
+      LMTNA = 2
+      LMTNC = 4
+!
+!  First iteration. The length of the ordered subsets goes from 2 to 4
+!
+      Do
+         If (NVAL <= 2) Exit
+!
+!   Loop on merges of A and B into C
+!
+         Do IWRKD = 0, NVAL - 1, 4
+            If ((IWRKD+4) > NVAL) Then
+               If ((IWRKD+2) >= NVAL) Exit
+!
+!   1 2 3
+!
+               If (XDONT(IRNGT(IWRKD+2)) <= XDONT(IRNGT(IWRKD+3))) Exit
+!
+!   1 3 2
+!
+               If (XDONT(IRNGT(IWRKD+1)) <= XDONT(IRNGT(IWRKD+3))) Then
+                  IRNG2 = IRNGT (IWRKD+2)
+                  IRNGT (IWRKD+2) = IRNGT (IWRKD+3)
+                  IRNGT (IWRKD+3) = IRNG2
+!
+!   3 1 2
+!
+               Else
+                  IRNG1 = IRNGT (IWRKD+1)
+                  IRNGT (IWRKD+1) = IRNGT (IWRKD+3)
+                  IRNGT (IWRKD+3) = IRNGT (IWRKD+2)
+                  IRNGT (IWRKD+2) = IRNG1
+               End If
+               Exit
+            End If
+!
+!   1 2 3 4
+!
+            If (XDONT(IRNGT(IWRKD+2)) <= XDONT(IRNGT(IWRKD+3))) Cycle
+!
+!   1 3 x x
+!
+            If (XDONT(IRNGT(IWRKD+1)) <= XDONT(IRNGT(IWRKD+3))) Then
+               IRNG2 = IRNGT (IWRKD+2)
+               IRNGT (IWRKD+2) = IRNGT (IWRKD+3)
+               If (XDONT(IRNG2) <= XDONT(IRNGT(IWRKD+4))) Then
+!   1 3 2 4
+                  IRNGT (IWRKD+3) = IRNG2
+               Else
+!   1 3 4 2
+                  IRNGT (IWRKD+3) = IRNGT (IWRKD+4)
+                  IRNGT (IWRKD+4) = IRNG2
+               End If
+!
+!   3 x x x
+!
+            Else
+               IRNG1 = IRNGT (IWRKD+1)
+               IRNG2 = IRNGT (IWRKD+2)
+               IRNGT (IWRKD+1) = IRNGT (IWRKD+3)
+               If (XDONT(IRNG1) <= XDONT(IRNGT(IWRKD+4))) Then
+                  IRNGT (IWRKD+2) = IRNG1
+                  If (XDONT(IRNG2) <= XDONT(IRNGT(IWRKD+4))) Then
+!   3 1 2 4
+                     IRNGT (IWRKD+3) = IRNG2
+                  Else
+!   3 1 4 2
+                     IRNGT (IWRKD+3) = IRNGT (IWRKD+4)
+                     IRNGT (IWRKD+4) = IRNG2
+                  End If
+               Else
+!   3 4 1 2
+                  IRNGT (IWRKD+2) = IRNGT (IWRKD+4)
+                  IRNGT (IWRKD+3) = IRNG1
+                  IRNGT (IWRKD+4) = IRNG2
+               End If
+            End If
+         End Do
+!
+!  The Cs become As and Bs
+!
+         LMTNA = 4
+         Exit
+      End Do
+!
+!  Iteration loop. Each time, the length of the ordered subsets
+!  is doubled.
+!
+      Do
+         If (LMTNA >= NVAL) Exit
+         IWRKF = 0
+         LMTNC = 2 * LMTNC
+!
+!   Loop on merges of A and B into C
+!
+         Do
+            IWRK = IWRKF
+            IWRKD = IWRKF + 1
+            JINDA = IWRKF + LMTNA
+            IWRKF = IWRKF + LMTNC
+            If (IWRKF >= NVAL) Then
+               If (JINDA >= NVAL) Exit
+               IWRKF = NVAL
+            End If
+            IINDA = 1
+            IINDB = JINDA + 1
+!
+!   Shortcut for the case when the max of A is smaller
+!   than the min of B. This line may be activated when the
+!   initial set is already close to sorted.
+!
+         IF (XDONT(IRNGT(JINDA)) <= XDONT(IRNGT(IINDB))) CYCLE
+!
+!  One steps in the C subset, that we build in the final rank array
+!
+!  Make a copy of the rank array for the merge iteration
+!
+            JWRKT (1:LMTNA) = IRNGT (IWRKD:JINDA)
+!
+            XVALA = XDONT (JWRKT(IINDA))
+            XVALB = XDONT (IRNGT(IINDB))
+!
+            Do
+               IWRK = IWRK + 1
+!
+!  We still have unprocessed values in both A and B
+!
+               If (XVALA > XVALB) Then
+                  IRNGT (IWRK) = IRNGT (IINDB)
+                  IINDB = IINDB + 1
+                  If (IINDB > IWRKF) Then
+!  Only A still with unprocessed values
+                     IRNGT (IWRK+1:IWRKF) = JWRKT (IINDA:LMTNA)
+                     Exit
+                  End If
+                  XVALB = XDONT (IRNGT(IINDB))
+               Else
+                  IRNGT (IWRK) = JWRKT (IINDA)
+                  IINDA = IINDA + 1
+                  If (IINDA > LMTNA) Exit! Only B still with unprocessed values
+                  XVALA = XDONT (JWRKT(IINDA))
+               End If
+!
+            End Do
+         End Do
+!
+!  The Cs become As and Bs
+!
+         LMTNA = 2 * LMTNA
+      End Do
+!
+      Return
+!
+End Subroutine mrgrnk
+
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 recursive subroutine quicksort_own_2d_swapped(length, array)
 

@@ -1,5 +1,6 @@
-import numpy as np
 import copy as cp
+
+import numpy as np
 from scipy.interpolate import interp1d
 import logging
 plotting = False
@@ -20,49 +21,136 @@ if plotting:
 #############################################################
 
 # metal species
-metals = ['C','N','O','Na','Mg','Al','Si','P','S','Cl','K','Ca','Ti','V','Fe','Ni']
+metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
 
 # solar abundances, [Fe/H] = 0, from Asplund+ 2009
-nfracs = {}
-nfracs['H'] = 0.9207539305
-nfracs['He'] = 0.0783688694
-nfracs['C'] = 0.0002478241
-nfracs['N'] = 6.22506056949881e-05
-nfracs['O'] = 0.0004509658
-nfracs['Na'] = 1.60008694353205e-06
-nfracs['Mg'] = 3.66558742055362e-05
-nfracs['Al'] = 2.595e-06
-nfracs['Si'] = 2.9795e-05
-nfracs['P'] = 2.36670201997668e-07
-nfracs['S'] = 1.2137900734604e-05
-nfracs['Cl'] = 2.91167958499589e-07
-nfracs['K'] = 9.86605611925677e-08
-nfracs['Ca'] = 2.01439011429255e-06
-nfracs['Ti'] = 8.20622804366359e-08
-nfracs['V'] = 7.83688694089992e-09
-nfracs['Fe'] = 2.91167958499589e-05
-nfracs['Ni'] = 1.52807116806281e-06
+nfracs = {
+    'H': 0.9207539305,
+    'He': 0.0783688694,
+    'C': 0.0002478241,
+    'N': 6.22506056949881e-05,
+    'O': 0.0004509658,
+    'Na': 1.60008694353205e-06,
+    'Mg': 3.66558742055362e-05,
+    'Al': 2.595e-06,
+    'Si': 2.9795e-05,
+    'P': 2.36670201997668e-07,
+    'S': 1.2137900734604e-05,
+    'Cl': 2.91167958499589e-07,
+    'K': 9.86605611925677e-08,
+    'Ca': 2.01439011429255e-06,
+    'Ti': 8.20622804366359e-08,
+    'V': 7.83688694089992e-09,
+    'Fe': 2.91167958499589e-05,
+    'Ni': 1.52807116806281e-06
+}
 
-# atomic masses
-masses = {}
-masses['H'] = 1.
-masses['He'] = 4.
-masses['C'] = 12.
-masses['N'] = 14.
-masses['O'] = 16.
-masses['Na'] = 23.
-masses['Mg'] = 24.3
-masses['Al'] = 27.
-masses['Si'] = 28.
-masses['P'] = 31.
-masses['S'] = 32.
-masses['Cl'] = 35.45
-masses['K'] = 39.1
-masses['Ca'] = 40.
-masses['Ti'] = 47.9
-masses['V'] = 51.
-masses['Fe'] = 55.8
-masses['Ni'] = 58.7
+# atomic masses  TODO use molmass instead
+masses = {
+    'H': 1.,
+    'He': 4.,
+    'C': 12.,
+    'N': 14.,
+    'O': 16.,
+    'Na': 23.,
+    'Mg': 24.3,
+    'Al': 27.,
+    'Si': 28.,
+    'P': 31.,
+    'S': 32.,
+    'Cl': 35.45,
+    'K': 39.1,
+    'Ca': 40.,
+    'Ti': 47.9,
+    'V': 51.,
+    'Fe': 55.8,
+    'Ni': 58.7
+}
+
+def setup_clouds(pressures, parameters, cloud_species):
+    """
+    This function provides the set of cloud parameters used in
+    petitRADTRANS. This will be some combination of atmospheric
+    parameters (fsed and Kzz), distribution descriptions (log normal or hansen)
+    and the cloud particle radius. Fsed and the particle radii can be provided
+    on a per-cloud basis.
+
+    Args:
+        pressures : np.ndarray
+            The pressure array used to provide the atmospheric grid
+        parameters : dict
+            The dictionary of parameters passed to the model function. Should contain:
+                 *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                  *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                  *  log_kzz : Vertical mixing parameter
+        cloud_species : list
+            A list of the names of each of the cloud species used in the atmosphere.
+
+    Returns:
+        sigma_lnorm : float, None
+            The width of a log normal particle size distribution
+        fseds : dict, None
+            The sedimentation fraction for each cloud species in the atmosphere
+        kzz : np.ndarray, None
+            The vertical mixing parameter
+        b_hans : float, None
+            The width of a hansen particle size distribution
+        radii : dict, None
+            The central radius of the particle size distribution
+        distribution : string
+            Either "lognormal" or "hansen" - tells pRT which distribution to use.
+    """
+
+
+    sigma_lnorm = None
+    radii = None
+    b_hans = None
+    distribution = "lognormal"
+    fseds = None
+    kzz = None
+
+    # Setup distribution shape
+    if "sigma_lnorm" in parameters.keys():
+        sigma_lnorm = parameters['sigma_lnorm'].value
+    elif "b_hans" in parameters.keys():
+        b_hans = parameters['b_hans'].value
+        distribution = "hansen"
+
+    # Are we retrieving the particle radii?
+    radii = {}
+    for cloud in cloud_species:
+        if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
+            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+    if not radii:
+        radii = None
+
+    # per-cloud species fseds
+    fseds = get_fseds(parameters, cloud_species)
+    if "log_kzz" in parameters.keys():
+        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
+    return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+
+def get_fseds(parameters, cloud_species):
+    """
+    This function checks to see if the fsed values are input on a per-cloud basis
+    or only as a single value, and returns the dictionary providing the fsed values
+    for each cloud, or None, if no cloud is used.
+    """
+
+    fseds = {}
+    for cloud in cloud_species:
+        cname = cloud.split('_')[0]
+        if 'fsed_'+cname in parameters.keys():
+            fseds[cloud] = parameters['fsed_'+cname].value
+        elif 'fsed' in parameters.keys():
+                fseds[cloud] = parameters['fsed'].value
+    if not fseds:
+        fseds = None
+    return fseds
 
 def setup_clouds(pressures, parameters, cloud_species):
     """
