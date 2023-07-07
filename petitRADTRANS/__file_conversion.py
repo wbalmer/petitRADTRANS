@@ -12,7 +12,6 @@ import numpy as np
 import datetime
 import warnings
 from petitRADTRANS.retrieval.util import getMM
-import molmass
 import petitRADTRANS
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.config import petitradtrans_config
@@ -20,14 +19,14 @@ from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.radtrans import Radtrans
 
 
-def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
-                                    rewrite=False, output_directory=None):
+def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+                                  rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
     # Initialize infos
     kurucz_website = 'http://kurucz.harvard.edu/'
     molliere2019_doi = '10.1051/0004-6361/201935470'
-    hitran_doi = '10.1016/j.jqsrt.2013.07.002'
-    hitemp_doi = '10.1016/j.jqsrt.2010.05.001'
+    # hitran_doi = '10.1016/j.jqsrt.2013.07.002'
+    # hitemp_doi = '10.1016/j.jqsrt.2010.05.001'
 
     molaverdikhani_email = 'karan.molaverdikhani@colorado.edu'
 
@@ -42,6 +41,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'Ca+': kurucz_website,
         'CaH': 'unknown',  # TODO not in the docs
         'CH4_212': molliere2019_doi,  # TODO not in the referenced paper
+        'CH4_hargreaves_main_iso': '10.3847/1538-4365/ab7a1a',
         'CH4_Hargreaves_main_iso': '10.3847/1538-4365/ab7a1a',
         'CH4_main_iso': 'unknown',  # TODO not in the docs (outdated)
         'CO2_main_iso': molliere2019_doi,
@@ -95,6 +95,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'TiO_50_Exomol_McKemmish': '10.1093/mnras/stz1818',
         'TiO_50_Plez': molliere2019_doi,
         'TiO_all_iso_Plez': molliere2019_doi,
+        'TiO_all_iso_exo': molliere2019_doi,
         'V': kurucz_website,
         'V+': kurucz_website,
         'VO': molliere2019_doi,
@@ -111,6 +112,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'Ca+': molaverdikhani_email,
         'CaH': 'None',
         'CH4_212': 'None',
+        'CH4_hargreaves_main_iso': 'None',
         'CH4_Hargreaves_main_iso': 'None',
         'CH4_main_iso': 'None',
         'CO2_main_iso': 'None',
@@ -164,6 +166,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'TiO_50_Exomol_McKemmish': 'None',
         'TiO_50_Plez': 'None',
         'TiO_all_iso_Plez': 'None',
+        'TiO_all_iso_exo': 'None',
         'V': molaverdikhani_email,
         'V+': molaverdikhani_email,
         'VO': 'None',
@@ -181,6 +184,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'Ca+': kurucz_description,
         'CaH': 'None',
         'CH4_212': 'None',
+        'CH4_hargreaves_main_iso': 'None',
         'CH4_Hargreaves_main_iso': 'None',
         'CH4_main_iso': 'None',
         'CO2_main_iso': 'None',
@@ -233,6 +237,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'TiO_50_Exomol_McKemmish': 'None',
         'TiO_50_Plez': 'None',
         'TiO_all_iso_Plez': 'None',
+        'TiO_all_iso_exo': 'None',
         'V': kurucz_description,
         'V+': kurucz_description,
         'VO': 'None',
@@ -249,6 +254,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'Ca+': getMM('Ca') - getMM('e-'),
         'CaH': getMM('CaH'),
         'CH4_212': getMM('CH3D'),
+        'CH4_hargreaves_main_iso': getMM('CH4'),
         'CH4_Hargreaves_main_iso': getMM('CH4'),
         'CH4_main_iso': getMM('CH4'),
         'CO2_main_iso': getMM('CO2'),
@@ -301,6 +307,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
         'TiO_50_Exomol_McKemmish': getMM('50Ti') + getMM('16O'),
         'TiO_50_Plez': getMM('50Ti') + getMM('16O'),
         'TiO_all_iso_Plez': getMM('TiO_all_iso'),
+        'TiO_all_iso_exo': getMM('TiO_all_iso'),
         'V': getMM('V'),
         'V+': getMM('V') - getMM('e-'),
         'VO': getMM('VO'),
@@ -325,7 +332,11 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
     line_paths = np.loadtxt(os.path.join(path_input_data, 'opa_input_files', 'opa_filenames.txt'), dtype=str)
 
     input_directory = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line')
-    output_directory = os.path.abspath(output_directory)
+
+    if output_directory is None:
+        output_directory_ref = input_directory
+    else:
+        output_directory_ref = copy.deepcopy(output_directory)
 
     for f in os.scandir(input_directory):
         if f.is_dir():
@@ -355,11 +366,10 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
                 not_in_dict = True
 
             if not_in_dict:
-                print(f" Skipping due to missing species in supplementary info dict...")
+                print(" Skipping due to missing species in supplementary info dict...")
                 continue
 
-            if output_directory is None:
-                output_directory = directory
+            output_directory = os.path.join(output_directory_ref, species)
 
             if not os.path.isdir(output_directory):
                 os.makedirs(output_directory)
@@ -417,13 +427,20 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
                     warnings.warn(f"number of opacity files founds in '{directory}' ({line_paths_.size}) "
                                   f"does not match the expected number of files ({line_paths.size})")
 
+            molparam_file = os.path.join(directory, 'molparam_id.txt')
+
+            if os.path.isfile(molparam_file):
+                print(" Loading isotopic ratio...")
+                with open(molparam_file, 'r') as f2:
+                    isotopic_ratio = float(f2.readlines()[-1])
+            else:
+                raise FileNotFoundError(f"file '{molparam_file}' not found: unable to load isotopic ratio")
+
             n_items = fi.get_file_size(os.path.join(directory, 'wlen.dat'))
             wavelengths = fi.read_all_kappa(os.path.join(directory, 'wlen.dat'), n_items)
             wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 
-            opacities = np.zeros(
-                (line_paths_.size, wavelengths.size)
-            )
+            opacities = np.zeros((line_paths_.size, wavelengths.size))
 
             for i, line_path in enumerate(line_paths_):
                 if not os.path.isfile(line_path):
@@ -433,6 +450,7 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
 
                 opacities[i] = fi.read_all_kappa(line_path, n_items)
 
+            print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))
             opacities = np.moveaxis(opacities, 0, 1)  # Exo-Mol axis order
             opacities = opacities[:, :, ::-1]  # match the wavenumber order
@@ -484,6 +502,12 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
                 dataset.attrs['long_name'] = 'Name of the species described'
 
                 dataset = fh5.create_dataset(
+                    name='isotopic_ratio',
+                    data=isotopic_ratio
+                )
+                dataset.attrs['long_name'] = 'Isotopologue occurence rate on Earth'
+
+                dataset = fh5.create_dataset(
                     name='p',
                     data=opacities_pressures_
                 )
@@ -519,10 +543,10 @@ def __line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'
                 dataset.attrs['long_name'] = 'Wavenumber range covered'
                 dataset.attrs['units'] = 'cm^-1'
 
-            print(f"Done.")
+            print("Done.")
 
 
-def __phoenix_spec_dat2h5():
+def phoenix_spec_dat2h5():
     """
     Convert a PHOENIX stellar spectrum in .dat format to HDF5 format.
     """
