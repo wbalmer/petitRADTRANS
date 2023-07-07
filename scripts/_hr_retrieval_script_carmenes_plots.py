@@ -1111,8 +1111,8 @@ def plot_corner(retrieved_parameters, sd, sm, true_values, figure_directory, ima
 
 
 def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans=None, resolving_power=None, rebin=True,
-                             planet_radius_offset_exorem=0, planet_radius_offset=0,
-                             envelope=None, colors=None, labels=None, linestyles=None,
+                             planet_radius_offsets=None, rebin_wavelengths=None, order_selection=None,
+                             envelope=None, colors=None, labels=None, linestyles=None, linewidths=None,
                              data_color='r', data_label='', data_linestyle='', data_marker='+',
                              xlim=None, legend=True,
                              save=False, figure_directory='./', figure_name='cmp', image_format='pdf',
@@ -1131,6 +1131,9 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
     update_figure_font_size(figure_font_size)
     fig, axe = plt.subplots(figsize=figsize)
 
+    if planet_radius_offsets is None:
+        planet_radius_offsets = [0.0] * (len(model_directories) + 1)
+
     if colors is None:
         colors = ['k']
 
@@ -1142,6 +1145,9 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
 
     if linestyles is None:
         linestyles = ['-'] * (len(model_directories) + 1)
+
+    if linewidths is None:
+        linewidths = [1] * (len(model_directories) + 1)
 
     if envelope is None:
         envelope = [False] * len(model_directories)
@@ -1155,10 +1161,10 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
 
     y_axis = np.asarray(exorem_dict['outputs']['spectra']['transmission']['transit_depth'])
 
-    if planet_radius_offset_exorem != 0:
+    if planet_radius_offsets[0] != 0:
         star_radius = exorem_dict['model_parameters']['light_source']['radius'][()]
         planet_radius_0 = star_radius * np.sqrt(y_axis)
-        y_axis = ((planet_radius_0 + planet_radius_offset_exorem) / star_radius) ** 2
+        y_axis = ((planet_radius_0 + planet_radius_offsets[0] * 1e-2) / star_radius) ** 2
 
     if data is not None:
         w_min = data[:, 0] * 1e-6
@@ -1168,10 +1174,10 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
         wavelengths = (w_min + w_max) / 2
         xerr = np.mean((wavelengths - w_min, w_max - wavelengths), axis=0)
 
-        axe.errorbar(wavelengths, spectrum, yerr=uncertainties, xerr=xerr,
-                     color=data_color, ls=data_linestyle, marker=data_marker, label=data_label)
+        axe.errorbar(wavelengths, spectrum, yerr=uncertainties, xerr=xerr, label=data_label,
+                     color=data_color, ls=data_linestyle, marker=data_marker)
 
-    axe.plot(x_axis, y_axis * 1e6, color=colors[0], label=labels[0], ls=linestyles[0], **kwargs)
+    axe.plot(x_axis, y_axis * 1e6, label=labels[0], color=colors[0], ls=linestyles[0], lw=linewidths[0], **kwargs)
 
     sms_best_fit = []
     wavelengths_best_fits = []
@@ -1187,7 +1193,10 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
         if resolving_power is not None:
             sm_best_fit.model_parameters['new_resolving_power'] = resolving_power
 
-        sm_best_fit.model_parameters['planet_radius'] += planet_radius_offset
+        if rebin_wavelengths is not None:
+            sm_best_fit.model_parameters['output_wavelengths'] = rebin_wavelengths
+
+        sm_best_fit.model_parameters['planet_radius'] += planet_radius_offsets[i + 1]
 
         if envelope[i]:
             sigmas = (1, 3)
@@ -1271,13 +1280,16 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
             for j, order in enumerate(s):
                 print(f"Plotting order {j}/{len(s)-1}")
                 if j == 0:
-                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, color=colors[i + 1], label=labels[i + 1], ls=linestyles[i + 1],
+                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, label=labels[i + 1],
+                             color=colors[i + 1], ls=linestyles[i + 1], lw=linewidths[i + 1],
                              **kwargs)
                 else:
-                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, color=colors[i + 1], label=None, ls=linestyles[i + 1],
+                    axe.plot(w[j] * 1e-6, (1 - s[j]) * 1e6, label=None,
+                             color=colors[i + 1], ls=linestyles[i + 1], lw=linewidths[i + 1],
                              **kwargs)
         else:
-            axe.plot(w * 1e-6, (1 - s) * 1e6, color=colors[i + 1], label=labels[i + 1], ls=linestyles[i + 1], **kwargs)
+            axe.plot(w * 1e-6, (1 - s) * 1e6, label=labels[i + 1],
+                     color=colors[i + 1], ls=linestyles[i + 1], lw=linewidths[i + 1], **kwargs)
 
     axe.ticklabel_format(useMathText=True)
 
@@ -1287,6 +1299,13 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
         axe.set_xlim(xlim)
 
     axe.set_ylim([None, None])
+
+    if order_selection is not None:
+        for i, wvl in enumerate(rebin_wavelengths):
+            if i not in order_selection:
+                axe.fill_betweenx([axe.get_ylim()[0], axe.get_ylim()[1]], wvl.min() * 1e-6, wvl.max() * 1e-6,
+                                  color='grey', alpha=0.3, zorder=1)
+
     axe.set_xlabel(x_axis_label)
     axe.set_ylabel(f'Transit depth (ppm)')
     fig.tight_layout()
@@ -4497,8 +4516,11 @@ def plot_all_figures(retrieved_parameters,
 
     colors = ['k', 'C0', 'C2', 'C0', 'C2']
     linestyles = ['-', ':', ':', '-', '-']
+    linewidths = [1.5, 3, 3, 1.5, 1.5]
     labels = [r'Exo-REM (Z = 10)', 'Polyfit (P-01)', 'SysRem (S-01)', 'Polyfit (P-18)', 'SysRem (S-13)']
     envelope = [False, False, True, True]
+    planet_radius_offsets = [2400e5, 3600e5, 3800e5, 3600e5, .3800e5]
+    rebin_wavelengths = wavelengths_instrument_0
 
     sms_best_fit, wavelengths_best_fits, spectrum_best_fits, w_er, s_er, fig, axe = plot_best_fit_comparison(
         exorem_file=model_files,
@@ -4507,17 +4529,19 @@ def plot_all_figures(retrieved_parameters,
         radtrans=radtrans,
         resolving_power=500,
         rebin=True,
-        planet_radius_offset_exorem=+2400e3,
-        planet_radius_offset=+3600e3 * 1e2,
+        planet_radius_offsets=planet_radius_offsets,
+        rebin_wavelengths=rebin_wavelengths,
+        order_selection=detector_selection,
         colors=colors,
         labels=labels,
         linestyles=linestyles,
+        linewidths=linewidths,
         envelope=envelope,
         data_color='r',
         data_linestyle='',
         data_marker='+',
         data_label='HST WFC3 data (Kilpatrick et al. 2020)',
-        xlim=[np.min(wavelengths_instrument) * 1e-6 - 0.01e-6, np.max(wavelengths_instrument) * 1e-6 + 0.11e-6],
+        xlim=[np.min(wavelengths_instrument) * 1e-6 - 0.01e-6, np.max(wavelengths_instrument) * 1e-6 + 0.01e-6],
         legend=True,
         save=True,
         figure_directory=figure_directory,
