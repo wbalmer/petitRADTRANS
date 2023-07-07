@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a61] - 2023-07-05
+## [3.0.0-a62] - 2023-07-07
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
+- Line-by-line opacities can now be read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
 - Package structure.
 - Code clean-up.

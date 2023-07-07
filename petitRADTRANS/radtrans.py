@@ -229,7 +229,7 @@ class Radtrans:
         self.anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
         # Initialize line opacities variables
-        self.has_custom_line_opacities_temperature_profile_grid = {}
+        self.has_custom_line_opacities_tp_grid = {}
         self.line_opacities_temperature_profile_grid = {}
         self.line_opacities_temperature_grid_size = {}
         self.line_opacities_pressure_grid_size = {}
@@ -591,7 +591,7 @@ class Radtrans:
                 if not b_hans.shape == (self.press.shape[0], len(self.cloud_species)):
                     raise ValueError(
                         "b_hans must be a float, a dictionary with arrays for each cloud species, "
-                        f"or a numpy array with shape {(self.press.shape[0],len(self.cloud_species))}, "
+                        f"or a numpy array with shape {(self.press.shape[0], len(self.cloud_species))}, "
                         f"but was of shape {np.shape(b_hans)}"
                     )
             elif isinstance(b_hans, dict):
@@ -1747,7 +1747,7 @@ class Radtrans:
                     self.press,
                     temp,
                     self.line_opacities_temperature_profile_grid[species],
-                    self.has_custom_line_opacities_temperature_profile_grid[species],
+                    self.has_custom_line_opacities_tp_grid[species],
                     self.line_opacities_temperature_grid_size[species],
                     self.line_opacities_pressure_grid_size[species],
                     self.line_opacities_grid[species]
@@ -1755,7 +1755,8 @@ class Radtrans:
         else:
             self.line_struc_kappas = np.zeros_like(self.line_struc_kappas)
 
-    def get_custom_pt_grid(self, path, mode, species):
+    @staticmethod
+    def get_custom_pt_grid(path, mode, species):
         """Check if custom grid exists, if yes return sorted P-T array with corresponding sorted path_input_data names,
         return None otherwise.
         This function can sort the grid appropriately if needed, but it must be specified by the user in
@@ -1782,7 +1783,7 @@ class Radtrans:
         if not os.path.isfile(path_test):
             return None
         else:
-            return self._sort_opa_pt_grid(path_test)
+            return Radtrans._sort_opa_pt_grid(path_test)
 
     def get_opa(self, temp):
         """ Method to calculate and return the line opacities (assuming an abundance
@@ -1866,6 +1867,207 @@ class Radtrans:
                 raise Exception(message) from e
         else:
             self.stellar_intensity = np.zeros_like(self.freq)
+
+    @staticmethod
+    def load_hdf5_ktables(file_path_hdf5, freq, g_len, freq_len, temperature_profile_grid_size):
+        """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
+        with h5py.File(file_path_hdf5, 'r') as f:
+            lenf = len(f['bin_centers'][:])
+            freqs_chubb = nc.c * f['bin_centers'][:][::-1]
+            lent = len(f['t'][:])
+            lenp = len(f['p'][:])
+
+            # Swap axes to correctly load Exomol tables.
+            k_table = np.array(f['kcoeff'])
+            k_table = np.swapaxes(k_table, 0, 1)
+            k_table2 = k_table.reshape((lenp * lent, lenf, 16))
+            k_table2 = np.swapaxes(k_table2, 0, 2)
+            k_table2 = k_table2[:, ::-1, :]
+
+            # Initialize an empty array that has the same spectral entries as
+            # pRT object has nominally. Only fill those values where the Exomol tables
+            # have entries.
+            ret_val = np.zeros(
+                g_len * freq_len * temperature_profile_grid_size
+            ).reshape(
+                (g_len, freq_len, 1, temperature_profile_grid_size)
+            )
+            index_fill = (freq <= freqs_chubb[0] * (1. + 1e-10)) & \
+                         (freq >= freqs_chubb[-1] * (1. - 1e-10))
+            index_use = (freqs_chubb <= freq[0] * (1. + 1e-10)) & \
+                        (freqs_chubb >= freq[-1] * (1. - 1e-10))
+            ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
+
+            ret_val[ret_val < 0.] = 0.
+
+            # Divide by mass to convert cross-sections to opacities
+            exomol_mass = float(f['mol_mass'][0])
+            line_opacities_grid = ret_val / exomol_mass / nc.amu
+
+        return line_opacities_grid
+
+    @staticmethod
+    def load_hdf5_line_opacity_table(file_path_hdf5, freq, lbl_opacity_sampling=None):
+        """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
+        with h5py.File(file_path_hdf5, 'r') as f:
+            frequency_grid = nc.c * f['wavenumbers'][:]  # cm-1 to s-1
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(frequency_grid, np.min(freq)),
+                np.less_equal(frequency_grid, np.max(freq))
+            ))[0]
+
+            if selection.size < freq.size:
+                raise ValueError(f"file selected frequencies size is "
+                                 f"{selection.size} ({frequency_grid[selection[0]]}--{frequency_grid[selection[-1]]}), "
+                                 f"but frequency grid size is {freq.size} ({np.min(freq)}--{np.max(freq)})")
+
+            selection = np.array([selection[0], selection[-1]])
+
+            line_opacities_grid = f['opacities'][:, :, selection[0]:selection[-1] + 1]
+            line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
+
+        line_opacities_grid = line_opacities_grid[:, :, ::-1]
+
+        if lbl_opacity_sampling is not None:
+            line_opacities_grid = line_opacities_grid[:, :, ::lbl_opacity_sampling]
+
+        line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
+        line_opacities_grid = line_opacities_grid.reshape(
+            (line_opacities_grid.shape[0] * line_opacities_grid.shape[1], line_opacities_grid.shape[2])
+        )  # (tp, wvl)
+        line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (wvl, tp)
+        line_opacities_grid = line_opacities_grid[np.newaxis, :, np.newaxis, :]  # (g, wvl, species, tp)
+
+        return line_opacities_grid
+
+    @staticmethod
+    def load_dat_opacities(has_custom_line_opacities_temperature_profile_grid, opacities_temperature_profile_grid,
+                           line_opacities_temperature_profile_grid, custom_line_paths, mode, path_input_data, species,
+                           lbl_opacity_sampling, freq, freq_len, g_len, arr_min):
+        """Load k-coefficient tables or opacities tables in the classic petitRADTRANS .dat format."""
+        if not has_custom_line_opacities_temperature_profile_grid:
+            len_tp = len(opacities_temperature_profile_grid[:, 0])
+        else:
+            len_tp = len(line_opacities_temperature_profile_grid[:, 0])
+
+        custom_file_names = ''
+
+        if has_custom_line_opacities_temperature_profile_grid:
+            for i_TP in range(len_tp):
+                custom_file_names = custom_file_names + custom_line_paths[i_TP] + ':'
+
+        # TODO PAUL EXO_K Project: do index_fill treatment from below!
+        # Also needs to read "custom" freq_len and freq here again!
+        # FOR ALL TABLES, HERE AND CHUBB: TEST THAT THE GRID IS INDEED THE SAME AS REQUIRED IN THE REGIONS
+        # WITH OPACITY. NEXT STEPS AFTER THIS:
+        # (i) MAKE ISOLATED EXO_K rebinning test,
+        # (ii) Do external bin down script, save as pRT method
+        # (iii) enable on the fly down-binning,
+        # (iv) look into outsourcing methods from class to separate files, this here is getting too long!
+
+        if mode == 'c-k':
+            local_freq_len, local_g_len = fi.get_freq_len(path_input_data, species)
+            local_freq_len_full = copy.copy(local_freq_len)
+
+            # Read in the frequency range of the opacity data
+            local_freq, local_border_freqs = fi.get_freq(path_input_data, species, local_freq_len)
+        else:
+            if lbl_opacity_sampling is None:
+                local_freq_len_full = freq_len
+            else:
+                local_freq_len_full = freq_len * lbl_opacity_sampling
+
+            local_g_len = g_len
+            local_freq = None
+
+        line_opacities_grid = fi.read_in_molecular_opacities(
+            path_input_data,
+            species + ':',
+            local_freq_len_full,
+            local_g_len,
+            1,
+            len_tp,
+            mode,
+            arr_min,
+            has_custom_line_opacities_temperature_profile_grid,
+            custom_file_names
+        )
+
+        if np.all(line_opacities_grid == -1):
+            raise RuntimeError("molecular opacity loading failed, check above outputs to find the cause")
+
+        if mode == 'c-k':
+            # Initialize an empty array that has the same spectral entries as
+            # pRT object has nominally. Only fill those values where the k-tables
+            # have entries.
+            ret_val = np.zeros(g_len * freq_len * len_tp).reshape((g_len, freq_len, 1, len_tp))
+
+            # Indices in retVal to be filled with read-in opacities
+            index_fill = (freq <= local_freq[0] * (1. + 1e-10)) & \
+                         (freq >= local_freq[-1] * (1. - 1e-10))
+            # Indices of read-in opacities to be filled into retVal
+            index_use = (local_freq <= freq[0] * (1. + 1e-10)) & \
+                        (local_freq >= freq[-1] * (1. - 1e-10))
+
+            ret_val[:, index_fill, 0, :] = \
+                line_opacities_grid[:, index_use, 0, :]
+            line_opacities_grid = ret_val
+
+        # Down-sample opacities in lbl mode if requested
+        if mode == 'lbl' and lbl_opacity_sampling is not None:
+            line_opacities_grid = line_opacities_grid[:, ::lbl_opacity_sampling, :]
+
+        return line_opacities_grid
+
+    @staticmethod
+    def load_line_opacities_pressure_temperature_grid(file_path_hdf5, path_input_data, mode, species,
+                                                      opacities_temperature_profile_grid,
+                                                      default_temperature_grid_size, default_pressure_grid_size):
+        """Load line opacities temperature grids."""
+        custom_line_paths = None
+
+        if file_path_hdf5 is None:
+            # Check and sort custom grid for species, if defined.
+            custom_grid_data = Radtrans.get_custom_pt_grid(
+                path_input_data,
+                mode,
+                species
+            )
+
+            # If no custom grid was specified (no PTpaths.ls found), take nominal grid
+            # This assumes that the files indeed are following the nominal grid and naming convention
+            # Otherwise, it will take the info provided in PTpaths.ls which was filled into custom_grid_data
+            if custom_grid_data is None:
+                line_opacities_temperature_profile_grid = opacities_temperature_profile_grid
+                line_opacities_temperature_grid_size = default_temperature_grid_size
+                line_opacities_pressure_grid_size = default_pressure_grid_size
+                has_custom_line_opacities_temperature_profile_grid = False
+            else:
+                line_opacities_temperature_profile_grid = custom_grid_data[0]
+                custom_line_paths = custom_grid_data[1]
+                line_opacities_temperature_grid_size = custom_grid_data[2]
+                line_opacities_pressure_grid_size = custom_grid_data[3]
+                has_custom_line_opacities_temperature_profile_grid = True
+        else:
+            with h5py.File(file_path_hdf5, 'r') as f:
+                pressure_grid = f['p'][:]
+                temperature_grid = f['t'][:]
+
+            ret_val = np.zeros((temperature_grid.size * pressure_grid.size, 2))
+
+            for i_t in range(temperature_grid.size):
+                for i_p in range(pressure_grid.size):
+                    ret_val[i_t * pressure_grid.size + i_p, 1] = pressure_grid[i_p] * 1e6  # bar to cgs
+                    ret_val[i_t * pressure_grid.size + i_p, 0] = temperature_grid[i_t]
+
+            line_opacities_temperature_profile_grid = ret_val
+            line_opacities_temperature_grid_size = temperature_grid.size
+            line_opacities_pressure_grid_size = pressure_grid.size
+            has_custom_line_opacities_temperature_profile_grid = True
+
+        return line_opacities_temperature_profile_grid, custom_line_paths, line_opacities_temperature_grid_size, \
+            line_opacities_pressure_grid_size, has_custom_line_opacities_temperature_profile_grid
 
     def mix_opa_tot(self, abundances, mmw, gravity,
                     sigma_lnorm=None, fsed=None, kzz=None,
@@ -2237,6 +2439,7 @@ class Radtrans:
         Returns:
 
         """
+        # TODO currently all the pressure-temperature grid is loaded it could be more memory efficient to provide a T an p range at init and only load the relevant parts of the grid # noqa: E501
         # Get the default pressure-temperature grid
         opacities_temperature_profile_grid = np.genfromtxt(
             os.path.join(path_input_data, 'opa_input_files', 'opa_PT_grid.dat')
@@ -2251,198 +2454,86 @@ class Radtrans:
         # Read opacities grid
         if len(self.line_species) > 0:
             for species in self.line_species:
-                is_exomol_hdf5_file = False  # Exomol k-table made by Katy Chubb
+                file_path_hdf5 = None
 
                 if self.mode == 'c-k':
                     path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
+                    file_path_hdf5 = glob.glob(path_opacities + '/*.h5')
 
-                    if glob.glob(path_opacities + '/*.h5'):
-                        is_exomol_hdf5_file = True
-
-                if not is_exomol_hdf5_file:
-                    # Check and sort custom grid for species, if defined.
-                    custom_grid_data = self.get_custom_pt_grid(
-                        path_input_data,
-                        self.mode,
-                        species
-                    )
-
-                    # If no custom grid was specified (no PTpaths.ls found), take nominal grid
-                    # This assumes that the files indeed are following the nominal grid and naming convention
-                    # Otherwise, it will take the info provided in PTpaths.ls which was filled into custom_grid_data
-                    if custom_grid_data is None:
-                        custom_line_paths[species] = None
-
-                        self.line_opacities_temperature_profile_grid[species] = opacities_temperature_profile_grid
-                        self.line_opacities_temperature_grid_size[species] = default_temperature_grid_size
-                        self.line_opacities_pressure_grid_size[species] = default_pressure_grid_size
-                        self.has_custom_line_opacities_temperature_profile_grid[species] = False
+                    if len(file_path_hdf5) == 0:
+                        file_path_hdf5 = None
                     else:
-                        self.line_opacities_temperature_profile_grid[species] = custom_grid_data[0]
-                        custom_line_paths[species] = custom_grid_data[1]
-                        self.line_opacities_temperature_grid_size[species] = custom_grid_data[2]
-                        self.line_opacities_pressure_grid_size[species] = custom_grid_data[3]
-                        self.has_custom_line_opacities_temperature_profile_grid[species] = True
+                        file_path_hdf5 = file_path_hdf5[0]
+                elif self.mode == 'lbl':
+                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line', species)
+                    file_path_hdf5 = os.path.join(path_opacities, species + '.otable.petitRADTRANS.h5')
+
+                if file_path_hdf5 is not None:
+                    if not os.path.isfile(file_path_hdf5):
+                        print(f"HDF5 opacity file '{file_path_hdf5}' not found, "
+                              f"loading from .dat...")
+                        file_path_hdf5 = None
                 else:
-                    # Read custom grid from the Exomol hdf5 file
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
-                    file_path_hdf5 = glob.glob(path_opacities + '/*.h5')[0]
+                    print("HDF5 opacity file not found, loading from .dat...")
 
-                    with h5py.File(file_path_hdf5, 'r') as f:
-                        lent = len(f['t'][:])
-                        lenp = len(f['p'][:])
-                        ret_val = np.zeros((lent * lenp, 2))
+                self.line_opacities_temperature_profile_grid[species], \
+                    custom_line_paths[species], \
+                    self.line_opacities_temperature_grid_size[species], \
+                    self.line_opacities_pressure_grid_size[species], \
+                    self.has_custom_line_opacities_tp_grid[species] \
+                    = self.load_line_opacities_pressure_temperature_grid(
+                    file_path_hdf5=file_path_hdf5,
+                    path_input_data=path_input_data,
+                    mode=self.mode,
+                    species=species,
+                    opacities_temperature_profile_grid=opacities_temperature_profile_grid,
+                    default_temperature_grid_size=default_temperature_grid_size,
+                    default_pressure_grid_size=default_pressure_grid_size
+                )
 
-                        for i_t in range(lent):
-                            for i_p in range(lenp):
-                                ret_val[i_t * lenp + i_p, 1] = f['p'][i_p] * 1e6  # bar to cgs
-                                ret_val[i_t * lenp + i_p, 0] = f['t'][i_t]
-
-                        self.line_opacities_temperature_profile_grid[species] = ret_val
-                        self.line_opacities_temperature_grid_size[species] = lent
-                        self.line_opacities_pressure_grid_size[species] = lenp
-                        self.has_custom_line_opacities_temperature_profile_grid[species] = True
-
-        # Read the opacities
-        if len(self.line_species) > 0:
-            for species in self.line_species:
-                # Check if it is an Exomol hdf5 file that needs to be read
-                is_exomol_hdf5_file = False
-
-                if self.mode == 'c-k':
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
-
-                    if glob.glob(path_opacities + '/*.h5'):
-                        is_exomol_hdf5_file = True
-
-                if not is_exomol_hdf5_file:
-                    if not self.has_custom_line_opacities_temperature_profile_grid[species]:
-                        len_tp = len(opacities_temperature_profile_grid[:, 0])
-                    else:
-                        len_tp = len(self.line_opacities_temperature_profile_grid[species][:, 0])
-
-                    custom_file_names = ''
-
-                    if self.has_custom_line_opacities_temperature_profile_grid[species]:
-                        for i_TP in range(len_tp):
-                            custom_file_names = custom_file_names + custom_line_paths[species][i_TP] + ':'
-
-                    # TODO PAUL EXO_K Project: do index_fill treatment from below!
-                    # Also needs to read "custom" freq_len and freq here again!
-                    # FOR ALL TABLES, HERE AND CHUBB: TEST THAT THE GRID IS INDEED THE SAME AS REQUIRED IN THE REGIONS
-                    # WITH OPACITY. NEXT STEPS AFTER THIS:
-                    # (i) MAKE ISOLATED EXO_K rebinning test,
-                    # (ii) Do external bin down script, save as pRT method
-                    # (iii) enable on the fly down-binning,
-                    # (iv) look into outsourcing methods from class to separate files, this here is getting too long!
-
-                    if self.mode == 'c-k':
-                        local_freq_len, local_g_len = fi.get_freq_len(path_input_data, species)
-                        local_freq_len_full = copy.copy(local_freq_len)
-                        # Read in the frequency range of the opcity data
-                        local_freq, local_border_freqs = fi.get_freq(
-                            path_input_data, species, local_freq_len
-                        )
-                    else:
-                        if self.lbl_opacity_sampling is None:
-                            local_freq_len_full = self.freq_len
-                        else:
-                            local_freq_len_full = self.freq_len * self.lbl_opacity_sampling
-
-                        local_g_len = self.g_len
-                        local_freq = None
-
-                    self.line_opacities_grid[species] = \
-                        fi.read_in_molecular_opacities(
-                            path_input_data,
-                            species + ':',
-                            local_freq_len_full,
-                            local_g_len,
-                            1,
-                            len_tp,
-                            self.mode,
-                            arr_min,
-                            self.has_custom_line_opacities_temperature_profile_grid[species],
-                            custom_file_names
-                        )
-
-                    if np.all(self.line_opacities_grid[species] == -1):
-                        raise RuntimeError("molecular opacity loading failed, check above outputs to find the cause")
-
-                    if self.mode == 'c-k':
-                        # Initialize an empty array that has the same spectral entries as
-                        # pRT object has nominally. Only fill those values where the k-tables
-                        # have entries.
-                        ret_val = np.zeros(self.g_len * self.freq_len * len_tp).reshape(
-                            (self.g_len, self.freq_len, 1, len_tp)
-                        )
-
-                        # Indices in retVal to be filled with read-in opacities
-                        index_fill = (self.freq <= local_freq[0] * (1. + 1e-10)) & \
-                                     (self.freq >= local_freq[-1] * (1. - 1e-10))
-                        # Indices of read-in opacities to be filled into retVal
-                        index_use = (local_freq <= self.freq[0] * (1. + 1e-10)) & \
-                                    (local_freq >= self.freq[-1] * (1. - 1e-10))
-
-                        ret_val[:, index_fill, 0, :] = \
-                            self.line_opacities_grid[species][:, index_use, 0, :]
-                        self.line_opacities_grid[species] = ret_val
-
-                    # Down-sample opacities in lbl mode if requested
-                    if self.mode == 'lbl' and self.lbl_opacity_sampling is not None:
-                        self.line_opacities_grid[species] = \
-                            self.line_opacities_grid[
-                                species][:, ::self.lbl_opacity_sampling, :]
+                # Read the opacities
+                if file_path_hdf5 is None:
+                    self.line_opacities_grid[species] = self.load_dat_opacities(
+                        has_custom_line_opacities_temperature_profile_grid=self.has_custom_line_opacities_tp_grid[
+                            species
+                        ],
+                        opacities_temperature_profile_grid=opacities_temperature_profile_grid,
+                        line_opacities_temperature_profile_grid=self.line_opacities_temperature_profile_grid[
+                            species
+                        ].shape[0],
+                        custom_line_paths=custom_line_paths[species],
+                        mode=self.mode,
+                        path_input_data=self.path_input_data,
+                        species=species,
+                        lbl_opacity_sampling=self.lbl_opacity_sampling,
+                        freq=self.freq,
+                        freq_len=self.freq_len,
+                        g_len=self.g_len,
+                        arr_min=arr_min
+                    )
                 else:
                     print(f" Reading line opacities of species '{species}'...")
 
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
-                    file_path_hdf5 = glob.glob(path_opacities + '/*.h5')[0]
-
-                    with h5py.File(file_path_hdf5, 'r') as f:
-                        lenf = len(f['bin_centers'][:])
-                        freqs_chubb = nc.c * f['bin_centers'][:][::-1]
-                        lent = len(f['t'][:])
-                        lenp = len(f['p'][:])
-
-                        # Swap axes to correctly load Exomol tables.
-                        k_table = np.array(f['kcoeff'])
-                        k_table = np.swapaxes(k_table, 0, 1)
-                        k_table2 = k_table.reshape((lenp * lent, lenf, 16))
-                        k_table2 = np.swapaxes(k_table2, 0, 2)
-                        k_table2 = k_table2[:, ::-1, :]
-
-                        # Initialize an empty array that has the same spectral entries as
-                        # pRT object has nominally. Only fill those values where the Exomol tables
-                        # have entries.
-                        ret_val = np.zeros(
-                            self.g_len * self.freq_len * len(self.line_opacities_temperature_profile_grid[species])
-                        ).reshape(
-                            (self.g_len, self.freq_len, 1, len(self.line_opacities_temperature_profile_grid[species]))
+                    if self.mode == 'c-k':
+                        self.line_opacities_grid[species] = self.load_hdf5_ktables(
+                            file_path_hdf5=file_path_hdf5,
+                            freq=self.freq,
+                            g_len=self.g_len,
+                            freq_len=self.freq_len,
+                            temperature_profile_grid_size=self.line_opacities_temperature_profile_grid[species].shape[0]
                         )
-                        index_fill = (self.freq <= freqs_chubb[0] * (1. + 1e-10)) & \
-                                     (self.freq >= freqs_chubb[-1] * (1. - 1e-10))
-                        index_use = (freqs_chubb <= self.freq[0] * (1. + 1e-10)) & \
-                                    (freqs_chubb >= self.freq[-1] * (1. - 1e-10))
-                        ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
-
-                        ret_val[ret_val < 0.] = 0.
-
-                        # Divide by mass to convert cross-sections to opacities
-                        exomol_mass = float(f['mol_mass'][0])
-                        self.line_opacities_grid[species] = ret_val / exomol_mass / nc.amu
-                        print('Done.')
-
-                # Cut the wavelength range of the just-read species to the wavelength range requested by the user
-                if self.mode == 'c-k':
-                    self.line_opacities_grid[species] = \
-                        np.array(
-                            self.line_opacities_grid[species][:, :, 0, :],
-                            dtype='d', order='F'
+                    elif self.mode == 'lbl':
+                        self.line_opacities_grid[species] = self.load_hdf5_line_opacity_table(
+                            file_path_hdf5=file_path_hdf5,
+                            freq=self.freq,
+                            lbl_opacity_sampling=self.lbl_opacity_sampling
                         )
-                else:
-                    self.line_opacities_grid[species] = \
-                        np.array(self.line_opacities_grid[species][:, :, 0, :], dtype='d', order='F')
+
+                    print(" Done.")
+
+                # Convert into F-ordered array for more efficient processing in the Fortran modules
+                self.line_opacities_grid[species] = \
+                    np.array(self.line_opacities_grid[species][:, :, 0, :], dtype='d', order='F')
 
             print('\n')
 
@@ -2476,16 +2567,16 @@ class Radtrans:
             tot_str_modes = tot_str_modes + cloud_species_mode + ':'
 
         n_cloud_wavelength_bins = int(len(np.genfromtxt(
-            os.path.join(path_input_data, 'opacities', 'continuum', 'clouds',
-                         'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat')
+            os.path.join(
+                path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+            )
         )[:, 0]))
 
         # Actual reading of opacities
         rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
             cloud_aniso, cloud_lambdas, cloud_rad_bins, cloud_radii \
             = fi.read_in_cloud_opacities(
-                path_input_data, tot_str_names, tot_str_modes,
-                len(self.cloud_species), n_cloud_wavelength_bins
+                path_input_data, tot_str_names, tot_str_modes, len(self.cloud_species), n_cloud_wavelength_bins
             )
 
         cloud_specs_abs_opa[cloud_specs_abs_opa < 0.] = 0.
@@ -2597,13 +2688,13 @@ def __sigma_hm_ff(lambda_angstroem, temp, p_e):
         theta = 5040. / temp
 
         f0 = -2.2763 - 1.6850 * np.log10(lamb_use) \
-            + 0.76661*np.log10(lamb_use)**2. \
-            - 0.053346*np.log10(lamb_use)**3.
+            + 0.76661 * np.log10(lamb_use) ** 2. \
+            - 0.053346 * np.log10(lamb_use) ** 3.
         f1 = 15.2827 - 9.2846 * np.log10(lamb_use) \
-            + 1.99381*np.log10(lamb_use)**2. \
-            - 0.142631*np.log10(lamb_use)**3.
-        f2 = -197.789 + 190.266 * np.log10(lamb_use) - 67.9775*np.log10(lamb_use)**2. \
-            + 10.6913*np.log10(lamb_use)**3. - 0.625151*np.log10(lamb_use)**4.
+            + 1.99381 * np.log10(lamb_use) ** 2. \
+            - 0.142631 * np.log10(lamb_use) ** 3.
+        f2 = -197.789 + 190.266 * np.log10(lamb_use) - 67.9775 * np.log10(lamb_use) ** 2. \
+            + 10.6913 * np.log10(lamb_use) ** 3. - 0.625151 * np.log10(lamb_use) ** 4.
 
         ret_val = np.zeros_like(lambda_angstroem)
         ret_val[index] = 1e-26 * p_e * 1e1 ** (
@@ -2681,8 +2772,7 @@ def hminus_opacity(lambda_angstroem, border_lambda_angstroem,
         kappa_hminus_ff = __sigma_hm_ff(lambda_angstroem, temp[i_struct],
                                         p_e[i_struct]) / nc.amu * abundances['H'][i_struct]
 
-        ret_val[:, i_struct] = kappa_hminus_bf * abundances['H-'][i_struct] \
-            + kappa_hminus_ff
+        ret_val[:, i_struct] = kappa_hminus_bf * abundances['H-'][i_struct] + kappa_hminus_ff
 
     return ret_val
 
@@ -2718,9 +2808,9 @@ def py_calc_cloud_opas(
 
     diff = np.log(cloud_radii[:, None, None]) - np.log(r_g)
     dndr = (  # (P, M, N)
-        n
-        / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
-        * np.exp(-diff ** 2 / (2.0 * np.log(sigma_n) ** 2))
+            n
+            / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
+            * np.exp(-diff ** 2 / (2.0 * np.log(sigma_n) ** 2))
     )
 
     integrand_scale = (  # (P, M, N)
