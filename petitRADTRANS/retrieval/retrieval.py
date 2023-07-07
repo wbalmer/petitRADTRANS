@@ -729,6 +729,20 @@ class Retrieval:
                                     )
                         else:
                             raise ValueError(f"observations have {np.ndim(dd.flux)} dimensions, but must have 1 to 3")
+                        
+                    # Save sampled outputs if necessary.
+                    if self.run_mode == 'evaluate':
+                        if self.evaluate_sample_spectra:
+                            self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
+                        else:
+                            np.savetxt(
+                                self.output_dir + 'evaluate_' + self.retrieval_name
+                                + '/model_spec_best_fit_'
+                                + name.replace('/', '_').replace('.', '_') + '.dat',
+                                np.column_stack((wlen_model, spectrum_model))
+                            )
+
+                            self.best_fit_specs[name] = [wlen_model, spectrum_model]
                 else:
                     # Get the PT profile
                     if name == self.rd.plot_kwargs['take_PTs_from']:
@@ -738,23 +752,11 @@ class Retrieval:
                                                          self.PT_plot_mode,
                                                          AMR=self.rd.AMR)
                         return pressures, temperatures
-                    else:
-                        raise ValueError(f"in PT plot mode data name '{name}' "
-                                         f"must be equal to '{self.rd.plot_kwargs['take_PTs_from']}'")
+                    #else:
+                    #    Delete this error, otherwise it will be raised every time when looping over the data.
+                    #    raise ValueError(f"in PT plot mode data name '{name}' "
+                    #                     f"must be equal to '{self.rd.plot_kwargs['take_PTs_from']}'")
 
-                # Save sampled outputs if necessary.
-                if self.run_mode == 'evaluate':
-                    if self.evaluate_sample_spectra:
-                        self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
-                    else:
-                        np.savetxt(
-                            self.output_dir + 'evaluate_' + self.retrieval_name
-                            + '/model_spec_best_fit_'
-                            + name.replace('/', '_').replace('.', '_') + '.dat',
-                            np.column_stack((wlen_model, spectrum_model))
-                        )
-
-                        self.best_fit_specs[name] = [wlen_model, spectrum_model]
             else:
                 # TODO what exactly is going on here? Why the double loop on the same items?
                 # Definition here to avoid possible reference before assignment
@@ -990,7 +992,7 @@ class Retrieval:
 
 
     def get_best_fit_model(self, best_fit_params, parameters_read, ret_name=None, contribution=False,
-                           pRT_reference=None, refresh=True, mode = 'best_fit'):
+                           pRT_reference=None, refresh=True, mode = 'bestfit'):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
         range of the retrieval, to be used in plots.
@@ -1170,10 +1172,20 @@ class Retrieval:
             samples : numpy.ndarray
                 An array of samples and likelihoods taken from a post_equal_weights file
         """
-        _, best_fit_index = self.get_best_fit_likelihood(samples)
-        logL =  self.get_chi2(samples[best_fit_index])
-        print(f"Best fit 𝛘^2 = {2*logL:.2f}")
-        return 2*logL
+        log_l, best_fit_index = self.get_best_fit_likelihood(samples)
+        norm = 0.0
+
+        for name, dd in self.data.items():
+            if dd.covariance is not None:
+                add = 0.5 * dd.log_covariance_determinant
+            else:
+                add = 0.5 * np.sum(np.log(2 * np.pi * dd.flux_error ** 2.))
+
+            norm += add
+
+        print(f"Best fit 𝛘^2 = {-log_l - norm:.2f}")
+        return (-log_l - norm) * 2
+
 
     def get_chi2(self,sample):
         """
@@ -1571,9 +1583,10 @@ class Retrieval:
             if not dd.photometry:
                 # Sometimes this fails, I'm not super sure why. # TODO find why and fix
                 resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
-                ratio = resolution_data / self.rd.plot_kwargs["resolution"]
-
-                if int(ratio) > 1:
+                ratio = 1.0
+                if self.rd.plot_kwargs["resolution"] is not None:
+                    ratio = resolution_data / self.rd.plot_kwargs["resolution"]
+                if int(ratio) > 1.0:
                     flux, edges, _ = binned_statistic(dd.wlen, dd.flux, 'mean', dd.wlen.shape[0] / ratio)
                     error, _, _ = binned_statistic(dd.wlen, dd.flux_error,
                                                     'mean', dd.wlen.shape[0] / ratio) / np.sqrt(ratio)
@@ -1586,12 +1599,24 @@ class Retrieval:
                 self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
                 self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
                 # Then get the full wavelength range
-                bf_wlen, bf_spectrum = self.get_best_fit_model(parameters_read, mode = mode)
+                bf_wlen, bf_spectrum = self.get_best_fit_model(
+                    samples_use[best_fit_index, :-1],  # set of parameters with the lowest log-likelihood (best-fit)
+                    parameters_read,  # name of the parameters
+                    model_generating_func,
+                    pRT_reference=pRT_reference,
+                    refresh=refresh
+                )
             elif mode.lower() == "median":
                 med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
                 self.log_likelihood(med_par_array, 0, 0)
-                bf_wlen, bf_spectrum = self.get_best_fit_model(parameters_read, mode = mode)
-
+                bf_wlen, bf_spectrum = self.get_best_fit_model(
+                    med_par_array[:,-1],  # set of parameters with the lowest log-likelihood (best-fit)
+                    parameters_read,  # name of the parameters
+                    model_generating_func,
+                    pRT_reference=pRT_reference,
+                    refresh=refresh,
+                    mode = 'mode'
+                )
             # Iterate through each dataset, plotting the data and the residuals.
             for name,dd in self.data.items():
                 # If the user has specified a resolution, rebin to that
@@ -1620,15 +1645,8 @@ class Retrieval:
                 else:
                     wlen = np.mean(dd.width_photometry)
                     flux = dd.flux
-                # Setup bins to rebin the best fit model to find the residuals
-                wlen_bins = np.zeros_like(wlen)
-                wlen_bins[:-1] = np.diff(wlen)
-                wlen_bins[-1] = wlen_bins[-2]
-            else:
-                wlen = np.mean(dd.width_photometry)
-                flux = dd.flux
-                error = dd.flux_error
-                wlen_bins = dd.wlen_bins
+                    error = dd.flux_error
+                    wlen_bins = dd.wlen_bins
 
             # If the data has an arbitrary retrieved scaling factor
             scale = dd.scale_factor
@@ -1707,7 +1725,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label=rf'Best Fit Model, $\chi^2=${self.get_reduced_chi2(samples_use):.2f}',
+                label=rf'Best Fit Model, $\chi^2=${self.get_best_fit_chi2(samples_use):.2f}',
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -1923,7 +1941,7 @@ class Retrieval:
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                 marker=None,
-                label=rf"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use):.2f}",
+                label=rf"Best fit, $\chi^{2}=${self.get_best_fit_chi2(samples_use):.2f}",
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -2051,18 +2069,18 @@ class Retrieval:
                 # Get best-fit index
                 logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
                 self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
+                sample_use = samples_use[best_fit_index,:-1]
             elif mode.lower() == "median":
-                med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
+                med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
 
-            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model( parameters_read,
-                                                                        contribution = True,
-                                                                        save = True,
-                                                                        mode = mode)
-            if bf_contribution.shape[0] != pressures.shape[0]:
-                bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(parameters_read,
-                                                                            contribution = True,
-                                                                            save = False,
-                                                                            mode = mode)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
+                sample_use,
+                parameters_read,
+                pRT_reference=pRT_reference,
+                refresh=refresh,
+                contribution = True,
+                mode = mode
+            )
             nu = nc.c/bf_wlen
 
             mean_diff_nu = -np.diff(nu)
@@ -2073,7 +2091,7 @@ class Retrieval:
 
             if self.plotting:
                 plt.clf()
-                plt.plot(wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
+                plt.plot(bf_wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
                 plt.show()
                 print(np.shape(bf_contribution))
 
@@ -2111,7 +2129,7 @@ class Retrieval:
             for i_p in range(len(yborders) - 1):
                 mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.
                 # print(1.-contr_em_weigh_intp(mean_press))
-                ax.fill_between(self.rd.plot_kwargs["temp_limits"],
+                ax.fill_between(tlims,
                                 yborders[i_p + 1],
                                 yborders[i_p],
                                 color='white',
@@ -2121,8 +2139,8 @@ class Retrieval:
                                 zorder=4)
 
             ax.plot(contr_em_weigh * (
-                    self.rd.plot_kwargs["temp_limits"][1] - self.rd.plot_kwargs["temp_limits"][0])
-                    + self.rd.plot_kwargs["temp_limits"][0],
+                    tlims[1] - tlims[0])
+                    + tlims[0],
                     pressures, '--',
                     color='black',
                     linewidth=1.,
@@ -2137,28 +2155,22 @@ class Retrieval:
             ax.set_ylim([pressures[-1]*1.03, pressures[0]/1.03])
 
         # If we want to overplot an input PT profile
-        if true_press is not None:
+        """if true_press is not None:
             ax.plot(true_temps,
                     true_press,
                     color = 'k',
                     linewidth = 4,
                     linestyle = '--',
                     label = "Ground Truth",
-                    zorder = 20)
+                    zorder = 20)"""
 
         # Labelling and output
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
-        ax.set_axisbelow(False)
-        ax.tick_params(zorder =10)
-
-        ax.legend(loc='best',fontsize = 18)
-        plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_PT_envelopes.pdf',
-                    bbox_inches = 'tight')
-        # Reset all of the arrays to how they were.
-        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e-6)
-        self.rd.AMR = amr
-        self.rd.p_global = p_global_keel
+        ax.legend(loc='best')
+        plt.tight_layout()
+        plt.savefig(
+            self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_PT_envelopes.pdf')
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, **kwargs):
@@ -2325,23 +2337,19 @@ class Retrieval:
             # Get best-fit index
             logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
             self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
+            sample_use = samples_use[best_fit_index,:-1]
         elif mode.lower() == "median":
-            med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
+            med_params,sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
 
-        bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model( parameters_read,
+        bf_wlen, bf_spectrum, bf_contribution= self.get_best_fit_model(
+                                                                    sample_use,
+                                                                    parameters_read,
+                                                                    refresh=refresh,
                                                                     contribution = True,
-                                                                    save = True,
-                                                                    mode = mode)
-        if bf_contribution.shape[0] != pressures.shape[0]:
-            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(parameters_read,
-                                                                        contribution = True,
-                                                                        save = False,
-                                                                        mode = mode)
+                                                                    mode = mode
+                                                                    )
         index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
         bf_contribution[index] = 1e-16
-        bf_contribution = np.ma.masked_where(bf_contribution <= 2e-16, bf_contribution)
-
-
 
         pressure_weights = np.diff(np.log10(pressures))
         weights = np.ones_like(pressures)
@@ -2378,13 +2386,19 @@ class Retrieval:
 
         return bf_contribution
 
-    def plot_abundances(self, samples_use, parameters_read, species_to_plot=None, contribution=False, refresh=True, volume_mixing_ratio = False):
+    def plot_abundances(self, 
+                        samples_use, 
+                        parameters_read, 
+                        species_to_plot=None, 
+                        contribution=False, 
+                        refresh=True, 
+                        mode = 'bestfit', 
+                        sample_posteriors = False, 
+                        volume_mixing_ratio = False):
         print("\nPlotting Abundances profiles")
         if self.prt_plot_style:
             import petitRADTRANS.retrieval.plot_style as ps
         # Get best-fit index
-        logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
-
         amr = self.rd.AMR
         self.rd.AMR = False
         # Get pressure array
@@ -2404,7 +2418,7 @@ class Retrieval:
                 self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
                 sample_use = samples_use[best_fit_index, :-1]
         elif mode.lower() == "median":
-                med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
+                med_params, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
         pressures, t = self.log_likelihood(sample_use, 0, 0)
         self.PT_plot_mode = False
 
@@ -2419,7 +2433,7 @@ class Retrieval:
         colors = prop_cycle.by_key()['color']
 
         # Figure
-        fig,ax = plt.subplots(figsize = figsize)
+        fig,ax = plt.subplots(figsize=(12, 7))
 
         # Check to see if we're plotting contour regions
         if sample_posteriors:
@@ -2481,15 +2495,12 @@ class Retrieval:
 
         # Check to see if we're weighting by the emission contribution.
         if contribution:
-            bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model( parameters_read,
-                                                                        contribution = True,
-                                                                        save = True,
-                                                                        mode = mode)
-            if bf_contribution.shape[0] != pressures.shape[0]:
-                bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(parameters_read,
-                                                                            contribution = True,
-                                                                            save = False,
-                                                                            mode = mode)
+            bf_wlen, bf_spectrum,bf_contribution = self.get_best_fit_model(
+                                            sample_use[:-1],
+                                            parameters_read,
+                                            refresh=refresh,
+                                            contribution = True
+                                            )
             nu = nc.c/bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
@@ -2499,7 +2510,7 @@ class Retrieval:
 
             if self.plotting:
                 plt.clf()
-                plt.plot(wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
+                plt.plot(bf_wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
                 plt.show()
                 print(np.shape(bf_contribution))
 
@@ -2574,7 +2585,7 @@ class Retrieval:
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =18)
         plt.tight_layout()
         if not sample_posteriors:
-            plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_best_fit_abundance_profiles.pdf',
+            plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_' + mode + '_abundance_profiles.pdf',
                         bbox_inches = 'tight')
         else:
             plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_sampled_abundance_profiles.pdf',
