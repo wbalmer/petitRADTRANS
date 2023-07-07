@@ -472,7 +472,7 @@ class Retrieval:
                     parameters_read = self.param_dict[self.retrieval_name]
                     # Get best-fit index
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    self.get_best_fit_params(samples_use[best_fit_index, :-1], parameters_read)
+                    self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
 
                 summary.write(f"    𝛘^2 = {self.chi2}\n")
 
@@ -1025,7 +1025,7 @@ class Retrieval:
             ret_name = self.retrieval_name
         # Check if the files already exist so that we don't have to recalculate
         if self.retrieval_name not in self.best_fit_specs.keys():
-            self.get_best_fit_params(best_fit_params, parameters_read)
+            self.get_max_likelihood_params(best_fit_params, parameters_read)
 
         if self.rd.AMR:
             _ = self.rd._setup_pres()  # TODO this function should not be private
@@ -1433,7 +1433,7 @@ class Retrieval:
         return tdict
 
     # Plotting functions
-    def plot_all(self, output_dir=None, ret_names=None, contribution=False):
+    def plot_all(self, output_dir=None, ret_names=None, contribution=False, mode = 'bestfit'):
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
         the best fit PT profile and a corner plot for parameters specified in the
@@ -1481,16 +1481,19 @@ class Retrieval:
                         i_p += 1
 
         # Plotting
-        self.plot_spectra(sample_dict, parameter_dict, parameters_read, mode = 'median')
+         # Plotting
+        self.plot_spectra(samples_use, parameters_read, mode = mode)
+
         if self.evaluate_sample_spectra:
-            self.plot_sampled(sample_dict,parameter_dict)
-        self.plot_PT(sample_dict,parameters_read, contribution = contribution)
-        self.plot_corner(sample_dict,parameter_dict,parameters_read)
+            self.plot_sampled(samples_use, parameters_read)
+
+        self.plot_PT(sample_dict, parameters_read, contribution=contribution, mode = mode)
+        self.plot_corner(sample_dict, parameter_dict, parameters_read)
 
         if contribution:
-            self.plot_contribution(samples_use, parameters_read)
+            self.plot_contribution(samples_use, parameters_read, mode = mode)
 
-        self.plot_abundances(samples_use, parameters_read, contribution=contribution)
+        self.plot_abundances(samples_use, parameters_read, contribution=contribution, mode = mode)
         print("Done!")
 
         return

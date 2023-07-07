@@ -481,7 +481,7 @@ class Data:
                              fmt='+')
                 plt.show()
 
-        return log_l
+        return logL
 
     def get_log_likelihood(self, spectrum_model, alpha=1.0):
         """Calculate the log-likelihood between the model and the data.
