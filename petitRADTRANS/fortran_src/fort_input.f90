@@ -218,8 +218,7 @@ module fort_input
                                adjustl(trim(path_names(i_file)))
                         end if
                     
-                        call read_kappa(arr_min, freq_len, &
-                            path_read_stream, opa_grid_kappas(1,:,i_spec,i_file))
+                        call read_kappa(arr_min, freq_len, path_read_stream, opa_grid_kappas(1,:,i_spec,i_file))
                     end if
                     
                     ! ...for every frequency point.
@@ -235,7 +234,7 @@ module fort_input
                 
                 end do
                 
-                opa_grid_kappas(:,:,i_spec,:) = opa_grid_kappas(:,:,i_spec,:)/molparam
+                opa_grid_kappas(:,:,i_spec,:) = opa_grid_kappas(:,:,i_spec,:) / molparam
             end do
             
             write(*, *) 'Done.'
@@ -856,7 +855,7 @@ module fort_input
 
         subroutine get_file_size(file_path, arr_len)
             ! """
-            ! Subroutine to read the kappa array in the high-res case.
+            ! Subroutine to get a kappa array size in the high-res case.
             ! """
             implicit none
 
@@ -874,8 +873,8 @@ module fort_input
                 read(49, iostat=io) dump
                 arr_len = arr_len + 1
 
-                if (mod(arr_len, 100000) == 0) then
-                    write(*, *) arr_len, dump, io
+                if (mod(arr_len, 500000) == 0) then
+                    write(*, *) arr_len, dump, io  ! check that we are reading the file and not stalling
                 end if
 
                 if(io < 0) then
@@ -891,7 +890,7 @@ module fort_input
 
         subroutine read_all_kappa(file_path, arr_len, kappa)
             ! """
-            ! Subroutine to read the kappa array in the high-res case.
+            ! Subroutine to read all the kappa array in the high-res case.
             ! """
             implicit none
 
@@ -906,8 +905,8 @@ module fort_input
             do i = 1, arr_len
                 read(49) kappa(i)
 
-                if (mod(i, 100000) == 0) then
-                    write(*, *) i
+                if (mod(i, 500000) == 0) then
+                    write(*, *) i  ! check that we are reading the file and not stalling
                 end if
             end do
 
