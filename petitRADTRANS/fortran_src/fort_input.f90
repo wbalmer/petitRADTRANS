@@ -795,6 +795,7 @@ module fort_input
                 write(*,*) 'ERROR! Desired wavelength range is too large,'
                 write(*,*) 'or not contained within the tabulated opacity' &
                 // ' wavelength range.'
+                write(*,*) wlen_min_read, wlen_max_read, curr_wlen
                 stop  ! TODO remove fortran stops and replace with error output
             end if
 

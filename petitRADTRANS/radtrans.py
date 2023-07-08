@@ -405,26 +405,83 @@ class Radtrans:
             arr_min = -1
         elif self.mode == 'lbl':
             # For high-res line-by-line radiative transfer
-            path_length = os.path.join(
-                self.path_input_data, 'opacities', 'lines', 'line_by_line', self.line_species[0], 'wlen.dat'
-            )
-            # Get dimensions of opacity arrays for a given P-T point
-            # arr_min, arr_max denote where in the large opacity files
-            # the required wavelength range sits.
-            freq_len, arr_min, arr_max = fi.get_arr_len_array_bords(
-                self.wlen_bords_micron[0] * 1e-4,
-                self.wlen_bords_micron[1] * 1e-4,
-                path_length
-            )
-
-            g_len = 1
+            freq_len = None
+            arr_min = None
+            path_length = None
+            load_from_dat = False
 
             # Read in the frequency range of the opacity data
-            if self.lbl_opacity_sampling is not None:
-                freq_len += self.lbl_opacity_sampling - 1  # ensure that downsampled upper bound >= requested upp. bound
+            for species in self.line_species:
+                path_length = os.path.join(
+                    self.path_input_data, 'opacities', 'lines', 'line_by_line', species, 'wlen.dat'
+                )
 
-            wlen = fi.read_wlen(arr_min, freq_len, path_length)
-            freq = nc.c / wlen
+                if os.path.isfile(path_length):
+                    # Get dimensions of opacity arrays for a given P-T point
+                    # arr_min, arr_max denote where in the large opacity files
+                    # the required wavelength range sits.
+                    print(f"Reading file '{path_length}'")
+                    freq_len, arr_min, _ = fi.get_arr_len_array_bords(
+                        self.wlen_bords_micron[0] * 1e-4,
+                        self.wlen_bords_micron[1] * 1e-4,
+                        path_length
+                    )
+
+                    load_from_dat = True
+
+                    break
+
+            if not load_from_dat:
+                path_length2 = os.path.join(
+                    self.path_input_data, 'opacities', 'lines', 'line_by_line', self.line_species[0],
+                    self.line_species[0] + '.otable.petitRADTRANS.h5'
+                )
+
+                with h5py.File(path_length2, 'r') as f:
+                    wavelength_grid = 1 / f['wavenumbers'][:]  # cm-1 to cm
+
+                wavelength_grid = wavelength_grid[::-1]
+                wavelength_min = self.wlen_bords_micron[0] * 1e-4
+                wavelength_max = self.wlen_bords_micron[1] * 1e-4
+                bad_boundaries = False
+
+                if wavelength_min < wavelength_grid[0]:
+                    bad_boundaries = True
+
+                if wavelength_max > wavelength_grid[-1]:
+                    bad_boundaries = True
+
+                if bad_boundaries:
+                    raise ValueError(f"Requested wavelength interval "
+                                     f"({self.wlen_bords_micron[0]}--{self.wlen_bords_micron[1]}) "
+                                     f"is out of opacities table wavelength grid "
+                                     f"({1e4 * wavelength_grid[0]}--{1e4 * wavelength_grid[-1]})")
+
+                selection = np.nonzero(np.logical_and(
+                    np.greater_equal(wavelength_grid, wavelength_min),
+                    np.less_equal(wavelength_grid, wavelength_max)
+                ))[0]
+                selection = np.array([selection[0], selection[-1]])
+
+                if wavelength_grid[selection[0]] > wavelength_min:
+                    selection[0] -= 1
+
+                if wavelength_grid[selection[-1]] < wavelength_max:
+                    selection[-1] += 1
+
+                if self.lbl_opacity_sampling is not None:
+                    # Ensure that downsampled upper bound >= requested upper bound
+                    selection[-1] += self.lbl_opacity_sampling - 1
+
+                freq = nc.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
+                freq_len = freq.size
+            else:
+                if self.lbl_opacity_sampling is not None:
+                    freq_len += self.lbl_opacity_sampling - 1
+
+                freq = nc.c / fi.read_wlen(arr_min, freq_len, path_length)
+
+            g_len = 1
 
             # Down-sample frequency grid in lbl mode if requested
             if self.lbl_opacity_sampling is not None:
