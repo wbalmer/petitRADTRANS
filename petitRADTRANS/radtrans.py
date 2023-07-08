@@ -60,6 +60,11 @@ class Radtrans:
             this may save time! The user should verify whether this leads to
             solutions which are identical to the rebinned results of the fiducial
             :math:`10^6` resolution. If not, this parameter must not be used.
+        use_detailed_line_absorber_names (Optional[bool]):
+            False by default. If True, the keywords of the mass fraction dictionary handed
+            to calc_flux() and calc_transm() must match the line absorber names exactly,
+            including line list and resolution flags. For example, if "H2O_Exomol_R_10" is loaded,
+            the mass fraction keyword has to be "H2O_Exomol_R_10", instead of the nominal "H2O".
     """
 
     def __init__(
@@ -80,7 +85,8 @@ class Radtrans:
             mu_star=1.,
             anisotropic_cloud_scattering='auto',
             hack_cloud_photospheric_tau=None,
-            path_input_data=petitradtrans_config['Paths']['prt_input_data_path']
+            path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+            use_detailed_line_absorber_names = False
     ):
         """
 
@@ -162,6 +168,9 @@ class Radtrans:
         self.scat = False
         self.cloud_scaling_factor = None
         self.scaling_physicality = None
+
+        # Mass fraction keywords must match line absorber names exactly?
+        self.use_detailed_line_absorber_names = use_detailed_line_absorber_names
 
         # Read in frequency grid
         # Any opacities there at all?

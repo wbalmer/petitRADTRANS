@@ -15,8 +15,6 @@
 import os
 import sys
 
-from petitRADTRANS.version import version
-
 sys.path.insert(0, os.path.abspath('../'))
 autodoc_mock_imports = ['petitRADTRANS', 'numpy', 'scipy', 'glob',
                         'os', 'sys', 'pdb', 'h5py']
@@ -28,7 +26,7 @@ copyright = u'2019-2023, Paul Molli\u00E8re'
 author = u'Paul Molli\u00E8re'
 
 # The full version, including alpha/beta/rc tags
-release = version
+release = '2.6.7'
 
 
 # -- General configuration ---------------------------------------------------
