@@ -12,12 +12,13 @@ from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 import astropy.units as u
 
 from petitRADTRANS import nat_cst as nc
+from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.utils import calculate_uncertainty
 
 
 class Planet:
     default_planet_models_directory = os.path.abspath(
-        os.path.join(os.environ.get("pRT_input_data_path"), 'planet_data')
+        os.path.join(petitradtrans_config['Paths']['prt_input_data_path'], 'planet_data')
     )
 
     def __init__(

@@ -13,7 +13,7 @@ import scipy.ndimage
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
-#from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
     radiosity_erg_hz2radiosity_erg_cm, radiosity2irradiance
 from petitRADTRANS.radtrans import Radtrans
@@ -875,7 +875,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
         # The PHOENIX data are loaded only when the module is imported
-        star_data = nc.get_PHOENIX_spec(star_effective_temperature)
+        star_data = get_PHOENIX_spec(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
         star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um

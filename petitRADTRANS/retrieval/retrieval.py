@@ -656,11 +656,11 @@ class Retrieval:
 
         for name, dd in self.data.items():
             if dd.scale:
-                try:
+                if name + "_scale_factor" in self.parameters:
                     dd.scale_factor = self.parameters[name + "_scale_factor"].value
-                except KeyError:
-                    # If multiple datasets should be scaled by the same value (need to be called "Instrument_1", "Instrument_2", etc.)
-                    name_use = name[:-2] # cut off the _1, _2, etc.
+                else:
+                    # Scale multiple datasets by the same value (need to be called "Instrument_1", "Instrument_2", etc.)
+                    name_use = name[:-2]  # cut off the _1, _2, etc.  # TODO use regex/split instead
                     dd.scale_factor = self.parameters[name_use + "_scale_factor_multiple"].value
 
         for name, dd in self.data.items():
@@ -1856,7 +1856,7 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh=True, pRT_reference = None):
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh=True, pRT_reference=None):
         """
         Plot the PT profile with error contours
 
@@ -1942,7 +1942,7 @@ class Retrieval:
                 parameters_read,
                 contribution=True,
                 refresh=refresh,
-                pRT_reference = pRT_reference
+                pRT_reference=pRT_reference
             )
             nu = nc.c / bf_wlen
             mean_diff_nu = -np.diff(nu)

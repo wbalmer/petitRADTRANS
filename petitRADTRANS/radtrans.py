@@ -86,7 +86,7 @@ class Radtrans:
             anisotropic_cloud_scattering='auto',
             hack_cloud_photospheric_tau=None,
             path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
-            use_detailed_line_absorber_names = False
+            use_detailed_line_absorber_names=True
     ):
         """
 
@@ -2111,8 +2111,16 @@ class Radtrans:
         self.mmw = mmw
         self.scat = False
 
+        # Fill line abundance dictionary with provided mass fraction dictionary "abundances"
         for i_spec in range(len(self.line_species)):
-            self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+            # Check if user provided the detailed line absorber name or
+            # if line absorber name should be matched *exactly*:
+            if (self.line_species[i_spec] in abundances) or self.use_detailed_line_absorber_names:
+                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+            # If they did not, or if self.use_detailed_line_absorber_names == False: split at "_"!
+            else:
+                # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
+                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec].split('_')[0]]
 
         self.continuum_opa = np.zeros_like(self.continuum_opa)
         self.continuum_opa_scat = np.zeros_like(self.continuum_opa_scat)
