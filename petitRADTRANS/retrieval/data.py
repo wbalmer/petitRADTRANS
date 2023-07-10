@@ -441,8 +441,11 @@ class Data:
 
         f_err = self.flux_error
         self.b_val = -np.inf
-        if "_b" in parameters.keys():
+        if "uncertainty_scaling_b" in parameters.keys():
             self.b_val = self.line_b_uncertainty_scaling(parameters)
+        elif f"{self.name}_b" in parameters.keys():
+            self.b_val = self.line_b_uncertainty_scaling(parameters)
+
         if self.scale_err:
             f_err *=self.scale_factor
         if not self.bval==-np.inf:

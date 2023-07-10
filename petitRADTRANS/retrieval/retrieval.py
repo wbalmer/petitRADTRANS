@@ -675,7 +675,7 @@ class Retrieval:
 
                     # Calculate log likelihood
                     # TODO uniformize convolve/rebin handling
-                    if dd.flux.dtype == 'O':
+                    """if dd.flux.dtype == 'O':
                         if np.ndim(dd.flux) == 1:
                             # Convolution and rebin are *not* cared of in get_log_likelihood
                             # Second dimension of data must be a function of wavelength
@@ -698,38 +698,33 @@ class Retrieval:
                         else:
                             raise ValueError(f"observation is an array containing object, "
                                              f"and have {np.ndim(dd.flux)} dimensions, "
-                                             f"but must have 1 to 2")
-                    else:
-                        if np.ndim(dd.flux) == 1:
-                            # Convolution and rebin are cared of in get_chisq
-                            log_likelihood += dd.get_chisq(
-                                wlen_model,
-                                spectrum_model, #[~dd.mask],
-                                self.plotting,
-                                self.parameters
-                            ) + additional_logl
-                        elif np.ndim(dd.flux) == 2:
-                            # Convolution and rebin are *not* cared of in get_log_likelihood
-                            # Second dimension of data must be a function of wavelength
-                            for i, data in enumerate(dd.flux):
+                                             f"but must have 1 to 2")"""
+                    log_likelihood += dd.get_chisq(
+                            wlen_model,
+                            spectrum_model, #[~dd.mask],
+                            self.plotting,
+                            self.parameters
+                        ) + additional_logl
+                    if np.ndim(dd.flux) == 2:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Second dimension of data must be a function of wavelength
+                        for i, data in enumerate(dd.flux):
+                            log_likelihood += dd.log_likelihood_gibson(
+                                spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
+                                alpha=1.0,
+                                beta=1.0
+                            )
+                    elif np.ndim(dd.flux) == 3:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Third dimension of data must be a function of wavelength
+                        for i, detector in enumerate(dd.flux):
+                            for j, data in enumerate(detector):
                                 log_likelihood += dd.log_likelihood_gibson(
-                                    spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
+                                    spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
                                     alpha=1.0,
                                     beta=1.0
                                 )
-                        elif np.ndim(dd.flux) == 3:
-                            # Convolution and rebin are *not* cared of in get_log_likelihood
-                            # Third dimension of data must be a function of wavelength
-                            for i, detector in enumerate(dd.flux):
-                                for j, data in enumerate(detector):
-                                    log_likelihood += dd.log_likelihood_gibson(
-                                        spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
-                                        alpha=1.0,
-                                        beta=1.0
-                                    )
-                        else:
-                            raise ValueError(f"observations have {np.ndim(dd.flux)} dimensions, but must have 1 to 3")
-                        
+
                     # Save sampled outputs if necessary.
                     if self.run_mode == 'evaluate':
                         if self.evaluate_sample_spectra:
@@ -1657,8 +1652,11 @@ class Retrieval:
 
             if not dd.photometry:
                 if dd.external_pRT_reference is None:
+                    spectrum_model = dd.convolve(self.best_fit_specs[name][0],
+                                                 self.best_fit_specs[name][1],
+                                                 dd.data_resolution)
                     best_fit_binned = rgw(self.best_fit_specs[name][0],
-                                          self.best_fit_specs[name][1],
+                                          spectrum_model,
                                           wlen,
                                           wlen_bins)
                 else:
