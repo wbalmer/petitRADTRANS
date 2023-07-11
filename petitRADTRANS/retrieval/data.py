@@ -447,7 +447,8 @@ class Data:
         #    self.b_val = self.line_b_uncertainty_scaling(parameters)
 
         if self.scale_err:
-            f_err *= parameters[self.name + "_scale_factor"].value
+            f_err = f_err * parameters[self.name + "_scale_factor"].value
+
         if not self.bval==-np.inf:
             f_err = np.sqrt(f_err**2 + 10**self.bval)
 
@@ -483,7 +484,10 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
-
+        if self.scale_err:
+            print(self.name, np.max(f_err), np.max(self.flux_error), parameters[self.name + "_scale_factor"].value, logL)
+        else:
+            print(self.name, np.max(f_err), np.max(self.flux_error), logL)
         return logL
 
     def get_log_likelihood(self, spectrum_model, alpha=1.0):
