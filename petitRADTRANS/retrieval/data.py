@@ -435,19 +435,19 @@ class Data:
                 flux_rebinned = flux_rebinned[0]
 
         if self.scale:
-            diff = (flux_rebinned - self.flux*self.scale_factor) + self.offset
+            diff = (flux_rebinned - self.flux*parameters[self.name + "_scale_factor"].value) + self.offset
         else:
             diff = (flux_rebinned - self.flux) + self.offset
-
+        f_err = np.zeros_like(self.flux_error)
         f_err = self.flux_error
-        self.b_val = -np.inf
-        if "uncertainty_scaling_b" in parameters.keys():
-            self.b_val = self.line_b_uncertainty_scaling(parameters)
-        elif f"{self.name}_b" in parameters.keys():
-            self.b_val = self.line_b_uncertainty_scaling(parameters)
+        #self.b_val = -np.inf
+        #if "uncertainty_scaling_b" in parameters.keys():
+        #    self.b_val = self.line_b_uncertainty_scaling(parameters)
+        #elif f"{self.name}_b" in parameters.keys():
+        #    self.b_val = self.line_b_uncertainty_scaling(parameters)
 
         if self.scale_err:
-            f_err *=self.scale_factor
+            f_err *= parameters[self.name + "_scale_factor"].value
         if not self.bval==-np.inf:
             f_err = np.sqrt(f_err**2 + 10**self.bval)
 
