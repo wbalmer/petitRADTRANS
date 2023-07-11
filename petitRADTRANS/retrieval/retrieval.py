@@ -148,8 +148,6 @@ class Retrieval:
         except ValueError as e:  # TODO check if ValueError was expected here
             print(f"Could not generate summary file! Error was: {str(e)}")
 
-        self.chi2 = None
-
     def run(self,
             sampling_efficiency=0.8,
             const_efficiency_mode=False,
@@ -471,9 +469,10 @@ class Retrieval:
                     samples_use = self.samples[self.retrieval_name]
                     parameters_read = self.param_dict[self.retrieval_name]
                     # Get best-fit index
-                    log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-
+                    logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
+                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
+                    # Get best-fit index
+                    self.get_max_likelihood_params(samples_use[best_fit_index,:-1],parameters_read)
                 summary.write(f"    𝛘^2 = {self.chi2}\n")
 
                 for key, value in self.best_fit_params.items():
@@ -1561,15 +1560,19 @@ class Retrieval:
         # Setup best fit spectrum
         # First get the fit for each dataset for the residual plots
         self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
-
+        sample_use = samples_use[best_fit_index,:-1]
         # Then get the full wavelength range
         # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
+        if mode.lower() == "median":
+             med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
+
         bf_wlen, bf_spectrum = self.get_best_fit_model(
-            samples_use[best_fit_index, :-1],  # set of parameters with the lowest log-likelihood (best-fit)
+            sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
             parameters_read,  # name of the parameters
             model_generating_func,
             pRT_reference=pRT_reference,
-            refresh=refresh
+            refresh=refresh,
+            mode = mode
         )
 
         # Iterate through each dataset, plotting the data and the residuals
@@ -1605,12 +1608,12 @@ class Retrieval:
                 med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
                 self.log_likelihood(med_par_array, 0, 0)
                 bf_wlen, bf_spectrum = self.get_best_fit_model(
-                    med_par_array[:,-1],  # set of parameters with the lowest log-likelihood (best-fit)
+                    med_par_array[:-1],  # set of parameters with the lowest log-likelihood (best-fit)
                     parameters_read,  # name of the parameters
                     model_generating_func,
                     pRT_reference=pRT_reference,
                     refresh=refresh,
-                    mode = 'mode'
+                    mode = mode
                 )
             # Iterate through each dataset, plotting the data and the residuals.
             for name,dd in self.data.items():
@@ -1652,9 +1655,11 @@ class Retrieval:
 
             if not dd.photometry:
                 if dd.external_pRT_reference is None:
-                    spectrum_model = dd.convolve(self.best_fit_specs[name][0],
-                                                 self.best_fit_specs[name][1],
-                                                 dd.data_resolution)
+                    spectrum_model = self.best_fit_specs[name][1]
+                    if dd.data_resolution is not None:
+                        spectrum_model = dd.convolve(self.best_fit_specs[name][0],
+                                                    self.best_fit_specs[name][1],
+                                                    dd.data_resolution)
                     best_fit_binned = rgw(self.best_fit_specs[name][0],
                                           spectrum_model,
                                           wlen,
@@ -2019,6 +2024,8 @@ class Retrieval:
         temps_sort = np.sort(temps, axis=0)
         fig, ax = plt.subplots(figsize=(16, 10))
         len_samp = len(samples_use)
+        np.save(self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_pressures',pressures)
+        np.save(self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_temps',temps_sort)
 
         ax.fill_betweenx(pressures,
                          x1=temps_sort[0, :],
@@ -2171,7 +2178,7 @@ class Retrieval:
             self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_PT_envelopes.pdf')
         return fig, ax
 
-    def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, **kwargs):
+    def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values = None, **kwargs):
         """
         Make the corner plots
 
@@ -2241,9 +2248,9 @@ class Retrieval:
             output_file,
             parameter_plot_indices=p_plot_inds,
             parameter_ranges=p_ranges,
-            true_values=None,
             prt_plot_style=self.prt_plot_style,
             plot_best_fit=plot_best_fit,
+            true_values = true_values,
             **kwargs
         )
         return fig
