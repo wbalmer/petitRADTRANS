@@ -175,14 +175,17 @@ def contour_corner(sampledict,
         mpl.rc('ytick.minor', **ymin)
         mpl.rc('font', **font)
 
-        color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
-                      "#B429FF"]
+        if colors is None:
+            color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
+                        "#B429FF"]
     else:
-        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
-
+        if colors is None:
+            color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
     if colors is not None:
-         color_list = colors
+        color_list = colors
     handles = []
+    range_list = []
+
     count = 0
     fig = None
 
@@ -213,7 +216,6 @@ def contour_corner(sampledict,
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
 
-        range_list = []
 
         for range_i, i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples) - s:, i])
@@ -248,7 +250,7 @@ def contour_corner(sampledict,
                     truths_list.append(samples[best_fit_ind][i])
             else:
                 for i in parameter_plot_indices[key]:
-                    truths_list.append(true_values[key][i])
+                    truths_list.append(true_values[i])
         else:
             truths_list = None
 
@@ -301,12 +303,11 @@ def contour_corner(sampledict,
                                 **hist2d_kwargs,
                                 plot_contours=True,
                                 truths=truths_list,
-                                truth_color='r',
+                                truth_color='k',
                                 contour_kwargs=contour_kwargs,
                                 hist_kwargs=hist_kwargs,
                                 levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)]
                                 )
-            count += 1
         else:
             corner.corner(np.array(data_list).T,
                           fig=fig,
@@ -316,29 +317,30 @@ def contour_corner(sampledict,
                           show_titles = False,
                           range = range_list,
                           color = color_list[count],
-                          quantiles=[],#0.16, 0.5, 0.84
+                          quantiles=quintiles,#0.16, 0.5, 0.84
                           labels = labels_list,
                           label_kwargs = label_kwargs,
                           hist2d_kwargs = hist2d_kwargs,
                           plot_contours = True,
                           contour_kwargs = contour_kwargs,
                           hist_kwargs = hist_kwargs,
-                          levels=[1-np.exp(-0.5),1-np.exp(-2),1-np.exp(-4.5)],
-                          truths=best_fit,
+                          levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
+                          truths=truths_list,
                           truth_color='k'
                           )
-        #if dimensions == 1:
-        #    plt.tight_layout(h_pad=0, w_pad=0)
+
         if short_name is None:
             label = key
         else:
             label = short_name[key]
 
         handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
+        count += 1
 
     if legend:
         fig.get_axes()[2].legend(handles=handles,
-                                 loc='upper right')
+                                 loc='upper right',
+                                 fontsize = 20)
 
     if output_file is not None:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
@@ -357,6 +359,8 @@ def contour_corner_large(sampledict,
                          prt_plot_style=True,
                          plot_best_fit=False,
                          use_labels_as_titles=True,
+                         quintiles = None,
+                         colors = None,
                          **kwargs):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
@@ -424,14 +428,15 @@ def contour_corner_large(sampledict,
         mpl.rc('ytick', **ytick)
         mpl.rc('ytick.minor', **ymin)
         mpl.rc('font', **font)
-
-        color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
-                      "#B429FF"]
+        
+        if colors is None:
+            color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
+                        "#B429FF"]
     else:
-        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
-
-        # from .plot_style import prt_colours
-    # color_list = prt_colours
+        if colors is None:
+            color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
+    if colors is not None:
+        color_list = colors
 
     range_list = []
     handles = []
@@ -466,10 +471,10 @@ def contour_corner_large(sampledict,
         best_fit = None
 
         if plot_best_fit:
-            best_fit = []
+            truths_list = []
             best_fit_ind = np.argmax(samples[:,-1])
             for i in parameter_plot_indices[key]:
-                best_fit.append(samples[best_fit_ind][i])
+                truths_list.append(samples[best_fit_ind][i])
 
         range_list = []
 
@@ -529,7 +534,6 @@ def contour_corner_large(sampledict,
             hist2d_kwargs = kwargs["hist2d_kwargs"]
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
-
         if count == 0:
             fig = corner.corner(data=np.array(data_list).T,
                                 bins=20,
@@ -546,9 +550,9 @@ def contour_corner_large(sampledict,
                                 title_fmt=".2f",
                                 title_kwargs=title_kwargs,
                                 truths=truths_list,
-                                truth_color='r',
+                                truth_color='k',
                                 scale_hist=False,
-                                quantiles=[0.16, 0.5, 0.84],
+                                quantiles=quintiles,
                                 verbose=False,
                                 fig=None,
                                 max_n_ticks=5,
@@ -562,7 +566,6 @@ def contour_corner_large(sampledict,
                                 levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
                                 **hist2d_kwargs,
                                 )
-            count += 1
         else:
             corner.corner(data=np.array(data_list).T,
                           bins=20,
@@ -579,9 +582,9 @@ def contour_corner_large(sampledict,
                           title_fmt=".2f",
                           title_kwargs=title_kwargs,
                           truths=truths_list,
-                          truth_color='r',
+                          truth_color='k',
                           scale_hist=False,
-                          quantiles=[0.16, 0.5, 0.84],
+                          quantiles=quintiles,
                           verbose=False,
                           fig=None,
                           max_n_ticks=5,
@@ -595,7 +598,6 @@ def contour_corner_large(sampledict,
                           levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
                           **hist2d_kwargs,
                           )
-            count += 1
 
         if short_name is None:
             label = key
@@ -603,10 +605,11 @@ def contour_corner_large(sampledict,
             label = short_name[key]
 
         handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
-
+        count += 1
     if legend:
         fig.get_axes()[2].legend(handles=handles,
-                                 loc='upper right')
+                                 loc='upper right',
+                                 fontsize = 20)
 
     if output_file is not None:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
