@@ -19,6 +19,370 @@ from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.radtrans import Radtrans
 
 
+def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+                                      rewrite=False, output_directory=None):
+    """Using ExoMol units for HDF5 files."""
+    # Initialize infos
+    molliere2019_doi = '10.1051/0004-6361/201935470'
+
+    doi_dict = {
+        'Al2O3(c)_cm': molliere2019_doi,
+        'Al2O3(c)_cd': molliere2019_doi,
+        'Fe(c)_am': molliere2019_doi,
+        'Fe(c)_ad': molliere2019_doi,
+        'Fe(c)_cm': molliere2019_doi,
+        'Fe(c)_cd': molliere2019_doi,
+        'H2O(c)_cm': molliere2019_doi,
+        'H2O(c)_cd': molliere2019_doi,
+        'KCL(c)_cm': molliere2019_doi,
+        'KCL(c)_cd': molliere2019_doi,
+        'Mg05Fe05SiO3(c)_am': molliere2019_doi,
+        'Mg05Fe05SiO3(c)_ad': molliere2019_doi,
+        'Mg2SiO4(c)_am': molliere2019_doi,
+        'Mg2SiO4(c)_ad': molliere2019_doi,
+        'Mg2SiO4(c)_cm': molliere2019_doi,
+        'Mg2SiO4(c)_cd': molliere2019_doi,
+        'MgAl2O4(c)_cm': molliere2019_doi,
+        'MgAl2O4(c)_cd': molliere2019_doi,
+        'MgFeSiO4(c)_am': molliere2019_doi,
+        'MgFeSiO4(c)_ad': molliere2019_doi,
+        'MgSiO3(c)_am': molliere2019_doi,
+        'MgSiO3(c)_ad': molliere2019_doi,
+        'MgSiO3(c)_cm': molliere2019_doi,
+        'MgSiO3(c)_cd': molliere2019_doi,
+        'Na2S(c)_cm': molliere2019_doi,
+        'Na2S(c)_cd': molliere2019_doi,
+        'SiC(c)_cm': molliere2019_doi,
+        'SiC(c)_cd': molliere2019_doi
+    }
+
+    description_dict = {
+        'Al2O3(c)_cm': '',
+        'Al2O3(c)_cd': '',
+        'Fe(c)_am': '',
+        'Fe(c)_ad': '',
+        'Fe(c)_cm': '',
+        'Fe(c)_cd': '',
+        'H2O(c)_cm': '',
+        'H2O(c)_cd': '',
+        'KCL(c)_cm': '',
+        'KCL(c)_cd': '',
+        'Mg05Fe05SiO3(c)_am': '',
+        'Mg05Fe05SiO3(c)_ad': '',
+        'Mg2SiO4(c)_am': '',
+        'Mg2SiO4(c)_ad': '',
+        'Mg2SiO4(c)_cm': '',
+        'Mg2SiO4(c)_cd': '',
+        'MgAl2O4(c)_cm': '',
+        'MgAl2O4(c)_cd': '',
+        'MgFeSiO4(c)_am': '',
+        'MgFeSiO4(c)_ad': '',
+        'MgSiO3(c)_am': '',
+        'MgSiO3(c)_ad': '',
+        'MgSiO3(c)_cm': '',
+        'MgSiO3(c)_cd': '',
+        'Na2S(c)_cm': '',
+        'Na2S(c)_cd': '',
+        'SiC(c)_cm': '',
+        'SiC(c)_cd': ''
+    }
+
+    for key in description_dict:
+        particle_mode = key.rsplit('_', 1)[1]
+        particle_mode_description = ''
+
+        if particle_mode[0] == 'c':
+            particle_mode_description += 'Crystalline, '
+        elif particle_mode[0] == 'a':
+            particle_mode_description += 'Amorphous, '
+        else:
+            raise ValueError(f"invalid particle name '{key}': "
+                             f"particle internal structure must be either crystalline ('c') or amorphous ('a'), "
+                             f"but was '{particle_mode[0]}'")
+
+        if particle_mode[1] == 'm':
+            particle_mode_description += 'Mie scattering (spherical)'
+        elif particle_mode[1] == 'd':
+            particle_mode_description += 'DHS (irregular shape)'
+        else:
+            raise ValueError(f"invalid particle name '{key}': "
+                             f"particle shape must be either calculated using Mie scattering ('m') "
+                             f"or using the distribution of hollow spheres method ('d'), "
+                             f"but was '{particle_mode[1]}'")
+
+        description_dict[key] = particle_mode_description
+
+    molmass_dict = {
+        'Al2O3(c)_cm': getMM('Al2O3'),
+        'Al2O3(c)_cd': getMM('Al2O3'),
+        'Fe(c)_am': getMM('Fe'),
+        'Fe(c)_ad': getMM('Fe'),
+        'Fe(c)_cm': getMM('Fe'),
+        'Fe(c)_cd': getMM('Fe'),
+        'H2O(c)_cm': getMM('H2O'),
+        'H2O(c)_cd': getMM('H2O'),
+        'KCL(c)_cm': getMM('H2O'),
+        'KCL(c)_cd': getMM('H2O'),
+        'Mg05Fe05SiO3(c)_am': 0.5 * getMM('Mg') + 0.5 * getMM('Fe') + getMM('SiO3'),
+        'Mg05Fe05SiO3(c)_ad': 0.5 * getMM('Mg') + 0.5 * getMM('Fe') + getMM('SiO3'),
+        'Mg2SiO4(c)_am': getMM('Mg2SiO4'),
+        'Mg2SiO4(c)_ad': getMM('Mg2SiO4'),
+        'Mg2SiO4(c)_cm': getMM('Mg2SiO4'),
+        'Mg2SiO4(c)_cd': getMM('Mg2SiO4'),
+        'MgAl2O4(c)_cm': getMM('MgAl2O4'),
+        'MgAl2O4(c)_cd': getMM('MgAl2O4'),
+        'MgFeSiO4(c)_am': getMM('MgFeSiO4'),
+        'MgFeSiO4(c)_ad': getMM('MgFeSiO4'),
+        'MgSiO3(c)_am': getMM('MgSiO3'),
+        'MgSiO3(c)_ad': getMM('MgSiO3'),
+        'MgSiO3(c)_cm': getMM('MgSiO3'),
+        'MgSiO3(c)_cd': getMM('MgSiO3'),
+        'Na2S(c)_cm': getMM('Na2S'),
+        'Na2S(c)_cd': getMM('Na2S'),
+        'SiC(c)_cm': getMM('SiC'),
+        'SiC(c)_cd': getMM('SiC')
+    }
+
+    # Get only existing directories
+    input_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'clouds')
+
+    for key in doi_dict:
+        species = key.split('(', 1)[0]
+        species_dir = os.path.join(input_directory, species + '_c')
+
+        if not os.path.isdir(species_dir):
+            print(f"data for cloud '{key}' not found (path '{species_dir}' does not exist), skipping...")
+            del doi_dict[key]
+            continue
+
+        particle_mode = key.rsplit('_', 1)[1]
+
+        particle_mode_dir = None
+
+        if particle_mode[0] == 'c':
+            particle_mode_dir = os.path.join(species_dir, 'crystalline')
+        elif particle_mode[0] == 'a':
+            particle_mode_dir = os.path.join(species_dir, 'amorphous')
+
+        if not os.path.isdir(particle_mode_dir):
+            print(f"data for cloud '{key}' not found (path '{particle_mode_dir}' does not exist), skipping...")
+            del doi_dict[key]
+            continue
+
+        if particle_mode[1] == 'm':
+            particle_mode_dir = os.path.join(particle_mode_dir, 'mie')
+        elif particle_mode[1] == 'd':
+            particle_mode_dir = os.path.join(particle_mode_dir, 'DHS')
+
+        if not os.path.isdir(particle_mode_dir):
+            print(f"data for cloud '{key}' not found (path '{particle_mode_dir}' does not exist), skipping...")
+            del doi_dict[key]
+            continue
+
+    # Prepare single strings delimited by ':' which are then put into Fortran routines
+    cloud_species_modes = []
+    cloud_species = []
+
+    for key in doi_dict:
+        cloud_species_ = key.rsplit('_', 1)
+        cloud_species_modes.append(cloud_species_[1])
+        cloud_species.append(cloud_species_[0])
+
+    tot_str_names = ''
+
+    for cloud_species_ in cloud_species:
+        tot_str_names = tot_str_names + cloud_species_ + ':'
+
+    tot_str_modes = ''
+
+    for cloud_species_mode in cloud_species_modes:
+        tot_str_modes = tot_str_modes + cloud_species_mode + ':'
+
+    n_cloud_wavelength_bins = int(len(np.genfromtxt(
+        os.path.join(
+            path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+        )
+    )[:, 0]))
+
+    # Load .dat files
+    print("Loading dat files...")
+    cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        = fi.read_in_cloud_opacities(
+            path_input_data, tot_str_names, tot_str_modes, len(doi_dict), n_cloud_wavelength_bins
+        )
+
+    wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
+
+    cloud_modes = tot_str_modes.split(':')
+
+    # Save each clouds data into HDF5 file
+    if output_directory is None:
+        output_directory_ref = input_directory
+    else:
+        output_directory_ref = copy.deepcopy(output_directory)
+
+    for i, key in enumerate(doi_dict):
+        # Check if current key is in all information dicts
+        not_in_dict = False
+
+        if key not in description_dict:
+            warnings.warn(f"cloud '{key}' was not in contributor dict; "
+                          f"add key '{key}' to the script contributor_dict to run this conversion")
+            not_in_dict = True
+
+        if key not in molmass_dict:
+            warnings.warn(f"cloud '{key}' was not in molar mass dict; "
+                          f"add key '{key}' to the script molmass_dict to run this conversion")
+            not_in_dict = True
+
+        if not_in_dict:
+            print(" Skipping due to missing species in supplementary info dict...")
+            continue
+
+        # Get cloud mode information
+        if cloud_modes[i][0] == 'c':
+            particles_internal_structure = 'crystalline'
+        elif cloud_modes[i][0] == 'a':
+            particles_internal_structure = 'amorphous'
+        else:
+            raise ValueError(f"Particle internal structure code must be 'a' or 'c', but was '{cloud_modes[i][0]}'")
+
+        scattering_method_description = 'Scattering method used: '
+
+        if cloud_modes[i][1] == 'm':
+            scattering_method = 'Mie'
+            scattering_method_description += 'Mie (assuming spherical particles)'
+        elif cloud_modes[i][1] == 'd':
+            scattering_method = 'DHS'
+            scattering_method_description += 'distribution of hollow spheres (assuming irregular-shaped particles)'
+        else:
+            raise ValueError(f"Particle shape code must be 'm' or 'd', but was '{cloud_modes[i][1]}'")
+
+        # Get HDF5 file name
+        output_directory = output_directory_ref
+
+        if not os.path.isdir(output_directory):
+            os.makedirs(output_directory)
+
+        hdf5_opacity_file = os.path.join(output_directory, key + '.cotable.petitRADTRANS.h5')
+
+        if os.path.isfile(hdf5_opacity_file) and not rewrite:
+            print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
+            continue
+
+        # Write HDF5 file
+        print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
+
+        with h5py.File(hdf5_opacity_file, "w") as fh5:
+            dataset = fh5.create_dataset(
+                name='DOI',
+                data=doi_dict[key]
+            )
+            dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+            dataset.attrs['additional_description'] = description_dict[key]
+
+            dataset = fh5.create_dataset(
+                name='Date_ID',
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+            )
+            dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                         'at which the table has been created, ' \
+                                         'along with the version of petitRADTRANS'
+
+            dataset = fh5.create_dataset(
+                name='wavenumbers',
+                data=wavenumbers
+            )
+            dataset.attrs['long_name'] = 'Opacities wavenumbers'
+            dataset.attrs['units'] = 'cm^-1'
+
+            dataset = fh5.create_dataset(
+                name='absorption_opacities',
+                data=cloud_absorption_opacities[:, ::-1, i]
+            )
+            dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
+            dataset.attrs['units'] = 'cm^2.g^-1'
+
+            dataset = fh5.create_dataset(
+                name='scattering_opacities',
+                data=cloud_scattering_opacities[:, ::-1, i]
+            )
+            dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
+            dataset.attrs['units'] = 'cm^2.g^-1'
+
+            dataset = fh5.create_dataset(
+                name='asymmetry_parameters',
+                data=cloud_asymmetry_parameter[:, ::-1, i]
+            )
+            dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
+            dataset.attrs['units'] = 'None'
+
+            dataset = fh5.create_dataset(
+                name='scattering_method',
+                data=scattering_method
+            )
+            dataset.attrs['long_name'] = scattering_method_description
+
+            dataset = fh5.create_dataset(
+                name='particles_internal_structure',
+                data=particles_internal_structure
+            )
+            dataset.attrs['long_name'] = scattering_method_description
+
+            dataset = fh5.create_dataset(
+                name='mol_mass',
+                data=molmass_dict[key]
+            )
+            dataset.attrs['long_name'] = 'Mass of the species'
+            dataset.attrs['units'] = 'AMU'
+
+            dataset = fh5.create_dataset(
+                name='particles_density',
+                data=cloud_particles_densities[i]
+            )
+            dataset.attrs['long_name'] = 'Average density of the cloud particles'
+            dataset.attrs['units'] = 'g.cm^-3'
+
+            dataset = fh5.create_dataset(
+                name='mol_name',
+                data=cloud_species[i]
+            )
+            dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
+
+            dataset = fh5.create_dataset(
+                name='particles_radii',
+                data=cloud_particles_radii
+            )
+            dataset.attrs['long_name'] = 'Particles average radius grid'
+            dataset.attrs['units'] = 'cm'
+
+            dataset = fh5.create_dataset(
+                name='particle_radius_bins',
+                data=cloud_particles_radius_bins
+            )
+            dataset.attrs['long_name'] = 'Particles average radius grid bins'
+            dataset.attrs['units'] = 'cm'
+
+            dataset = fh5.create_dataset(
+                name='wlrange',
+                data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
+            )
+            dataset.attrs['long_name'] = 'Wavelength range covered'
+            dataset.attrs['units'] = 'µm'
+
+            dataset = fh5.create_dataset(
+                name='wnrange',
+                data=np.array([wavenumbers.min(), wavenumbers.max()])
+            )
+            dataset.attrs['long_name'] = 'Wavenumber range covered'
+            dataset.attrs['units'] = 'cm^-1'
+
+        print("Done.")
+
+    print("Conversions successful.")
+
+
 def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                   rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
@@ -101,7 +465,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
         'VO': molliere2019_doi,
         'VO_ExoMol_McKemmish': '10.1093/mnras/stw1969',
         'VO_ExoMol_Specific_Transitions': '10.1093/mnras/stw1969',  # TODO difference unclear with "default" version
-        'Y': kurucz_website,
+        'Y': kurucz_website
     }
     contributor_dict = {
         'Al': molaverdikhani_email,
@@ -172,8 +536,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
         'VO': 'None',
         'VO_ExoMol_McKemmish': 'regt@strw.leidenuniv.nl',
         'VO_ExoMol_Specific_Transitions': 'regt@strw.leidenuniv.nl',
-        'Y': molaverdikhani_email,
-
+        'Y': molaverdikhani_email
     }
     description_dict = {
         'Al': kurucz_description,
@@ -243,7 +606,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
         'VO': 'None',
         'VO_ExoMol_McKemmish': 'None',
         'VO_ExoMol_Specific_Transitions': 'Most accurate transitions from McKemmish et al. (2016)',
-        'Y': kurucz_description,
+        'Y': kurucz_description
     }
     molmass_dict = {
         'Al': getMM('Al'),
@@ -313,7 +676,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
         'VO': getMM('VO'),
         'VO_ExoMol_McKemmish': getMM('VO'),
         'VO_ExoMol_Specific_Transitions': getMM('VO'),
-        'Y': getMM('Y'),
+        'Y': getMM('Y')
     }
 
     # Loading
@@ -452,7 +815,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
             print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))
-            opacities = np.moveaxis(opacities, 0, 1)  # Exo-Mol axis order
+            opacities = np.moveaxis(opacities, 0, 1)  # Exo-Mol axis order (pressures, temperatures, wavenumbers)
             opacities = opacities[:, :, ::-1]  # match the wavenumber order
 
             print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
@@ -545,6 +908,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
             print("Done.")
 
+    print("Conversions successful.")
+
 
 def phoenix_spec_dat2h5():
     """
@@ -601,3 +966,5 @@ def phoenix_spec_dat2h5():
             data=np.asarray(spec_dats)[:, :, 1]
         )
         spectral_radiosity.attrs['units'] = 'erg/s/cm^2/Hz'
+
+    print("Conversion successful.")

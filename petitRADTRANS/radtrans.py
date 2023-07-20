@@ -2623,35 +2623,102 @@ class Radtrans:
         # Function to read cloud opacities
         self.cloud_species_mode = []
 
-        for i in range(int(len(self.cloud_species))):
+        hdf5_files = []
+        opacities_dir = os.path.join(path_input_data, 'opacities', 'continuum', 'clouds')
+        use_hdf5_files = True
+
+        for i in range(len(self.cloud_species)):
             splitstr = self.cloud_species[i].split('_')
             self.cloud_species_mode.append(splitstr[1])
             self.cloud_species[i] = splitstr[0]
 
-        # Prepare single strings delimited by ':' which are then
-        # put into F routines
-        tot_str_names = ''
-
-        for cloud_species in self.cloud_species:
-            tot_str_names = tot_str_names + cloud_species + ':'
-
-        tot_str_modes = ''
-
-        for cloud_species_mode in self.cloud_species_mode:
-            tot_str_modes = tot_str_modes + cloud_species_mode + ':'
-
-        n_cloud_wavelength_bins = int(len(np.genfromtxt(
-            os.path.join(
-                path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+            hdf5_file = os.path.join(
+                opacities_dir,
+                self.cloud_species[i] + '_' + self.cloud_species_mode[i] + '.cotable.petitRADTRANS.h5'
             )
-        )[:, 0]))
 
-        # Actual reading of opacities
-        rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
-            cloud_aniso, cloud_lambdas, cloud_rad_bins, cloud_radii \
-            = fi.read_in_cloud_opacities(
-                path_input_data, tot_str_names, tot_str_modes, len(self.cloud_species), n_cloud_wavelength_bins
-            )
+            if not os.path.isfile(hdf5_file):
+                print(f"HDF5 cloud opacity file '{hdf5_file}' not found, loading all cloud data from .dat...")
+                use_hdf5_files = False
+                break
+
+            hdf5_files.append(hdf5_file)
+
+        if use_hdf5_files:
+            rho_cloud_particles = np.zeros(len(hdf5_files))
+            cloud_specs_abs_opa = None
+            cloud_specs_scat_opa = None
+            cloud_aniso = None
+            cloud_lambdas = None
+            cloud_rad_bins = None
+            cloud_radii = None
+
+            for i, hdf5_file in enumerate(hdf5_files):
+                if self.cloud_species_mode[i][0] == 'c':
+                    particles_internal_structure = 'crystalline'
+                elif self.cloud_species_mode[i][0] == 'a':
+                    particles_internal_structure = 'amorphous'
+                else:
+                    raise ValueError(f"Particle internal structure code must be 'a' or 'c', "
+                                     f"but was '{self.cloud_species_mode[i][0]}'")
+
+                if self.cloud_species_mode[i][1] == 'm':
+                    scattering_method = 'Mie (spherical shape)'
+                elif self.cloud_species_mode[i][1] == 'd':
+                    scattering_method = 'DHS (irregular shape)'
+                else:
+                    raise ValueError(f"Particle shape code must be 'm' or 'd', "
+                                     f"but was '{self.cloud_species_mode[i][1]}'")
+
+                print(f" Reading opacities of cloud species '{self.cloud_species[i]}' "
+                      f"({particles_internal_structure}, using {scattering_method} scattering)...")
+
+                with h5py.File(hdf5_file, 'r') as f:
+                    if i == 0:
+                        # Initialize cloud arrays
+                        cloud_lambdas = 1 / f['wavenumbers'][:]  # cm-1 to cm
+                        cloud_lambdas = cloud_lambdas[::-1]  # correct ordering
+                        cloud_rad_bins = f['particle_radius_bins'][:]
+                        cloud_radii = f['particles_radii'][:]
+
+                        cloud_specs_abs_opa = np.zeros((cloud_radii.size, cloud_lambdas.size, len(hdf5_files)))
+                        cloud_specs_scat_opa = np.zeros((cloud_radii.size, cloud_lambdas.size, len(hdf5_files)))
+                        cloud_aniso = np.zeros((cloud_radii.size, cloud_lambdas.size, len(hdf5_files)))
+
+                    rho_cloud_particles[i] = f['particles_density'][()]
+                    cloud_specs_abs_opa[:, :, i] = f['absorption_opacities'][:]
+                    cloud_specs_scat_opa[:, :, i] = f['scattering_opacities'][:]
+                    cloud_aniso[:, :, i] = f['asymmetry_parameters'][:]
+
+            # Flip wavelengths/wavenumbers axis to match wavelengths ordering
+            cloud_specs_abs_opa = cloud_specs_abs_opa[:, ::-1, :]
+            cloud_specs_scat_opa = cloud_specs_scat_opa[:, ::-1, :]
+            cloud_aniso = cloud_aniso[:, ::-1, :]
+        else:
+            # Prepare single strings delimited by ':' which are then
+            # put into F routines
+            tot_str_names = ''
+
+            for cloud_species in self.cloud_species:
+                tot_str_names = tot_str_names + cloud_species + ':'
+
+            tot_str_modes = ''
+
+            for cloud_species_mode in self.cloud_species_mode:
+                tot_str_modes = tot_str_modes + cloud_species_mode + ':'
+
+            n_cloud_wavelength_bins = int(len(np.genfromtxt(
+                os.path.join(
+                    path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+                )
+            )[:, 0]))
+
+            # Actual reading of opacities
+            rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
+                cloud_aniso, cloud_lambdas, cloud_rad_bins, cloud_radii \
+                = fi.read_in_cloud_opacities(
+                    path_input_data, tot_str_names, tot_str_modes, len(self.cloud_species), n_cloud_wavelength_bins
+                )
 
         cloud_specs_abs_opa[cloud_specs_abs_opa < 0.] = 0.
         cloud_specs_scat_opa[cloud_specs_scat_opa < 0.] = 0.
