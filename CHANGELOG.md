@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a65] - 2023-07-21
+## [3.0.0-a66] - 2023-07-21
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Cloud opacities can now be read from HDF5 files.
 - CIA cross-sections can now be read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
+- Various optimisations.
 - Package structure.
 - Code clean-up.
 

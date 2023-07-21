@@ -712,68 +712,31 @@ module fort_spec
         !!$ Subroutine to add Rayleigh scattering
 
         subroutine add_rayleigh(spec,abund,lambda_angstroem,MMW,temp,press,rayleigh_kappa,struc_len,freq_len)
+            use constants_block
+            implicit none
 
-          use constants_block
-          implicit none
+            integer, intent(in) :: freq_len, struc_len
+            character(len=20), intent(in) :: spec
+            double precision, intent(in) :: lambda_angstroem(freq_len), abund(struc_len), MMW(struc_len), &
+                temp(struc_len), press(struc_len)
+            double precision, intent(out) :: rayleigh_kappa(freq_len, struc_len)
 
-          ! I/O
-          integer, intent(in)                         :: freq_len, struc_len
-          character(len=20), intent(in)                    :: spec
-          double precision, intent(in)                :: lambda_angstroem(freq_len), abund(struc_len), &
-               MMW(struc_len), temp(struc_len), press(struc_len)
-          double precision, intent(out)               :: rayleigh_kappa(freq_len,struc_len)
+            double precision, parameter :: abundance_threshold = 1d-60
 
-          ! Internal
-          integer                                     :: i_str, i_freq
-          double precision                            :: lambda_cm(freq_len), &
-               lamb_inv(freq_len), alpha_pol, lamb_inv_use
-          double precision                            :: a0, a1, a2, a3, a4, a5, &
-               a6, a7, luv, lir, l(freq_len), &
-               d(struc_len), T(struc_len), retVal, retValMin, retValMax, mass_h2o, &
-               nm1, fk, scale, mass_co2, &
-               mass_o2, mass_n2, A, B, C, mass_co, nfr_co, &
-               mass_ch4, nfr_ch4
+            integer :: i_str, i_freq
+            double precision :: lambda_cm(freq_len), lamb_inv(freq_len), alpha_pol, lamb_inv_use
+            double precision :: a0, a1, a2, a3, a4, a5, a6, a7, luv, lir, l(freq_len), d(struc_len), T(struc_len), &
+                retVal, retValMin, retValMax, mass_h2o, nm1, fk, scale, mass_co2, mass_o2, mass_n2, A, B, C, mass_co, &
+                nfr_co, mass_ch4, nfr_ch4!, rayleigh_kappa_tmp(freq_len, struc_len)
 
-          rayleigh_kappa = 0d0
+            rayleigh_kappa = 0d0
+            !rayleigh_kappa_tmp = 0d0
 
-          if (trim(adjustl(spec)) == 'H2') then
-
-             ! H2 Rayleigh according to dalgarno & williams (1962)
-             do i_str = 1, struc_len
-
-                if (abund(i_str) > 1d-60) then
-                   rayleigh_kappa(:,i_str) = rayleigh_kappa(:,i_str) + &
-                        (8.14d-13/lambda_angstroem**4+1.28d-6/lambda_angstroem**6+1.61d0/lambda_angstroem**8)/2d0 &
-                        /1.66053892d-24*abund(i_str)
-                end if
-
-             end do
-
-          else if (trim(adjustl(spec)) == 'He') then
-
-             ! He Rayleigh scattering according to Chan & Dalgarno alphas (1965)
-             lambda_cm = lambda_angstroem*1d-8
-
-             do i_str = 1, struc_len
-                if (abund(i_str) > 1d-60) then
-                   do i_freq = 1, freq_len
-
-                      if (lambda_cm(i_freq) >= 0.9110d-4) then
-                         alpha_pol = 1.379
-                      else
-                         alpha_pol = 2.265983321d0 - 3.721350022d0*lambda_cm(i_freq)/1d-4 &
-                              + 3.016150391d0*(lambda_cm(i_freq)/1d-4)**2d0
-                      end if
-
-                      rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                           +128d0*pi**5d0/3d0/lambda_cm(i_freq)**4d0*(alpha_pol*1.482d-25)**2d0/4d0 &
-                           /1.66053892d-24*abund(i_str)
-                   end do
-                end if
-             end do
-
-          else if (trim(adjustl(spec)) == 'H2O') then
-
+            if (trim(adjustl(spec)) == 'H2') then
+                call h2_rayleigh()
+            else if (trim(adjustl(spec)) == 'He') then
+                call he_rayleigh()
+            else if (trim(adjustl(spec)) == 'H2O') then
              ! For H2O Rayleigh scattering according to Harvey et al. (1998)
              a0 = 0.244257733
              a1 = 9.74634476d-3
@@ -833,8 +796,7 @@ module fort_spec
                    end do
                 end if
              end do
-
-          else if (trim(adjustl(spec)) == 'CO2') then
+            else if (trim(adjustl(spec)) == 'CO2') then
 
              ! CO2 Rayleigh scattering according to Sneep & Ubachs (2004)
              d = MMW*amu*press/kB/temp*abund
@@ -863,8 +825,7 @@ module fort_spec
                    end do
                 end if
              end do
-
-          else if (trim(adjustl(spec)) == 'O2') then
+            else if (trim(adjustl(spec)) == 'O2') then
 
              ! O2 Rayleigh scattering according to Thalman et al. (2014).
              ! Also see their erratum!
@@ -900,8 +861,7 @@ module fort_spec
                    end do
                 end if
              end do
-
-          else if (trim(adjustl(spec)) == 'N2') then
+            else if (trim(adjustl(spec)) == 'N2') then
 
              ! N2 Rayleigh scattering according to Thalman et al. (2014).
              ! Also see their erratum!
@@ -942,9 +902,7 @@ module fort_spec
                    end do
                 end if
              end do
-
-          else if (trim(adjustl(spec)) == 'CO') then
-
+            else if (trim(adjustl(spec)) == 'CO') then
              ! CO Rayleigh scattering according to Sneep & Ubachs (2004)
 
              lambda_cm = lambda_angstroem*1d-8
@@ -979,9 +937,7 @@ module fort_spec
                 end if
 
              end do
-
-          else if (trim(adjustl(spec)) == 'CH4') then
-
+            else if (trim(adjustl(spec)) == 'CH4') then
              ! CH4 Rayleigh scattering according to Sneep & Ubachs (2004)
 
              lambda_cm = lambda_angstroem*1d-8
@@ -1011,10 +967,69 @@ module fort_spec
                 end if
 
              end do
+            end if
 
+            contains
+                subroutine h2_rayleigh()
+                    ! H2 Rayleigh according to dalgarno & williams (1962)
+                    implicit none
 
-          end if
+                    integer :: i
+                    doubleprecision :: factor(freq_len)
 
+                    factor = (&
+                        8.14d-13 / lambda_angstroem ** 4 &
+                        + 1.28d-6 / lambda_angstroem ** 6 &
+                        + 1.61d0 / lambda_angstroem ** 8 &
+                    ) * 0.5d0 / 1.66053892d-24
+
+                    rayleigh_kappa = 0d0
+
+                    do i = 1, struc_len
+                        rayleigh_kappa(:, i) = rayleigh_kappa(:, i) + factor * abund(i)
+                    end do
+
+                    do i = 1, struc_len
+                        if (abund(i) < abundance_threshold) then
+                            rayleigh_kappa(:, i) = 0d0
+                        end if
+                    end do
+                end subroutine h2_rayleigh
+
+                subroutine he_rayleigh()
+                    ! He Rayleigh scattering according to Chan & Dalgarno alphas (1965)
+                    implicit none
+
+                    integer :: i
+                    double precision :: alpha_polarization(freq_len)
+
+                    rayleigh_kappa = 0d0
+
+                    lambda_cm = lambda_angstroem * 1d-8
+                    l = lambda_cm * 1d4
+
+                    alpha_polarization = 2.265983321d0 - 3.721350022d0 * l + 3.016150391d0 * l ** 2d0
+
+                    do i_freq = 1, freq_len
+                        if (lambda_cm(i_freq) >= 0.9110d-4) then
+                            alpha_polarization(i_freq) = 1.379
+                        end if
+                    end do
+
+                    ! Use alpha_polarization to store abund multiplicative factor
+                    alpha_polarization = 128d0 * pi ** 5d0 / 3d0 / lambda_cm ** 4d0 &
+                        * (alpha_polarization * 1.482d-25) ** 2d0 / 4d0 / 1.66053892d-24
+
+                    do i = 1, struc_len
+                        rayleigh_kappa(:, i) = rayleigh_kappa(:, i) + alpha_polarization * abund(i)
+                    end do
+
+                    do i = 1, struc_len
+                        if (abund(i) < abundance_threshold) then
+                            rayleigh_kappa(:, i) = 0d0
+                        end if
+                    end do
+                end subroutine he_rayleigh
         end subroutine add_rayleigh
         
 
