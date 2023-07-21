@@ -39,15 +39,3 @@ l_sun = anc.L_sun.cgs.value
 
 r_jup_mean = 6.9911e9
 s_earth = 1.3654e6  # erg.s-1.cm-2, source: https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2010GL045777
-
-# Molecular weights in amu
-molecular_weight = {
-    'H2O': 18.,
-    'O2': 32.,
-    'N2': 28.,
-    'CH4': 16.,
-    'CO2': 44.,
-    'CO': 28.,
-    'H2': 2.,
-    'He': 4.
-}
