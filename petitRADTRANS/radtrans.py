@@ -2556,7 +2556,7 @@ class Radtrans:
                     else:
                         file_path_hdf5 = file_path_hdf5[0]
                 elif self.mode == 'lbl':
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line', species)
+                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line')
                     file_path_hdf5 = os.path.join(path_opacities, species + '.otable.petitRADTRANS.h5')
 
                 if file_path_hdf5 is not None:

@@ -145,6 +145,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 
     # Get only existing directories
     input_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'clouds')
+    bad_keys = []
 
     for key in doi_dict:
         species = key.split('(', 1)[0]
@@ -152,7 +153,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 
         if not os.path.isdir(species_dir):
             print(f"data for cloud '{key}' not found (path '{species_dir}' does not exist), skipping...")
-            del doi_dict[key]
+            bad_keys.append(key)
             continue
 
         particle_mode = key.rsplit('_', 1)[1]
@@ -178,6 +179,9 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
             print(f"data for cloud '{key}' not found (path '{particle_mode_dir}' does not exist), skipping...")
             del doi_dict[key]
             continue
+
+    for key in bad_keys:
+        del doi_dict[key]
 
     # Prepare single strings delimited by ':' which are then put into Fortran routines
     cloud_species_modes = []
@@ -240,25 +244,6 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
             print(" Skipping due to missing species in supplementary info dict...")
             continue
 
-        # Get cloud mode information
-        if cloud_modes[i][0] == 'c':
-            particles_internal_structure = 'crystalline'
-        elif cloud_modes[i][0] == 'a':
-            particles_internal_structure = 'amorphous'
-        else:
-            raise ValueError(f"Particle internal structure code must be 'a' or 'c', but was '{cloud_modes[i][0]}'")
-
-        scattering_method_description = 'Scattering method used: '
-
-        if cloud_modes[i][1] == 'm':
-            scattering_method = 'Mie'
-            scattering_method_description += 'Mie (assuming spherical particles)'
-        elif cloud_modes[i][1] == 'd':
-            scattering_method = 'DHS'
-            scattering_method_description += 'distribution of hollow spheres (assuming irregular-shaped particles)'
-        else:
-            raise ValueError(f"Particle shape code must be 'm' or 'd', but was '{cloud_modes[i][1]}'")
-
         # Get HDF5 file name
         output_directory = output_directory_ref
 
@@ -317,18 +302,6 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
             )
             dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
             dataset.attrs['units'] = 'None'
-
-            dataset = fh5.create_dataset(
-                name='scattering_method',
-                data=scattering_method
-            )
-            dataset.attrs['long_name'] = scattering_method_description
-
-            dataset = fh5.create_dataset(
-                name='particles_internal_structure',
-                data=particles_internal_structure
-            )
-            dataset.attrs['long_name'] = scattering_method_description
 
             dataset = fh5.create_dataset(
                 name='mol_mass',
@@ -732,7 +705,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
                 print(" Skipping due to missing species in supplementary info dict...")
                 continue
 
-            output_directory = os.path.join(output_directory_ref, species)
+            output_directory = os.path.join(output_directory_ref)
 
             if not os.path.isdir(output_directory):
                 os.makedirs(output_directory)
@@ -890,7 +863,6 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
                 )
                 dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
                                              '(same temperatures for all pressures) or "pressure-dependent"'
-                dataset.attrs['units'] = 'K'
 
                 dataset = fh5.create_dataset(
                     name='wlrange',
