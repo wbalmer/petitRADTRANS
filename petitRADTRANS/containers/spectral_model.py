@@ -13,12 +13,13 @@ import scipy.ndimage
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.molar_mass import getMM
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
     radiosity_erg_hz2radiosity_erg_cm, radiosity2irradiance
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
-from petitRADTRANS.retrieval.util import calc_MMW, log_prior, getMM, \
+from petitRADTRANS.retrieval.util import calc_MMW, log_prior, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, rebin_spectrum, remove_mask
 
