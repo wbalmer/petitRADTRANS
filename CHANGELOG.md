@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 
 ### Changed
-- Functions and arguments now have clearer names.
-- Improved memory usage of Radtrans.
+- Functions and arguments now have clearer names and respect PEP8.
+- Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Some functions have moved from the module `nat_cst` to another, more specific module.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
 - Line-by-line opacities can now be read from HDF5 files.
 - Cloud opacities can now be read from HDF5 files.
+- CIA cross-sections can now be read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
 - Package structure.
 - Code clean-up.
@@ -95,7 +96,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when trying to read a nonexistent opacity file.
 - Function `contour_corner` not working when not giving optional arguments `parameter_ranges` and `parameter_plot_indices`.
 - True values not plotted in function `contour_corner`.
-- Function `get_MM` not working with e- and H-.
+- Function `getMM` not working with e- and H-.
 - e- and H- implementation.
 - Hack cloud photospheric tau behaviour.
 - Potential reference before assignment in module `retrieval`.
@@ -108,5 +109,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ---
 No changelog before version 2.6.0.
+Fixing updates of versions 2.6.x not tracked.
 Some additions, changes and fixes reported in 2.6.0 may have been implemented in previous versions.
 Test suite added in version 2.4.0.
