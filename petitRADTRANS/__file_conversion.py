@@ -11,7 +11,7 @@ import numpy as np
 
 import datetime
 import warnings
-from petitRADTRANS.retrieval.util import getMM
+from petitRADTRANS.molar_mass import getMM
 import petitRADTRANS
 import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.config import petitradtrans_config
