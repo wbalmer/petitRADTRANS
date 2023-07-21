@@ -19,6 +19,184 @@ from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.radtrans import Radtrans
 
 
+def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+                         rewrite=False, output_directory=None):
+    """Using ExoMol units for HDF5 files."""
+    # Initialize infos
+    molliere2019_doi = '10.1051/0004-6361/201935470'
+
+    doi_dict = {
+        'H2-H2': molliere2019_doi,
+        'H2-He': molliere2019_doi,
+        'H2O-H2O': 'unknown',
+        'H2O-N2': 'unknown',
+        'N2-H2': 'unknown',
+        'N2-He': 'unknown',
+        'N2-N2': 'unknown',
+        'O2-O2': 'unknown',
+        'N2-O2': 'unknown',
+        'CO2-CO2': 'unknown'
+    }
+
+    description_dict = {
+        'H2-H2': 'None',
+        'H2-He': 'None',
+        'H2O-H2O': 'None',
+        'H2O-N2': 'None',
+        'N2-H2': 'None',
+        'N2-He': 'None',
+        'N2-N2': 'None',
+        'O2-O2': 'None',
+        'N2-O2': 'None',
+        'CO2-CO2': 'None'
+    }
+
+    # Get only existing directories
+    input_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA')
+
+    # Save each clouds data into HDF5 file
+    if output_directory is None:
+        output_directory_ref = input_directory
+    else:
+        output_directory_ref = copy.deepcopy(output_directory)
+
+    # Loop over CIAs
+    for i, key in enumerate(doi_dict):
+        # Check if data directory exists
+        cia_dir = os.path.join(input_directory, key)
+
+        if not os.path.isdir(cia_dir):
+            print(f"data for CIA '{key}' not found (path '{cia_dir}' does not exist), skipping...")
+            continue
+
+        # Check if current key is in all information dicts
+        not_in_dict = False
+
+        if key not in description_dict:
+            warnings.warn(f"CIA '{key}' was not in contributor dict; "
+                          f"add key '{key}' to the script contributor_dict to run this conversion")
+            not_in_dict = True
+
+        if not_in_dict:
+            print(" Skipping due to missing species in supplementary info dict...")
+            continue
+
+        # Read the dat files
+        colliding_species = key.split('-')
+
+        print(f"  Read CIA opacities for {key}...")
+        cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', key)
+
+        if os.path.isdir(cia_directory) is False:
+            raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
+
+        cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
+            cia_temp_dims, cia_lambda_dims = fi.cia_read(key, path_input_data)
+        cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
+        cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
+        cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
+        cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
+
+        weight = 1
+
+        for species in colliding_species:
+            weight = weight * getMM(species)
+
+        cia_dict = {
+            'id': key,
+            'molecules': colliding_species,
+            'weight': weight,
+            'lambda': cia_wavelength_grid,
+            'temperature': cia_temperature_grid,
+            'alpha': cia_alpha_grid
+        }
+
+        wavenumbers = 1 / cia_dict['lambda'][::-1]  # cm to cm-1, with correct ordering
+
+        # Get HDF5 file name
+        output_directory = output_directory_ref
+
+        if not os.path.isdir(output_directory):
+            os.makedirs(output_directory)
+
+        hdf5_cia_file = os.path.join(output_directory, key + '.ciatable.petitRADTRANS.h5')
+
+        if os.path.isfile(hdf5_cia_file) and not rewrite:
+            print(f"File '{hdf5_cia_file}' already exists, skipping conversion...")
+            continue
+
+        # Write HDF5 file
+        print(f" Writing file '{hdf5_cia_file}'...", end=' ')
+
+        with h5py.File(hdf5_cia_file, "w") as fh5:
+            dataset = fh5.create_dataset(
+                name='DOI',
+                data=doi_dict[key]
+            )
+            dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+            dataset.attrs['additional_description'] = description_dict[key]
+
+            dataset = fh5.create_dataset(
+                name='Date_ID',
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+            )
+            dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                         'at which the table has been created, ' \
+                                         'along with the version of petitRADTRANS'
+
+            dataset = fh5.create_dataset(
+                name='wavenumbers',
+                data=wavenumbers
+            )
+            dataset.attrs['long_name'] = 'CIA wavenumbers'
+            dataset.attrs['units'] = 'cm^-1'
+
+            dataset = fh5.create_dataset(
+                name='cross_sections',
+                data=np.transpose(cia_dict['alpha'])[:, ::-1]  # (temperature, wavenumber) wavenumbers ordering
+            )
+            dataset.attrs['long_name'] = 'Table of the cross-sections with axes (temperature, wavenumber)'
+            dataset.attrs['units'] = 'cm^-1.mol^-2.cm^6'
+
+            dataset = fh5.create_dataset(
+                name='t',
+                data=cia_dict['temperature']
+            )
+            dataset.attrs['long_name'] = 'Temperature grid'
+            dataset.attrs['units'] = 'K'
+
+            dataset = fh5.create_dataset(
+                name='mol_mass',
+                data=np.array([getMM(species) for species in cia_dict['molecules']])
+            )
+            dataset.attrs['long_name'] = 'Masses of the colliding species'
+            dataset.attrs['units'] = 'AMU'
+
+            dataset = fh5.create_dataset(
+                name='mol_name',
+                data=cia_dict['molecules']
+            )
+            dataset.attrs['long_name'] = 'Names of the colliding species described'
+
+            dataset = fh5.create_dataset(
+                name='wlrange',
+                data=np.array([cia_dict['lambda'].min(), cia_dict['lambda'].max()]) * 1e4  # cm to um
+            )
+            dataset.attrs['long_name'] = 'Wavelength range covered'
+            dataset.attrs['units'] = 'µm'
+
+            dataset = fh5.create_dataset(
+                name='wnrange',
+                data=np.array([wavenumbers.min(), wavenumbers.max()])
+            )
+            dataset.attrs['long_name'] = 'Wavenumber range covered'
+            dataset.attrs['units'] = 'cm^-1'
+
+        print("Done.")
+
+    print("Conversions successful.")
+
+
 def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                       rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""

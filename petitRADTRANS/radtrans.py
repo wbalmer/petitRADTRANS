@@ -1915,36 +1915,60 @@ class Radtrans:
                 h_minus = True
                 continue
 
-            colliding_species = collision.split('-')
+            print(f"  Loading CIA opacities for {collision}...")
 
-            print(f"  Read CIA opacities for {collision}...")
-            cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', collision)
+            hdf5_file = os.path.join(
+                path_input_data, 'opacities', 'continuum', 'CIA', collision + '.ciatable.petitRADTRANS.h5'
+            )
 
-            if os.path.isdir(cia_directory) is False:
-                raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
+            if os.path.isfile(hdf5_file):
+                with h5py.File(hdf5_file, 'r') as f:
+                    wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
+                    wavelengths = wavelengths[::-1]  # correct ordering
 
-            # TODO what is the purpose of the *_dims variables?
-            cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
-                cia_temp_dims, cia_lambda_dims = fi.cia_read(collision, path_input_data)
-            cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
-            cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
-            cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
-            cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
+                    species = f['mol_name'][:]
+                    species = [s.decode('utf-8') for s in species]
 
-            weight = 1
+                    collision_dict = {
+                        'id': collision,  # TODO remove useless key (duplicate of cia_species dict key)
+                        'molecules': species,
+                        'weight': np.prod(f['mol_mass'][:]),
+                        'lambda': wavelengths,
+                        'temperature': f['t'][:],
+                        'alpha': np.transpose(f['cross_sections'][:])[::-1, :]  # (wavelength, temperature), cor. order
+                    }
+            else:
+                print(f"HDF5 CIA file '{hdf5_file}' not found, loading from .dat...")
 
-            for species in colliding_species:
-                weight = weight * molar_mass.getMM(species)
+                cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', collision)
 
-            species = {
-                'id': collision,
-                'molecules': colliding_species,
-                'weight': weight,
-                'lambda': cia_wavelength_grid,
-                'temperature': cia_temperature_grid,
-                'alpha': cia_alpha_grid
-            }
-            cia_species[collision] = species
+                if os.path.isdir(cia_directory) is False:
+                    raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
+
+                # TODO what is the purpose of the *_dims variables?
+                cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
+                    cia_temp_dims, cia_lambda_dims = fi.cia_read(collision, path_input_data)
+                cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
+                cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
+                cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
+                cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
+
+                weight = 1
+                colliding_species = collision.split('-')
+
+                for collision_dict in colliding_species:
+                    weight = weight * molar_mass.getMM(collision_dict)
+
+                collision_dict = {
+                    'id': collision,
+                    'molecules': colliding_species,
+                    'weight': weight,
+                    'lambda': cia_wavelength_grid,
+                    'temperature': cia_temperature_grid,
+                    'alpha': cia_alpha_grid
+                }
+
+            cia_species[collision] = collision_dict
 
         print('Done.\n')
 
