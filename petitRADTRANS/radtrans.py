@@ -9,6 +9,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS import molar_mass
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS import phoenix
 from petitRADTRANS.fort_input import fort_input as fi
@@ -273,39 +274,10 @@ class Radtrans:
         self.Hminus = False
 
         if len(continuum_opacities) > 0:
-            for c in continuum_opacities:
-                mol = c.split('-')
-
-                if not c == 'H-':
-                    print(f"  Read CIA opacities for {c}...")
-                    cia_directory = os.path.join(self.path_input_data, 'opacities', 'continuum', 'CIA', c)
-
-                    if os.path.isdir(cia_directory) is False:
-                        raise ValueError(f"CIA directory '{cia_directory}' do not exists.")
-                    else:
-                        weight = 1
-
-                        for m in mol:
-                            weight = weight * nc.molecular_weight[m]
-
-                        cia_lambda, cia_temp, cia_alpha_grid, \
-                            cia_temp_dims, cia_lambda_dims = fi.cia_read(c, self.path_input_data)
-                        cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
-                        cia_temp = cia_temp[:cia_temp_dims]
-                        cia_lambda = cia_lambda[:cia_lambda_dims]
-                        cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
-                        species = {
-                            'id': c,
-                            'molecules': mol,
-                            'weight': weight,
-                            'lambda': cia_lambda,
-                            'temperature': cia_temp,
-                            'alpha': cia_alpha_grid
-                        }
-                        self.CIA_species[c] = species
-                else:
-                    self.Hminus = True
-            print('Done.\n')
+            self.CIA_species, self.Hminus = self.load_collision_induced_absorptions(
+                path_input_data,
+                continuum_opacities
+            )
 
     def _clouds_have_effect(self, mass_mixing_ratios):
         """
@@ -1935,6 +1907,51 @@ class Radtrans:
             self.stellar_intensity = np.zeros_like(self.freq)
 
     @staticmethod
+    def load_collision_induced_absorptions(path_input_data, continuum_opacities):
+        cia_species = {}
+        h_minus = False
+
+        for collision in continuum_opacities:
+            if collision == 'H-':
+                h_minus = True
+                continue
+
+            colliding_species = collision.split('-')
+
+            print(f"  Read CIA opacities for {collision}...")
+            cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', collision)
+
+            if os.path.isdir(cia_directory) is False:
+                raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
+
+            # TODO what is the purpose of the *_dims variables?
+            cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
+                cia_temp_dims, cia_lambda_dims = fi.cia_read(collision, path_input_data)
+            cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
+            cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
+            cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
+            cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
+
+            weight = 1
+
+            for species in colliding_species:
+                weight = weight * molar_mass.getMM(species)
+
+            species = {
+                'id': collision,
+                'molecules': colliding_species,
+                'weight': weight,
+                'lambda': cia_wavelength_grid,
+                'temperature': cia_temperature_grid,
+                'alpha': cia_alpha_grid
+            }
+            cia_species[collision] = species
+
+        print('Done.\n')
+
+        return cia_species, h_minus
+
+    @staticmethod
     def load_hdf5_ktables(file_path_hdf5, freq, g_len, freq_len, temperature_profile_grid_size):
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
@@ -2638,6 +2655,11 @@ class Radtrans:
             )
 
             if not os.path.isfile(hdf5_file):
+                '''
+                The function that read .dat files is fed with all cloud species at once, so if one HDF5 file is missing,
+                it is easier to just read everything from .dat files. It is unlikely that a user will have a mix of
+                files HDF5 and .dat files anyway.
+                '''
                 print(f"HDF5 cloud opacity file '{hdf5_file}' not found, loading all cloud data from .dat...")
                 use_hdf5_files = False
                 break
