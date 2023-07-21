@@ -257,10 +257,9 @@ class Radtrans:
         self.cloud_rad_bins = None
         self.cloud_radii = None
 
-        # TODO instead of reading lines here, do it in a separate function
-        # START Reading in opacities
-        # Read in line opacities
-        # Inherited from ReadOpacities in _read_opacities.py
+        # TODO instead of loading lines here, do it in a separate function
+        # START loading opacities
+        # Load line opacities
         self.read_line_opacities(arr_min, self.path_input_data)
 
         # Read continuum opacities
@@ -392,7 +391,7 @@ class Radtrans:
                     # Get dimensions of opacity arrays for a given P-T point
                     # arr_min, arr_max denote where in the large opacity files
                     # the required wavelength range sits.
-                    print(f"Reading file '{path_length}'")
+                    print(f"Loading file '{path_length}'")
                     freq_len, arr_min, _ = fi.get_arr_len_array_bords(
                         self.wlen_bords_micron[0] * 1e-4,
                         self.wlen_bords_micron[1] * 1e-4,
@@ -405,7 +404,7 @@ class Radtrans:
 
             if not load_from_dat:
                 path_length2 = os.path.join(
-                    self.path_input_data, 'opacities', 'lines', 'line_by_line', self.line_species[0],
+                    self.path_input_data, 'opacities', 'lines', 'line_by_line',
                     self.line_species[0] + '.otable.petitRADTRANS.h5'
                 )
 
@@ -2603,7 +2602,7 @@ class Radtrans:
                         arr_min=arr_min
                     )
                 else:
-                    print(f" Reading line opacities of species '{species}'...")
+                    print(f" Loading line opacities of species '{species}'...")
 
                     if self.mode == 'c-k':
                         self.line_opacities_grid[species] = self.load_hdf5_ktables(
@@ -2692,7 +2691,7 @@ class Radtrans:
                     raise ValueError(f"Particle shape code must be 'm' or 'd', "
                                      f"but was '{self.cloud_species_mode[i][1]}'")
 
-                print(f" Reading opacities of cloud species '{self.cloud_species[i]}' "
+                print(f" Loading opacities of cloud species '{self.cloud_species[i]}' "
                       f"({particles_internal_structure}, using {scattering_method} scattering)...")
 
                 with h5py.File(hdf5_file, 'r') as f:
@@ -2735,7 +2734,7 @@ class Radtrans:
                 )
             )[:, 0]))
 
-            # Actual reading of opacities
+            # Actual loading of opacities
             rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
                 cloud_aniso, cloud_lambdas, cloud_rad_bins, cloud_radii \
                 = fi.read_in_cloud_opacities(
@@ -2784,7 +2783,7 @@ class Radtrans:
             # Mass to go from opacities to cross-sections
             ret_opa_table = ret_opa_table * nc.amu * masses[spec.split('_')[0]]
 
-            # Do the opposite of what I do when reading in Katy's Exomol tables
+            # Do the opposite of what I do when loading in Katy's Exomol tables
             # To get opacities into the right format
             ret_opa_table = ret_opa_table[:, ::-1, :]
             ret_opa_table = np.swapaxes(ret_opa_table, 2, 0)

@@ -2,6 +2,7 @@
 
 from molmass import Formula
 
+
 def getMM(species):
     """
     Get the molecular mass of a given species.

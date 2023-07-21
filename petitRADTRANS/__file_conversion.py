@@ -218,8 +218,6 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
-    cloud_modes = tot_str_modes.split(':')
-
     # Save each clouds data into HDF5 file
     if output_directory is None:
         output_directory_ref = input_directory
