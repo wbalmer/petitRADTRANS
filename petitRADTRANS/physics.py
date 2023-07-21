@@ -1,7 +1,6 @@
 """Stores useful physical functions.
 """
 import numpy as np
-from scipy.ndimage import uniform_filter1d
 
 import petitRADTRANS.nat_cst as nc
 
@@ -260,39 +259,6 @@ def hz2um(frequency):
         (um) the corresponding wavelengths
     """
     return nc.c / frequency * 1e4  # cm to um
-
-
-def make_press_temp(rad_trans_params):  # TODO pressure grid in input?
-    """Function to make temp."""
-    press_many = np.logspace(-8, 5, 260)
-    t_no_ave = guillot_modif(press_many,
-                             1e1 ** rad_trans_params['log_delta'], 1e1 ** rad_trans_params['log_gamma'],
-                             rad_trans_params['intrinsic_temperature'], rad_trans_params['equilibrium_temperature'],
-                             1e1 ** rad_trans_params['log_p_trans'], rad_trans_params['alpha'])
-
-    # new
-    press_many_new = 1e1 ** uniform_filter1d(np.log10(press_many), 25)
-    t_new = uniform_filter1d(t_no_ave, 25)
-    index_new = (press_many_new <= 1e3) & (press_many_new >= 1e-6)
-    temp_new = t_new[index_new][::2]
-    press_new = press_many_new[index_new][::2]
-
-    return press_new, temp_new
-
-
-def make_press_temp_iso(rad_trans_params):
-    """Function to make temp."""
-    press_many = np.logspace(-8, 5, 260)
-    t_no_ave = rad_trans_params['equilibrium_temperature'] * np.ones_like(press_many)
-
-    # new
-    press_many_new = 1e1 ** uniform_filter1d(np.log10(press_many), 25)
-    t_new = uniform_filter1d(t_no_ave, 25)
-    index_new = (press_many_new <= 1e3) & (press_many_new >= 1e-6)
-    temp_new = t_new[index_new][::2]
-    press_new = press_many_new[index_new][::2]
-
-    return press_new, temp_new
 
 
 def isothermal(pressures, temperature):
