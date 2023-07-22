@@ -724,7 +724,7 @@ module fort_spec
             double precision, parameter :: abundance_threshold = 1d-60
 
             integer :: i_str, i_freq
-            double precision :: lambda_cm(freq_len), lamb_inv(freq_len), alpha_pol, lamb_inv_use
+            double precision :: lambda_cm(freq_len), lamb_inv(freq_len), lamb_inv_use
             double precision :: a0, a1, a2, a3, a4, a5, a6, a7, luv, lir, l(freq_len), d(struc_len), T(struc_len), &
                 retVal, retValMin, retValMax, mass_h2o, nm1, fk, scale, mass_co2, mass_o2, mass_n2, A, B, C, mass_co, &
                 nfr_co, mass_ch4, nfr_ch4!, rayleigh_kappa_tmp(freq_len, struc_len)
