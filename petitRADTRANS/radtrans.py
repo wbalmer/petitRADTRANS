@@ -1746,33 +1746,57 @@ class Radtrans:
         self.calc_tr_rad(p0_bar, r_pl, gravity, mmw, contribution, variable_gravity)
 
     def interpolate_cia(self, key, mfrac):
-        mu_part = np.sqrt(self.CIA_species[key]['weight'])
-        factor = (mfrac / mu_part) ** 2 * self.mmw / nc.amu / (nc.L0 ** 2) * self.press / nc.kB / self.temp
+        """Interpolate CIA cross-sections onto the Radtrans (wavelength, temperature) grid and convert it into
+        opacities.
 
-        x = self.CIA_species[key]['temperature']
-        y = self.CIA_species[key]['lambda']
-        z = self.CIA_species[key]['alpha']
-        z[z < sys.float_info.min] = sys.float_info.min
-        z = np.log10(self.CIA_species[key]['alpha'])
+        Args:
+            key: collision (e.g. H2-He)
+            mfrac: combined mass mixing ratios of the colliding species
+                e.g., for H2-He and an atmosphere with H2 and He MMR of respectively 0.74 and 0.24, mfrac = 0.74 * 0.24
+                mfrac is divided by the combined weight (e.g. for H2 and He, 2 * 4 AMU^2), so there is no units issue
 
-        xnew = self.temp
-        ynew = nc.c / self.freq
+        Returns:
+            A (wavelength, temperature) array containing the CIA opacities.
+        """
+        '''
+        Dev note: this function is one of the costliest when calculating a spectrum.
+        Interpolating on wavelengths during instantiation (since wavelengths will not change for a given Radtrans), then
+        interpolating here does not significantly improve this function's performances.
+        Using a (arguably more accurate) 2D interpolation using a scipy RegularGridInterpolator is also slower in the
+        linear case.
+        '''
+        factor = mfrac / self.CIA_species[key]['weight'] \
+            * self.mmw / nc.amu / (nc.L0 ** 2) * self.press / nc.kB / self.temp
 
-        if x.shape[0] > 1:
+        log10_alpha = np.log10(self.CIA_species[key]['alpha'])
+
+        if self.CIA_species[key]['temperature'].shape[0] > 1:
             # Interpolation on temperatures for each wavelength point
-            f = interp1d(x, z, kind='linear', bounds_error=False, fill_value=(z[:, 0], z[:, -1]), axis=1)
-            z_temp2 = f(xnew)
+            interpolating_function = interp1d(
+                x=self.CIA_species[key]['temperature'],
+                y=log10_alpha,
+                kind='linear',
+                bounds_error=False,
+                fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
+            )
+            cia_opacities = interpolating_function(self.temp)
 
-            f1 = interp1d(
-                y, z_temp2, kind='linear', bounds_error=False, fill_value=(np.log10(sys.float_info.min)), axis=0
+            interpolating_function = interp1d(
+                x=self.CIA_species[key]['lambda'],
+                y=cia_opacities,
+                kind='linear',
+                bounds_error=False,
+                fill_value=(np.log10(sys.float_info.min)),
+                axis=0
             )
 
-            znew = 10 ** f1(ynew)
-            znew = np.where(znew < sys.float_info.min, 0, znew)
+            cia_opacities = 10 ** interpolating_function(nc.c / self.freq)
+            cia_opacities = np.where(cia_opacities < sys.float_info.min, 0, cia_opacities)
 
-            return np.multiply(znew, factor)
+            return cia_opacities * factor
         else:
-            raise ValueError(f"petitRADTRANS require a rectangular CIA table, table shape was {x.shape}")
+            raise ValueError(f"petitRADTRANS require a rectangular CIA table, "
+                             f"table shape was {self.CIA_species[key]['temperature'].shape}")
 
     def interpolate_species_opa(self, temp):
         # Interpolate line opacities to given temperature structure.
@@ -2245,7 +2269,7 @@ class Radtrans:
                         raise ValueError(f"species {m} of CIA '{key}' not found in mass mixing ratios dict "
                                          f"(listed species: {list(abundances.keys())})")
 
-            self.continuum_opa = self.continuum_opa + self.interpolate_cia(key, np.sqrt(abund))
+            self.continuum_opa = self.continuum_opa + self.interpolate_cia(key, abund)
 
         # Calc. H- opacity
         if self.Hminus:
