@@ -445,129 +445,139 @@ module fort_input
         end subroutine read_in_cloud_opacities
 
 
-        subroutine interpol_opa_ck(press,temp,opa_TP_grid,custom_grid, &
-                                   diffTs, diffPs, opa_grid_kappas, struc_len, tp2nddim, N_PT_grid, &
-                                   freq_len, g_len, opa_struc_kappas)
+        subroutine interpol_opa_ck(pressures, temperatures, temperature_pressure_grid, custom_grid, &
+                                   n_temperatures, n_pressures, opacity_grid, &
+                                   n_layers, n_tp_grid_columns, n_tp_grid_rows, n_frequencies, n_g, &
+                                   interpolated_opacities)
             ! """
-            ! Subroutine to interpolate the total opacity at a given PT structure
+            ! Subroutine to interpolate an opacity grid at a given temperature profile.
             ! """
             implicit none
 
-            integer, intent(in)                   :: struc_len, N_PT_grid, g_len
-            integer, intent(in)                   :: freq_len, tp2nddim
-            double precision, intent(in)          :: press(struc_len), temp(struc_len)
-            double precision, intent(in)          :: opa_TP_grid(N_PT_grid,tp2nddim)
-            double precision, intent(in)          :: opa_grid_kappas(g_len,freq_len,N_PT_grid)
-            logical, intent(in)                   :: custom_grid
-            integer, intent(in)                   :: diffTs, diffPs
-            double precision, intent(out)         :: opa_struc_kappas(g_len,freq_len,struc_len)
-            
-            integer                               :: i_str, ind_take
-            integer                               :: s_temp_ind_own, press_ind_own
-            integer                               :: PT_ind_Ts_Ps, PT_ind_Ts_Pl,PT_ind_Tl_Ps, &
-                PT_ind_Tl_Pl, buffer_scalar_array(1)
-            double precision                      :: PorT(g_len,freq_len), &
-                slopes(g_len,freq_len), &
-                buffer1(g_len,freq_len),buffer2(g_len,freq_len), &
-                diff_Ps_vals(diffPs), diff_Ts_vals(diffTs)
-            double precision                      :: buffer_Ts(g_len,freq_len), &
-                buffer_Tl(g_len,freq_len),temp_min, temp_max
+            integer, intent(in) :: n_g, n_layers, n_tp_grid_rows, n_tp_grid_columns ! n_tp_grid_columns = 2
+            integer, intent(in) :: n_frequencies
+            double precision, intent(in) :: pressures(n_layers), temperatures(n_layers)
+            double precision, intent(in) :: temperature_pressure_grid(n_tp_grid_rows, n_tp_grid_columns)
+            double precision, intent(in) :: opacity_grid(n_g, n_frequencies, n_tp_grid_rows)
+            logical, intent(in) :: custom_grid
+            integer, intent(in) :: n_temperatures, n_pressures
+            double precision, intent(out) :: interpolated_opacities(n_g, n_frequencies, n_layers)
 
-            temp_min = MINVAL(opa_TP_grid(:,1))
-            temp_max = MAXVAL(opa_TP_grid(:,1))
-            
+            integer :: i, i_temperature, i_pressure
+            integer :: j_t0_p0, j_t0_p1, j_t1_p0, j_t1_p1
+            integer :: j_t0_p0_pre, j_t0_p1_pre, j_t1_p0_pre, j_t1_p1_pre
+            integer :: buffer_scalar_array(1)
+            double precision :: dx, dy_0(n_g, n_frequencies), dy_1(n_g, n_frequencies), &
+                y_p_low(n_g, n_frequencies), y_p_high(n_g, n_frequencies), &
+                y_t_low(n_g, n_frequencies), y_t_high(n_g, n_frequencies)
+            double precision :: pressure_grid(n_pressures), temperature_grid(n_temperatures)
+
+            ! Initialize "custom" (non-default) pressure and temperature grid
             if (custom_grid) then
-                diff_Ps_vals = opa_TP_grid(1:diffPs,2)
+                pressure_grid = temperature_pressure_grid(1:n_pressures, 2)
                 
-                do i_str = 1, diffTs
-                    ind_take = (i_str-1)*diffPs+1
-                    diff_Ts_vals(i_str) = opa_TP_grid(ind_take,1)
+                do i = 1, n_temperatures
+                    temperature_grid(i) = temperature_pressure_grid((i - 1) * n_pressures + 1, 1)
                 end do
             end if
 
-            do i_str = 1, struc_len
-                if (custom_grid) then
-                    call search_intp_ind(diff_Ts_vals,diffTs,temp(i_str),1,buffer_scalar_array)
-                    s_temp_ind_own = buffer_scalar_array(1)
-                    call search_intp_ind(diff_Ps_vals,diffPs,press(i_str),1,buffer_scalar_array)
-                    press_ind_own = buffer_scalar_array(1)
-                    
-                    ! Opacity N_PT_grid indice at smaller P and T than point of interest
-                    PT_ind_Ts_Ps = (s_temp_ind_own-1)*diffPs+press_ind_own
-                    ! Opacity N_PT_grid indice at larger P and smaller T than point of interest
-                    PT_ind_Ts_Pl = (s_temp_ind_own-1)*diffPs+press_ind_own+1
-                    ! Opacity N_PT_grid indice at smaller P and larger T than point of interest
-                    PT_ind_Tl_Ps = s_temp_ind_own*diffPs+press_ind_own
-                    ! Opacity N_PT_grid indice at larger P and T than point of interest
-                    PT_ind_Tl_Pl = s_temp_ind_own*diffPs+press_ind_own+1
-                else
-                    s_temp_ind_own = MAX(MIN(INT(log10(temp(i_str)/81.14113604736988d0)/ &
-                    log10(2995d0/81.14113604736988d0)*12d0)+1,12),1)
-                    press_ind_own = MAX(MIN(INT(log10(press(i_str)*1d-6)+6d0)+1,9),1)
-                    
-                    ! Opacity N_PT_grid indice at smaller P and T than point of interest
-                    PT_ind_Ts_Ps = (s_temp_ind_own-1)*10+press_ind_own
-                    ! Opacity N_PT_grid indice at larger P and smaller T than point of interest
-                    PT_ind_Ts_Pl = (s_temp_ind_own-1)*10+press_ind_own+1
-                    ! Opacity N_PT_grid indice at smaller P and larger T than point of interest
-                    PT_ind_Tl_Ps = s_temp_ind_own*10+press_ind_own
-                    ! Opacity N_PT_grid indice at larger P and T than point of interest
-                    PT_ind_Tl_Pl = s_temp_ind_own*10+press_ind_own+1
-                end if
-                
-                ! Interpolation to correct pressure at smaller temperatures
-                ! kappas
-                ! kappa_gs at smaller T and smaller P
-                buffer1 = opa_grid_kappas(:,:,PT_ind_Ts_Ps)
-                ! kappa_gs at smaller T and larger P
-                buffer2 = opa_grid_kappas(:,:,PT_ind_Ts_Pl)
-                
-                PorT = press(i_str)-opa_TP_grid(PT_ind_Ts_Ps,2)
-                
-                slopes = (buffer2-buffer1)/(opa_TP_grid(PT_ind_Ts_Pl,2)-opa_TP_grid(PT_ind_Ts_Ps,2))
-                
-                if (press(i_str) >= opa_TP_grid(PT_ind_Ts_Pl,2)) then
-                    buffer_Ts = buffer2
-                else if (press(i_str) <= opa_TP_grid(PT_ind_Ts_Ps,2)) then
-                    buffer_Ts = buffer1
-                else
-                    buffer_Ts = buffer1 + slopes*PorT
-                end if
-                
-                ! Interpolation to correct pressure at larger temperatures
-                ! kappas
-                ! opacity at larger T and smaller P
-                buffer1 = opa_grid_kappas(:,:,PT_ind_Tl_Ps)
-                ! opacity at larger T and larger P
-                buffer2 = opa_grid_kappas(:,:,PT_ind_Tl_Pl)
-                
-                PorT = press(i_str)-opa_TP_grid(PT_ind_Tl_Ps,2)
-                
-                ! slopes to correct to correct pressure are larger T
-                slopes = (buffer2-buffer1)/(opa_TP_grid(PT_ind_Tl_Pl,2)-opa_TP_grid(PT_ind_Tl_Ps,2))
-                
-                ! total opacity at larger temperature and correct pressure
-                if (press(i_str) >= opa_TP_grid(PT_ind_Tl_Pl,2)) then
-                    buffer_Tl = buffer2
-                else if (press(i_str) <= opa_TP_grid(PT_ind_Tl_Ps,2)) then
-                    buffer_Tl = buffer1
-                else
-                    buffer_Tl = buffer1 + slopes*PorT
-                end if
-                
-                ! Interpolation to correct pressure and correct temperatures
-                ! kappas
-                PorT = temp(i_str)-opa_TP_grid(PT_ind_Ts_Ps,1)
-                
-                slopes = (buffer_Tl-buffer_Ts)/(opa_TP_grid(PT_ind_Tl_Ps,1)-opa_TP_grid(PT_ind_Ts_Ps,1))
+            ! Initialize memory indices and arrays
+            dy_0 = 0d0
+            dy_1 = 0d0
 
-                if (temp(i_str) >= temp_max) then
-                    opa_struc_kappas(:,:,i_str) = buffer_Tl
-                else if (temp(i_str) <= temp_min) then
-                    opa_struc_kappas(:,:,i_str) = buffer_Ts
+            j_t0_p0_pre = -1
+            j_t0_p1_pre = -1
+            j_t1_p0_pre = -1
+            j_t1_p1_pre = -1
+
+            ! Loop over temperature profile's layers
+            do i = 1, n_layers
+                ! Get indices in temperature-pressure grid around the current layer's pressure and temperature
+                if (custom_grid) then
+                    ! Search the index in the grids that is the closest to the current layer's pressure and temperature
+                    ! TODO is there truly an interest in searching for indices using a dichotomy instead of looping?
+                    call search_intp_ind(temperature_grid, n_temperatures, temperatures(i), 1, buffer_scalar_array)
+
+                    i_temperature = buffer_scalar_array(1)
+
+                    call search_intp_ind(pressure_grid, n_pressures, pressures(i), 1, buffer_scalar_array)
+
+                    i_pressure = buffer_scalar_array(1)
+                    
+                    ! Get indices in temperature-pressure grid around the current layer's pressure and temperature
+                    j_t0_p0 = (i_temperature - 1) * n_pressures + i_pressure
+                    j_t0_p1 = (i_temperature - 1) * n_pressures + i_pressure + 1
+                    j_t1_p0 = i_temperature * n_pressures + i_pressure
+                    j_t1_p1 = i_temperature * n_pressures + i_pressure + 1
                 else
-                    opa_struc_kappas(:,:,i_str) = &
-                    buffer_Ts +  slopes*PorT
+                    ! Get the index in the grids that is the closest to the current layer's pressure and temperature
+                    i_temperature = max(min(int(log10(temperatures(i) / 81.14113604736988d0) &
+                        / log10(2995d0 / 81.14113604736988d0) * 12d0) + 1, 12), 1)
+                    i_pressure = max(min(int(log10(pressures(i) * 1d-6) + 6d0) + 1, 9), 1)
+                    
+                    ! Get indices in temperature-pressure grid around the current layer's pressure and temperature
+                    j_t0_p0 = (i_temperature - 1) * 10 + i_pressure
+                    j_t0_p1 = (i_temperature - 1) * 10 + i_pressure + 1
+                    j_t1_p0 = i_temperature * 10 + i_pressure
+                    j_t1_p1 = i_temperature * 10 + i_pressure + 1
+                end if
+
+                ! Interpolation of opacity grid at lower temperature to the layer's pressure
+                y_p_low = opacity_grid(:, :, j_t0_p0)
+                y_p_high = opacity_grid(:, :, j_t0_p1)
+                
+                if (pressures(i) >= temperature_pressure_grid(j_t0_p1, 2)) then
+                    y_t_low = y_p_high
+                else if (pressures(i) <= temperature_pressure_grid(j_t0_p0, 2)) then
+                    y_t_low = y_p_low
+                else
+                    dx = (pressures(i) - temperature_pressure_grid(j_t0_p0, 2)) &
+                        / (temperature_pressure_grid(j_t0_p1, 2) - temperature_pressure_grid(j_t0_p0, 2))
+
+                    if (j_t0_p0 /= j_t0_p0_pre .or. j_t0_p1 /= j_t0_p1_pre) then
+                        ! No need to calculate dy_0 again if the indices have not updated
+                        dy_0 = y_p_high - y_p_low
+
+                        j_t0_p0_pre = j_t0_p0
+                        j_t0_p1_pre = j_t0_p1
+                    end if
+
+                    y_t_low = y_p_low + dx * dy_0
+                end if
+
+                ! Interpolation of opacity grid at higher temperature to the layer's pressure
+                y_p_low = opacity_grid(:, :, j_t1_p0)
+                y_p_high = opacity_grid(:, :, j_t1_p1)
+
+                if (pressures(i) >= temperature_pressure_grid(j_t1_p1, 2)) then
+                    y_t_high = y_p_high
+                else if (pressures(i) <= temperature_pressure_grid(j_t1_p0, 2)) then
+                    y_t_high = y_p_low
+                else
+                    dx = (pressures(i) - temperature_pressure_grid(j_t1_p0, 2)) &
+                        / (temperature_pressure_grid(j_t1_p1, 2) - temperature_pressure_grid(j_t1_p0, 2))
+
+                    if (j_t1_p0 /= j_t1_p0_pre .or. j_t1_p1 /= j_t1_p1_pre) then
+                        ! No need to calculate dy_1 again if the indices have not updated
+                        dy_1 = y_p_high - y_p_low
+
+                        j_t1_p0_pre = j_t1_p0
+                        j_t1_p1_pre = j_t1_p1
+                    end if
+
+                    y_t_high = y_p_low + dx * dy_1
+                end if
+
+                ! Interpolation of opacity grid at the layer's pressure to the layer's temperature
+                if (temperatures(i) >= maxval(temperature_pressure_grid(:, 1))) then
+                    interpolated_opacities(:, :, i) = y_t_high
+                else if (temperatures(i) <= minval(temperature_pressure_grid(:, 1))) then
+                    interpolated_opacities(:, :, i) = y_t_low
+                else
+                    dx = (temperatures(i) - temperature_pressure_grid(j_t0_p0, 1)) &
+                        / (temperature_pressure_grid(j_t1_p0, 1) - temperature_pressure_grid(j_t0_p0, 1))
+
+                    interpolated_opacities(:, :, i) = y_t_low + dx * (y_t_high - y_t_low)
                 end if
             end do
         end subroutine interpol_opa_ck
@@ -591,23 +601,21 @@ module fort_input
                 else if (arr(i_arr) <= binbord(1)) then
                     intpint(i_arr) = 1
                 else
-                
-                k0 = 1
-                km = binbordlen
-                pivot = (km + k0) / 2
-                
-                do while(km - k0 > 1)
-                    if (arr(i_arr) >= binbord(pivot)) then
-                        k0 = pivot
-                        pivot = (km + k0) / 2
-                    else
-                        km = pivot
-                        pivot = (km + k0) / 2
-                    end if
-                end do
-                
-                intpint(i_arr) = k0
-                
+                    k0 = 1
+                    km = binbordlen
+                    pivot = (km + k0) / 2
+
+                    do while(km - k0 > 1)
+                        if (arr(i_arr) >= binbord(pivot)) then
+                            k0 = pivot
+                            pivot = (km + k0) / 2
+                        else
+                            km = pivot
+                            pivot = (km + k0) / 2
+                        end if
+                    end do
+
+                    intpint(i_arr) = k0
                 end if
             end do
         end subroutine search_intp_ind
@@ -853,6 +861,7 @@ module fort_input
 
             close(49)
         end subroutine read_kappa
+
 
         subroutine get_file_size(file_path, arr_len)
             ! """
