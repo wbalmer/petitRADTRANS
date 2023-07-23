@@ -440,17 +440,17 @@ class Data:
             diff = (flux_rebinned - self.flux) + self.offset
         f_err = np.zeros_like(self.flux_error)
         f_err = self.flux_error
-        #self.b_val = -np.inf
+        b_val = -np.inf
         #if "uncertainty_scaling_b" in parameters.keys():
         #    self.b_val = self.line_b_uncertainty_scaling(parameters)
-        #elif f"{self.name}_b" in parameters.keys():
-        #    self.b_val = self.line_b_uncertainty_scaling(parameters)
+        if f"{self.name}_b" in parameters.keys():
+            b_val = parameters[self.name + "_b"].value
 
         if self.scale_err:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
 
-        if not self.bval==-np.inf:
-            f_err = np.sqrt(f_err**2 + 10**self.bval)
+        if not b_val==-np.inf:
+            f_err = np.sqrt(f_err**2 + 10**b_val)
 
         logL=0.0
         if self.covariance is not None:
@@ -484,10 +484,10 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
-        if self.scale_err:
-            print(self.name, np.max(f_err), np.max(self.flux_error), parameters[self.name + "_scale_factor"].value, logL)
-        else:
-            print(self.name, np.max(f_err), np.max(self.flux_error), logL)
+        #if self.scale_err:
+        #    print(self.name, np.max(f_err), np.max(self.flux_error), parameters[self.name + "_scale_factor"].value, logL)
+        #else:
+        #    print(self.name, np.max(f_err), np.max(self.flux_error), logL)
         return logL
 
     def get_log_likelihood(self, spectrum_model, alpha=1.0):
