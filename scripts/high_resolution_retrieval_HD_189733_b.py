@@ -113,10 +113,10 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     atmosphere = Radtrans(
         line_species=line_species,
         rayleigh_species=rayleigh_species,
-        continuum_opacities=continuum_species,
-        wlen_bords_micron=w_bords,
-        mode='lbl',
-        do_scat_emis=True,
+        collision_induced_absorptions=continuum_species,
+        wavelengths_boundaries=w_bords,
+        opacity_mode='lbl',
+        scattering_in_emission=True,
         lbl_opacity_sampling=4
     )
     atmosphere.setup_opa_structure(pressures)
@@ -131,7 +131,7 @@ def _init_retrieval_model(prt_object, parameters):
     temperature = parameters['temperature'].value
 
     # Make the P-T profile
-    pressures = prt_object.press * 1e-6  # bar to cgs
+    pressures = prt_object.pressures * 1e-6  # bar to cgs
     temperatures = np.ones(pressures.shape) * temperature
 
     # Make the abundance profiles
@@ -403,7 +403,7 @@ def _transit_radius_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_transit_radius = prt_object.transm_rad
-    wlen_model = nc.c / prt_object.freq * 1e4  # wlen in micron
+    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius
 

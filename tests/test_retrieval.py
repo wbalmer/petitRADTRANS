@@ -175,7 +175,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
             Computed transmission spectrum R_pl**2/Rstar**2
     """
     # Make the P-T profile
-    pressures = prt_object.press * 1e-6  # bar to cgs
+    pressures = prt_object.pressures * 1e-6  # bar to cgs
     temperatures = parameters['Temperature'].value * np.ones_like(pressures)
 
     # Make the abundance profiles
@@ -205,7 +205,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     )
 
     # Transform the outputs into the units of our data.
-    wlen_model = petitRADTRANS.nat_cst.c / prt_object.freq * 1e4  # wlen in micron
+    wlen_model = petitRADTRANS.nat_cst.c / prt_object.frequencies * 1e4  # wlen in micron
     spectrum_model = (prt_object.transm_rad / parameters['Rstar'].value) ** 2.
 
     return wlen_model, spectrum_model

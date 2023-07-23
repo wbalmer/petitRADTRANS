@@ -91,7 +91,7 @@ def emission_model_diseq(pRT_object,
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -138,12 +138,12 @@ def emission_model_diseq(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
     # Calculate the spectrum
-    if pressures.shape[0] != pRT_object.press.shape[0]:
+    if pressures.shape[0] != pRT_object.pressures.shape[0]:
         print("Incorrect output shape!")
         return None, None
 
@@ -165,12 +165,12 @@ def emission_model_diseq(pRT_object,
                          dist=distribution)
 
     # Getting the model into correct units (W/m2/micron)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_em
+        return wlen_model, spectrum_model, pRT_object.contribution_emission
     return wlen_model, spectrum_model
 
 
@@ -225,7 +225,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     contribution = False  # Not sure how to deal with having 2 separate contribution function
 
@@ -239,7 +239,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
 
     # let's start out by setting up our global pressure arrays
     # This is used for the hi res bins for AMR
-    pglobal_check(pRT_object.press / 1e6,
+    pglobal_check(pRT_object.pressures / 1e6,
                   parameters['pressure_simple'].value,
                   parameters['pressure_scaling'].value)
 
@@ -274,10 +274,10 @@ def emission_model_diseq_patchy_clouds(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
-    if pressures.shape[0] != pRT_object.press.shape[0]:
+    if pressures.shape[0] != pRT_object.pressures.shape[0]:
         return None, None
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
@@ -293,7 +293,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                          b_hans=b_hans,
                          radius=radii,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
                                          R_pl,
                                          parameters['D_pl'].value)
@@ -312,7 +312,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                          sigma_lnorm=sigma_lnorm,
                          b_hans=b_hans,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
                                         R_pl,
                                         parameters['D_pl'].value)
@@ -379,7 +379,7 @@ def guillot_emission(pRT_object,
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -411,7 +411,7 @@ def guillot_emission(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -428,12 +428,12 @@ def guillot_emission(pRT_object,
                          b_hans=b_hans,
                          radius=radii,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_em
+        return wlen_model, spectrum_model, pRT_object.contribution_emission
     return wlen_model, spectrum_model
 
 
@@ -495,7 +495,7 @@ def guillot_transmission(pRT_object,
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -527,7 +527,7 @@ def guillot_transmission(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -576,10 +576,10 @@ def guillot_transmission(pRT_object,
             contribution=contribution
         )
 
-    wlen_model = nc.c / pRT_object.freq / 1e-4
+    wlen_model = nc.c / pRT_object.frequencies / 1e-4
     spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_tr
+        return wlen_model, spectrum_model, pRT_object.contribution_transmission
     return wlen_model, spectrum_model
 
 
@@ -642,7 +642,7 @@ def guillot_patchy_transmission(pRT_object,
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -678,7 +678,7 @@ def guillot_patchy_transmission(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -701,7 +701,7 @@ def guillot_patchy_transmission(pRT_object,
         contribution=contribution
     )
 
-    wlen_model = nc.c / pRT_object.freq / 1e-4
+    wlen_model = nc.c / pRT_object.frequencies / 1e-4
     spectrum_model_cloudy = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
@@ -718,13 +718,13 @@ def guillot_patchy_transmission(pRT_object,
         contribution=contribution
     )
 
-    wlen_model = nc.c / pRT_object.freq / 1e-4
+    wlen_model = nc.c / pRT_object.frequencies / 1e-4
     spectrum_model_clear = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
                      ((1 - patchiness) * spectrum_model_clear)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_tr
+        return wlen_model, spectrum_model, pRT_object.contribution_transmission
     return wlen_model, spectrum_model
 
 
@@ -780,7 +780,7 @@ def isothermal_transmission(pRT_object,
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
     """
-    p_use = initialize_pressure(pRT_object.press / 1e6, parameters, AMR)
+    p_use = initialize_pressure(pRT_object.pressures / 1e6, parameters, AMR)
 
     # Make the P-T profile
     temperatures = isothermal(p_use, parameters["Temp"].value)
@@ -805,7 +805,7 @@ def isothermal_transmission(pRT_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         MMW = MMW[small_index]
-        pRT_object.press = pressures * 1e6
+        pRT_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -857,11 +857,11 @@ def isothermal_transmission(pRT_object,
             contribution=contribution
         )
 
-    wlen_model = nc.c / pRT_object.freq / 1e-4
+    wlen_model = nc.c / pRT_object.frequencies / 1e-4
     spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
 
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contr_tr
+        return wlen_model, spectrum_model, pRT_object.contribution_transmission
 
     return wlen_model, spectrum_model
 

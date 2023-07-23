@@ -22,10 +22,10 @@ def init_radtrans_correlated_k():
         pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         cloud_species=list(radtrans_parameters['cloud_parameters']['cloud_species'].keys()),
-        wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
-        mode='c-k'
+        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        opacity_mode='c-k'
     )
 
     return atmosphere
@@ -48,7 +48,7 @@ def test_correlated_k_emission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck.flux
         },
         relative_tolerance=relative_tolerance
@@ -75,8 +75,8 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_contribution_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
-            'contribution': atmosphere_ck.contr_em
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
+            'contribution': atmosphere_ck.contribution_emission
         },
         relative_tolerance=relative_tolerance
     )
@@ -101,7 +101,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck.flux
         },
         relative_tolerance=relative_tolerance
@@ -128,7 +128,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_hansen_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck.flux
         },
         relative_tolerance=relative_tolerance
@@ -150,7 +150,7 @@ def test_correlated_k_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
@@ -174,7 +174,7 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_power_law'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
@@ -197,7 +197,7 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_gray_cloud'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
@@ -220,7 +220,7 @@ def test_correlated_k_transmission_spectrum_rayleigh():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_rayleigh'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
@@ -247,7 +247,7 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_fixed_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
@@ -278,8 +278,8 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
             'correlated_k_transmission_contribution_cloud_calculated_radius'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
-            'contribution': atmosphere_ck.contr_tr
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
+            'contribution': atmosphere_ck.contribution_transmission
         },
         relative_tolerance=relative_tolerance,
         absolute_tolerance=5e-10  # there is a max absolute error of 3.28989835374216e-10 between windows and WSL
@@ -308,7 +308,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
             'transit_radius': atmosphere_ck.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance

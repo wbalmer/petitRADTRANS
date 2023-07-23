@@ -9,9 +9,9 @@ atmosphere = Radtrans(line_species = ['H2O_main_iso',
                                       'Na',
                                       'K'],
                       rayleigh_species = ['H2', 'He'],
-                      continuum_opacities = ['H2-H2', 'H2-He'],
-                      wlen_bords_micron = [2.2, 2.4],
-                      mode = 'lbl')
+                      collision_induced_absorptions= ['H2-H2', 'H2-He'],
+                      wavelengths_boundaries= [2.2, 2.4],
+                      opacity_mode='lbl')
 
 pressures = np.logspace(-10, 2, 130)
 atmosphere.setup_opa_structure(pressures)

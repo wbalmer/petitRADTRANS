@@ -171,15 +171,15 @@ class BaseSpectralModel:
     # TODO add transit duration function
     def __init__(self, pressures,
                  line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
-                 opacity_mode='lbl', do_scat_emis=True, lbl_opacity_sampling=1,
+                 opacity_mode='lbl', lbl_opacity_sampling=1, do_scat_emis=True,
                  temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
                  wavelengths_boundaries=None, wavelengths=None, transit_radii=None, spectral_radiosities=None,
                  **model_parameters):
         """Base for SpectralModel. Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
 
-        Initialised as a Radtrans object. Additional parameters, that are used to generate the spectrum, are stored into
-        the attribute model_parameters.
+        Initialised like a Radtrans object. Additional parameters, that are used to generate the spectrum, are stored
+        into the attribute model_parameters.
         The corresponding Radtrans object must be generated with the init_radtrans function.
         The spectrum is generated with the get_spectrum_model function.
         A retrieval object can be initialised with the init_retrieval function.
@@ -851,8 +851,8 @@ class BaseSpectralModel:
             t_star=star_effective_temperature,
             r_star=star_radius,
             semimajoraxis=orbit_semi_major_axis,
-            geometry=irradiation_geometry,
-            theta_star=irradiation_inclination,
+            emission_geometry=irradiation_geometry,
+            star_inclination_angle=irradiation_inclination,
             hack_cloud_photospheric_tau=cloud_photospheric_optical_depth,
             dist=cloud_particle_size_distribution,
             a_hans=cloud_hansen_a,
@@ -867,8 +867,8 @@ class BaseSpectralModel:
 
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
-        wavelengths = hz2um(radtrans.freq)
-        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.freq) \
+        wavelengths = hz2um(radtrans.frequencies)
+        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.frequencies) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         return wavelengths, spectral_radiosity
@@ -988,7 +988,7 @@ class BaseSpectralModel:
 
         # Convert into more useful units
         planet_transit_radius = copy.copy(radtrans.transm_rad)
-        wavelengths = hz2um(radtrans.freq)
+        wavelengths = hz2um(radtrans.frequencies)
         # TODO convert into radiosities by adding a star spectrum, so that it is consistent with emission?
 
         return wavelengths, planet_transit_radius
@@ -1413,11 +1413,11 @@ class BaseSpectralModel:
         radtrans = Radtrans(
             line_species=line_species,
             rayleigh_species=rayleigh_species,
-            continuum_opacities=continuum_opacities,
+            collision_induced_absorptions=continuum_opacities,
             cloud_species=cloud_species,
-            wlen_bords_micron=wavelengths_boundaries,
-            mode=opacity_mode,
-            do_scat_emis=do_scat_emis,
+            wavelengths_boundaries=wavelengths_boundaries,
+            opacity_mode=opacity_mode,
+            scattering_in_emission=do_scat_emis,
             lbl_opacity_sampling=lbl_opacity_sampling,
             pressures=pressures
         )
@@ -1855,12 +1855,12 @@ class BaseSpectralModel:
             if species in p:
                 if species == 'CO_36':
                     imposed_mass_mixing_ratios[species] = 10 ** p[species] \
-                                                          * np.ones(prt_object.press.shape)
+                                                          * np.ones(prt_object.pressures.shape)
                 else:
                     spec = species.split('_R_')[
                         0]  # deal with the naming scheme for binned down opacities (see below)
                     imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
-                        * np.ones(prt_object.press.shape)
+                        * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
@@ -1870,12 +1870,12 @@ class BaseSpectralModel:
             if species in p and species not in prt_object.line_species:
                 if species == 'CO_36':
                     imposed_mass_mixing_ratios[species] = 10 ** p[species] \
-                                                          * np.ones(prt_object.press.shape)
+                                                          * np.ones(prt_object.pressures.shape)
                 else:
                     spec = species.split('_R_')[
                         0]  # deal with the naming scheme for binned down opacities (see below)
                     imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
-                        * np.ones(prt_object.press.shape)
+                        * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
@@ -1992,8 +1992,8 @@ class BaseSpectralModel:
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **kwargs):
         self.temperatures, self.mass_mixing_ratios, self.mean_molar_masses, self.model_parameters = \
             self.get_spectral_calculation_parameters(
-                pressures=radtrans.press * 1e-6,  # cgs to bar
-                wavelengths=hz2um(radtrans.freq),
+                pressures=radtrans.pressures * 1e-6,  # cgs to bar
+                wavelengths=hz2um(radtrans.frequencies),
                 **kwargs
             )
 
@@ -2977,7 +2977,7 @@ class SpectralModel(BaseSpectralModel):
         )[0]
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
-        pressures = radtrans.press * 1e-6  # cgs to bar
+        pressures = radtrans.pressures * 1e-6  # cgs to bar
 
         kwargs = {'imposed_mass_mixing_ratios': {}}
 
@@ -3009,7 +3009,7 @@ class SpectralModel(BaseSpectralModel):
         self.temperatures, self.mass_mixing_ratios, self.mean_molar_masses, self.model_parameters = \
             self.get_spectral_calculation_parameters(
                 pressures=pressures,
-                wavelengths=hz2um(radtrans.freq),
+                wavelengths=hz2um(radtrans.frequencies),
                 line_species=radtrans.line_species,
                 **kwargs
             )

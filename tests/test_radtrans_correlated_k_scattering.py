@@ -26,11 +26,11 @@ def init_radtrans_correlated_k():
         pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         cloud_species=list(radtrans_parameters['cloud_parameters']['cloud_species'].keys()),
-        wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
-        mode='c-k',
-        do_scat_emis=True
+        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        opacity_mode='c-k',
+        scattering_in_emission=True
     )
 
     return atmosphere
@@ -59,7 +59,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck_scattering.flux
         },
         relative_tolerance=relative_tolerance
@@ -81,7 +81,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        geometry=geometry,
+        emission_geometry=geometry,
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
@@ -93,7 +93,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'correlated_k_emission_cloud_calculated_radius_scattering_planetary_ave'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck_scattering.flux
         },
         relative_tolerance=relative_tolerance
@@ -115,7 +115,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        geometry=geometry,
+        emission_geometry=geometry,
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
@@ -125,7 +125,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering_dayside_ave'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck_scattering.flux
         },
         relative_tolerance=relative_tolerance
@@ -147,11 +147,11 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        geometry=geometry,
+        emission_geometry=geometry,
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        theta_star=radtrans_parameters['stellar_parameters']['incidence_angle']
+        star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
     )
 
     # Comparison
@@ -160,7 +160,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'correlated_k_emission_cloud_calculated_radius_scattering_non-isotropic'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
             'spectral_radiosity': atmosphere_ck_scattering.flux
         },
         relative_tolerance=relative_tolerance
@@ -188,7 +188,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
             'transit_radius': atmosphere_ck_scattering.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance

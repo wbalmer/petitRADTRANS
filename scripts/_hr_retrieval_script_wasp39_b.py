@@ -163,7 +163,7 @@ def main(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -255,10 +255,10 @@ def main(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
@@ -425,7 +425,7 @@ def maintoi(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -517,10 +517,10 @@ def maintoi(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
@@ -685,7 +685,7 @@ def maintic(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -777,10 +777,10 @@ def maintic(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
@@ -972,7 +972,7 @@ def main_hd(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -1007,10 +1007,10 @@ def main_hd(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
@@ -1183,7 +1183,7 @@ def main_hd2(sim_id=0):
             'pressures': model.pressures,
             'retrieved_species': model.line_species,
             'rayleigh_species': model.rayleigh_species,
-            'continuum_species': model.continuum_opacities,
+            'continuum_species': model.collision_induced_absorptions,
             'retrieval_model': retrieval_model,
             'wavelengths_instrument': model.model_parameters['output_wavelengths'],
             'observed_spectra': reduced_mock_observations,
@@ -1206,7 +1206,7 @@ def main_hd2(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -1240,10 +1240,10 @@ def main_hd2(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
@@ -1541,7 +1541,7 @@ def main_hd3(sim_id=0):
             'pressures': model.pressures,
             'retrieved_species': model.line_species,
             'rayleigh_species': model.rayleigh_species,
-            'continuum_species': model.continuum_opacities,
+            'continuum_species': model.collision_induced_absorptions,
             'retrieval_model': retrieval_model,
             'wavelengths_instrument': model.model_parameters['output_wavelengths'],
             'observed_spectra': reduced_mock_observations,
@@ -1564,7 +1564,7 @@ def main_hd3(sim_id=0):
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], mode='lbl', pressures=np.array([1e2]), wlen_bords_micron=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -1598,10 +1598,10 @@ def main_hd3(sim_id=0):
                 retrieval_parameters[key] = Radtrans(
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
-                    continuum_opacities=init_dict['continuum_opacities'],
-                    wlen_bords_micron=init_dict['wlen_bords_micron'],
-                    mode=init_dict['mode'],
-                    do_scat_emis=init_dict['do_scat_emis'],
+                    collision_induced_absorptions=init_dict['continuum_opacities'],
+                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    opacity_mode=init_dict['mode'],
+                    scattering_in_emission=init_dict['do_scat_emis'],
                     lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)

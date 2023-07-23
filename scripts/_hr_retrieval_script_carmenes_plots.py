@@ -1440,7 +1440,7 @@ def plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, sy
 
 def plot_contribution(sm, radtrans, figure_directory, image_format):
     plt.figure()
-    plt.imshow(radtrans.contr_tr, aspect='auto', origin='upper',
+    plt.imshow(radtrans.contribution_transmission, aspect='auto', origin='upper',
                extent=[np.min(sm.wavelengths) * 1e-6, np.max(sm.wavelengths) * 1e-6, np.log10(sm.pressures[-1]) + 5,
                        np.log10(sm.pressures[0]) + 5])
     plt.colorbar(label='Contribution density')
@@ -2537,7 +2537,7 @@ def get_contribution_density(spectral_model: SpectralModel, radtrans, wavelength
             update_parameters=True
         )
 
-        contribution = copy.deepcopy(radtrans.contr_tr)
+        contribution = copy.deepcopy(radtrans.contribution_transmission)
 
     contribution_convolve = np.zeros(contribution.shape)
 

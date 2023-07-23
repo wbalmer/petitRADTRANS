@@ -521,7 +521,7 @@ class SpectralModelLegacy:
         Returns:
             The temperature, mass mixing ratio and mean molar mass at each pressure as 1D-arrays
         """
-        pressures = atmosphere.press * 1e-6  # bar to cgs
+        pressures = atmosphere.pressures * 1e-6  # bar to cgs
 
         if parameters['intrinsic_temperature'].value is not None:
             temperatures = SpectralModelLegacy._init_temperature_profile_guillot(
@@ -534,13 +534,13 @@ class SpectralModelLegacy:
                 metallicity=10 ** parameters['log10_metallicity'].value
             )
         elif isinstance(parameters['temperature'].value, (float, int)):
-            temperatures = np.ones(np.shape(atmosphere.press)) * parameters['temperature'].value
+            temperatures = np.ones(np.shape(atmosphere.pressures)) * parameters['temperature'].value
         elif np.size(parameters['temperature'].value) == np.size(pressures):
             temperatures = np.asarray(parameters['temperature'].value)
         else:
             raise ValueError(f"could not initialize temperature profile; "
                              f"possible inputs are float, int, "
-                             f"or a 1-D array of the same size of parameter 'pressures' ({np.size(atmosphere.press)})")
+                             f"or a 1-D array of the same size of parameter 'pressures' ({np.size(atmosphere.pressures)})")
 
         imposed_mass_mixing_ratios = {}
 
@@ -680,8 +680,8 @@ class SpectralModelLegacy:
         )
 
         # Transform the outputs into the units of our data.
-        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.freq)
-        wlen_model = nc.c / atmosphere.freq * 1e4  # cm to um
+        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
+        wlen_model = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
 
@@ -704,7 +704,7 @@ class SpectralModelLegacy:
 
         # Transform the outputs into the units of our data.
         planet_transit_radius = atmosphere.transm_rad
-        wavelengths = nc.c / atmosphere.freq * 1e4  # cm to um
+        wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, planet_transit_radius
 
@@ -822,8 +822,8 @@ class SpectralModelLegacy:
             p_cloud=self.p_cloud
         )
 
-        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.freq)
-        wavelengths = nc.c / atmosphere.freq * 1e4  # cm to um
+        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
+        wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, flux
 
@@ -843,7 +843,7 @@ class SpectralModelLegacy:
         )
 
         transit_radius = (atmosphere.transm_rad / planet.star_radius) ** 2
-        wavelengths = nc.c / atmosphere.freq * 1e4  # m to um
+        wavelengths = nc.c / atmosphere.frequencies * 1e4  # m to um
 
         return wavelengths, transit_radius
 
@@ -962,7 +962,7 @@ class SpectralModelLegacy:
             raise ValueError(
                 f"mass fractions must be in a dict, but the input was of type '{type(mass_fractions)}'")
 
-        pressures = atmosphere.press * 1e-6  # cgs to bar
+        pressures = atmosphere.pressures * 1e-6  # cgs to bar
 
         if np.size(self.co_ratio) == 1:
             co_ratios = np.ones_like(pressures) * self.co_ratio
@@ -1028,7 +1028,7 @@ class SpectralModelLegacy:
         return mass_fractions_dict
 
     def init_temperature_guillot(self, planet: Planet, atmosphere: Radtrans):
-        pressures = atmosphere.press * 1e-6  # cgs to bar
+        pressures = atmosphere.pressures * 1e-6  # cgs to bar
         temperatures = self._init_temperature_profile_guillot(
             pressures=pressures,
             gamma=self.gamma,
@@ -1234,12 +1234,12 @@ class SpectralModelLegacy:
                   calculate_eclipse_depth=False):
         if atmosphere is None:
             atmosphere, model.atmosphere_file = model.get_atmosphere_model(
-                model.wavelength_boundaries, pressures, line_species_list, rayleigh_species, continuum_opacities,
+                model.wavelengths_boundaries, pressures, line_species_list, rayleigh_species, continuum_opacities,
                 model_suffix
             )
         else:
             model.atmosphere_file = SpectralModelLegacy._get_hires_atmosphere_filename(
-                pressures, model.wavelength_boundaries, model.lbl_opacity_sampling, model_suffix
+                pressures, model.wavelengths_boundaries, model.lbl_opacity_sampling, model_suffix
             )
 
         # A Planet needs to be generated and saved first
@@ -1344,10 +1344,10 @@ class SpectralModelLegacy:
         atmosphere = Radtrans(
             line_species=line_species_list,
             rayleigh_species=rayleigh_species,
-            continuum_opacities=continuum_opacities,
-            wlen_bords_micron=wlen_bords_micron,
-            mode=mode,
-            do_scat_emis=do_scat_emis,
+            collision_induced_absorptions=continuum_opacities,
+            wavelengths_boundaries=wlen_bords_micron,
+            opacity_mode=mode,
+            scattering_in_emission=do_scat_emis,
             lbl_opacity_sampling=lbl_opacity_sampling
         )
 

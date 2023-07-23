@@ -225,7 +225,7 @@ def bin_species_exok(species, resolution):
     prt_path = petitradtrans_config['Paths']['prt_input_data_path']
     atmosphere = Radtrans(
         line_species=species,
-        wlen_bords_micron=[0.1, 251.]
+        wavelengths_boundaries=[0.1, 251.]
     )
     ck_path = os.path.join(prt_path, 'opacities/lines/corr_k/')
 

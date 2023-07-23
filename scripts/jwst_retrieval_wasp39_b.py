@@ -98,10 +98,10 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     atmosphere = Radtrans(
         line_species=line_species_str,
         rayleigh_species=['H2', 'He'],
-        continuum_opacities=['H2-H2', 'H2-He'],
-        wlen_bords_micron=w_bords,
-        mode='c-k',#'lbl',
-        do_scat_emis=True,
+        collision_induced_absorptions=['H2-H2', 'H2-He'],
+        wavelengths_boundaries=w_bords,
+        opacity_mode='c-k',#'lbl',
+        scattering_in_emission=True,
         lbl_opacity_sampling=58  # max JWST resolution is ~8500
     )
     atmosphere.setup_opa_structure(pressures)
@@ -159,10 +159,10 @@ def _init_model_old(planet, w_bords, line_species_str, p0=1e-2):
     atmosphere = Radtrans(
         line_species=line_species_str,
         rayleigh_species=['H2', 'He'],
-        continuum_opacities=['H2-H2', 'H2-He'],
-        wlen_bords_micron=w_bords,
-        mode='lbl',
-        do_scat_emis=True,
+        collision_induced_absorptions=['H2-H2', 'H2-He'],
+        wavelengths_boundaries=w_bords,
+        opacity_mode='lbl',
+        scattering_in_emission=True,
         lbl_opacity_sampling=1
     )
     atmosphere.setup_opa_structure(pressures)
@@ -185,7 +185,7 @@ def _init_retrieval_model(prt_object, parameters):
         temperature = parameters['temperature'].value
 
     # Make the P-T profile
-    pressures = prt_object.press * 1e-6  # bar to cgs
+    pressures = prt_object.pressures * 1e-6  # bar to cgs
     temperatures = guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
@@ -236,7 +236,7 @@ def _init_retrieval_model_old(prt_object, parameters):
         temperature = parameters['temperature'].value
 
     # Make the P-T profile
-    pressures = prt_object.press * 1e-6  # bar to cgs
+    pressures = prt_object.pressures * 1e-6  # bar to cgs
     temperatures = guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
@@ -464,8 +464,8 @@ def _radiosity_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
     )
 
     # Transform the outputs into the units of our data.
-    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.freq)
-    wlen_model = nc.c / prt_object.freq * 1e4  # wlen in micron
+    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.frequencies)
+    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_radiosity
 
@@ -495,7 +495,7 @@ def _transit_radius_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
 
     # Transform the outputs into the units of our data.
     planet_transit_radius = prt_object.transm_rad
-    wlen_model = nc.c / prt_object.freq * 1e4  # wlen in micron
+    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius
 

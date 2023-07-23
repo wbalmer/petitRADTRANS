@@ -556,11 +556,11 @@ class Retrieval:
                     pressures=p,
                     line_species=cp.copy(species),
                     rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                    continuum_opacities=cp.copy(self.rd.continuum_opacities),
+                    collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
                     cloud_species=cp.copy(self.rd.cloud_species),
-                    mode=dd.opacity_mode,
-                    wlen_bords_micron=dd.wlen_range_pRT,
-                    do_scat_emis=self.rd.scattering,
+                    opacity_mode=dd.opacity_mode,
+                    wavelengths_boundaries=dd.wlen_range_pRT,
+                    scattering_in_emission=self.rd.scattering,
                     lbl_opacity_sampling=lbl_samp
                 )
 
@@ -984,11 +984,11 @@ class Retrieval:
                 pressures=p,
                 line_species=cp.copy(self.rd.line_species),
                 rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                continuum_opacities=cp.copy(self.rd.continuum_opacities),
+                collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
                 cloud_species=cp.copy(self.rd.cloud_species),
-                mode='c-k',
-                wlen_bords_micron=[wmin * 0.98, wmax * 1.02],
-                do_scat_emis=self.rd.scattering
+                opacity_mode='c-k',
+                wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
+                scattering_in_emission=self.rd.scattering
             )
 
         # Check what model function we're using
@@ -1348,11 +1348,11 @@ class Retrieval:
             pressures=p,
             line_species=cp.copy(self.rd.line_species),
             rayleigh_species=cp.copy(self.rd.rayleigh_species),
-            continuum_opacities=cp.copy(self.rd.continuum_opacities),
+            collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
-            mode='c-k',
-            wlen_bords_micron=[0.5, 28],
-            do_scat_emis=self.rd.scattering
+            opacity_mode='c-k',
+            wavelengths_boundaries=[0.5, 28],
+            scattering_in_emission=self.rd.scattering
         )
 
         tdict = {}
@@ -1785,11 +1785,11 @@ class Retrieval:
         # Set up parameter dictionary
         atmosphere = Radtrans(line_species=cp.copy(self.rd.line_species),
                               rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                              continuum_opacities=cp.copy(self.rd.continuum_opacities),
+                              collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
                               cloud_species=cp.copy(self.rd.cloud_species),
-                              mode='c-k',
-                              wlen_bords_micron=[wmin * 0.98, wmax * 1.02],
-                              do_scat_emis=self.rd.scattering)
+                              opacity_mode='c-k',
+                              wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
+                              scattering_in_emission=self.rd.scattering)
         fig, ax = plt.subplots(figsize=(16, 10))
         for i_sample in range(self.rd.plot_kwargs["nsample"]):
             random_index = int(np.random.uniform() * len_samples)

@@ -18,150 +18,168 @@ from petitRADTRANS.fort_spec import fort_spec as fs
 
 
 class Radtrans:
-    r""" Class defining objects for carrying out spectral calculations for a
-    given set of opacities
-
-    Args:
-        line_species (Optional):
-            list of strings, denoting which line absorber species to include.
-        rayleigh_species (Optional):
-            list of strings, denoting which Rayleigh scattering species to
-            include.
-        cloud_species (Optional):
-            list of strings, denoting which cloud opacity species to include.
-        continuum_opacities (Optional):
-            list of strings, denoting which continuum absorber species to
-            include.
-        wlen_bords_micron (Optional):
-            list containing left and right border of wavelength region to be
-            considered, in micron. If nothing else is specified, it will be
-            equal to ``[0.05, 300]``, hence using the full petitRADTRANS
-            wavelength range (0.11 to 250 microns for ``'c-k'`` mode, 0.3 to 30
-            microns for the ``'lbl'`` mode). The larger the range the longer the
-            computation time.
-        mode (Optional[string]):
-            if equal to ``'c-k'``: use low-resolution mode, at
-            :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
-            assumption. if equal to ``'lbl'``: use high-resolution mode, at
-            :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
-            treatment.
-        do_scat_emis (Optional[bool]):
-            Will be ``False`` by default.
-            If ``True`` scattering will be included in the emission spectral
-            calculations. Note that this increases the runtime of pRT!
-        lbl_opacity_sampling (Optional[int]):
-            Will be ``None`` by default. If integer positive value, and if
-            ``mode == 'lbl'`` is ``True``, then this will only consider every
-            lbl_opacity_sampling-nth point of the high-resolution opacities.
-            This may be desired in the case where medium-resolution spectra are
-            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
-            :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-            may make sense to carry out the calculations with lbl_opacity_sampling = 10,
-            for example, and then rebinning to the final desired resolution:
-            this may save time! The user should verify whether this leads to
-            solutions which are identical to the rebinned results of the fiducial
-            :math:`10^6` resolution. If not, this parameter must not be used.
-        use_detailed_line_absorber_names (Optional[bool]):
-            False by default. If True, the keywords of the mass fraction dictionary handed
-            to calc_flux() and calc_transm() must match the line absorber names exactly,
-            including line list and resolution flags. For example, if "H2O_Exomol_R_10" is loaded,
-            the mass fraction keyword has to be "H2O_Exomol_R_10", instead of the nominal "H2O".
-    """
-
     def __init__(
             self,
+            pressures=None,
             line_species=None,
+            collision_induced_absorptions=None,
             rayleigh_species=None,
             cloud_species=None,
-            continuum_opacities=None,
-            wlen_bords_micron=None,
-            mode='c-k',
+            opacity_mode='c-k',
+            lbl_opacity_sampling=1,
+            scattering_in_emission=False,
+            temperatures=None,
+            wavelengths_boundaries=None,
             test_ck_shuffle_comp=False,
-            do_scat_emis=False,
-            lbl_opacity_sampling=None,
-            pressures=None,
-            temperatures=None,  # TODO temperatures not redefined in functions
-            stellar_intensity=None,
-            geometry='dayside_ave',
-            mu_star=1.,
             anisotropic_cloud_scattering='auto',
             hack_cloud_photospheric_tau=None,
-            path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
-            use_detailed_line_absorber_names=True
+            use_detailed_line_absorber_names=True,
+            path_input_data=petitradtrans_config['Paths']['prt_input_data_path']
     ):
-        """
+        r"""Object for calculating spectra using a given set of opacities.
 
         Args:
-            line_species:
-            rayleigh_species:
-            cloud_species:
-            continuum_opacities:
-            wlen_bords_micron:
-            mode:
-            test_ck_shuffle_comp:
-            do_scat_emis:
-            lbl_opacity_sampling:
+            line_species (Optional):
+                list of strings, denoting which line absorber species to include.
+            rayleigh_species (Optional):
+                list of strings, denoting which Rayleigh scattering species to
+                include.
+            cloud_species (Optional):
+                list of strings, denoting which cloud opacity species to include.
+            collision_induced_absorptions (Optional):
+                list of strings, denoting which continuum absorber species to
+                include.
+            wavelengths_boundaries (Optional):
+                list containing left and right border of wavelength region to be
+                considered, in micron. If nothing else is specified, it will be
+                equal to ``[0.05, 300]``, hence using the full petitRADTRANS
+                wavelength range (0.11 to 250 microns for ``'c-k'`` mode, 0.3 to 30
+                microns for the ``'lbl'`` mode). The larger the range the longer the
+                computation time.
+            opacity_mode (Optional[string]):
+                if equal to ``'c-k'``: use low-resolution mode, at
+                :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
+                assumption. if equal to ``'lbl'``: use high-resolution mode, at
+                :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
+                treatment.
+            scattering_in_emission (Optional[bool]):
+                Will be ``False`` by default.
+                If ``True`` scattering will be included in the emission spectral
+                calculations. Note that this increases the runtime of pRT!
+            lbl_opacity_sampling (Optional[int]):
+                Will be ``None`` by default. If integer positive value, and if
+                ``mode == 'lbl'`` is ``True``, then this will only consider every
+                lbl_opacity_sampling-nth point of the high-resolution opacities.
+                This may be desired in the case where medium-resolution spectra are
+                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+                may make sense to carry out the calculations with lbl_opacity_sampling = 10,
+                for example, and then rebinning to the final desired resolution:
+                this may save time! The user should verify whether this leads to
+                solutions which are identical to the rebinned results of the fiducial
+                :math:`10^6` resolution. If not, this parameter must not be used.
+            use_detailed_line_absorber_names (Optional[bool]):
+                False by default. If True, the keywords of the mass fraction dictionary handed
+                to calc_flux() and calc_transm() must match the line absorber names exactly,
+                including line list and resolution flags. For example, if "H2O_Exomol_R_10" is loaded,
+                the mass fraction keyword has to be "H2O_Exomol_R_10", instead of the nominal "H2O".
         """
         # TODO add wavelengths generator
-        if line_species is None:
-            line_species = []
-
-        if rayleigh_species is None:
-            rayleigh_species = []
-
-        if cloud_species is None:
-            cloud_species = []
-
-        if continuum_opacities is None:
-            continuum_opacities = []  # TODO add continuum_opacities as attribute
-
-        if wlen_bords_micron is None:
-            wlen_bords_micron = np.array([0.05, 300.])  # um
-
         if pressures is None:
             warnings.warn("pressure was not set, initializing one layer at 1 bar")
             pressures = np.array([1.0])  # bar
 
+        if line_species is None:
+            self.line_species = []
+        else:
+            self.line_species = line_species
+
+        if collision_induced_absorptions is None:
+            self.collision_induced_absorptions = []
+        else:
+            self.collision_induced_absorptions = collision_induced_absorptions
+
+        if rayleigh_species is None:
+            self.rayleigh_species = []
+        else:
+            self.rayleigh_species = rayleigh_species
+
+        if cloud_species is None:
+            self.cloud_species = []
+        else:
+            self.cloud_species = cloud_species
+
+        if opacity_mode not in ['c-k', 'lbl']:
+            raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{opacity_mode}'")
+
+        self.opacity_mode = opacity_mode
+        self.lbl_opacity_sampling = lbl_opacity_sampling
+        self.scattering_in_emission = scattering_in_emission
+
         if temperatures is None:
-            temperatures = 300.0 * np.ones_like(pressures)  # K
+            self.temperatures = 300.0 * np.ones_like(pressures)  # K
         elif np.size(temperatures) != np.size(pressures):
             print(f"The size of the temperature array ({np.size(temperatures)}) "
                   f"must be equal to the size of the pressure array ({np.size(pressures)}), "
                   f"log-interpolating temperatures on the pressure array...")
             pressure_tmp = np.logspace(np.log10(np.min(pressures)), np.log10(np.max(pressures)), np.size(temperatures))
-            temperatures = np.interp(pressures, pressure_tmp, temperatures)
+            self.temperatures = np.interp(pressures, pressure_tmp, temperatures)
 
+        if wavelengths_boundaries is None:
+            self.wavelengths_boundaries = np.array([0.05, 300.])  # um
+        else:
+            self.wavelengths_boundaries = wavelengths_boundaries
+
+        self.test_ck_shuffle_comp = test_ck_shuffle_comp  # TODO find better name
+
+        self.anisotropic_cloud_scattering = anisotropic_cloud_scattering
+        self.hack_cloud_photospheric_tau = hack_cloud_photospheric_tau  # TODO find better name
+
+        self.use_detailed_line_absorber_names = use_detailed_line_absorber_names
         self.path_input_data = path_input_data
 
-        self.wlen_bords_micron = wlen_bords_micron
+        # Initialize line parameters
+        if len(line_species) > 0:  # TODO init Radtrans even if there is no opacity
+            self.frequencies, self.frequencies_bin_edges, self.g_len, arr_min = self._init_line_opacities_parameters()
+        else:
+            self.g_len = None
+            self.frequencies = None
+            self.frequencies_bin_edges = None
+            arr_min = None
 
-        # ADD TO SOURCE AND COMMENT PROPERLY LATER!
-        self.test_ck_shuffle_comp = test_ck_shuffle_comp
-        self.do_scat_emis = do_scat_emis
+        # Initialize pressure-dependent parameters
+        # TODO is radius_hse (planetary radius at hydrostatic equilibrium) useful?
+        self.pressures, \
+            self.continuum_opacities, self.continuum_opacities_scattering, \
+            self.continuum_opacities_scattering_emission, \
+            self.contribution_emission, self.contribution_transmission, \
+            self.radius_hse, \
+            self.mean_molar_masses, \
+            self.line_opacities, \
+            self.line_species_mass_fractions, self.cloud_species_mass_fractions, self.r_g = \
+            self._init_pressure_dependent_parameters(pressures=pressures)
 
-        # Stellar intensity (scaled by distance)
-        self.stellar_intensity = stellar_intensity
+        # Some necessary definitions, also prepare arrays for fluxes, transmission radius...
+        self.flux = np.zeros(self.frequencies.size, dtype='d', order='F')
+        self.transm_rad = np.zeros(self.frequencies.size, dtype='d', order='F')
 
-        # For feautrier scattering of direct stellar light
-        self.geometry = geometry
-        self.mu_star = mu_star
+        # Initialize information attributes (will change when calculating spectra)
+        # TODO put attributes that must be updated to calculate spectra into these dicts below
+        self.emission_parameters = {}
+        self.transmission_parameters = {}
 
-        # Line-by-line or corr-k
-        self.mode = mode
-        self.lbl_opacity_sampling = lbl_opacity_sampling
+        self.gravity = None
 
-        # Line opacity species to be considered
-        self.line_species = line_species
-
-        # Rayleigh scattering species to be considered
-        self.rayleigh_species = rayleigh_species
-
-        # Cloud species to be considered
-        self.cloud_species = cloud_species
+        # Initialize emission information attributes
+        self.emission_geometry = None
+        self.stellar_intensity = None
+        self.mu_star = None
+        self.skip_radiative_transfer_step = False
 
         # Read in the angle (mu) grid for the emission spectral calculations.
-        buffer = np.genfromtxt(os.path.join(self.path_input_data, 'opa_input_files', 'mu_points.dat'))
-        self.mu, self.w_gauss_mu = buffer[:, 0], buffer[:, 1]
+        mu_points = np.genfromtxt(os.path.join(self.path_input_data, 'opa_input_files', 'mu_points.dat'))
+        self.mu = mu_points[:, 0]
+        self.w_gauss_mu = mu_points[:, 1]
 
         self.Pcloud = None
         self.haze_factor = None
@@ -170,55 +188,11 @@ class Radtrans:
         self.cloud_scaling_factor = None
         self.scaling_physicality = None
 
-        # Mass fraction keywords must match line absorber names exactly?
-        self.use_detailed_line_absorber_names = use_detailed_line_absorber_names
-
-        # Read in frequency grid
-        # Any opacities there at all?
-        if len(line_species) + len(rayleigh_species) + len(cloud_species) + len(continuum_opacities) > 0:
-            self.absorbers_present = True
-        else:
-            self.absorbers_present = False
-
-        # Line species present? If yes: define wavelength array
-        if len(line_species) > 0:  # TODO init Radtrans even if there is no opacity
-            self.line_absorbers_present = True
-        else:
-            self.line_absorbers_present = False
-
-        # Initialize line parameters
-        if self.line_absorbers_present:
-            self.freq, self.border_freqs, self.lambda_angstroem, self.border_lambda_angstroem, \
-                self.freq_len, self.g_len, arr_min = self._init_line_opacities_parameters()
-        else:
-            self.freq_len = None
-            self.g_len = None
-            self.freq = None
-            self.border_freqs = None
-            self.border_lambda_angstroem = None
-            arr_min = None
-
-        self.skip_RT_step = False
-
         #  Default surface albedo and emissivity -- will be used only if the surface scattering is turned on.
-        self.reflectance = 0 * np.ones_like(self.freq)
-        self.emissivity = 1 * np.ones_like(self.freq)
+        self.reflectance = 0 * np.ones_like(self.frequencies)  # TODO never updated?
+        self.emissivity = 1 * np.ones_like(self.frequencies)
 
-        # Initialize pressure-dependent parameters
-        self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
-            self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
-            self.line_struc_kappas, self.line_struc_kappas_comb, \
-            self.line_abundances, self.cloud_mass_fracs, self.r_g = \
-            self._init_pressure_dependent_parameters(pressures=pressures)
-
-        self.temp = temperatures
-        self.gravity = None
-
-        # Some necessary definitions, also prepare arrays for fluxes, transmission radius...
-        self.flux = np.array(np.zeros(self.freq_len), dtype='d', order='F')
-        self.transm_rad = np.array(np.zeros(self.freq_len), dtype='d', order='F')
-
-        # Initialize cloud parameters
+        # Initialize cloud information attributes
         self.kappa_zero = None
         self.gamma_scat = None
         self.fsed = None
@@ -234,9 +208,7 @@ class Radtrans:
         # Initialize special variables
         self.hack_cloud_total_scat_aniso = None
         self.hack_cloud_total_abs = None
-        self.hack_cloud_photospheric_tau = hack_cloud_photospheric_tau
         self.phot_radius = None
-        self.anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
         # Initialize line opacities variables
         self.has_custom_line_opacities_tp_grid = {}
@@ -257,26 +229,11 @@ class Radtrans:
         self.cloud_rad_bins = None
         self.cloud_radii = None
 
-        # TODO instead of loading lines here, do it in a separate function
-        # START loading opacities
-        # Load line opacities
-        self.read_line_opacities(arr_min, self.path_input_data)
-
-        # Read continuum opacities
-        # Clouds
-        if len(self.cloud_species) > 0:
-            # Inherited from ReadOpacities in _read_opacities.py
-            self.read_cloud_opas(self.path_input_data)
-
-        # CIA
+        # Load all opacities
         self.CIA_species = {}
         self.Hminus = False
 
-        if len(continuum_opacities) > 0:
-            self.CIA_species, self.Hminus = self.load_collision_induced_absorptions(
-                path_input_data,
-                continuum_opacities
-            )
+        self.load_all_opacities(arr_min)
 
     def _clouds_have_effect(self, mass_mixing_ratios):
         """
@@ -300,8 +257,8 @@ class Radtrans:
         return add_cloud_opacity
 
     def _init_line_opacities_parameters(self):
-        if self.mode == 'c-k':
-            if self.do_scat_emis and not self.test_ck_shuffle_comp:
+        if self.opacity_mode == 'c-k':
+            if self.scattering_in_emission and not self.test_ck_shuffle_comp:
                 print("Emission scattering is enabled: enforcing test_ck_shuffle_comp = True")
 
                 self.test_ck_shuffle_comp = True
@@ -328,17 +285,17 @@ class Radtrans:
             # range than what first line opa species contains
             wlen = nc.c / border_freqs * 1e4
 
-            if wlen[-1] < self.wlen_bords_micron[1]:
+            if wlen[-1] < self.wavelengths_boundaries[1]:
                 delta_log_lambda = np.diff(np.log10(wlen))[-1]
                 add_high = 1e1 ** np.arange(np.log10(wlen[-1]),
-                                            np.log10(self.wlen_bords_micron[-1]) + delta_log_lambda,
+                                            np.log10(self.wavelengths_boundaries[-1]) + delta_log_lambda,
                                             delta_log_lambda)[1:]
                 wlen = np.concatenate((wlen, add_high))
 
-            if wlen[0] > self.wlen_bords_micron[0]:
+            if wlen[0] > self.wavelengths_boundaries[0]:
                 delta_log_lambda = np.diff(np.log10(wlen))[0]
                 add_low = 1e1 ** (-np.arange(-np.log10(wlen[0]),
-                                             -np.log10(self.wlen_bords_micron[0]) + delta_log_lambda,
+                                             -np.log10(self.wavelengths_boundaries[0]) + delta_log_lambda,
                                              delta_log_lambda)[1:][::-1])
                 wlen = np.concatenate((add_low, wlen))
 
@@ -347,8 +304,8 @@ class Radtrans:
 
             # Cut the wavelength range if user requests smaller
             # range than what first line opa species contains
-            index = (nc.c / freq > self.wlen_bords_micron[0] * 1e-4) & \
-                    (nc.c / freq < self.wlen_bords_micron[1] * 1e-4)
+            index = (nc.c / freq > self.wavelengths_boundaries[0] * 1e-4) & \
+                    (nc.c / freq < self.wavelengths_boundaries[1] * 1e-4)
 
             # Use cp_freq to make a bool array of the same length as border freqs.
             cp_freq = np.zeros(len(freq) + 1)
@@ -371,10 +328,9 @@ class Radtrans:
             # Tested this below
             border_freqs = np.array(border_freqs[border_ind], dtype='d', order='F')
             freq = np.array(freq[index], dtype='d', order='F')
-            freq_len = len(freq)
 
             arr_min = -1
-        elif self.mode == 'lbl':
+        elif self.opacity_mode == 'lbl':
             # For high-res line-by-line radiative transfer
             freq_len = None
             arr_min = None
@@ -393,8 +349,8 @@ class Radtrans:
                     # the required wavelength range sits.
                     print(f"Loading file '{path_length}'")
                     freq_len, arr_min, _ = fi.get_arr_len_array_bords(
-                        self.wlen_bords_micron[0] * 1e-4,
-                        self.wlen_bords_micron[1] * 1e-4,
+                        self.wavelengths_boundaries[0] * 1e-4,
+                        self.wavelengths_boundaries[1] * 1e-4,
                         path_length
                     )
 
@@ -412,8 +368,8 @@ class Radtrans:
                     wavelength_grid = 1 / f['wavenumbers'][:]  # cm-1 to cm
 
                 wavelength_grid = wavelength_grid[::-1]
-                wavelength_min = self.wlen_bords_micron[0] * 1e-4
-                wavelength_max = self.wlen_bords_micron[1] * 1e-4
+                wavelength_min = self.wavelengths_boundaries[0] * 1e-4
+                wavelength_max = self.wavelengths_boundaries[1] * 1e-4
                 bad_boundaries = False
 
                 if wavelength_min < wavelength_grid[0]:
@@ -424,7 +380,7 @@ class Radtrans:
 
                 if bad_boundaries:
                     raise ValueError(f"Requested wavelength interval "
-                                     f"({self.wlen_bords_micron[0]}--{self.wlen_bords_micron[1]}) "
+                                     f"({self.wavelengths_boundaries[0]}--{self.wavelengths_boundaries[1]}) "
                                      f"is out of opacities table wavelength grid "
                                      f"({1e4 * wavelength_grid[0]}--{1e4 * wavelength_grid[-1]})")
 
@@ -440,14 +396,13 @@ class Radtrans:
                 if wavelength_grid[selection[-1]] < wavelength_max:
                     selection[-1] += 1
 
-                if self.lbl_opacity_sampling is not None:
+                if self.lbl_opacity_sampling > 1:
                     # Ensure that downsampled upper bound >= requested upper bound
                     selection[-1] += self.lbl_opacity_sampling - 1
 
                 freq = nc.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
-                freq_len = freq.size
             else:
-                if self.lbl_opacity_sampling is not None:
+                if self.lbl_opacity_sampling > 1:
                     freq_len += self.lbl_opacity_sampling - 1
 
                 freq = nc.c / fi.read_wlen(arr_min, freq_len, path_length)
@@ -455,24 +410,14 @@ class Radtrans:
             g_len = 1
 
             # Down-sample frequency grid in lbl mode if requested
-            if self.lbl_opacity_sampling is not None:
+            if self.lbl_opacity_sampling > 1:
                 freq = freq[::self.lbl_opacity_sampling]
-                freq_len = len(freq)
 
             border_freqs = np.array(nc.c / self.calc_borders(nc.c / freq), dtype='d', order='F')
         else:
-            raise ValueError(f"invalid mode value '{self.mode}'; should be 'c-k' or 'lbl'")
+            raise ValueError(f"invalid mode value '{self.opacity_mode}'; should be 'c-k' or 'lbl'")
 
-        lambda_angstroem = np.array(nc.c / freq * 1e8, dtype='d', order='F')
-
-        if self.mode == 'c-k':
-            border_lambda_angstroem = nc.c / border_freqs * 1e8
-        elif self.mode == 'lbl':
-            border_lambda_angstroem = np.array(self.calc_borders(lambda_angstroem))
-        else:
-            raise ValueError(f"invalid mode value '{self.mode}'; should be 'c-k' or 'lbl'")
-
-        return freq, border_freqs, lambda_angstroem, border_lambda_angstroem, freq_len, g_len, arr_min
+        return freq, border_freqs, g_len, arr_min
 
     def _init_pressure_dependent_parameters(self, pressures):
         """ Setup opacity arrays at atmospheric structure dimensions,
@@ -485,8 +430,8 @@ class Radtrans:
         """
         press = pressures * 1e6  # bar to cgs
         p_len = pressures.shape[0]
-        continuum_opa = np.zeros((self.freq_len, p_len), dtype='d', order='F')
-        continuum_opa_scat = np.zeros((self.freq_len, p_len), dtype='d', order='F')
+        continuum_opa = np.zeros((self.frequencies.size, p_len), dtype='d', order='F')
+        continuum_opa_scat = np.zeros((self.frequencies.size, p_len), dtype='d', order='F')
         continuum_opa_scat_emis = None
         contr_em = None
         contr_tr = None
@@ -496,21 +441,15 @@ class Radtrans:
 
         if len(self.line_species) > 0:
             line_struc_kappas = np.zeros(
-                (self.g_len, self.freq_len, len(self.line_species), p_len), dtype='d', order='F'
+                (self.g_len, self.frequencies.size, len(self.line_species), p_len), dtype='d', order='F'
             )
-
-            if self.mode == 'c-k':
-                line_struc_kappas_comb = np.zeros((self.g_len, self.freq_len, p_len), dtype='d', order='F')
-            else:
-                line_struc_kappas_comb = None
 
             line_abundances = np.zeros((p_len, len(self.line_species)), dtype='d', order='F')
         else:
             # If there are no specified line species then we need at
             # least an array to contain the continuum opas
             # I'll (mis)use the line_struc_kappas array for that
-            line_struc_kappas = np.zeros((self.g_len, self.freq_len, 1, p_len), dtype='d', order='F')
-            line_struc_kappas_comb = None
+            line_struc_kappas = np.zeros((self.g_len, self.frequencies.size, 1, p_len), dtype='d', order='F')
             line_abundances = np.zeros((p_len, 1), dtype='d', order='F')
 
         if len(self.cloud_species) > 0:
@@ -521,7 +460,7 @@ class Radtrans:
             r_g = None
 
         return press, continuum_opa, continuum_opa_scat, continuum_opa_scat_emis, contr_em, contr_tr, radius_hse, mmw, \
-            line_struc_kappas, line_struc_kappas_comb, line_abundances, cloud_mass_fracs, r_g
+            line_struc_kappas, line_abundances, cloud_mass_fracs, r_g
 
     @staticmethod
     def _sort_opa_pt_grid(path_ptg):
@@ -586,6 +525,8 @@ class Radtrans:
 
     def add_rayleigh(self, abundances):
         # Add Rayleigh scattering cross-sections
+        wavelengths_angstroem = np.array(nc.c / self.frequencies * 1e8, dtype='d', order='F')
+
         for spec in self.rayleigh_species:
             haze_multiply = 1.
 
@@ -595,13 +536,13 @@ class Radtrans:
             add_term = haze_multiply * fs.add_rayleigh(
                 spec,
                 abundances[spec],
-                self.lambda_angstroem,
-                self.mmw,
-                self.temp,
-                self.press
+                wavelengths_angstroem,
+                self.mean_molar_masses,
+                self.temperatures,
+                self.pressures
             )
 
-            self.continuum_opa_scat += add_term
+            self.continuum_opacities_scattering += add_term
 
     @staticmethod
     def calc_borders(x):
@@ -621,21 +562,21 @@ class Radtrans:
                            dist="lognormal", a_hans=None, b_hans=None):
         # Function to calculate cloud opacities
         # for defined atmospheric structure.
-        rho = self.press / nc.kB / self.temp * mmw * nc.amu
+        rho = self.pressures / nc.kB / self.temperatures * mmw * nc.amu
 
         if "hansen" in dist.lower():
             if isinstance(b_hans, np.ndarray):
-                if not b_hans.shape == (self.press.shape[0], len(self.cloud_species)):
+                if not b_hans.shape == (self.pressures.shape[0], len(self.cloud_species)):
                     raise ValueError(
                         "b_hans must be a float, a dictionary with arrays for each cloud species, "
-                        f"or a numpy array with shape {(self.press.shape[0], len(self.cloud_species))}, "
+                        f"or a numpy array with shape {(self.pressures.shape[0], len(self.cloud_species))}, "
                         f"but was of shape {np.shape(b_hans)}"
                     )
             elif isinstance(b_hans, dict):
                 b_hans = np.array(list(b_hans.values()), dtype='d', order='F').T
             elif isinstance(b_hans, float):
                 b_hans = np.array(
-                    np.tile(b_hans * np.ones_like(self.press), (len(self.cloud_species), 1)),
+                    np.tile(b_hans * np.ones_like(self.pressures), (len(self.cloud_species), 1)),
                     dtype='d',
                     order='F'
                 ).T
@@ -644,7 +585,7 @@ class Radtrans:
                                  f"but is of type '{type(b_hans)}' ({b_hans})")
 
         for i_spec, cloud_name in enumerate(self.cloud_species):
-            self.cloud_mass_fracs[:, i_spec] = abundances[cloud_name]
+            self.cloud_species_mass_fractions[:, i_spec] = abundances[cloud_name]
 
             if radius is not None:
                 self.r_g[:, i_spec] = radius[cloud_name]
@@ -655,7 +596,7 @@ class Radtrans:
             if dist == "lognormal":
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_aniso_tot = \
                     py_calc_cloud_opas(rho, self.rho_cloud_particles,
-                                       self.cloud_mass_fracs, self.r_g, sigma_lnorm,
+                                       self.cloud_species_mass_fractions, self.r_g, sigma_lnorm,
                                        self.cloud_rad_bins, self.cloud_radii,
                                        self.cloud_specs_abs_opa,
                                        self.cloud_specs_scat_opa,
@@ -665,7 +606,7 @@ class Radtrans:
                     fs.calc_hansen_opas(
                         rho,
                         self.rho_cloud_particles,
-                        self.cloud_mass_fracs,
+                        self.cloud_species_mass_fractions,
                         self.r_g,
                         b_hans,
                         self.cloud_rad_bins,
@@ -686,7 +627,7 @@ class Radtrans:
                     gravity,
                     rho,
                     self.rho_cloud_particles,
-                    self.temp,
+                    self.temperatures,
                     mmw,
                     fseds,
                     sigma_lnorm,
@@ -697,7 +638,7 @@ class Radtrans:
                     py_calc_cloud_opas(
                         rho,
                         self.rho_cloud_particles,
-                        self.cloud_mass_fracs,
+                        self.cloud_species_mass_fractions,
                         self.r_g,
                         sigma_lnorm,
                         self.cloud_rad_bins,
@@ -711,7 +652,7 @@ class Radtrans:
                     gravity,
                     rho,
                     self.rho_cloud_particles,
-                    self.temp,
+                    self.temperatures,
                     mmw,
                     fseds,
                     b_hans,
@@ -722,7 +663,7 @@ class Radtrans:
                     fs.calc_hansen_opas(
                         rho,
                         self.rho_cloud_particles,
-                        self.cloud_mass_fracs,
+                        self.cloud_species_mass_fractions,
                         self.r_g,
                         b_hans,
                         self.cloud_rad_bins,
@@ -739,30 +680,30 @@ class Radtrans:
                 cloud_scat_opa_tot,
                 cloud_red_fac_aniso_tot,
                 self.cloud_lambdas,
-                self.border_freqs
+                self.frequencies_bin_edges
             )
 
         if self.anisotropic_cloud_scattering:
-            self.continuum_opa_scat += cloud_abs_plus_scat_aniso - cloud_abs
+            self.continuum_opacities_scattering += cloud_abs_plus_scat_aniso - cloud_abs
         else:
-            if self.do_scat_emis and self.continuum_opa_scat_emis is not None:
-                self.continuum_opa_scat_emis = copy.deepcopy(self.continuum_opa_scat)
-                self.continuum_opa_scat_emis += cloud_abs_plus_scat_aniso - cloud_abs
+            if self.scattering_in_emission and self.continuum_opacities_scattering_emission is not None:
+                self.continuum_opacities_scattering_emission = copy.deepcopy(self.continuum_opacities_scattering)
+                self.continuum_opacities_scattering_emission += cloud_abs_plus_scat_aniso - cloud_abs
 
-            self.continuum_opa_scat += cloud_abs_plus_scat_no_aniso - cloud_abs
+            self.continuum_opacities_scattering += cloud_abs_plus_scat_no_aniso - cloud_abs
 
-        if self.do_scat_emis:
+        if self.scattering_in_emission:
             if self.hack_cloud_photospheric_tau is not None:
                 self.hack_cloud_total_scat_aniso = cloud_abs_plus_scat_aniso - cloud_abs
                 self.hack_cloud_total_abs = cloud_abs
 
         if add_cloud_scat_as_abs:
             if add_cloud_scat_as_abs:
-                self.continuum_opa += cloud_abs + 0.20 * (cloud_abs_plus_scat_no_aniso - cloud_abs)
+                self.continuum_opacities += cloud_abs + 0.20 * (cloud_abs_plus_scat_no_aniso - cloud_abs)
             else:
-                self.continuum_opa += cloud_abs
+                self.continuum_opacities += cloud_abs
         else:
-            self.continuum_opa += cloud_abs
+            self.continuum_opacities += cloud_abs
 
         # This included scattering plus absorption
         self.cloud_total_opa_retrieval_check = cloud_abs_plus_scat_aniso
@@ -773,24 +714,24 @@ class Radtrans:
                 temp,
                 mmw,
                 gravity,
-                self.press[-1] * 1e-6,
+                self.pressures[-1] * 1e-6,
                 r_pl
             )
 
-            rad_press = interp1d(self.press, radius_hse)
+            rad_press = interp1d(self.pressures, radius_hse)
 
-            self.phot_radius = np.zeros(self.freq_len)
+            self.phot_radius = np.zeros(self.frequencies.size)
 
-            if self.mode == 'lbl' or self.test_ck_shuffle_comp:
+            if self.opacity_mode == 'lbl' or self.test_ck_shuffle_comp:
                 total_tau = self.calc_opt_depth(gravity, cloud_wlen=self.cloud_wlen)
                 wgauss_reshape = self.w_gauss.reshape(len(self.w_gauss), 1)
 
-                for i_freq in range(self.freq_len):
+                for i_freq in range(self.frequencies.size):
                     tau_p = np.sum(wgauss_reshape * total_tau[:, i_freq, 0, :], axis=0)
-                    press_taup = interp1d(tau_p, self.press)
+                    press_taup = interp1d(tau_p, self.pressures)
                     self.phot_radius[i_freq] = rad_press(press_taup(2. / 3.))
         except Exception:  # TODO find what is expected here
-            self.phot_radius = -np.ones(self.freq_len)
+            self.phot_radius = -np.ones(self.frequencies.size)
 
     def calc_flux(self, temp, abunds, gravity, mmw, r_pl=None, sigma_lnorm=None,
                   fsed=None, kzz=None, radius=None,
@@ -800,7 +741,7 @@ class Radtrans:
                   gamma_scat=None,
                   add_cloud_scat_as_abs=False,
                   t_star=None, r_star=None, semimajoraxis=None,
-                  geometry='dayside_ave', theta_star=0,
+                  emission_geometry='dayside_ave', star_inclination_angle=0,
                   hack_cloud_photospheric_tau=None,
                   dist="lognormal", a_hans=None, b_hans=None,
                   stellar_intensity=None,
@@ -874,13 +815,13 @@ class Radtrans:
                     The distance of the planet from the star. Used to scale
                     the stellar flux when the scattering of the direct light
                     is considered.
-                geometry (Optional[string]):
+                emission_geometry (Optional[string]):
                     if equal to ``'dayside_ave'``: use the dayside average
                     geometry. if equal to ``'planetary_ave'``: use the
                     planetary average geometry. if equal to
                     ``'non-isotropic'``: use the non-isotropic
                     geometry.
-                theta_star (Optional[float]):
+                star_inclination_angle (Optional[float]):
                     Inclination angle of the direct light with respect to
                     the normal to the atmosphere. Used only in the
                     non-isotropic geometry scenario.
@@ -938,26 +879,29 @@ class Radtrans:
         self.kappa_zero = kappa_zero
         self.gamma_scat = gamma_scat
         self.gray_opacity = gray_opacity
-        self.geometry = geometry
-        self.mu_star = np.cos(theta_star * np.pi / 180.)
+        self.emission_geometry = emission_geometry
+        self.mu_star = np.cos(np.deg2rad(star_inclination_angle))
         self.fsed = fsed
         self.cloud_wlen = cloud_wlen
         self.gravity = gravity
 
         if self.cloud_wlen is not None and (
-                self.cloud_wlen[0] < 1e-4 * self.lambda_angstroem[0] or
-                self.cloud_wlen[1] > 1e-4 * self.lambda_angstroem[-1]):
-            raise ValueError('The wavelength range of cloud_wlen should '
-                             'lie within the wavelength range of '
-                             'self.lambda_angstroem, which is slightly '
-                             'smaller than the wavelength range of '
-                             'wlen_bords_micron.')
+                self.cloud_wlen[0] < 1e4 * nc.c / self.frequencies[0] or
+                self.cloud_wlen[1] > 1e4 * nc.c / self.frequencies[-1]):
+            raise ValueError(
+                f"cloud wavelength range must be within the interval "
+                f"[{1e4 * nc.c / self.frequencies[0]}, {1e4 * nc.c / self.frequencies[-1]}], "
+                f"but was {self.cloud_wlen}"
+            )
 
         if self.mu_star <= 0.:
             self.mu_star = 1e-8
 
         if stellar_intensity is None:
-            self.get_star_spectrum(t_star, semimajoraxis, r_star)
+            if t_star is not None and semimajoraxis is not None:
+                self.stellar_intensity = self.get_star_spectrum(t_star, semimajoraxis, self.frequencies, r_star)
+            else:
+                self.stellar_intensity = np.zeros_like(self.frequencies)
         else:
             self.stellar_intensity = stellar_intensity
 
@@ -985,36 +929,36 @@ class Radtrans:
         if auto_anisotropic_cloud_scattering:
             self.anisotropic_cloud_scattering = 'auto'
 
-        if not self.skip_RT_step:
+        if not self.skip_radiative_transfer_step:
             self.calc_rt(contribution)
 
             if self._clouds_have_effect(abunds):
                 self.calc_tau_cloud(gravity)
 
-            if (self.mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
-                if self.do_scat_emis and self.kappa_rosseland is not None:
+            if (self.opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+                if self.scattering_in_emission and self.kappa_rosseland is not None:
                     self.tau_rosse = fs.calc_tau_g_tot_ck(
                         gravity,
-                        self.press,
-                        self.kappa_rosseland.reshape(1, 1, 1, len(self.press))
-                    ).reshape(len(self.press))
+                        self.pressures,
+                        self.kappa_rosseland.reshape(1, 1, 1, len(self.pressures))
+                    ).reshape(len(self.pressures))
         else:
             warnings.warn("Cloud rescaling lead to nan opacities, skipping RT calculation!")
 
-            self.flux = np.ones_like(self.freq) * np.nan
-            self.contr_em = None
-            self.skip_RT_step = False
+            self.flux = np.ones_like(self.frequencies) * np.nan
+            self.contribution_emission = None
+            self.skip_radiative_transfer_step = False
 
     def calc_opt_depth(self, gravity, cloud_wlen=None):
         # Calculate optical depth for the total opacity.
-        if self.mode == 'lbl' or self.test_ck_shuffle_comp:
-            total_tau = copy.deepcopy(self.line_struc_kappas)
+        if self.opacity_mode == 'lbl' or self.test_ck_shuffle_comp:
+            total_tau = copy.deepcopy(self.line_opacities)
 
             if self.hack_cloud_photospheric_tau is not None:
-                if self.do_scat_emis:
-                    continuum_opa_scat_emis = copy.deepcopy(self.continuum_opa_scat)
+                if self.scattering_in_emission:
+                    continuum_opa_scat_emis = copy.deepcopy(self.continuum_opacities_scattering)
                 else:
-                    continuum_opa_scat_emis = np.zeros(self.continuum_opa_scat.shape)
+                    continuum_opa_scat_emis = np.zeros(self.continuum_opacities_scattering.shape)
 
                 # TODO is this block structure intended for the user or just here for the developer tests?
                 block1 = True
@@ -1022,16 +966,16 @@ class Radtrans:
                 block3 = True
                 block4 = True
 
-                ab = np.ones_like(self.line_abundances)
+                ab = np.ones_like(self.line_species_mass_fractions)
 
                 # BLOCK 1, subtract cloud, calc. tau for gas only
                 if block1:
                     # Get continuum scattering opacity, without clouds:
                     continuum_opa_scat_emis = continuum_opa_scat_emis - self.hack_cloud_total_scat_aniso
 
-                    self.line_struc_kappas = fi.mix_opas_ck(
+                    self.line_opacities = fi.mix_opas_ck(
                         ab,
-                        self.line_struc_kappas,
+                        self.line_opacities,
                         -self.hack_cloud_total_abs
                     )
 
@@ -1039,9 +983,9 @@ class Radtrans:
                     total_tau[:, :, :1, :], self.photon_destruction_prob = \
                         fs.calc_tau_g_tot_ck_scat(
                             gravity,
-                            self.press,
-                            self.line_struc_kappas[:, :, :1, :],
-                            self.do_scat_emis,
+                            self.pressures,
+                            self.line_opacities[:, :, :1, :],
+                            self.scattering_in_emission,
                             continuum_opa_scat_emis
                         )
 
@@ -1051,10 +995,10 @@ class Radtrans:
                 if block2:
                     # Reduce total (absorption) line opacity by continuum absorption opacity
                     # (those two were added in  before)
-                    mock_line_cloud_continuum_only = np.zeros_like(self.line_struc_kappas)
+                    mock_line_cloud_continuum_only = np.zeros_like(self.line_opacities)
 
                     if not block1 and not block3 and not block4:
-                        ab = np.ones_like(self.line_abundances)
+                        ab = np.ones_like(self.line_species_mass_fractions)
 
                     mock_line_cloud_continuum_only = \
                         fi.mix_opas_ck(ab, mock_line_cloud_continuum_only, self.hack_cloud_total_abs)
@@ -1062,8 +1006,8 @@ class Radtrans:
                     # Calc. optical depth of cloud only
                     total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud = \
                         fs.calc_tau_g_tot_ck_scat(gravity,
-                                                  self.press, mock_line_cloud_continuum_only[:, :, :1, :],
-                                                  self.do_scat_emis, self.hack_cloud_total_scat_aniso)
+                                                  self.pressures, mock_line_cloud_continuum_only[:, :, :1, :],
+                                                  self.scattering_in_emission, self.hack_cloud_total_scat_aniso)
 
                     if (not block1 and not block3) and not block4:
                         print("Cloud only (for tests purposes...)!")
@@ -1079,13 +1023,13 @@ class Radtrans:
                     if cloud_wlen is None:
                         # Use the full wavelength range for calculating the median
                         # optical depth of the clouds
-                        wlen_select = np.ones(self.lambda_angstroem.shape[0], dtype=bool)
+                        wlen_select = np.ones(self.frequencies.shape[0], dtype=bool)
 
                     else:
                         # Use a smaller wavelength range for the median optical depth
-                        # The units of cloud_wlen are converted from micron to Angstroem
-                        wlen_select = (self.lambda_angstroem >= 1e4 * cloud_wlen[0]) & \
-                                      (self.lambda_angstroem <= 1e4 * cloud_wlen[1])
+                        # The units of cloud_wlen are converted from micron to cm
+                        wlen_select = (nc.c / self.frequencies >= 1e-4 * cloud_wlen[0]) & \
+                                      (nc.c / self.frequencies <= 1e-4 * cloud_wlen[1])
 
                     # Calculate the cloud-free optical depth per wavelength
                     w_gauss_photosphere = self.w_gauss[..., np.newaxis, np.newaxis]
@@ -1095,8 +1039,8 @@ class Radtrans:
                         optical_depth_integ = np.median(optical_depth[wlen_select, :], axis=0)
                     else:
                         optical_depth_integ = np.sum(
-                            (optical_depth[1:, :] + optical_depth[:-1, :]) * np.diff(self.freq)[..., np.newaxis],
-                            axis=0) / (self.freq[-1] - self.freq[0]) / 2.
+                            (optical_depth[1:, :] + optical_depth[:-1, :]) * np.diff(self.frequencies)[..., np.newaxis],
+                            axis=0) / (self.frequencies[-1] - self.frequencies[0]) / 2.
 
                     optical_depth_cloud = np.sum(w_gauss_photosphere * total_tau_cloud[:, :, 0, :], axis=0)
 
@@ -1104,24 +1048,24 @@ class Radtrans:
                         optical_depth_cloud_integ = np.median(optical_depth_cloud[wlen_select, :], axis=0)
                     else:
                         optical_depth_cloud_integ = np.sum(
-                            (optical_depth_cloud[1:, :] + optical_depth_cloud[:-1, :]) * np.diff(self.freq)[
+                            (optical_depth_cloud[1:, :] + optical_depth_cloud[:-1, :]) * np.diff(self.frequencies)[
                                 ..., np.newaxis], axis=0) / \
-                                                    (self.freq[-1] - self.freq[0]) / 2.
+                                                    (self.frequencies[-1] - self.frequencies[0]) / 2.
 
                     # Interpolate the pressure where the optical
                     # depth of cloud-free atmosphere is 1.0
 
-                    press_bol_clear = interp1d(optical_depth_integ, self.press)
+                    press_bol_clear = interp1d(optical_depth_integ, self.pressures)
 
                     try:
                         p_phot_clear = press_bol_clear(1.)
                     except ValueError:
-                        p_phot_clear = self.press[-1]
+                        p_phot_clear = self.pressures[-1]
 
                     # Interpolate the optical depth of the
                     # cloud-only atmosphere at the pressure
                     # of the cloud-free photosphere
-                    tau_bol_cloud = interp1d(self.press, optical_depth_cloud_integ)
+                    tau_bol_cloud = interp1d(self.pressures, optical_depth_cloud_integ)
                     tau_cloud_at_phot_clear = tau_bol_cloud(p_phot_clear)
 
                     # Apply cloud scaling
@@ -1145,41 +1089,44 @@ class Radtrans:
                     continuum_opa_scat_emis = \
                         continuum_opa_scat_emis + self.cloud_scaling_factor * self.hack_cloud_total_scat_aniso
 
-                    self.line_struc_kappas = \
-                        fi.mix_opas_ck(ab, self.line_struc_kappas,
+                    self.line_opacities = \
+                        fi.mix_opas_ck(ab, self.line_opacities,
                                        self.cloud_scaling_factor * self.hack_cloud_total_abs)
 
                     # Calc. total optical depth, including clouds
                     total_tau[:, :, :1, :], self.photon_destruction_prob = \
                         fs.calc_tau_g_tot_ck_scat(
                             gravity,
-                            self.press,
-                            self.line_struc_kappas[:, :, :1, :],
-                            self.do_scat_emis,
+                            self.pressures,
+                            self.line_opacities[:, :, :1, :],
+                            self.scattering_in_emission,
                             continuum_opa_scat_emis
                         )
             else:
-                if self.do_scat_emis:
+                if self.scattering_in_emission:
                     total_tau[:, :, :1, :], self.photon_destruction_prob = \
                         fs.calc_tau_g_tot_ck_scat(
                             gravity,
-                            self.press,
-                            self.line_struc_kappas[:, :, :1, :],
-                            self.do_scat_emis,
-                            self.continuum_opa_scat
+                            self.pressures,
+                            self.line_opacities[:, :, :1, :],
+                            self.scattering_in_emission,
+                            self.continuum_opacities_scattering
                         )
                 else:
                     total_tau[:, :, :1, :], self.photon_destruction_prob = \
                         fs.calc_tau_g_tot_ck_scat(
                             gravity,
-                            self.press,
-                            self.line_struc_kappas[:, :, :1, :],
-                            self.do_scat_emis,
-                            np.zeros(self.continuum_opa_scat.shape)
+                            self.pressures,
+                            self.line_opacities[:, :, :1, :],
+                            self.scattering_in_emission,
+                            np.zeros(self.continuum_opacities_scattering.shape)
                         )
 
             # To handle cases without any absorbers, where kappas are zero
-            if not self.absorbers_present:
+            if len(self.line_species) == 0 \
+                    and len(self.collision_induced_absorptions) == 0 \
+                    and len(self.rayleigh_species) == 0 \
+                    and len(self.cloud_species) == 0:
                 print('No absorbers present, setting the photon'
                       ' destruction probability in the atmosphere to 1.')
                 self.photon_destruction_prob[np.isnan(self.photon_destruction_prob)] = 1.
@@ -1192,12 +1139,12 @@ class Radtrans:
                 print('Region of zero opacity detected, setting the photon'
                       ' destruction probability in this spectral range to 1.')
                 self.photon_destruction_prob[np.isnan(self.photon_destruction_prob)] = 1.
-                self.skip_RT_step = True
+                self.skip_radiative_transfer_step = True
         else:
             total_tau = fs.calc_tau_g_tot_ck(
                 gravity,
-                self.press,
-                self.line_struc_kappas
+                self.pressures,
+                self.line_opacities
             )
 
         return total_tau
@@ -1253,7 +1200,7 @@ class Radtrans:
                                             variable_gravity=True,
                                             pressures=None):
         if pressures is None:
-            pressures = self.press
+            pressures = self.pressures
         else:
             pressures = pressures * 1e6
 
@@ -1340,7 +1287,7 @@ class Radtrans:
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/a_hans^2)
         """
-        if not self.do_scat_emis:
+        if not self.scattering_in_emission:
             raise ValueError(
                 "pRT must run in do_scat_emis = True mode to calculate kappa_Rosseland and kappa_Planck'"
             )
@@ -1370,14 +1317,14 @@ class Radtrans:
             self.anisotropic_cloud_scattering = 'auto'
 
         self.kappa_rosseland = \
-            fs.calc_kappa_rosseland(self.line_struc_kappas[:, :, :1, :], self.temp,
-                                    self.w_gauss, self.border_freqs,
-                                    self.do_scat_emis, self.continuum_opa_scat)
+            fs.calc_kappa_rosseland(self.line_opacities[:, :, :1, :], self.temperatures,
+                                    self.w_gauss, self.frequencies_bin_edges,
+                                    self.scattering_in_emission, self.continuum_opacities_scattering)
 
         kappa_planck = \
-            fs.calc_kappa_planck(self.line_struc_kappas[:, :, :1, :], self.temp,
-                                 self.w_gauss, self.border_freqs,
-                                 self.do_scat_emis, self.continuum_opa_scat)
+            fs.calc_kappa_planck(self.line_opacities[:, :, :1, :], self.temperatures,
+                                 self.w_gauss, self.frequencies_bin_edges,
+                                 self.scattering_in_emission, self.continuum_opacities_scattering)
 
         return self.kappa_rosseland, kappa_planck
 
@@ -1387,9 +1334,11 @@ class Radtrans:
         total_tau = self.calc_opt_depth(self.gravity, cloud_wlen=self.cloud_wlen)
 
         if contribution:
-            self.contr_em = np.zeros((np.size(self.temp), self.freq_len), dtype='d', order='F')
+            self.contribution_emission = np.zeros(
+                (np.size(self.temperatures), self.frequencies.size), dtype='d', order='F'
+            )
 
-        if self.do_scat_emis:
+        if self.scattering_in_emission:
             # TODO investigate bug with scattering and low VMR near surface
             # print(np.shape(self.total_tau[:, :, 0, :]))
             # with open('tau.txt', 'w') as f:
@@ -1406,10 +1355,10 @@ class Radtrans:
             # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
             # everything has been moved into the 0th index
             if contribution:
-                self.flux, self.contr_em = fs.feautrier_rad_trans(
-                    self.border_freqs,
+                self.flux, self.contribution_emission = fs.feautrier_rad_trans(
+                    self.frequencies_bin_edges,
                     total_tau[:, :, 0, :],
-                    self.temp,
+                    self.temperatures,
                     self.mu,
                     self.w_gauss_mu,
                     self.w_gauss,
@@ -1418,14 +1367,14 @@ class Radtrans:
                     self.reflectance,
                     self.emissivity,
                     self.stellar_intensity,
-                    self.geometry,
+                    self.emission_geometry,
                     self.mu_star
                 )
             else:
                 self.flux, _ = fs.feautrier_rad_trans(
-                    self.border_freqs,
+                    self.frequencies_bin_edges,
                     total_tau[:, :, 0, :],
-                    self.temp,
+                    self.temperatures,
                     self.mu,
                     self.w_gauss_mu,
                     self.w_gauss,
@@ -1434,38 +1383,38 @@ class Radtrans:
                     self.reflectance,
                     self.emissivity,
                     self.stellar_intensity,
-                    self.geometry,
+                    self.emission_geometry,
                     self.mu_star
                 )
 
             if get_kappa_rosseland:
-                if self.do_scat_emis:
+                if self.scattering_in_emission:
                     self.kappa_rosseland = \
                         fs.calc_kappa_rosseland(
-                            self.line_struc_kappas[:, :, 0, :],
-                            self.temp,
+                            self.line_opacities[:, :, 0, :],
+                            self.temperatures,
                             self.w_gauss,
-                            self.border_freqs,
-                            self.do_scat_emis,
-                            self.continuum_opa_scat
+                            self.frequencies_bin_edges,
+                            self.scattering_in_emission,
+                            self.continuum_opacities_scattering
                         )
                 else:
                     self.kappa_rosseland = \
                         fs.calc_kappa_rosseland(
-                            self.line_struc_kappas[:, :, 0, :],
-                            self.temp,
+                            self.line_opacities[:, :, 0, :],
+                            self.temperatures,
                             self.w_gauss,
-                            self.border_freqs,
-                            self.do_scat_emis,
-                            np.zeros(self.continuum_opa_scat.shape)
+                            self.frequencies_bin_edges,
+                            self.scattering_in_emission,
+                            np.zeros(self.continuum_opacities_scattering.shape)
                         )
         else:
-            if (self.mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+            if (self.opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
                 if contribution:
-                    self.flux, self.contr_em = fs.flux_ck(
-                        self.freq,
+                    self.flux, self.contribution_emission = fs.flux_ck(
+                        self.frequencies,
                         total_tau[:, :, :1, :],
-                        self.temp,
+                        self.temperatures,
                         self.mu,
                         self.w_gauss_mu,
                         self.w_gauss,
@@ -1473,9 +1422,9 @@ class Radtrans:
                     )
                 else:
                     self.flux, _ = fs.flux_ck(
-                        self.freq,
+                        self.frequencies,
                         total_tau[:, :, :1, :],
-                        self.temp,
+                        self.temperatures,
                         self.mu,
                         self.w_gauss_mu,
                         self.w_gauss,
@@ -1483,10 +1432,10 @@ class Radtrans:
                     )
             else:
                 if contribution:
-                    self.flux, self.contr_em = fs.flux_ck(
-                        self.freq,
+                    self.flux, self.contribution_emission = fs.flux_ck(
+                        self.frequencies,
                         total_tau,
-                        self.temp,
+                        self.temperatures,
                         self.mu,
                         self.w_gauss_mu,
                         self.w_gauss,
@@ -1494,9 +1443,9 @@ class Radtrans:
                     )
                 else:
                     self.flux, _ = fs.flux_ck(
-                        self.freq,
+                        self.frequencies,
                         total_tau,
-                        self.temp,
+                        self.temperatures,
                         self.mu,
                         self.w_gauss_mu,
                         self.w_gauss,
@@ -1516,21 +1465,23 @@ class Radtrans:
                     Surface gravity in cgs. Vertically constant for emission
                     spectra.
         """
-        opacity_shape = (1, self.freq_len, 1, len(self.press))
+        opacity_shape = (1, self.frequencies.size, 1, len(self.pressures))
         cloud_opacity = self.cloud_total_opa_retrieval_check.reshape(opacity_shape)
-        self.tau_cloud = fs.calc_tau_g_tot_ck(gravity, self.press, cloud_opacity)
+        self.tau_cloud = fs.calc_tau_g_tot_ck(gravity, self.pressures, cloud_opacity)
 
     def calc_tr_rad(self, p0_bar, r_pl, gravity, mmw, contribution, variable_gravity):
         if contribution:
-            self.contr_tr = np.zeros((np.size(self.press), self.freq_len), dtype='d', order='F')
+            self.contribution_transmission = np.zeros(
+                (np.size(self.pressures), self.frequencies.size), dtype='d', order='F'
+            )
 
         # Calculate the transmission spectrum
-        if (self.mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+        if (self.opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
             self.transm_rad, self.radius_hse = self.py_calc_transm_spec(
-                line_struc_kappas=self.line_struc_kappas,
-                continuum_opa_scat=self.continuum_opa_scat,
-                press=self.press,
-                temp=self.temp,
+                line_struc_kappas=self.line_opacities,
+                continuum_opa_scat=self.continuum_opacities_scattering,
+                press=self.pressures,
+                temp=self.temperatures,
                 w_gauss=self.w_gauss,
                 mmw=mmw,
                 gravity=gravity,
@@ -1543,23 +1494,23 @@ class Radtrans:
             # TODO: contribution function calculation with python-only implementation
             if contribution:
                 self.transm_rad, self.radius_hse = fs.calc_transm_spec(
-                    self.line_struc_kappas[:, :, :1, :],
-                    self.temp,
-                    self.press,
+                    self.line_opacities[:, :, :1, :],
+                    self.temperatures,
+                    self.pressures,
                     gravity,
                     mmw,
                     p0_bar,
                     r_pl,
                     self.w_gauss,
                     self.scat,
-                    self.continuum_opa_scat,
+                    self.continuum_opacities_scattering,
                     variable_gravity
                 )
 
-                self.contr_tr, self.radius_hse = fs.calc_transm_spec_contr(
-                    self.line_struc_kappas[:, :, :1, :],
-                    self.temp,
-                    self.press,
+                self.contribution_transmission, self.radius_hse = fs.calc_transm_spec_contr(
+                    self.line_opacities[:, :, :1, :],
+                    self.temperatures,
+                    self.pressures,
                     gravity,
                     mmw,
                     p0_bar,
@@ -1567,15 +1518,15 @@ class Radtrans:
                     self.w_gauss,
                     self.transm_rad ** 2,
                     self.scat,
-                    self.continuum_opa_scat,
+                    self.continuum_opacities_scattering,
                     variable_gravity
                 )
         else:
             self.transm_rad, self.radius_hse = self.py_calc_transm_spec(
-                line_struc_kappas=self.line_struc_kappas,
-                continuum_opa_scat=self.continuum_opa_scat,
-                press=self.press,
-                temp=self.temp,
+                line_struc_kappas=self.line_opacities,
+                continuum_opa_scat=self.continuum_opacities_scattering,
+                press=self.pressures,
+                temp=self.temperatures,
                 w_gauss=self.w_gauss,
                 mmw=mmw,
                 gravity=gravity,
@@ -1587,18 +1538,18 @@ class Radtrans:
             # TODO: contribution function calculation with python-only implementation
             if contribution:
                 self.transm_rad, self.radius_hse = fs.calc_transm_spec(
-                    self.line_struc_kappas, self.temp,
-                    self.press, gravity, mmw, p0_bar, r_pl,
+                    self.line_opacities, self.temperatures,
+                    self.pressures, gravity, mmw, p0_bar, r_pl,
                     self.w_gauss, self.scat,
-                    self.continuum_opa_scat, variable_gravity
+                    self.continuum_opacities_scattering, variable_gravity
                 )
 
-                self.contr_tr, self.radius_hse = fs.calc_transm_spec_contr(
-                    self.line_struc_kappas, self.temp,
-                    self.press, gravity, mmw, p0_bar, r_pl,
+                self.contribution_transmission, self.radius_hse = fs.calc_transm_spec_contr(
+                    self.line_opacities, self.temperatures,
+                    self.pressures, gravity, mmw, p0_bar, r_pl,
                     self.w_gauss, self.transm_rad ** 2.,
                     self.scat,
-                    self.continuum_opa_scat, variable_gravity
+                    self.continuum_opacities_scattering, variable_gravity
                 )
 
     def calc_transm(self, temp, abunds, gravity, mmw, p0_bar, r_pl,
@@ -1766,7 +1717,7 @@ class Radtrans:
         linear case.
         '''
         factor = mfrac / self.CIA_species[key]['weight'] \
-            * self.mmw / nc.amu / (nc.L0 ** 2) * self.press / nc.kB / self.temp
+            * self.mean_molar_masses / nc.amu / (nc.L0 ** 2) * self.pressures / nc.kB / self.temperatures
 
         log10_alpha = np.log10(self.CIA_species[key]['alpha'])
 
@@ -1779,7 +1730,7 @@ class Radtrans:
                 bounds_error=False,
                 fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
             )
-            cia_opacities = interpolating_function(self.temp)
+            cia_opacities = interpolating_function(self.temperatures)
 
             interpolating_function = interp1d(
                 x=self.CIA_species[key]['lambda'],
@@ -1790,7 +1741,7 @@ class Radtrans:
                 axis=0
             )
 
-            cia_opacities = 10 ** interpolating_function(nc.c / self.freq)
+            cia_opacities = 10 ** interpolating_function(nc.c / self.frequencies)
             cia_opacities = np.where(cia_opacities < sys.float_info.min, 0, cia_opacities)
 
             return cia_opacities * factor
@@ -1800,12 +1751,12 @@ class Radtrans:
 
     def interpolate_species_opa(self, temp):
         # Interpolate line opacities to given temperature structure.
-        self.temp = temp
+        self.temperatures = temp
 
         if len(self.line_species) > 0:
             for i, species in enumerate(self.line_species):
-                self.line_struc_kappas[:, :, i, :] = fi.interpol_opa_ck(
-                    self.press,
+                self.line_opacities[:, :, i, :] = fi.interpol_opa_ck(
+                    self.pressures,
                     temp,
                     self.line_opacities_temperature_profile_grid[species],
                     self.has_custom_line_opacities_tp_grid[species],
@@ -1814,7 +1765,7 @@ class Radtrans:
                     self.line_opacities_grid[species]
                 )
         else:
-            self.line_struc_kappas = np.zeros_like(self.line_struc_kappas)
+            self.line_opacities = np.zeros_like(self.line_opacities)
 
     @staticmethod
     def get_custom_pt_grid(path, mode, species):
@@ -1876,11 +1827,12 @@ class Radtrans:
         resh_wgauss = self.w_gauss.reshape((len(self.w_gauss), 1, 1))
 
         for i, species in enumerate(self.line_species):
-            return_opas[species] = np.sum(self.line_struc_kappas[:, :, i, :] * resh_wgauss, axis=0)
+            return_opas[species] = np.sum(self.line_opacities[:, :, i, :] * resh_wgauss, axis=0)
 
-        return nc.c / self.freq, return_opas
+        return nc.c / self.frequencies, return_opas
 
-    def get_star_spectrum(self, t_star, distance, r_star=None):
+    @staticmethod
+    def get_star_spectrum(t_star, distance, freq, r_star=None):
         """Method to get the PHOENIX spectrum of the star and rebin it
         to the wavelength points. If Tstar is not explicitly written, the
         spectrum will be 0. If the distance is not explicitly written,
@@ -1892,42 +1844,46 @@ class Radtrans:
                     the stellar temperature in K.
                 distance (float):
                     the semi-major axis of the planet in cm.
+                freq (float):
+                    the frequencies on which to interpolate the spectrum in Hz.
                 r_star (float):
                     if specified, uses this radius in cm
                     to scale the flux, otherwise it uses PHOENIX radius.
         """
-        # TODO this could be static
-        if t_star is not None:  # TODO whether or not returning a spectrum should not depend on this function
-            if r_star is not None:
-                spec = phoenix.get_PHOENIX_spec(t_star)
-                rad = r_star
-            else:
-                spec, rad = phoenix.get_PHOENIX_spec_rad(t_star)
-
-            add_stellar_flux = np.zeros(100)
-            add_wavelengths = np.logspace(np.log10(1.0000002e-02), 2, 100)
-
-            # import pdb
-            # pdb.set_trace()
-
-            interpwavelengths = np.append(spec[:, 0], add_wavelengths)
-            interpfluxes = np.append(spec[:, 1], add_stellar_flux)
-
-            self.stellar_intensity = fr.rebin_spectrum(interpwavelengths,
-                                                       interpfluxes,
-                                                       nc.c / self.freq)
-
-            try:
-                # SCALED INTENSITY (Flux/pi)
-                self.stellar_intensity = self.stellar_intensity / np.pi * \
-                                         (rad / distance) ** 2
-            except TypeError as e:
-                message = '********************************' + \
-                          ' Error! Please set the semi-major axis or turn off the calculation ' + \
-                          'of the stellar spectrum by removing Tstar. ********************************'
-                raise Exception(message) from e
+        if r_star is not None:
+            spec = phoenix.get_PHOENIX_spec(t_star)
+            rad = r_star
         else:
-            self.stellar_intensity = np.zeros_like(self.freq)
+            spec, rad = phoenix.get_PHOENIX_spec_rad(t_star)
+
+        add_stellar_flux = np.zeros(100)
+        add_wavelengths = np.logspace(np.log10(1.0000002e-02), 2, 100)
+
+        interpwavelengths = np.append(spec[:, 0], add_wavelengths)
+        interpfluxes = np.append(spec[:, 1], add_stellar_flux)
+
+        stellar_intensity = fr.rebin_spectrum(interpwavelengths, interpfluxes, nc.c / freq)
+
+        stellar_intensity = stellar_intensity / np.pi * (rad / distance) ** 2
+
+        return stellar_intensity
+
+    def load_all_opacities(self, arr_min=None):
+        # Load line opacities
+        self.read_line_opacities(arr_min, self.path_input_data)
+
+        # Read continuum opacities
+        # Clouds
+        if len(self.cloud_species) > 0:
+            # Inherited from ReadOpacities in _read_opacities.py
+            self.read_cloud_opas(self.path_input_data)
+
+        # CIA
+        if len(self.collision_induced_absorptions) > 0:
+            self.CIA_species, self.Hminus = self.load_collision_induced_absorptions(
+                self.path_input_data,
+                self.collision_induced_absorptions
+            )
 
     @staticmethod
     def load_collision_induced_absorptions(path_input_data, continuum_opacities):
@@ -2037,7 +1993,7 @@ class Radtrans:
         return line_opacities_grid
 
     @staticmethod
-    def load_hdf5_line_opacity_table(file_path_hdf5, freq, lbl_opacity_sampling=None):
+    def load_hdf5_line_opacity_table(file_path_hdf5, freq, lbl_opacity_sampling=1):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
             frequency_grid = nc.c * f['wavenumbers'][:]  # cm-1 to s-1
@@ -2059,7 +2015,7 @@ class Radtrans:
 
         line_opacities_grid = line_opacities_grid[:, :, ::-1]
 
-        if lbl_opacity_sampling is not None:
+        if lbl_opacity_sampling > 1:
             line_opacities_grid = line_opacities_grid[:, :, ::lbl_opacity_sampling]
 
         line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
@@ -2103,7 +2059,7 @@ class Radtrans:
             # Read in the frequency range of the opacity data
             local_freq, local_border_freqs = fi.get_freq(path_input_data, species, local_freq_len)
         else:
-            if lbl_opacity_sampling is None:
+            if lbl_opacity_sampling <= 1:
                 local_freq_len_full = freq_len
             else:
                 local_freq_len_full = freq_len * lbl_opacity_sampling
@@ -2145,7 +2101,7 @@ class Radtrans:
             line_opacities_grid = ret_val
 
         # Down-sample opacities in lbl mode if requested
-        if mode == 'lbl' and lbl_opacity_sampling is not None:
+        if mode == 'lbl' and lbl_opacity_sampling > 1:
             line_opacities_grid = line_opacities_grid[:, ::lbl_opacity_sampling, :]
 
         return line_opacities_grid
@@ -2229,7 +2185,7 @@ class Radtrans:
         Returns:
 
         """
-        self.mmw = mmw
+        self.mean_molar_masses = mmw
         self.scat = False
 
         # Fill line abundance dictionary with provided mass fraction dictionary "abundances"
@@ -2237,14 +2193,14 @@ class Radtrans:
             # Check if user provided the detailed line absorber name or
             # if line absorber name should be matched *exactly*:
             if (self.line_species[i_spec] in abundances) or self.use_detailed_line_absorber_names:
-                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec]]
+                self.line_species_mass_fractions[:, i_spec] = abundances[self.line_species[i_spec]]
             # If they did not, or if self.use_detailed_line_absorber_names == False: split at "_"!
             else:
                 # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
-                self.line_abundances[:, i_spec] = abundances[self.line_species[i_spec].split('_')[0]]
+                self.line_species_mass_fractions[:, i_spec] = abundances[self.line_species[i_spec].split('_')[0]]
 
-        self.continuum_opa = np.zeros_like(self.continuum_opa)
-        self.continuum_opa_scat = np.zeros_like(self.continuum_opa_scat)
+        self.continuum_opacities = np.zeros_like(self.continuum_opacities)
+        self.continuum_opacities_scattering = np.zeros_like(self.continuum_opacities_scattering)
 
         # Calculate CIA opacity
         for key in self.CIA_species.keys():
@@ -2269,18 +2225,18 @@ class Radtrans:
                         raise ValueError(f"species {m} of CIA '{key}' not found in mass mixing ratios dict "
                                          f"(listed species: {list(abundances.keys())})")
 
-            self.continuum_opa = self.continuum_opa + self.interpolate_cia(key, abund)
+            self.continuum_opacities = self.continuum_opacities + self.interpolate_cia(key, abund)
 
         # Calc. H- opacity
         if self.Hminus:
-            self.continuum_opa = \
-                self.continuum_opa + hminus_opacity(self.lambda_angstroem,
-                                                    self.border_lambda_angstroem,
-                                                    self.temp, self.press, mmw, abundances)
+            self.continuum_opacities = \
+                self.continuum_opacities + hminus_opacity(nc.c / self.frequencies * 1e8,  # Hz to Angstroem
+                                                          nc.c / self.frequencies_bin_edges * 1e8,  # Hz to Angstroem
+                                                          self.temperatures, self.pressures, mmw, abundances)
 
         # Add mock gray cloud opacity here
         if self.gray_opacity is not None:
-            self.continuum_opa = self.continuum_opa + self.gray_opacity
+            self.continuum_opacities = self.continuum_opacities + self.gray_opacity
 
         # Calculate rayleigh scattering opacities
         if len(self.rayleigh_species) != 0:
@@ -2289,16 +2245,16 @@ class Radtrans:
 
         # Add gray cloud deck
         if self.Pcloud is not None:
-            self.continuum_opa[:, self.press > self.Pcloud * 1e6] += 1e99  # TODO why '+=' and not '='?
+            self.continuum_opacities[:, self.pressures > self.Pcloud * 1e6] += 1e99  # TODO why '+=' and not '='?
 
         # Add power law opacity
         if self.kappa_zero is not None:
             self.scat = True
-            wlen_micron = nc.c / self.freq / 1e-4
+            wlen_micron = nc.c / self.frequencies / 1e-4
             scattering_add = self.kappa_zero * (wlen_micron / 0.35) ** self.gamma_scat
-            add_term = np.repeat(scattering_add[None], int(len(self.press)), axis=0).transpose()
+            add_term = np.repeat(scattering_add[None], int(len(self.pressures)), axis=0).transpose()
 
-            self.continuum_opa_scat += add_term
+            self.continuum_opacities_scattering += add_term
 
         # Check if hack_cloud_photospheric_tau is used with
         # a single cloud model. Combining cloud opacities
@@ -2317,11 +2273,11 @@ class Radtrans:
         if give_absorption_opacity is None:
             if self.hack_cloud_photospheric_tau is not None:
                 if not hasattr(self, "hack_cloud_total_abs"):
-                    opa_shape = (self.freq.shape[0], self.press.shape[0])
+                    opa_shape = (self.frequencies.shape[0], self.pressures.shape[0])
                     self.hack_cloud_total_abs = np.zeros(opa_shape)
         else:
-            cloud_abs = give_absorption_opacity(nc.c / self.freq / 1e-4, self.press * 1e-6)
-            self.continuum_opa += cloud_abs
+            cloud_abs = give_absorption_opacity(nc.c / self.frequencies / 1e-4, self.pressures * 1e-6)
+            self.continuum_opacities += cloud_abs
 
             if self.hack_cloud_photospheric_tau is not None:
                 # This assumes a single cloud model that is
@@ -2333,11 +2289,11 @@ class Radtrans:
         if give_scattering_opacity is None:
             if self.hack_cloud_photospheric_tau is not None:
                 if not hasattr(self, "hack_cloud_total_scat_aniso"):
-                    opa_shape = (self.freq.shape[0], self.press.shape[0])
+                    opa_shape = (self.frequencies.shape[0], self.pressures.shape[0])
                     self.hack_cloud_total_scat_aniso = np.zeros(opa_shape)
         else:
-            cloud_scat = give_scattering_opacity(nc.c / self.freq / 1e-4, self.press * 1e-6)
-            self.continuum_opa_scat += cloud_scat
+            cloud_scat = give_scattering_opacity(nc.c / self.frequencies / 1e-4, self.pressures * 1e-6)
+            self.continuum_opacities_scattering += cloud_scat
 
             if self.hack_cloud_photospheric_tau is not None:
                 # This assumes a single cloud model that is
@@ -2363,19 +2319,19 @@ class Radtrans:
             )
 
         # Interpolate line opacities, combine with continuum oacities
-        self.line_struc_kappas = fi.mix_opas_ck(
-            self.line_abundances,
-            self.line_struc_kappas,
-            self.continuum_opa
+        self.line_opacities = fi.mix_opas_ck(
+            self.line_species_mass_fractions,
+            self.line_opacities,
+            self.continuum_opacities
         )
 
         # Similar to the line-by-line case below, if test_ck_shuffle_comp is
         # True, we will put the total opacity into the first species slot and
         # then carry the remaining radiative transfer steps only over that 0
         # index.
-        if self.mode == 'c-k' and self.test_ck_shuffle_comp:
-            self.line_struc_kappas[:, :, 0, :] = fs.combine_opas_ck(
-                self.line_struc_kappas,
+        if self.opacity_mode == 'c-k' and self.test_ck_shuffle_comp:
+            self.line_opacities[:, :, 0, :] = fs.combine_opas_ck(
+                self.line_opacities,
                 self.g_gauss,
                 self.w_gauss
             )
@@ -2384,9 +2340,9 @@ class Radtrans:
         # add the opacities of different species
         # in frequency space. All opacities are
         # stored in the first species index slot
-        if self.mode == 'lbl' and len(self.line_species) > 1:
-            self.line_struc_kappas[:, :, 0, :] = \
-                np.sum(self.line_struc_kappas, axis=2)
+        if self.opacity_mode == 'lbl' and len(self.line_species) > 1:
+            self.line_opacities[:, :, 0, :] = \
+                np.sum(self.line_opacities, axis=2)
 
     def plot_opas(self,
                   species,
@@ -2406,10 +2362,12 @@ class Radtrans:
         temp = temp.reshape(1)
         pressure_bar = pressure_bar.reshape(1)
 
-        self.press, self.continuum_opa, self.continuum_opa_scat, self.continuum_opa_scat_emis, \
-            self.contr_em, self.contr_tr, self.radius_hse, self.mmw, \
-            self.line_struc_kappas, self.line_struc_kappas_comb, \
-            self.line_abundances, self.cloud_mass_fracs, self.r_g = \
+        self.pressures, \
+            self.continuum_opacities, self.continuum_opacities_scattering, \
+            self.continuum_opacities_scattering_emission, \
+            self.contribution_emission, self.contribution_transmission, self.radius_hse, self.mean_molar_masses, \
+            self.line_opacities, \
+            self.line_species_mass_fractions, self.cloud_species_mass_fractions, self.r_g = \
             self._init_pressure_dependent_parameters(pressures=pressure_bar)
 
         wlen_cm, opas = self.get_opa(temp)
@@ -2594,7 +2552,7 @@ class Radtrans:
             for species in self.line_species:
                 file_path_hdf5 = None
 
-                if self.mode == 'c-k':
+                if self.opacity_mode == 'c-k':
                     path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
                     file_path_hdf5 = glob.glob(path_opacities + '/*.h5')
 
@@ -2602,7 +2560,7 @@ class Radtrans:
                         file_path_hdf5 = None
                     else:
                         file_path_hdf5 = file_path_hdf5[0]
-                elif self.mode == 'lbl':
+                elif self.opacity_mode == 'lbl':
                     path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line')
                     file_path_hdf5 = os.path.join(path_opacities, species + '.otable.petitRADTRANS.h5')
 
@@ -2622,7 +2580,7 @@ class Radtrans:
                     = self.load_line_opacities_pressure_temperature_grid(
                     file_path_hdf5=file_path_hdf5,
                     path_input_data=path_input_data,
-                    mode=self.mode,
+                    mode=self.opacity_mode,
                     species=species,
                     opacities_temperature_profile_grid=opacities_temperature_profile_grid,
                     default_temperature_grid_size=default_temperature_grid_size,
@@ -2640,30 +2598,30 @@ class Radtrans:
                             species
                         ].shape[0],
                         custom_line_paths=custom_line_paths[species],
-                        mode=self.mode,
+                        mode=self.opacity_mode,
                         path_input_data=self.path_input_data,
                         species=species,
                         lbl_opacity_sampling=self.lbl_opacity_sampling,
-                        freq=self.freq,
-                        freq_len=self.freq_len,
+                        freq=self.frequencies,
+                        freq_len=self.frequencies.size,
                         g_len=self.g_len,
                         arr_min=arr_min
                     )
                 else:
                     print(f" Loading line opacities of species '{species}'...")
 
-                    if self.mode == 'c-k':
+                    if self.opacity_mode == 'c-k':
                         self.line_opacities_grid[species] = self.load_hdf5_ktables(
                             file_path_hdf5=file_path_hdf5,
-                            freq=self.freq,
+                            freq=self.frequencies,
                             g_len=self.g_len,
-                            freq_len=self.freq_len,
+                            freq_len=self.frequencies.size,
                             temperature_profile_grid_size=self.line_opacities_temperature_profile_grid[species].shape[0]
                         )
-                    elif self.mode == 'lbl':
+                    elif self.opacity_mode == 'lbl':
                         self.line_opacities_grid[species] = self.load_hdf5_line_opacity_table(
                             file_path_hdf5=file_path_hdf5,
-                            freq=self.freq,
+                            freq=self.frequencies,
                             lbl_opacity_sampling=self.lbl_opacity_sampling
                         )
 
@@ -2676,7 +2634,7 @@ class Radtrans:
             print('\n')
 
         # Read in g grid for correlated-k
-        if self.mode == 'c-k':
+        if self.opacity_mode == 'c-k':
             buffer = np.genfromtxt(
                 os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
             )
@@ -2807,9 +2765,11 @@ class Radtrans:
             species = []
 
         # Define own wavenumber grid, make sure that log spacing is constant everywhere
-        n_spectral_points = int(resolution * np.log(self.wlen_bords_micron[1] / self.wlen_bords_micron[0]) + 1)
-        wavenumber_grid = np.logspace(np.log10(1 / self.wlen_bords_micron[1] / 1e-4),
-                                      np.log10(1. / self.wlen_bords_micron[0] / 1e-4),
+        n_spectral_points = int(
+            resolution * np.log(self.wavelengths_boundaries[1] / self.wavelengths_boundaries[0]) + 1
+        )
+        wavenumber_grid = np.logspace(np.log10(1 / self.wavelengths_boundaries[1] / 1e-4),
+                                      np.log10(1. / self.wavelengths_boundaries[0] / 1e-4),
                                       n_spectral_points)
         dt = h5py.string_dtype(encoding='utf-8')
         # Do the rebinning, loop through species
@@ -2824,8 +2784,8 @@ class Radtrans:
             except ValueError:  # TODO check if ValueError is expected here
                 f.create_dataset('DOI', data=['--'])
 
-            f.create_dataset('bin_centers', data=self.freq[::-1] / nc.c)
-            f.create_dataset('bin_edges', data=self.border_freqs[::-1] / nc.c)
+            f.create_dataset('bin_centers', data=self.frequencies[::-1] / nc.c)
+            f.create_dataset('bin_edges', data=self.frequencies_bin_edges[::-1] / nc.c)
             ret_opa_table = copy.copy(self.line_opacities_grid[spec])
 
             # Mass to go from opacities to cross-sections
@@ -2838,7 +2798,7 @@ class Radtrans:
             ret_opa_table = ret_opa_table.reshape((
                 self.line_opacities_temperature_grid_size[spec],
                 self.line_opacities_pressure_grid_size[spec],
-                self.freq_len,
+                self.frequencies.size,
                 len(self.w_gauss)
             ))
             ret_opa_table = np.swapaxes(ret_opa_table, 1, 0)
@@ -2862,10 +2822,10 @@ class Radtrans:
             f.create_dataset('t', data=self.line_opacities_temperature_profile_grid[spec][
                                        ::self.line_opacities_pressure_grid_size[spec], 0])
             f.create_dataset('weights', data=self.w_gauss)
-            f.create_dataset('wlrange', data=[np.min(nc.c / self.border_freqs / 1e-4),
-                                              np.max(nc.c / self.border_freqs / 1e-4)])
-            f.create_dataset('wnrange', data=[np.min(self.border_freqs / nc.c),
-                                              np.max(self.border_freqs / nc.c)])
+            f.create_dataset('wlrange', data=[np.min(nc.c / self.frequencies_bin_edges / 1e-4),
+                                              np.max(nc.c / self.frequencies_bin_edges / 1e-4)])
+            f.create_dataset('wnrange', data=[np.min(self.frequencies_bin_edges / nc.c),
+                                              np.max(self.frequencies_bin_edges / nc.c)])
             f.close()
             ###############################################
             # Use Exo-k to rebin to low-res, save to desired folder

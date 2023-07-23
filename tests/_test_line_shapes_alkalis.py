@@ -53,9 +53,9 @@ atmosphere3.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean, label = 'Allard wings')
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere2.transm_rad/nc.r_jup_mean, label = 'Burrows wings')
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere3.transm_rad/nc.r_jup_mean, label = 'Lorentz wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transm_rad / nc.r_jup_mean, label ='Allard wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transm_rad / nc.r_jup_mean, label ='Burrows wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere3.transm_rad / nc.r_jup_mean, label ='Lorentz wings')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -70,9 +70,9 @@ atmosphere.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=
 atmosphere2.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 atmosphere3.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean, label = 'Allard wings')
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere2.transm_rad/nc.r_jup_mean, label = 'Burrows wings')
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere3.transm_rad/nc.r_jup_mean, label = 'Lorentz wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transm_rad / nc.r_jup_mean, label ='Allard wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transm_rad / nc.r_jup_mean, label ='Burrows wings')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere3.transm_rad / nc.r_jup_mean, label ='Lorentz wings')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

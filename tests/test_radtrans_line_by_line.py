@@ -22,9 +22,9 @@ def init_radtrans_line_by_line():
         pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
-        wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
-        mode='lbl'
+        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
+        opacity_mode='lbl'
     )
 
     return atmosphere
@@ -124,7 +124,7 @@ def test_line_by_line_emission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_emission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.frequencies * 1e4,
             'spectral_radiosity': atmosphere_lbl.flux
         },
         relative_tolerance=relative_tolerance
@@ -146,7 +146,7 @@ def test_line_by_line_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.frequencies * 1e4,
             'transit_radius': atmosphere_lbl.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance

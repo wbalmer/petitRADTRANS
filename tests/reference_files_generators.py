@@ -62,12 +62,12 @@ def __save_co_added_cross_correlation(filename,
 
 def __save_contribution_function(filename, atmosphere, mode='emission', plot_figure=False, figure_title=None,
                                  prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.freq * 1e4)
+    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4)
 
     if mode == 'emission':
-        contribution = np.asarray(atmosphere.contr_em)
+        contribution = np.asarray(atmosphere.contribution_emission)
     elif mode == 'transmission':
-        contribution = np.asarray(atmosphere.contr_tr)
+        contribution = np.asarray(atmosphere.contribution_transmission)
     else:
         raise ValueError(f"unknown contribution mode '{mode}', available modes are 'emission' or 'transmission'")
 
@@ -83,7 +83,7 @@ def __save_contribution_function(filename, atmosphere, mode='emission', plot_fig
 
     if plot_figure:
         plt.figure()
-        x, y = np.meshgrid(wavelength, atmosphere.press * 1e-6)
+        x, y = np.meshgrid(wavelength, atmosphere.pressures * 1e-6)
         plt.contourf(x, y, contribution, 30, cmap='bone_r')
 
         plt.yscale('log')
@@ -97,7 +97,7 @@ def __save_contribution_function(filename, atmosphere, mode='emission', plot_fig
 
 
 def __save_emission_spectrum(filename, atmosphere, plot_figure=False, figure_title=None, prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.freq * 1e4)
+    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4)
 
     np.savez_compressed(
         os.path.join(filename),
@@ -218,7 +218,7 @@ def __save_temperature_profile(filename, temperature, plot_figure=False, figure_
 
 
 def __save_transmission_spectrum(filename, atmosphere, plot_figure=False, figure_title=None, prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.freq * 1e4)
+    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4)
     transit_radius = np.asarray(atmosphere.transm_rad / petitRADTRANS.nat_cst.r_jup_mean)
 
     np.savez_compressed(
@@ -519,11 +519,11 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_stell
             kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
             fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
             sigma_lnorm=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-            geometry=geometry,
+            emission_geometry=geometry,
             t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
             r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
             semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-            theta_star=radtrans_parameters['stellar_parameters']['incidence_angle']
+            star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
         )
 
         __save_emission_spectrum(
@@ -594,18 +594,18 @@ def create_radtrans_correlated_k_emission_spectrum_surface_scattering_ref(plot_f
     atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
 
     atmosphere.reflectance = radtrans_parameters['planetary_parameters']['surface_reflectance'] \
-        * np.ones_like(atmosphere.freq)
+        * np.ones_like(atmosphere.frequencies)
 
     atmosphere.calc_flux(
         temp=temperature_guillot_2010,
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        geometry='non-isotropic',
+        emission_geometry='non-isotropic',
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        theta_star=radtrans_parameters['stellar_parameters']['incidence_angle']
+        star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
     )
 
     __save_emission_spectrum(

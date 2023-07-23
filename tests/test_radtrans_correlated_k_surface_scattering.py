@@ -26,11 +26,11 @@ def init_radtrans_correlated_k():
         pressures=radtrans_parameters['pressures_thin_atmosphere'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         cloud_species=list(radtrans_parameters['cloud_parameters']['cloud_species'].keys()),
-        wlen_bords_micron=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
-        mode='c-k',
-        do_scat_emis=True
+        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        opacity_mode='c-k',
+        scattering_in_emission=True
     )
 
     return atmosphere
@@ -44,18 +44,18 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
 
     atmosphere.reflectance = radtrans_parameters['planetary_parameters']['surface_reflectance'] * \
-        np.ones_like(atmosphere.freq)
+        np.ones_like(atmosphere.frequencies)
 
     atmosphere.calc_flux(
         temp=temperature_guillot_2010,
         abunds=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
-        geometry='non-isotropic',
+        emission_geometry='non-isotropic',
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         semimajoraxis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        theta_star=radtrans_parameters['stellar_parameters']['incidence_angle']
+        star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
     )
 
     # Comparison
@@ -64,7 +64,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
             'correlated_k_emission_surface_scattering'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere.freq * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4,
             'spectral_radiosity': atmosphere.flux
         },
         relative_tolerance=relative_tolerance
