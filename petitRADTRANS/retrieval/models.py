@@ -14,7 +14,8 @@ from petitRADTRANS.physics import PT_ret_model,\
                                   guillot_modif,\
                                   isothermal,\
                                   cubic_spline_profile,\
-                                  linear_spline_profile
+                                  linear_spline_profile,\
+                                  dTdP_temperature_profile
 from .chemistry import get_abundances
 from .util import surf_to_meas, calc_MMW, compute_gravity, spectrum_cgs_to_si
 """
@@ -772,6 +773,118 @@ def interpolated_profile_emission(pRT_object, \
                                         parameters['gamma'].value,
                                         parameters['nnodes'].value)
     parameters['log_prior_weight'].value = log_prior_weight
+    # If in evaluation mode, and PTs are supposed to be plotted
+    abundances, MMW, small_index, Pbases = get_abundances(p_use,
+                                                  temperatures,
+                                                  pRT_object.line_species,
+                                                  pRT_object.cloud_species,
+                                                  parameters,
+                                                  AMR =AMR)
+    if abundances is None:
+        return None, None
+
+    if PT_plot_mode:
+        return p_use[small_index], temperatures[small_index]
+    if AMR:
+        temperatures = temperatures[small_index]
+        pressures = PGLOBAL[small_index]
+        MMW = MMW[small_index]
+        pRT_object.press = pressures * 1e6
+    else:
+        pressures = p_use
+
+    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+    pRT_object.calc_flux(temperatures,
+                        abundances,
+                        gravity,
+                        MMW,
+                        contribution = contribution,
+                        fsed = fseds,
+                        Kzz = kzz,
+                        sigma_lnorm = sigma_lnorm,
+                        b_hans = b_hans,
+                        radius = radii,
+                        dist = distribution)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.freq, pRT_object.flux)
+    spectrum_model = surf_to_meas(f_lambda,
+                                  R_pl,
+                                  parameters['D_pl'].value)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
+    return wlen_model, spectrum_model
+
+def gradient_profile_emission(pRT_object, \
+                                  parameters, \
+                                  PT_plot_mode = False,
+                                  AMR = False):
+    """
+    Equilibrium Chemistry Emission Model, Guillot Profile
+
+    This model computes a emission spectrum based the Guillot temperature-pressure profile.
+    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
+    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
+
+    Args:
+        pRT_object : object
+            An instance of the pRT class, with optical properties as defined in the RunDefinition.
+        parameters : dict
+            Dictionary of required parameters:
+                *  D_pl : Distance to the planet in [cm]
+                Two of
+                  *  log_g : Log of surface gravity
+                  *  R_pl : planet radius [cm]
+                  *  mass : planet mass [g]
+                *  nnodes : number of nodes to interplate, excluding the first and last points.
+                            so the total number of nodes is nnodes + 2
+                *  Temps : One parameter for each temperature node
+                *  gamma : weight for penalizing the profile curvature
+
+                Either:
+                  *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                  *  Fe/H : Metallicity
+                  *  C/O : Carbon to oxygen ratio
+                Or:
+                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
+                Optional:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                  *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                  *  log_kzz : Vertical mixing parameter
+                One of
+                  *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                  *  log_X_cb_: cloud mass fraction abundance
+        PT_plot_mode : bool
+            Return only the pressure-temperature profile for plotting. Evaluate mode only.
+        AMR :
+            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
+
+    Returns:
+        wlen_model : np.array
+            Wavlength array of computed model, not binned to data [um]
+        spectrum_model : np.array
+            Computed transmission spectrum R_pl**2/Rstar**2
+    """
+    p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
+
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
+    gravity, R_pl = compute_gravity(parameters)
+
+    num_layer = parameters['N_layers'].value
+    ## 1.4 assemble the P-T slopes for these layers
+    layer_pt_slopes = np.ones(num_layer) * np.nan
+    for index in range(num_layer):
+        layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
+
+    temperatures = dTdP_temperature_profile(p_use,
+                                            num_layer,
+                                            layer_pt_slopes,
+                                            parameters['T_bottom'].value)
+
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,

@@ -368,6 +368,32 @@ def temperature_curvature_prior(press,temps,gamma):
         weighted_temp_prior -= 0.5*np.log(2*np.pi*gamma)
         return weighted_temp_prior
 
+def dTdP_temperature_profile(press,num_layer,layer_pt_slopes,T_bottom):
+    id_sub = np.where(press >= 1.0e-3)
+    p_use_sub = press[id_sub]
+    num_sub = len(p_use_sub)
+    ## 1.3 pressures of layers
+    layer_pressures = np.logspace(-3, 3, num_layer)
+    ## 1.4 assemble the P-T slopes for these layers
+    layer_pt_slopes = np.ones(num_layer) * np.nan
+    #for index in range(num_layer):
+    #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
+    ## 1.5 interpolate the P-T slopes to compute slopes for all layers
+    interp_func = interp1d(np.log10(layer_pressures),
+                           layer_pt_slopes,
+                           'quadratic')
+    pt_slopes_sub = interp_func( np.log10(p_use_sub) )
+    ## 1.6 compute temperatures
+    temperatures_sub = np.ones(num_sub) * np.nan
+    temperatures_sub[-1] = T_bottom
+    for index in range(1, num_sub):
+        temperatures_sub[-1-index] = np.exp( np.log(temperatures_sub[-index]) - pt_slopes_sub[-index] *\
+                                             (np.log(p_use_sub[-index]) - np.log(p_use_sub[-1-index])) )
+    ## 1.7 isothermal in the remaining region, i.e., upper atmosphere
+    temperatures = np.ones_like(press) * temperatures_sub[0]
+    temperatures[id_sub] = np.copy(temperatures_sub)
+    return temperatures
+
 def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
     """
     Convert a radiosity from erg.s-1.cm-2.sr-1/cm to erg.s-1.cm-2.sr-1/Hz at a given wavelength.
