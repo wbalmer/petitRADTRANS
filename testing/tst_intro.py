@@ -50,7 +50,7 @@ atmosphere.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transm_rad / nc.r_jup_mean)
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -60,7 +60,7 @@ plt.show()
 
 atmosphere.calc_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.spectral_radiosities / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -85,7 +85,7 @@ plt.show()
 
 atmosphere.calc_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.spectral_radiosities / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

@@ -680,7 +680,7 @@ class SpectralModelLegacy:
         )
 
         # Transform the outputs into the units of our data.
-        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
+        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.spectral_radiosities, atmosphere.frequencies)
         wlen_model = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
@@ -703,7 +703,7 @@ class SpectralModelLegacy:
         )
 
         # Transform the outputs into the units of our data.
-        planet_transit_radius = atmosphere.transm_rad
+        planet_transit_radius = atmosphere.transit_radii
         wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, planet_transit_radius
@@ -822,7 +822,7 @@ class SpectralModelLegacy:
             p_cloud=self.p_cloud
         )
 
-        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
+        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.spectral_radiosities, atmosphere.frequencies)
         wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, flux
@@ -842,7 +842,7 @@ class SpectralModelLegacy:
             haze_factor=self.haze_factor,
         )
 
-        transit_radius = (atmosphere.transm_rad / planet.star_radius) ** 2
+        transit_radius = (atmosphere.transit_radii / planet.star_radius) ** 2
         wavelengths = nc.c / atmosphere.frequencies * 1e4  # m to um
 
         return wavelengths, transit_radius
@@ -1281,12 +1281,12 @@ class SpectralModelLegacy:
             )
 
         if calculate_emission_spectrum and not calculate_eclipse_depth:
-            model.wavelengths, model.spectral_radiosity = model.calculate_emission_spectrum(
+            model.wavelengths, model.spectral_radiosities = model.calculate_emission_spectrum(
                 atmosphere=atmosphere,
                 planet=planet
             )
         elif calculate_eclipse_depth:
-            model.wavelengths, model.eclipse_depth, model.spectral_radiosity = model.calculate_eclipse_depth(
+            model.wavelengths, model.eclipse_depth, model.spectral_radiosities = model.calculate_eclipse_depth(
                 atmosphere=atmosphere,
                 planet=planet
             )

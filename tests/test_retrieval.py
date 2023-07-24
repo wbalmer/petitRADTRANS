@@ -206,7 +206,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
 
     # Transform the outputs into the units of our data.
     wlen_model = petitRADTRANS.nat_cst.c / prt_object.frequencies * 1e4  # wlen in micron
-    spectrum_model = (prt_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model = (prt_object.transit_radii / parameters['Rstar'].value) ** 2.
 
     return wlen_model, spectrum_model
 

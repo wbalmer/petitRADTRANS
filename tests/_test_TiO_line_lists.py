@@ -58,8 +58,8 @@ atmosphere2.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transm_rad / nc.r_jup_mean, label ='Plez')
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transm_rad / nc.r_jup_mean, label ='Exomol')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='Plez')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / nc.r_jup_mean, label ='Exomol')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -73,8 +73,8 @@ temperature = 200. * np.ones_like(pressures)
 atmosphere.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 atmosphere2.calc_transm(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transm_rad / nc.r_jup_mean, label ='Plez')
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transm_rad / nc.r_jup_mean, label ='Exomol')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='Plez')
+plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / nc.r_jup_mean, label ='Exomol')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

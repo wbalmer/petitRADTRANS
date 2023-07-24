@@ -125,7 +125,7 @@ def test_line_by_line_emission_spectrum():
         reference_file=reference_filenames['line_by_line_emission'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_lbl.flux
+            'spectral_radiosity': atmosphere_lbl.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )
@@ -147,7 +147,7 @@ def test_line_by_line_transmission_spectrum():
         reference_file=reference_filenames['line_by_line_transmission'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.frequencies * 1e4,
-            'transit_radius': atmosphere_lbl.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
+            'transit_radius': atmosphere_lbl.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )

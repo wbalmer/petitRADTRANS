@@ -60,7 +60,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck_scattering.flux
+            'spectral_radiosity': atmosphere_ck_scattering.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )
@@ -94,7 +94,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         ],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck_scattering.flux
+            'spectral_radiosity': atmosphere_ck_scattering.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )
@@ -126,7 +126,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering_dayside_ave'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck_scattering.flux
+            'spectral_radiosity': atmosphere_ck_scattering.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )
@@ -161,7 +161,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         ],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck_scattering.flux
+            'spectral_radiosity': atmosphere_ck_scattering.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )
@@ -189,7 +189,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         reference_file=reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck_scattering.frequencies * 1e4,
-            'transit_radius': atmosphere_ck_scattering.transm_rad / petitRADTRANS.nat_cst.r_jup_mean
+            'transit_radius': atmosphere_ck_scattering.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )

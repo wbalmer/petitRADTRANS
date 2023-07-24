@@ -65,7 +65,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         ],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4,
-            'spectral_radiosity': atmosphere.flux
+            'spectral_radiosity': atmosphere.spectral_radiosities
         },
         relative_tolerance=relative_tolerance
     )

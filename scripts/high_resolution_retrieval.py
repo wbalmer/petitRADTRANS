@@ -442,7 +442,7 @@ def _radiosity_model(prt_object, parameters):
     )
 
     # Transform the outputs into the units of our data.
-    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.frequencies)
+    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.spectral_radiosities, prt_object.frequencies)
     wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_radiosity
@@ -472,7 +472,7 @@ def _transit_radius_model(prt_object, parameters):
     )
 
     # Transform the outputs into the units of our data.
-    planet_transit_radius = prt_object.transm_rad
+    planet_transit_radius = prt_object.transit_radii
     wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius

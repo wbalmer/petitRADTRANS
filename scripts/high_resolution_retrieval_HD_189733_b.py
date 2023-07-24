@@ -402,7 +402,7 @@ def _transit_radius_model(prt_object, parameters):
     )
 
     # Transform the outputs into the units of our data.
-    planet_transit_radius = prt_object.transm_rad
+    planet_transit_radius = prt_object.transit_radii
     wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius

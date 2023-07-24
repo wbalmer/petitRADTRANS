@@ -868,7 +868,7 @@ class BaseSpectralModel:
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
         wavelengths = hz2um(radtrans.frequencies)
-        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.frequencies) \
+        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.spectral_radiosities, radtrans.frequencies) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         return wavelengths, spectral_radiosity
@@ -987,7 +987,7 @@ class BaseSpectralModel:
         )
 
         # Convert into more useful units
-        planet_transit_radius = copy.copy(radtrans.transm_rad)
+        planet_transit_radius = copy.copy(radtrans.transit_radii)
         wavelengths = hz2um(radtrans.frequencies)
         # TODO convert into radiosities by adding a star spectrum, so that it is consistent with emission?
 

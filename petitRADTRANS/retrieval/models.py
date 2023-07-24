@@ -165,7 +165,7 @@ def emission_model_diseq(pRT_object,
                          dist=distribution)
 
     # Getting the model into correct units (W/m2/micron)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.spectral_radiosities)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
@@ -293,7 +293,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                          b_hans=b_hans,
                          radius=radii,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.spectral_radiosities)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
                                          R_pl,
                                          parameters['D_pl'].value)
@@ -312,7 +312,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                          sigma_lnorm=sigma_lnorm,
                          b_hans=b_hans,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.spectral_radiosities)
     spectrum_model_clear = surf_to_meas(f_lambda,
                                         R_pl,
                                         parameters['D_pl'].value)
@@ -428,7 +428,7 @@ def guillot_emission(pRT_object,
                          b_hans=b_hans,
                          radius=radii,
                          dist=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.spectral_radiosities)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
@@ -577,7 +577,7 @@ def guillot_transmission(pRT_object,
         )
 
     wlen_model = nc.c / pRT_object.frequencies / 1e-4
-    spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contribution_transmission
     return wlen_model, spectrum_model
@@ -702,7 +702,7 @@ def guillot_patchy_transmission(pRT_object,
     )
 
     wlen_model = nc.c / pRT_object.frequencies / 1e-4
-    spectrum_model_cloudy = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model_cloudy = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
@@ -719,7 +719,7 @@ def guillot_patchy_transmission(pRT_object,
     )
 
     wlen_model = nc.c / pRT_object.frequencies / 1e-4
-    spectrum_model_clear = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model_clear = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
                      ((1 - patchiness) * spectrum_model_clear)
@@ -858,7 +858,7 @@ def isothermal_transmission(pRT_object,
         )
 
     wlen_model = nc.c / pRT_object.frequencies / 1e-4
-    spectrum_model = (pRT_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
 
     if contribution:
         return wlen_model, spectrum_model, pRT_object.contribution_transmission

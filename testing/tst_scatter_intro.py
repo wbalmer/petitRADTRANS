@@ -65,7 +65,7 @@ if case1:
     atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW, \
                          kzz= Kzz, fsed=fsed, sigma_lnorm = sigma_lnorm, \
                          contribution = False)
-    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.spectral_radiosities / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
     contribution_scat = atmosphere.contribution_emission
     plt.show()
@@ -124,7 +124,7 @@ if case2:
                          emission_geometry='non-isotropic', t_star=5778, \
                          r_star=nc.r_sun, semimajoraxis=0.05 * nc.AU, \
                          star_inclination_angle=30.)
-    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.spectral_radiosities / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
 
     plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.stellar_intensity * np.cos(30. / 180. * np.pi) * np.pi / 1e-6, \
@@ -185,7 +185,7 @@ if case3:
                              emission_geometry='planetary_ave', t_star=5778, \
                              r_star=nc.r_sun, semimajoraxis=nc.AU)
 
-        plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+        plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.spectral_radiosities / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)
 
     plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.stellar_intensity / 4. * np.pi / 1e-6, \
