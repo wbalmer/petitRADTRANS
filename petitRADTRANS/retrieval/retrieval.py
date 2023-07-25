@@ -1631,18 +1631,22 @@ class Retrieval:
                             error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
                                                         'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
                             wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
+                            wlen_bins = np.zeros_like(wlen)
+                            wlen_bins[:-1] = np.diff(wlen)
+                            wlen_bins[-1] = wlen_bins[-2]
                         else:
                             wlen = dd.wlen
                             error = dd.flux_error
                             flux = dd.flux
+                            wlen_bins = dd.wlen_bins
+
                     except:
                         wlen = dd.wlen
                         error = dd.flux_error
                         flux = dd.flux
+                        wlen_bins = dd.wlen_bins
                     # Setup bins to rebin the best fit model to find the residuals
-                    wlen_bins = np.zeros_like(wlen)
-                    wlen_bins[:-1] = np.diff(wlen)
-                    wlen_bins[-1] = wlen_bins[-2]
+                    wlen_bins = dd.wlen_bins
                 else:
                     wlen = np.mean(dd.width_photometry)
                     flux = dd.flux

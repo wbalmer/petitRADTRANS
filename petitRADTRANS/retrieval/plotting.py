@@ -238,7 +238,16 @@ def contour_corner(sampledict,
                     range_list.append((low, high))
             else:
                 range_take = (parameter_ranges[key][i][0], parameter_ranges[key][i][1])
-                range_list.append(range_take)
+                if count > 0:
+                    low = range_list[range_i][0]
+                    high = range_list[range_i][1]
+                    if range_take[0] > low:
+                        low = range_take[0]
+                    if range_take[1] < high:
+                        high = range_take[1]
+                    range_list[range_i] = (low,high)
+                else:
+                    range_list.append(range_take)
 
         if parameter_plot_indices is not None and true_values is not None:
             truths_list = []
