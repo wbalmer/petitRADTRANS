@@ -394,7 +394,7 @@ class Radtrans:
                     selection[-1] += 1
 
                 if self.lbl_opacity_sampling > 1:
-                    # Ensure that downsampled upper bound >= requested upper bound
+                    # Ensure that downsampled wavelength upper bound >= requested wavelength upper bound
                     selection[-1] += self.lbl_opacity_sampling - 1
 
                 freq = nc.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
@@ -2012,8 +2012,8 @@ class Radtrans:
             selection = np.array([selection[0], selection[-1]])
 
             if lbl_opacity_sampling > 1:
-                # Ensure that downsampled upper bound >= requested upper bound
-                selection[0] -= lbl_opacity_sampling - 1
+                # Ensure that downsampled wavelength upper bound >= requested wavelength upper bound
+                selection[0] -= lbl_opacity_sampling - 1  # array is ordered by increasing wvn, so decreasing wvl
 
             line_opacities_grid = f['opacities'][:, :, selection[0]:selection[-1] + 1]
             line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
