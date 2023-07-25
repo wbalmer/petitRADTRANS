@@ -2009,13 +2009,11 @@ class Radtrans:
                 np.greater_equal(frequency_grid, np.min(freq)),
                 np.less_equal(frequency_grid, np.max(freq))
             ))[0]
-
-            if selection.size < freq.size:
-                raise ValueError(f"file selected frequencies size is "
-                                 f"{selection.size} ({frequency_grid[selection[0]]}--{frequency_grid[selection[-1]]}), "
-                                 f"but frequency grid size is {freq.size} ({np.min(freq)}--{np.max(freq)})")
-
             selection = np.array([selection[0], selection[-1]])
+
+            if lbl_opacity_sampling > 1:
+                # Ensure that downsampled upper bound >= requested upper bound
+                selection[0] -= lbl_opacity_sampling - 1
 
             line_opacities_grid = f['opacities'][:, :, selection[0]:selection[-1] + 1]
             line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
@@ -2024,6 +2022,17 @@ class Radtrans:
 
         if lbl_opacity_sampling > 1:
             line_opacities_grid = line_opacities_grid[:, :, ::lbl_opacity_sampling]
+
+        if line_opacities_grid.shape[-1] != freq.size:
+            frequency_grid = frequency_grid[selection[0]:selection[-1] + 1]
+            frequency_grid = frequency_grid[::-1]
+
+            if lbl_opacity_sampling > 1:
+                frequency_grid = frequency_grid[::lbl_opacity_sampling]
+
+            raise ValueError(f"file selected frequencies size is "
+                             f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
+                             f"but frequency grid size is {freq.size} ({np.min(freq)}--{np.max(freq)})")
 
         line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
         line_opacities_grid = line_opacities_grid.reshape(
