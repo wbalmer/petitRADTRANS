@@ -1199,13 +1199,11 @@ class Retrieval:
         """
         logL = sample[-1]
         norm = 0
-
+        param_dict = self.build_param_dict(sample)
         for name, dd in self.data.items():
             sf = 1.0
             if dd.scale_err:
-                sf=dd.scale_factor
-                if self.best_fit_params:
-                    sf=self.best_fit_params[f"{name}_scale_factor"].value
+                sf=param_dict[f"{name}_scale_factor"].value
             if dd.covariance is not None:
                 _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
                 add = 0.5 * log_det
@@ -1214,8 +1212,7 @@ class Retrieval:
                 if dd.scale_err:
                     f_err = f_err * sf
                 if f"{name}_b" in self.parameters.keys():
-                    print(self.best_fit_params.keys())
-                    f_err = np.sqrt(f_err**2 + 10**self.best_fit_params[f"{name}_b"].value)
+                    f_err = np.sqrt(f_err**2 + 10**param_dict[f"{name}_b"].value)
                 add = 0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
             norm = norm + add
         print(f"Best fit 𝛘^2 = {2*(-logL - norm):.2f}")
