@@ -1167,16 +1167,24 @@ class Retrieval:
                 An array of samples and likelihoods taken from a post_equal_weights file
         """
         log_l, best_fit_index = self.get_best_fit_likelihood(samples)
+        self.get_max_likelihood_params(samples[best_fit_index:,-1])
         norm = 0.0
-
         for name, dd in self.data.items():
+            sf = 1.0
+            if dd.scale_err:
+                sf=self.best_fit_params[f"{name}_scale_factor"].value
             if dd.covariance is not None:
-                add = 0.5 * dd.log_covariance_determinant
+                _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                add = 0.5 * log_det
             else:
-                add = 0.5 * np.sum(np.log(2 * np.pi * dd.flux_error ** 2.))
-
-            norm += add
-
+                f_err = dd.flux_error
+                if dd.scale_err:
+                    f_err = f_err * sf
+                if f"{name}_b" in self.parameters.keys():
+                    print(self.best_fit_params.keys())
+                    f_err = np.sqrt(f_err**2 + 10**self.best_fit_params[f"{name}_b"].value)
+                add = 0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
+            norm = norm + add
         print(f"Best fit 𝛘^2 = {-log_l - norm:.2f}")
         return (-log_l - norm) * 2
 
