@@ -1199,7 +1199,10 @@ class Retrieval:
         """
         logL = sample[-1]
         norm = 0
-        param_dict = self.build_param_dict(sample)
+        params = []
+        for key,val in self.parameters.items():
+            if val.is_free_parameter: params.append(key) 
+        param_dict = self.build_param_dict(sample,params)
         for name, dd in self.data.items():
             sf = 1.0
             if dd.scale_err:
