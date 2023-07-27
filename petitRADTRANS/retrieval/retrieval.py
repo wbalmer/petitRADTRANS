@@ -2327,17 +2327,18 @@ class Retrieval:
         amr = self.rd.AMR
         self.rd.AMR = False
         # Store old pressure array so that we can put it back later.
-        p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
         p_global_keep = self.rd.p_global
-
+        p_keep = self.rd.p_global
         # Setup a constant size pressure array, and set up pRT objects
         temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
                         np.log10(self.rd.plot_kwargs["press_limits"][0]),
                         100)
         self.rd.p_global = temp_pres
         if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+            p_keep = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.press
             self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
         else:
+            p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
             self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
 
         # Calculate the temperature structure
