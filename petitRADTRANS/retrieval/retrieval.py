@@ -476,15 +476,14 @@ class Retrieval:
 
             if self.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
-                if not self.best_fit_params:
-                    self.get_samples(self.output_dir)
-                    samples_use = self.samples[self.retrieval_name]
-                    parameters_read = self.param_dict[self.retrieval_name]
-                    # Get best-fit index
-                    logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    self.get_max_likelihood_params(samples_use[best_fit_index,:-1],parameters_read)
-                    chi2_wlen = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
-                    chi2_DoF = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
+                self.get_samples(self.output_dir)
+                samples_use = self.samples[self.retrieval_name]
+                parameters_read = self.param_dict[self.retrieval_name]
+                # Get best-fit index
+                logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
+                self.get_max_likelihood_params(samples_use[best_fit_index,:-1],parameters_read)
+                chi2_wlen = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
+                chi2_DoF = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
 
                     # Get best-fit index
                 summary.write(f"    𝛘^2/n_wlen = {chi2_wlen}\n")
