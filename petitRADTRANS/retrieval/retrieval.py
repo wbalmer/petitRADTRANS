@@ -458,11 +458,9 @@ class Retrieval:
                         transforms.append(value.corner_transform)
                     
                 for param, marginals, transform in zip(free_params, stats['marginals'], transforms):
-                    out_param = param
                     lo, hi = marginals['1sigma']
                     med = marginals['median']
                     if transform is not None:
-                        out_param = transform(param)
                         lo = transform(lo)
                         hi = transform(hi)
                         med = transform(med)
@@ -473,7 +471,7 @@ class Retrieval:
                         i = max(0, int(-np.floor(np.log10(sigma))) + 1)
                     fmt = '%%.%df' % i
                     fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
-                    summary.write(fmts % (out_param, med, sigma) + '\n')
+                    summary.write(fmts % (param, med, sigma) + '\n')
                 summary.write('\n')
 
             if self.run_mode == 'evaluate':
