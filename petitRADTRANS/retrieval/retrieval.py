@@ -1145,10 +1145,8 @@ class Retrieval:
                 vmrs.append(np.array(list(vmr.values())))
             vmrs = np.array(vmrs)
             print(vmrs.shape)
-            hdr = f""
-            for key in vmr.keys():
-                hdr += f"{key}, "
-            np.savetxt(f"{self.output_dir}{ret}_volume_mixing_ratios.dat", vmrs, header =hdr, delimiter = ',')
+            np.save(f"{self.output_dir}{ret}_volume_mixing_ratio_profiles", vmrs)
+
     def get_evidence(self, ret_name = ""):
 
         """
