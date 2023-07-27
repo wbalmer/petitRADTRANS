@@ -421,6 +421,12 @@ class Retrieval:
                 if dd.scale:
                     summary.write(f"    scale factor = {dd.scale_factor:.2f}\n")
 
+                if dd.scale_err:
+                    summary.write(f"    scale err factor = {dd.scale_factor:.2f}\n")
+
+                if dd.offset_bool:
+                    summary.write(f"    offset = True\n")
+
                 if dd.data_resolution is not None:
                     summary.write(f"    data resolution = {dd.data_resolution}\n")
 
@@ -445,13 +451,21 @@ class Retrieval:
                 summary.write("  Statistical Fit Parameters\n")
 
                 free_params = []
+                transforms = []
                 for key, value in self.parameters.items():
                     if value.is_free_parameter:
-                        free_params.append(key)
-
-                for p, m in zip(free_params, stats['marginals']):
-                    lo, hi = m['1sigma']
-                    med = m['median']
+                        free_params.append(key) 
+                        transforms.append(value.corner_transform)
+                    
+                for param, marginals, transform in zip(free_params, stats['marginals'], transforms):
+                    out_param = param
+                    lo, hi = marginals['1sigma']
+                    med = marginals['median']
+                    if transform is not None:
+                        out_param = transform(param)
+                        lo = transform(lo)
+                        hi = transform(hi)
+                        med = transform(med)
                     sigma = (hi - lo) / 2
                     if sigma == 0:
                         i = 3
@@ -459,8 +473,9 @@ class Retrieval:
                         i = max(0, int(-np.floor(np.log10(sigma))) + 1)
                     fmt = '%%.%df' % i
                     fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
-                    summary.write(fmts % (p, med, sigma) + '\n')
+                    summary.write(fmts % (out_param, med, sigma) + '\n')
                 summary.write('\n')
+
             if self.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
                 if not self.best_fit_params:
@@ -470,10 +485,12 @@ class Retrieval:
                     # Get best-fit index
                     logL ,best_fit_index = self.get_best_fit_likelihood(samples_use)
                     self.get_max_likelihood_params(samples_use[best_fit_index,:-1],parameters_read)
-                    chi2 = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
-                    # Get best-fit index
-                summary.write(f"    𝛘^2 = {self.chi2}\n")
+                    chi2_wlen = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=False)
+                    chi2_DoF = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
 
+                    # Get best-fit index
+                summary.write(f"    𝛘^2/n_wlen = {chi2_wlen}\n")
+                summary.write(f"    𝛘^2/DoF = {chi2_DoF}\n")
                 for key, value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
