@@ -649,95 +649,7 @@ class Retrieval:
             if name + "_b" in self.parameters.keys():
                 dd.bval = self.parameters[name + "_b"].value
             if dd.external_pRT_reference is None:
-                if not self.PT_plot_mode:
-                    # Compute the model
-                    retVal = \
-                        dd.model_generating_function(dd.pRT_object,
-                                                     self.parameters,
-                                                     self.PT_plot_mode,
-                                                     AMR=self.rd.AMR)
-                    if len(retVal) == 3:
-                        wlen_model, spectrum_model, additional_logl = retVal
-                    else:
-                        wlen_model, spectrum_model = retVal
-                        additional_logl = 0.
-
-                    # Sanity checks on outputs
-                    if spectrum_model is None:
-                        # -np.infs (and anything <1e-100) seemed to cause issues with Multinest.
-                        # This particular check probably wasn't the underlying cause, and could 
-                        # use a better default value.
-                        return -1e98  # TODO why switching to 1e98 ?
-
-                    # if np.isnan(spectrum_model).any():  # TODO make it work with jagged arrays
-                    #     return -1e98
-
-                    # Calculate log likelihood
-                    # TODO uniformize convolve/rebin handling
-                    """if dd.flux.dtype == 'O':
-                        if np.ndim(dd.flux) == 1:
-                            # Convolution and rebin are *not* cared of in get_log_likelihood
-                            # Second dimension of data must be a function of wavelength
-                            for i, data in enumerate(dd.flux):
-                                log_likelihood += dd.log_likelihood_gibson(
-                                    spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
-                                    alpha=1.0,
-                                    beta=1.0
-                                )
-                        elif np.ndim(dd.flux) == 2:
-                            # Convolution and rebin are *not* cared of in get_log_likelihood
-                            # Third dimension of data must be a function of wavelength
-                            for i, detector in enumerate(dd.flux):
-                                for j, data in enumerate(detector):
-                                    log_likelihood += dd.log_likelihood_gibson(
-                                        spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
-                                        alpha=1.0,
-                                        beta=1.0
-                                    )
-                        else:
-                            raise ValueError(f"observation is an array containing object, "
-                                             f"and have {np.ndim(dd.flux)} dimensions, "
-                                             f"but must have 1 to 2")"""
-                    log_likelihood += dd.get_chisq(
-                            wlen_model,
-                            spectrum_model, #[~dd.mask],
-                            self.plotting,
-                            self.parameters
-                        ) + additional_logl
-                    if np.ndim(dd.flux) == 2:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Second dimension of data must be a function of wavelength
-                        for i, data in enumerate(dd.flux):
-                            log_likelihood += dd.log_likelihood_gibson(
-                                spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
-                                alpha=1.0,
-                                beta=1.0
-                            )
-                    elif np.ndim(dd.flux) == 3:
-                        # Convolution and rebin are *not* cared of in get_log_likelihood
-                        # Third dimension of data must be a function of wavelength
-                        for i, detector in enumerate(dd.flux):
-                            for j, data in enumerate(detector):
-                                log_likelihood += dd.log_likelihood_gibson(
-                                    spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
-                                    alpha=1.0,
-                                    beta=1.0
-                                )
-
-                    # Save sampled outputs if necessary.
-                    if self.run_mode == 'evaluate':
-                        if self.evaluate_sample_spectra:
-                            self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
-                        else:
-                            np.savetxt(
-                                self.output_dir + 'evaluate_' + self.retrieval_name
-                                + '/model_spec_best_fit_'
-                                + name.replace('/', '_').replace('.', '_') + '.dat',
-                                np.column_stack((wlen_model, spectrum_model))
-                            )
-
-                            self.best_fit_specs[name] = [wlen_model, spectrum_model]
-                else:
+                if self.PT_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
                     # Get the PT profile
                     if name == self.rd.plot_kwargs['take_PTs_from']:
                         pressures, temperatures = \
@@ -746,14 +658,104 @@ class Retrieval:
                                                          self.PT_plot_mode,
                                                          AMR=self.rd.AMR)
                         return pressures, temperatures
-                    #else:
-                    #    Delete this error, otherwise it will be raised every time when looping over the data.
-                    #    raise ValueError(f"in PT plot mode data name '{name}' "
-                    #                     f"must be equal to '{self.rd.plot_kwargs['take_PTs_from']}'")
+                # Compute the model
+                retVal = \
+                    dd.model_generating_function(dd.pRT_object,
+                                                    self.parameters,
+                                                    self.PT_plot_mode,
+                                                    AMR=self.rd.AMR)
+                if len(retVal) == 3:
+                    wlen_model, spectrum_model, additional_logl = retVal
+                else:
+                    wlen_model, spectrum_model = retVal
+                    additional_logl = 0.
 
+                # Sanity checks on outputs
+                if spectrum_model is None:
+                    # -np.infs (and anything <1e-100) seemed to cause issues with Multinest.
+                    # This particular check probably wasn't the underlying cause, and could 
+                    # use a better default value.
+                    return -1e98  # TODO why switching to 1e98 ?
+
+                # if np.isnan(spectrum_model).any():  # TODO make it work with jagged arrays
+                #     return -1e98
+
+                # Calculate log likelihood
+                # TODO uniformize convolve/rebin handling
+                """if dd.flux.dtype == 'O':
+                    if np.ndim(dd.flux) == 1:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Second dimension of data must be a function of wavelength
+                        for i, data in enumerate(dd.flux):
+                            log_likelihood += dd.log_likelihood_gibson(
+                                spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
+                                alpha=1.0,
+                                beta=1.0
+                            )
+                    elif np.ndim(dd.flux) == 2:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Third dimension of data must be a function of wavelength
+                        for i, detector in enumerate(dd.flux):
+                            for j, data in enumerate(detector):
+                                log_likelihood += dd.log_likelihood_gibson(
+                                    spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
+                                    alpha=1.0,
+                                    beta=1.0
+                                )
+                    else:
+                        raise ValueError(f"observation is an array containing object, "
+                                            f"and have {np.ndim(dd.flux)} dimensions, "
+                                            f"but must have 1 to 2")"""
+                log_likelihood += dd.get_chisq(
+                        wlen_model,
+                        spectrum_model, #[~dd.mask],
+                        self.plotting,
+                        self.parameters
+                    ) + additional_logl
+                if np.ndim(dd.flux) == 2:
+                    # Convolution and rebin are *not* cared of in get_log_likelihood
+                    # Second dimension of data must be a function of wavelength
+                    for i, data in enumerate(dd.flux):
+                        log_likelihood += dd.log_likelihood_gibson(
+                            spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
+                            alpha=1.0,
+                            beta=1.0
+                        )
+                elif np.ndim(dd.flux) == 3:
+                    # Convolution and rebin are *not* cared of in get_log_likelihood
+                    # Third dimension of data must be a function of wavelength
+                    for i, detector in enumerate(dd.flux):
+                        for j, data in enumerate(detector):
+                            log_likelihood += dd.log_likelihood_gibson(
+                                spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
+                                alpha=1.0,
+                                beta=1.0
+                            )
+
+                # Save sampled outputs if necessary.
+                if self.run_mode == 'evaluate':
+                    if self.evaluate_sample_spectra:
+                        self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
+                    else:
+                        # TODO: This will overwrite the best fit spectrum with
+                        # whatever is ran through the loglike function. Not good.
+                        np.savetxt(
+                            self.output_dir + 'evaluate_' + self.retrieval_name
+                            + '/model_spec_best_fit_'
+                            + name.replace('/', '_').replace('.', '_') + '.dat',
+                            np.column_stack((wlen_model, spectrum_model))
+                        )
+
+                        self.best_fit_specs[name] = [wlen_model, spectrum_model]                    
             else:
                 # TODO what exactly is going on here? Why the double loop on the same items?
                 # Definition here to avoid possible reference before assignment
+                #
+                # The double loop is making sure that the spectrum and wavelength are 
+                # calculated before being requested by a different pRT object.
+                # Since the spectrum isn't stored, we need to immediately check if 
+                # any other data objects are requesting to use this spectrum, before
+                # moving on to the next item. 
                 spectrum_model = None
                 wlen_model = None
 
