@@ -1245,7 +1245,10 @@ class Retrieval:
             for name, pp in self.parameters.items():
                 if pp.is_free_parameter:
                     DoF -= 1
-        print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        if subtract_n_parameters:
+            print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        else:
+            print(f"Best fit 𝛘^2/n_wlen = {chi2/DoF:.2f}")
         self.chi2 = chi2/DoF
         return chi2/DoF
 
@@ -1287,7 +1290,10 @@ class Retrieval:
                 if pp.is_free_parameter:
                     DoF -= 1
         chi2 = 2*(-logL-norm)
-        print(f"𝛘^2/DoF = {chi2/DoF:.2f}")
+        if subtract_n_parameters:
+            print(f"Best fit 𝛘^2/DoF = {chi2/DoF:.2f}")
+        else:
+            print(f"Best fit 𝛘^2/n_wlen = {chi2/DoF:.2f}")        
         return chi2/DoF
 
     def get_analyzer(self,ret_name = ""):
@@ -2399,11 +2405,12 @@ class Retrieval:
         )
 
         # Restore the correct pressure arrays.
+        # *1e6 for units (cgs from bar)
         self.rd.p_global = p_global_keep
         if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
-            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep)
+            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep*1e6)
         else:
-            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep)
+            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e6)
         return fig, ax
 
     def plot_abundances(self, 
@@ -2418,19 +2425,26 @@ class Retrieval:
         print("\nPlotting Abundances profiles")
         if self.prt_plot_style:
             import petitRADTRANS.retrieval.plot_style as ps
+
         # Get best-fit index
         amr = self.rd.AMR
         self.rd.AMR = False
-        # Get pressure array
-        # Store old pressure array so that we can put it back later.
-        p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
-        p_global_keep = self.rd.p_global
 
+        # Store old pressure array so that we can put it back later.
+        p_global_keep = self.rd.p_global
+        p_keep = self.rd.p_global
+        # Setup a constant size pressure array, and set up pRT objects
         temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
                         np.log10(self.rd.plot_kwargs["press_limits"][0]),
                         100)
         self.rd.p_global = temp_pres
-        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+            p_keep = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.press
+            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
+        else:
+            p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
+            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+
         self.PT_plot_mode = True
         if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
@@ -2610,7 +2624,11 @@ class Retrieval:
         else:
             plt.savefig(self.output_dir + 'evaluate_'+self.retrieval_name +'/' +  self.retrieval_name  + '_sampled_abundance_profiles.pdf',
                         bbox_inches = 'tight')
-        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e-6)
-        self.rd.AMR = amr
+        # Restore the correct pressure arrays.
         self.rd.p_global = p_global_keep
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep*1e6)
+        else:
+            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e6)
+        self.rd.AMR = amr
         return fig,ax
