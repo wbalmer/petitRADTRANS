@@ -648,16 +648,19 @@ class Retrieval:
                 dd.offset = self.parameters[name + "_offset"].value
             if name + "_b" in self.parameters.keys():
                 dd.bval = self.parameters[name + "_b"].value
+            if self.PT_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
+                # Get the PT profile
+                if name == self.rd.plot_kwargs['take_PTs_from']:
+                    use_obj = dd.pRT_object
+                    if dd.external_pRT_reference is not None:
+                        use_obj = self.data[ dd.external_pRT_reference].pRT_object
+                    pressures, temperatures = \
+                        dd.model_generating_function(use_obj,
+                                                     self.parameters,
+                                                     self.PT_plot_mode,
+                                                     AMR=self.rd.AMR)
+                    return pressures, temperatures
             if dd.external_pRT_reference is None:
-                if self.PT_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
-                    # Get the PT profile
-                    if name == self.rd.plot_kwargs['take_PTs_from']:
-                        pressures, temperatures = \
-                            dd.model_generating_function(dd.pRT_object,
-                                                         self.parameters,
-                                                         self.PT_plot_mode,
-                                                         AMR=self.rd.AMR)
-                        return pressures, temperatures
                 # Compute the model
                 retVal = \
                     dd.model_generating_function(dd.pRT_object,
@@ -1572,15 +1575,16 @@ class Retrieval:
 
         # Get best-fit index
         log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-
-        # Setup best fit spectrum
-        # First get the fit for each dataset for the residual plots
-        self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         sample_use = samples_use[best_fit_index,:-1]
+
         # Then get the full wavelength range
         # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
         if mode.lower() == "median":
              med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
+
+        # Setup best fit spectrum
+        # First get the fit for each dataset for the residual plots
+        self.log_likelihood(sample_use, 0, 0)
 
         bf_wlen, bf_spectrum = self.get_best_fit_model(
             sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
@@ -1591,87 +1595,59 @@ class Retrieval:
             mode = mode
         )
 
-        # Iterate through each dataset, plotting the data and the residuals
-        for name, dd in self.data.items():
+        # Iterate through each dataset, plotting the data and the residuals.
+        for name,dd in self.data.items():
             # If the user has specified a resolution, rebin to that
             if not dd.photometry:
-                # Sometimes this fails, I'm not super sure why. # TODO find why and fix
-                resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
-                ratio = 1.0
-                if self.rd.plot_kwargs["resolution"] is not None:
+                try:
+                    # Sometimes this fails, I'm not super sure why.
+                    resolution_data = np.mean(dd.wlen[1:]/np.diff(dd.wlen))
                     ratio = resolution_data / self.rd.plot_kwargs["resolution"]
-                if int(ratio) > 1.0:
-                    flux, edges, _ = binned_statistic(dd.wlen, dd.flux, 'mean', dd.wlen.shape[0] / ratio)
-                    error, _, _ = binned_statistic(dd.wlen, dd.flux_error,
-                                                    'mean', dd.wlen.shape[0] / ratio) / np.sqrt(ratio)
-                    wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
-            if mode.strip('-').strip("_").lower() == "bestfit":
-                # Get best-fit index
-                logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                # Setup best fit spectrum
-                # First get the fit for each dataset for the residual plots
-                self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
-                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-                # Then get the full wavelength range
-                bf_wlen, bf_spectrum = self.get_best_fit_model(
-                    samples_use[best_fit_index, :-1],  # set of parameters with the lowest log-likelihood (best-fit)
-                    parameters_read,  # name of the parameters
-                    model_generating_func,
-                    pRT_reference=pRT_reference,
-                    refresh=refresh
-                )
-            elif mode.lower() == "median":
-                med_param, med_par_array = self.get_median_params(samples_use, parameters_read, return_array=True)
-                self.log_likelihood(med_par_array, 0, 0)
-                bf_wlen, bf_spectrum = self.get_best_fit_model(
-                    med_par_array[:-1],  # set of parameters with the lowest log-likelihood (best-fit)
-                    parameters_read,  # name of the parameters
-                    model_generating_func,
-                    pRT_reference=pRT_reference,
-                    refresh=refresh,
-                    mode = mode
-                )
-            # Iterate through each dataset, plotting the data and the residuals.
-            for name,dd in self.data.items():
-                # If the user has specified a resolution, rebin to that
-                if not dd.photometry:
-                    try:
-                        # Sometimes this fails, I'm not super sure why.
-                        resolution_data = np.mean(dd.wlen[1:]/np.diff(dd.wlen))
-                        ratio = resolution_data / self.rd.plot_kwargs["resolution"]
-                        if int(ratio) > 1:
-                            flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
-                            error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
-                                                        'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
-                            wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
-                            wlen_bins = np.zeros_like(wlen)
-                            wlen_bins[:-1] = np.diff(wlen)
-                            wlen_bins[-1] = wlen_bins[-2]
-                        else:
-                            wlen = dd.wlen
-                            error = dd.flux_error
-                            flux = dd.flux
-                            wlen_bins = dd.wlen_bins
-
-                    except:
+                    if int(ratio) > 1:
+                        flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
+                        error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
+                                                    'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
+                        wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
+                        wlen_bins = np.zeros_like(wlen)
+                        wlen_bins[:-1] = np.diff(wlen)
+                        wlen_bins[-1] = wlen_bins[-2]
+                    else:
                         wlen = dd.wlen
                         error = dd.flux_error
                         flux = dd.flux
                         wlen_bins = dd.wlen_bins
-                    # Setup bins to rebin the best fit model to find the residuals
-                    wlen_bins = dd.wlen_bins
-                else:
-                    wlen = np.mean(dd.width_photometry)
-                    flux = dd.flux
+
+                except:
+                    wlen = dd.wlen
                     error = dd.flux_error
+                    flux = dd.flux
                     wlen_bins = dd.wlen_bins
+                # Setup bins to rebin the best fit model to find the residuals
+                wlen_bins = dd.wlen_bins
+            else:
+                wlen = np.mean(dd.width_photometry)
+                flux = dd.flux
+                error = dd.flux_error
+                wlen_bins = dd.wlen_bins
 
             # If the data has an arbitrary retrieved scaling factor
-            scale = dd.scale_factor
-            errscale = 1.0
+            scale  = 1.0
+            if dd.scale:
+                scale = dd.scale_factor
+                flux = flux * scale
 
+            errscale = 1.0
             if dd.scale_err:
                 errscale = dd.scale_factor
+                error = error * errscale
+
+            offset = 0
+            if dd.offset_bool:
+                offset = dd.offset
+                flux = flux - offset
+
+            if f"{dd.name}_b" in self.parameters.keys():
+                error = np.sqrt(error + 10**(self.best_fit_parameters["{dd.name}_b"]))
 
             if not dd.photometry:
                 if dd.external_pRT_reference is None:
@@ -1714,15 +1690,15 @@ class Retrieval:
             if not dd.photometry:
                 label = dd.name
                 ax.errorbar(wlen,
-                            flux * self.rd.plot_kwargs["y_axis_scaling"] * scale,
-                            yerr=error * self.rd.plot_kwargs["y_axis_scaling"] * errscale,
+                            (flux * self.rd.plot_kwargs["y_axis_scaling"]),
+                            yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
                             marker=marker, markeredgecolor='k', linewidth=0, elinewidth=2,
                             label=label, zorder=10, alpha=0.9)
             else:
                 # Don't label photometry?
                 ax.errorbar(wlen,
-                            flux * self.rd.plot_kwargs["y_axis_scaling"] * scale,
-                            yerr=error * self.rd.plot_kwargs["y_axis_scaling"] * errscale,
+                            (flux * self.rd.plot_kwargs["y_axis_scaling"]),
+                            yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
                             xerr=dd.wlen_bins / 2., linewidth=0, elinewidth=2,
                             marker=marker, markeredgecolor='k', color='grey', zorder=10,
                             label=None, alpha=0.6)
@@ -1731,7 +1707,7 @@ class Retrieval:
             if dd.external_pRT_reference is None:
 
                 ax_r.errorbar(wlen,
-                              ((flux * scale) - best_fit_binned) / (error * errscale),
+                              ((flux) - best_fit_binned) / (error),
                               yerr=error / error,
                               color=col,
                               linewidth=0, elinewidth=2,
@@ -1739,7 +1715,7 @@ class Retrieval:
                               alpha=0.9)
             else:
                 ax_r.errorbar(wlen,
-                              ((flux * scale) - best_fit_binned) / (error * errscale),
+                              ((flux) - best_fit_binned) / (error),
                               yerr=error / error,
                               color=col,
                               linewidth=0, elinewidth=2,
@@ -1748,7 +1724,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label=rf'Best Fit Model, $\chi^2=${self.get_best_fit_chi2(samples_use):.2f}',
+                label=rf'Best Fit Model, $\chi^2=${self.get_reduced_chi2(sample_use, subtract_n_parameters=True):.2f}',
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -1844,6 +1820,7 @@ class Retrieval:
         ax_r.tick_params(axis='both', which='minor',
                          bottom=True, top=True, left=True, right=True,
                          direction='in', length=5)
+        
         ax_r.set_ylabel(r"Residuals [$\sigma$]")
         ax_r.set_xlabel(self.rd.plot_kwargs["spec_xlabel"])
         ax.legend(loc='upper center', ncol=len(self.data.keys()) + 1).set_zorder(1002)
@@ -1964,7 +1941,7 @@ class Retrieval:
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                 marker=None,
-                label=rf"Best fit, $\chi^{2}=${self.get_best_fit_chi2(samples_use):.2f}",
+                label=rf"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index, :-1], subtract_n_parameters=True):.2f}",
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -2012,22 +1989,20 @@ class Retrieval:
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
 
-        self.PT_plot_mode = True
 
         # Choose what samples we want to use
         samples_use = cp.copy(sample_dict[self.retrieval_name])
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
-
         # This is probably obsolete
-        i_p = 0
-
-        for pp in self.parameters:
+        #i_p = 0
+        self.PT_plot_mode = True
+        """for pp in self.parameters:
             if self.parameters[pp].is_free_parameter:
                 for i_s in range(len(parameters_read)):
                     if parameters_read[i_s] == self.parameters[pp].name:
                         samples_use[:, i_p] = sample_dict[self.retrieval_name][:, i_s]
 
-                i_p += 1
+                i_p += 1"""
 
         # Let's set up a standardized pressure array, regardless of AMR stuff.
         amr = self.rd.AMR
@@ -2035,11 +2010,10 @@ class Retrieval:
         temps = []
 
         pressures = None  # prevent eventual reference before assignment
-        for i_s in range(len(samples_use)):
-            pressures, t = self.log_likelihood(samples_use[i_s, :-1], 0, 0)
+        for sample in samples_use:
+            pressures, t = self.log_likelihood(sample[:-1], 0, 0)
             temps.append(t)
 
-        log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
         temps = np.array(temps)
         temps_sort = np.sort(temps, axis=0)
         fig, ax = plt.subplots(figsize=(16, 10))
