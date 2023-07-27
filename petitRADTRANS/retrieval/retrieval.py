@@ -486,8 +486,8 @@ class Retrieval:
                 chi2_DoF = self.get_reduced_chi2(samples_use[best_fit_index],subtract_n_parameters=True)
 
                     # Get best-fit index
-                summary.write(f"    𝛘^2/n_wlen = {chi2_wlen}\n")
-                summary.write(f"    𝛘^2/DoF = {chi2_DoF}\n")
+                summary.write(f"    𝛘^2/n_wlen = {chi2_wlen:.2f}\n")
+                summary.write(f"    𝛘^2/DoF = {chi2_DoF:.2f}\n")
                 for key, value in self.best_fit_params.items():
                     if key in ['pressure_simple', 'pressure_width', 'pressure_scaling', 'FstarWlenMicron']:
                         continue
@@ -501,7 +501,7 @@ class Retrieval:
                         continue
 
                     if isinstance(out, float):
-                        summary.write(f"    {key} = {out:.3f}\n")
+                        summary.write(f"    {key} = {out:.3e}\n")
                     else:
                         summary.write(f"    {key} = {out}\n")
 
