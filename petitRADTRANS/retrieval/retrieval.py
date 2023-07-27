@@ -1101,7 +1101,10 @@ class Retrieval:
         pressures, temps = self.log_likelihood(sample, 0, 0)
         self.PT_plot_mode = False
 
-        name = self.rd.plot_kwargs["take_PTs_from"]
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+            name = self.rd.plot_kwargs["take_PTs_from"]
+        else:
+            name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
         abundances, MMW, _, _ = get_abundances(pressures,
                                             temps,
                                             cp.copy(self.data[name].pRT_object.line_species),
@@ -1738,7 +1741,7 @@ class Retrieval:
         yabs_max = abs(max(ax_r.get_ylim(), key=abs))
         lims = ax.get_xlim()
         lim_y = ax.get_ylim()
-        lim_y = [lim_y[0], lim_y[1] * 1.12]
+        lim_y = [lim_y[0], lim_y[1] * 1.05]
 
         if self.rd.plot_kwargs.get('flux_lim') is not None:
             ax.set_ylim(self.rd.plot_kwargs.get('flux_lim'))
