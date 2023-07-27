@@ -1506,19 +1506,19 @@ class Retrieval:
                         i_p += 1
 
         # Plotting
-         # Plotting
-        self.plot_spectra(samples_use, parameters_read, mode = mode)
+        # 
+        self.plot_spectra(samples_use, parameters_read, refresh = True, mode = mode)
 
         if self.evaluate_sample_spectra:
             self.plot_sampled(samples_use, parameters_read)
 
-        self.plot_PT(sample_dict, parameters_read, contribution=contribution, mode = mode)
+        self.plot_PT(sample_dict, parameters_read, contribution=contribution, mode = mode, refresh = False)
         self.plot_corner(sample_dict, parameter_dict, parameters_read)
 
         if contribution:
-            self.plot_contribution(samples_use, parameters_read, mode = mode)
+            self.plot_contribution(samples_use, parameters_read, mode = mode, refresh = False)
 
-        self.plot_abundances(samples_use, parameters_read, contribution=contribution, mode = mode)
+        self.plot_abundances(samples_use, parameters_read, contribution=contribution, mode = mode, refresh = False)
         print("Done!")
 
         return
@@ -1957,7 +1957,7 @@ class Retrieval:
         plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = True, pRT_reference = None, mode = 'bestfit'):
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = False, pRT_reference = None, mode = 'bestfit'):
         """
         Plot the PT profile with error contours
 
@@ -1992,6 +1992,8 @@ class Retrieval:
 
         # Choose what samples we want to use
         samples_use = cp.copy(sample_dict[self.retrieval_name])
+        len_samp = len(samples_use)
+
         logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
         # This is probably obsolete
         #i_p = 0
@@ -2010,17 +2012,23 @@ class Retrieval:
         temps = []
 
         pressures = None  # prevent eventual reference before assignment
-        for sample in samples_use:
-            pressures, t = self.log_likelihood(sample[:-1], 0, 0)
-            temps.append(t)
+        press_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_pressures"
+        temp_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_temps"
 
-        temps = np.array(temps)
-        temps_sort = np.sort(temps, axis=0)
+        if os.path.exists(press_file + ".npy") and os.path.exists(temp_file + ".npy"):
+            pressures = np.load(press_file+ ".npy")
+            temps_sort = np.load(temp_file+ ".npy")
+        else:
+            for sample in samples_use:
+                pressures, t = self.log_likelihood(sample[:-1], 0, 0)
+                temps.append(t)
+
+            temps = np.array(temps)
+            temps_sort = np.sort(temps, axis=0)
+            np.save(press_file,pressures)
+            np.save(temp_file,temps_sort)
+        
         fig, ax = plt.subplots(figsize=(16, 10))
-        len_samp = len(samples_use)
-        np.save(self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_pressures',pressures)
-        np.save(self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_temps',temps_sort)
-
         ax.fill_betweenx(pressures,
                          x1=temps_sort[0, :],
                          x2=temps_sort[-1, :],
@@ -2315,23 +2323,29 @@ class Retrieval:
             refresh=refresh
         )
 
-                # Let's set up a standardized pressure array, regardless of AMR stuff.
+        # Let's set up a standardized pressure array, regardless of AMR stuff.
         amr = self.rd.AMR
         self.rd.AMR = False
-        temps = []
-
         # Store old pressure array so that we can put it back later.
         p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
         p_global_keep = self.rd.p_global
 
+        # Setup a constant size pressure array, and set up pRT objects
         temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
                         np.log10(self.rd.plot_kwargs["press_limits"][0]),
                         100)
         self.rd.p_global = temp_pres
-        self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
+        else:
+            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+
+        # Calculate the temperature structure
         self.PT_plot_mode = True
         pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
         self.PT_plot_mode = False
+
+        # Calculate the best fit/median spectrum contribution
         if mode.strip('-').strip("_").lower() == "bestfit":
             # Get best-fit index
             logL, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -2339,7 +2353,6 @@ class Retrieval:
             sample_use = samples_use[best_fit_index,:-1]
         elif mode.lower() == "median":
             med_params,sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
-
         bf_wlen, bf_spectrum, bf_contribution= self.get_best_fit_model(
                                                                     sample_use,
                                                                     parameters_read,
@@ -2347,6 +2360,7 @@ class Retrieval:
                                                                     contribution = True,
                                                                     mode = mode
                                                                     )
+        # Normalization
         index = (bf_contribution < 1e-16) & np.isnan(bf_contribution)
         bf_contribution[index] = 1e-16
 
@@ -2358,6 +2372,8 @@ class Retrieval:
         weights = weights.reshape(len(weights), 1)
 
         x, y = np.meshgrid(bf_wlen, pressures)
+
+        # Plotting
         fig, ax = plt.subplots()
         if log_scale_contribution:
             plot_cont = -np.log10(bf_contribution * self.rd.plot_kwargs["y_axis_scaling"] / weights)
@@ -2377,13 +2393,17 @@ class Retrieval:
         ax.set_yscale("log")
         ax.set_ylim(pressures[-1] * 1.03, pressures[0] / 1.03)
         plt.colorbar(im, ax=ax, label=label)
-        plt.tight_layout()
-        plt.savefig(
-            self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name
-            + '_' + mode + '_contribution.pdf'
+        plt.savefig(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_{mode}_contribution.pdf",
+                    bbox_inches = 'tight'
         )
 
-        return bf_contribution
+        # Restore the correct pressure arrays.
+        self.rd.p_global = p_global_keep
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep)
+        else:
+            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep)
+        return fig, ax
 
     def plot_abundances(self, 
                         samples_use, 
