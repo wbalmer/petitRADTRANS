@@ -2181,9 +2181,8 @@ class Retrieval:
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
         ax.legend(loc='best')
-        plt.tight_layout()
-        plt.savefig(
-            self.output_dir + 'evaluate_' + self.retrieval_name + '/' + self.retrieval_name + '_PT_envelopes.pdf')
+        plt.savefig(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_PT_envelopes.pdf",
+                    bbox_inches = 'tight')
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values = None, **kwargs):
@@ -2458,7 +2457,10 @@ class Retrieval:
 
         # Check if we're only plotting a few species
         if species_to_plot is None:
-            species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
+            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+                species_to_plot = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.line_species
+            else:
+                species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
 
         # Set up colours - abundances usually have a lot of species,
         # so let's use the default matplotlib colour scheme rather
