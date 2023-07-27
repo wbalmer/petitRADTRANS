@@ -142,7 +142,6 @@ class Retrieval:
         # Setup pRT Objects for each data structure.
         print("Setting up PRT Objects")
         self.setup_data()
-
         try:
             self.generate_retrieval_summary()
         except ValueError as e:  # TODO check if ValueError was expected here
@@ -618,7 +617,6 @@ class Retrieval:
             log_likelihood : float
                 The (negative) log likelihood of the model given the data.
         """
-
         log_likelihood = 0.
         log_prior = 0.
         additional_logl = 0.
@@ -648,18 +646,21 @@ class Retrieval:
                 dd.offset = self.parameters[name + "_offset"].value
             if name + "_b" in self.parameters.keys():
                 dd.bval = self.parameters[name + "_b"].value
+            
             if self.PT_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
                 # Get the PT profile
-                if name == self.rd.plot_kwargs['take_PTs_from']:
-                    use_obj = dd.pRT_object
-                    if dd.external_pRT_reference is not None:
-                        use_obj = self.data[ dd.external_pRT_reference].pRT_object
-                    pressures, temperatures = \
-                        dd.model_generating_function(use_obj,
-                                                     self.parameters,
-                                                     self.PT_plot_mode,
-                                                     AMR=self.rd.AMR)
-                    return pressures, temperatures
+                use_obj = dd.pRT_object
+                if dd.external_pRT_reference is not None:
+                    use_obj = self.data[dd.external_pRT_reference].pRT_object
+                pressures, temperatures = \
+                    dd.model_generating_function(use_obj,
+                                                 self.parameters,
+                                                 self.PT_plot_mode,
+                                                 AMR=self.rd.AMR)
+                return pressures, temperatures
+            elif self.PT_plot_mode:
+                continue
+
             if dd.external_pRT_reference is None:
                 # Compute the model
                 retVal = \
@@ -1448,6 +1449,8 @@ class Retrieval:
             parameters_read = param_dict[name]
             rands = np.random.randint(0, samples.shape[0], nsample)
             duse = self.data[self.rd.plot_kwargs["take_PTs_from"]]
+            if duse.external_pRT_reference is not None:
+                duse = self.data[duse.external_pRT_reference]
             for rint in rands:
                 samp = samples[rint, :-1]
                 params = self.build_param_dict(samp, parameters_read)
@@ -1466,7 +1469,6 @@ class Retrieval:
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff", np.array(teffs))
         return tdict
 
-    # Plotting functions
     def plot_all(self, output_dir=None, ret_names=None, contribution=False, mode = 'bestfit'):
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
@@ -1528,7 +1530,7 @@ class Retrieval:
             self.plot_contribution(samples_use, parameters_read, mode = mode, refresh = False)
 
         self.plot_abundances(samples_use, parameters_read, contribution=contribution, mode = mode, refresh = False)
-        print("Done!")
+        print("Finished generating all plots!")
 
         return
 
