@@ -1144,7 +1144,6 @@ class Retrieval:
                 vmr,_ = self.get_volume_mixing_ratios(sample[:-1],parameters_read)
                 vmrs.append(np.array(list(vmr.values())))
             vmrs = np.array(vmrs)
-            print(vmrs.shape)
             np.save(f"{self.output_dir}{ret}_volume_mixing_ratio_profiles", vmrs)
 
     def get_evidence(self, ret_name = ""):
