@@ -375,7 +375,6 @@ def dTdP_temperature_profile(press,num_layer,layer_pt_slopes,T_bottom):
     ## 1.3 pressures of layers
     layer_pressures = np.logspace(-3, 3, num_layer)
     ## 1.4 assemble the P-T slopes for these layers
-    layer_pt_slopes = np.ones(num_layer) * np.nan
     #for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
     ## 1.5 interpolate the P-T slopes to compute slopes for all layers
