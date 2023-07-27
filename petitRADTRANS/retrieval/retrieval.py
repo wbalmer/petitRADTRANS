@@ -1167,7 +1167,10 @@ class Retrieval:
                 An array of samples and likelihoods taken from a post_equal_weights file
         """
         log_l, best_fit_index = self.get_best_fit_likelihood(samples)
-        self.get_max_likelihood_params(samples[best_fit_index:,-1])
+        params = []
+        for key,val in self.parameters.items():
+            if val.is_free_parameter: params.append(key) 
+        self.get_max_likelihood_params(samples[best_fit_index:,-1],params)
         norm = 0.0
         for name, dd in self.data.items():
             sf = 1.0
