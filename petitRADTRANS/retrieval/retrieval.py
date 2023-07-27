@@ -1132,7 +1132,23 @@ class Retrieval:
         mass_fracs, MMW = self.get_mass_fractions(sample,parameters_read)
         vmr = mass_to_number(mass_fracs)
         return vmr, MMW
-
+    
+    def save_volume_mixing_ratios(self, sample_dict, parameter_dict, rets = None):
+        if rets is None:
+            rets = [self.retrieval_name]
+        for ret in rets:
+            samples_use = sample_dict[ret]
+            parameters_read = parameter_dict[ret]
+            vmrs = []
+            for sample in samples_use:
+                vmr,_ = self.get_volume_mixing_ratios(sample[:-1],parameters_read)
+                vmrs.append(np.array(list(vmr.values())))
+            vmrs = np.array(vmrs)
+            print(vmrs.shape)
+            hdr = f""
+            for key in vmr.keys():
+                hdr += f"{key}, "
+            np.savetxt(f"{self.output_dir}{ret}_volume_mixing_ratios.dat", vmrs, header =hdr)
     def get_evidence(self, ret_name = ""):
 
         """
