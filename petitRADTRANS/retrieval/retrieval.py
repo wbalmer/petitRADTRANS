@@ -1148,7 +1148,7 @@ class Retrieval:
             hdr = f""
             for key in vmr.keys():
                 hdr += f"{key}, "
-            np.savetxt(f"{self.output_dir}{ret}_volume_mixing_ratios.dat", vmrs, header =hdr)
+            np.savetxt(f"{self.output_dir}{ret}_volume_mixing_ratios.dat", vmrs, header =hdr, delimiter = ',')
     def get_evidence(self, ret_name = ""):
 
         """
