@@ -1460,7 +1460,7 @@ class Retrieval:
         for spec in self.rd.line_species:
             species.append(spec + "_R_" + str(resolution))
 
-        prt_object = Radtrans(line_species=cp.copy(self.rd.line_species),
+        prt_object = Radtrans(line_species=cp.copy(species),
                               rayleigh_species=cp.copy(self.rd.rayleigh_species),
                               continuum_opacities=cp.copy(self.rd.continuum_opacities),
                               cloud_species=cp.copy(self.rd.cloud_species),
@@ -2037,7 +2037,6 @@ class Retrieval:
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
 
-
         # Choose what samples we want to use
         samples_use = cp.copy(sample_dict[self.retrieval_name])
         len_samp = len(samples_use)
@@ -2059,11 +2058,14 @@ class Retrieval:
         self.rd.AMR = False
         temps = []
 
-        pressures = None  # prevent eventual reference before assignment
+        pressures = self.rd.p_global  # prevent eventual reference before assignment
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(pressures)
         press_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_pressures"
         temp_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_temps"
 
-        if os.path.exists(press_file + ".npy") and os.path.exists(temp_file + ".npy"):
+        if os.path.exists(press_file + ".npy") and os.path.exists(temp_file + ".npy") and not refresh:
             pressures = np.load(press_file+ ".npy")
             temps_sort = np.load(temp_file+ ".npy")
         else:
@@ -2225,6 +2227,10 @@ class Retrieval:
         ax.legend(loc='best')
         plt.savefig(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_PT_envelopes.pdf",
                     bbox_inches = 'tight')
+        self.rd.AMR = amr
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values = None, **kwargs):
@@ -2359,34 +2365,21 @@ class Retrieval:
         # Get best-fit index
         log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
-        # Setup best fit spectrum
-        # First get the fit for each dataset for the residual plots
-        # self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
-        # Then get the full wavelength range
-        bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
-            samples_use[best_fit_index, :-1],
-            parameters_read,
-            contribution=True,
-            refresh=refresh
-        )
-
         # Let's set up a standardized pressure array, regardless of AMR stuff.
         amr = self.rd.AMR
         self.rd.AMR = False
         # Store old pressure array so that we can put it back later.
         p_global_keep = self.rd.p_global
-        p_keep = self.rd.p_global
-        # Setup a constant size pressure array, and set up pRT objects
-        temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
-                        np.log10(self.rd.plot_kwargs["press_limits"][0]),
-                        100)
-        self.rd.p_global = temp_pres
-        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
-            p_keep = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.press
-            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
-        else:
-            p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
-            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+        pressures = self.rd.p_global  # prevent eventual reference before assignment
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(pressures)
+        #if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+        #    p_keep = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.press
+        #    self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
+        #else:
+        #    p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
+        #    self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
 
         # Calculate the temperature structure
         self.PT_plot_mode = True
@@ -2448,10 +2441,10 @@ class Retrieval:
         # Restore the correct pressure arrays.
         # *1e6 for units (cgs from bar)
         self.rd.p_global = p_global_keep
-        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
-            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep*1e6)
-        else:
-            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e6)
+        self.rd.AMR = amr
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         return fig, ax
 
     def plot_abundances(self, 
@@ -2467,24 +2460,15 @@ class Retrieval:
         if self.prt_plot_style:
             import petitRADTRANS.retrieval.plot_style as ps
 
-        # Get best-fit index
+        # Let's set up a standardized pressure array, regardless of AMR stuff.
         amr = self.rd.AMR
         self.rd.AMR = False
-
         # Store old pressure array so that we can put it back later.
         p_global_keep = self.rd.p_global
-        p_keep = self.rd.p_global
-        # Setup a constant size pressure array, and set up pRT objects
-        temp_pres = np.logspace(np.log10(self.rd.plot_kwargs["press_limits"][1]),
-                        np.log10(self.rd.plot_kwargs["press_limits"][0]),
-                        100)
-        self.rd.p_global = temp_pres
-        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
-            p_keep = self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.press
-            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(temp_pres)
-        else:
-            p_keep = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.press
-            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(temp_pres)
+        pressures = self.rd.p_global  # prevent eventual reference before assignment
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(pressures)
 
         self.PT_plot_mode = True
         if mode.strip('-').strip("_").lower() == "bestfit":
@@ -2670,9 +2654,8 @@ class Retrieval:
                         bbox_inches = 'tight')
         # Restore the correct pressure arrays.
         self.rd.p_global = p_global_keep
-        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
-            self.data[self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.setup_opa_structure(p_keep*1e6)
-        else:
-            self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.setup_opa_structure(p_keep*1e6)
         self.rd.AMR = amr
+        if amr:
+            for name, dd in self.data.items():
+                dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         return fig,ax
