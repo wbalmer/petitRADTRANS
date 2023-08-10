@@ -437,7 +437,7 @@ class Retrieval:
                     summary.write(f"    model resolution = {dd.model_resolution}\n")
 
                 if dd.external_pRT_reference is not None:
-                    summary.write(f"    external_pRT_reference = {dd. external_pRT_reference}\n")
+                    summary.write(f"    external_pRT_reference = {dd.external_pRT_reference}\n")
 
                 if dd.photometry:
                     summary.write(f"    photometric width = {dd.photometry_range[0]:.4f}"
