@@ -1440,7 +1440,6 @@ class Retrieval:
             ret_names = [self.retrieval_name]
         if nsample is None:
             nsample = self.rd.plot_kwargs["nsample"]
-
         # Setup the pRT object
         species = []
         for line in self.rd.line_species:
@@ -1480,12 +1479,16 @@ class Retrieval:
             teffs = []
             samples = sample_dict[name]
             parameters_read = param_dict[name]
-            rands = np.random.randint(0, samples.shape[0], nsample)
+            rands = 0
+            if nsample == "all":
+                rands = np.linspace(0,samples.shape[0]-1,samples.shape[0])
+            else:
+                rands = np.random.randint(0, samples.shape[0], int(nsample))
             duse = self.data[self.rd.plot_kwargs["take_PTs_from"]]
             if duse.external_pRT_reference is not None:
                 duse = self.data[duse.external_pRT_reference]
             for rint in rands:
-                samp = samples[rint, :-1]
+                samp = samples[int(rint), :-1]
                 params = self.build_param_dict(samp, parameters_read)
                 retVal = duse.model_generating_function(prt_object,
                                                              params,
@@ -1496,7 +1499,7 @@ class Retrieval:
                 else:
                     wlen, model, __ = retVal
 
-                tfit = teff_calc(wlen, model, params["D_pl"], params["R_pl"])
+                tfit = teff_calc(wlen, model, params["D_pl"].value, params["R_pl"].value)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff", np.array(teffs))
@@ -1638,6 +1641,7 @@ class Retrieval:
             refresh=refresh,
             mode = mode
         )
+        chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum,subtract_n_parameters = True)
 
         # Iterate through each dataset, plotting the data and the residuals.
         for name,dd in self.data.items():
@@ -1768,7 +1772,7 @@ class Retrieval:
         # Plot the best fit model
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
-                label=rf'Best Fit Model, $\chi^2=${self.get_reduced_chi2(sample_use, subtract_n_parameters=True):.2f}',
+                label=rf'Best Fit Model, $\chi^2=${chi2:.2f}',
                 linewidth=4,
                 alpha=0.5,
                 color='r')
@@ -1981,11 +1985,11 @@ class Retrieval:
             pRT_reference=pRT_reference,
             refresh=refresh
         )
-
+        chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum,subtract_n_parameters = True)
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                 marker=None,
-                label=rf"Best fit, $\chi^{2}=${self.get_reduced_chi2(samples_use[best_fit_index, :-1], subtract_n_parameters=True):.2f}",
+                label=rf"Best fit, $\chi^{2}=${chi2:.2f}",
                 linewidth=4,
                 alpha=0.5,
                 color='r')
