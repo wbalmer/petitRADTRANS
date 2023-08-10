@@ -157,7 +157,7 @@ def calc_MMW(abundances):
             dictionary of abundance arrays, each array must have the shape of the pressure array used in pRT,
             and contain the abundance at each layer in the atmosphere.
     """
-    mmw = sys.float_info.min  # prevent division by 0
+    mmw = sys.float_info.min * np.ones_like(abundances[list(abundances.keys())[0]]) # prevent division by 0
 
     for key in abundances.keys():
         # exo_k resolution
@@ -183,7 +183,7 @@ def get_MMW_from_nfrac(n_frac):
             A dictionary of number fractions
     """
 
-    mass = 0.0
+    mass = np.zeros_like(n_frac[list(n_frac.keys())[0]])
     for key, value in n_frac.items():
         spec = key.split("_R_")[0]
         mass += value * getMM(spec)

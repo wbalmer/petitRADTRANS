@@ -427,11 +427,17 @@ class Retrieval:
                 if dd.offset_bool:
                     summary.write(f"    offset = True\n")
 
+                if dd.distance is not None:
+                    summary.write(f"    distance = {dd.distance}\n")
+
                 if dd.data_resolution is not None:
                     summary.write(f"    data resolution = {dd.data_resolution}\n")
 
                 if dd.model_resolution is not None:
                     summary.write(f"    model resolution = {dd.model_resolution}\n")
+
+                if dd.external_pRT_reference is not None:
+                    summary.write(f"    external_pRT_reference = {dd. external_pRT_reference}\n")
 
                 if dd.photometry:
                     summary.write(f"    photometric width = {dd.photometry_range[0]:.4f}"
