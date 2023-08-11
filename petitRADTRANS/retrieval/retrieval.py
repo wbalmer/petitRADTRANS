@@ -1617,7 +1617,7 @@ class Retrieval:
 
         fig, axes = plt.subplots(nrows=2, ncols=1, sharex='col', sharey=False,
                                  gridspec_kw={'height_ratios': [2.5, 1], 'hspace': 0.1},
-                                 figsize=(20, 10))
+                                 figsize=(18, 9))
         ax = axes[0]  # Normal Spectrum axis
         ax_r = axes[1]  # residual axis
 
@@ -1642,7 +1642,7 @@ class Retrieval:
             refresh=refresh,
             mode = mode
         )
-        chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum,subtract_n_parameters = True)
+        chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum, subtract_n_parameters = True)
 
         # Iterate through each dataset, plotting the data and the residuals.
         for name,dd in self.data.items():
@@ -1700,8 +1700,12 @@ class Retrieval:
                                           wlen,
                                           wlen_bins)
                 else:
-                    best_fit_binned = rgw(self.best_fit_specs[dd.external_pRT_reference][0],
-                                          self.best_fit_specs[dd.external_pRT_reference][1],
+                    if dd.data_resolution is not None:
+                        spectrum_model = dd.convolve(self.best_fit_specs[dd.external_pRT_reference][0],
+                                                    self.best_fit_specs[dd.external_pRT_reference][1],
+                                                    dd.data_resolution)
+                    best_fit_binned = rgw(self.best_fit_specs[name][0],
+                                          spectrum_model,
                                           wlen,
                                           wlen_bins)
             else:
@@ -1731,22 +1735,34 @@ class Retrieval:
                 ax.errorbar(wlen,
                             (flux * self.rd.plot_kwargs["y_axis_scaling"]),
                             yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
-                            marker=marker, markeredgecolor='k', linewidth=0, elinewidth=2,
-                            label=label, zorder=10, alpha=0.9)
+                            marker=marker, 
+                            markeredgecolor='k', 
+                            linewidth=0, 
+                            elinewidth=2,
+                            label=label, 
+                            zorder=10, 
+                            alpha=0.9)
             else:
                 # Don't label photometry?
                 ax.errorbar(wlen,
                             (flux * self.rd.plot_kwargs["y_axis_scaling"]),
                             yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
-                            xerr=dd.wlen_bins / 2., linewidth=0, elinewidth=2,
-                            marker=marker, markeredgecolor='k', color='grey', zorder=10,
-                            label=None, alpha=0.6)
+                            xerr=dd.wlen_bins / 2., 
+                            linewidth=0, 
+                            elinewidth=2,
+                            marker=marker, 
+                            markeredgecolor='k', 
+                            color='grey', 
+                            zorder=10,
+                            label=None, 
+                            alpha=0.6)
+                
             # Plot the residuals
             col = ax.get_lines()[-1].get_color()
             if dd.external_pRT_reference is None:
 
                 ax_r.errorbar(wlen,
-                              ((flux) - best_fit_binned) / (error),
+                              (flux - best_fit_binned) / (error),
                               yerr=error / error,
                               color=col,
                               linewidth=0, elinewidth=2,
@@ -1754,12 +1770,16 @@ class Retrieval:
                               alpha=0.9)
             else:
                 ax_r.errorbar(wlen,
-                              ((flux) - best_fit_binned) / (error),
-                              yerr=error / error,
+                              (flux - best_fit_binned) / (error),
+                              yerr= error / error,
                               color=col,
-                              linewidth=0, elinewidth=2,
-                              marker=marker, markeredgecolor='k', zorder=10,
+                              linewidth=0, 
+                              elinewidth=2,
+                              marker=marker, 
+                              markeredgecolor='k', 
+                              zorder=10,
                               alpha=0.9)
+                
         # Plot the best fit model
         ax.plot(bf_wlen,
                 bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
@@ -1767,6 +1787,7 @@ class Retrieval:
                 linewidth=4,
                 alpha=0.5,
                 color='r')
+        
         # Plot the shading in the residual plot
         yabs_max = abs(max(ax_r.get_ylim(), key=abs))
         lims = ax.get_xlim()
