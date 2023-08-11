@@ -335,7 +335,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
-
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model
 
 
@@ -469,7 +470,8 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
-
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em  
     return wlen_model, spectrum_model
 
 def guillot_emission(pRT_object, \
@@ -704,6 +706,8 @@ def guillot_patchy_emission(pRT_object, \
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) +\
                      ((1-patchiness)*spectrum_model_clear)
+    if contribution:
+        return wlen_model, spectrum_model, pRT_object.contr_em
     return wlen_model, spectrum_model   
 
 def interpolated_profile_emission(pRT_object, \
