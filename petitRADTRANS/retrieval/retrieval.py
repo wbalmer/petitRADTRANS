@@ -1045,9 +1045,8 @@ class Retrieval:
         """
         if ret_name is None:
             ret_name = self.retrieval_name
-        # Check if the files already exist so that we don't have to recalculate
-        if self.retrieval_name not in self.best_fit_specs.keys():
-            self.get_max_likelihood_params(best_fit_params, parameters_read)
+        parameters = self.build_param_dict(best_fit_params, parameters_read)
+        self.best_fit_params = parameters
 
         if self.rd.AMR:
             _ = self.rd._setup_pres()  # TODO this function should not be private
@@ -1610,10 +1609,12 @@ class Retrieval:
 
         if self.evaluate_sample_spectra:
             self.evaluate_sample_spectra = False
+
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
         print("\nPlotting Best-fit spectrum")
+
         fig, axes = plt.subplots(nrows=2, ncols=1, sharex='col', sharey=False,
                                  gridspec_kw={'height_ratios': [2.5, 1], 'hspace': 0.1},
                                  figsize=(20, 10))
@@ -1647,31 +1648,22 @@ class Retrieval:
         for name,dd in self.data.items():
             # If the user has specified a resolution, rebin to that
             if not dd.photometry:
-                try:
-                    # Sometimes this fails, I'm not super sure why.
-                    resolution_data = np.mean(dd.wlen[1:]/np.diff(dd.wlen))
-                    ratio = resolution_data / self.rd.plot_kwargs["resolution"]
-                    if int(ratio) > 1:
-                        flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
-                        error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
-                                                    'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
-                        wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
-                        wlen_bins = np.zeros_like(wlen)
-                        wlen_bins[:-1] = np.diff(wlen)
-                        wlen_bins[-1] = wlen_bins[-2]
-                    else:
-                        wlen = dd.wlen
-                        error = dd.flux_error
-                        flux = dd.flux
-                        wlen_bins = dd.wlen_bins
-
-                except:
+                resolution_data = np.mean(dd.wlen[1:]/np.diff(dd.wlen))
+                if self.rd.plot_kwargs["resolution"] is not None and\
+                    self.rd.plot_kwargs["resolution"] < resolution_data:
+                    ratio = resolution_data/self.rd.plot_kwargs["resolution"]
+                    flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
+                    error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
+                                                'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
+                    wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
+                    wlen_bins = np.zeros_like(wlen)
+                    wlen_bins[:-1] = np.diff(wlen)
+                    wlen_bins[-1] = wlen_bins[-2]
+                else:
                     wlen = dd.wlen
                     error = dd.flux_error
                     flux = dd.flux
                     wlen_bins = dd.wlen_bins
-                # Setup bins to rebin the best fit model to find the residuals
-                wlen_bins = dd.wlen_bins
             else:
                 wlen = np.mean(dd.width_photometry)
                 flux = dd.flux
@@ -1681,19 +1673,18 @@ class Retrieval:
             # If the data has an arbitrary retrieved scaling factor
             scale  = 1.0
             if dd.scale:
-                scale = dd.scale_factor
-                flux = flux * scale
+                scale = self.best_fit_params[f"{name}_scale_factor"].value
 
             errscale = 1.0
             if dd.scale_err:
-                errscale = dd.scale_factor
+                errscale = self.best_fit_params[f"{name}_scale_factor"].value
                 error = error * errscale
 
-            offset = 0
+            offset = 0.0
             if dd.offset_bool:
-                offset = dd.offset
-                flux = flux - offset
+                offset = self.best_fit_params[f"{name}_offset"].value
 
+            flux = (flux*scale) - offset
             if f"{dd.name}_b" in self.parameters.keys():
                 error = np.sqrt(error + 10**(self.best_fit_parameters["{dd.name}_b"]))
 
