@@ -132,6 +132,10 @@ def emission_model_diseq(pRT_object,
                             parameters['Fe/H'].value,
                             carbon_to_oxygen,
                             conv=True)
+    if 'use_easychem' in parameters.keys():
+        temperatures[np.where(temperatures<40.0)] = 40.0
+        temperatures[np.where(temperatures>42000.0)] = 42000.0
+
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, MMW, small_index, Pbases = get_abundances(p_use,
                                                   temperatures,
@@ -139,6 +143,8 @@ def emission_model_diseq(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
+    #if "use_easychem" in parameters.keys():
+    #    print(parameters['C'].value, parameters['O'].value, abundances, temperatures)
     if abundances is None:
         return None, None
     if PT_plot_mode:

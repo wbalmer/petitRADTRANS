@@ -338,7 +338,7 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
         cs = CubicSpline(np.log10(support_points), t_support)
         tret = cs(np.log10(press_cgs))
 
-    tret[tret < 0.0] = 10.0
+    tret[tret < 0.0] = 1.0
     # Return the temperature, the pressure at tau = 1,
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
