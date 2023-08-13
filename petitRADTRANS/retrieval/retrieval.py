@@ -1125,9 +1125,10 @@ class Retrieval:
             name = self.rd.plot_kwargs["take_PTs_from"]
         else:
             name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+        species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
         abundances, MMW, _, _ = get_abundances(pressures,
                                             temps,
-                                            cp.copy(self.data[name].pRT_object.line_species),
+                                            cp.copy(species),
                                             cp.copy(self.data[name].pRT_object.cloud_species),
                                             parameters,
                                             AMR=False)
@@ -1164,6 +1165,7 @@ class Retrieval:
                 vmrs.append(np.array(list(vmr.values())))
             vmrs = np.array(vmrs)
             np.save(f"{self.output_dir}{ret}_volume_mixing_ratio_profiles", vmrs)
+        return vmrs
 
     def get_evidence(self, ret_name = ""):
 
@@ -2513,54 +2515,54 @@ class Retrieval:
         if sample_posteriors:
             abundances = {}
             for species in species_to_plot:
-                abundances[species] = []
+                abundances[species.split("_R_")[0]] = []
 
             # Go through EVERY sample to find the abundance distribution.
             # Very slow.
             for sample in samples_use:
                 if volume_mixing_ratio:
-                    abund_dict, MMW = self.get_volume_mixing_ratio(sample[:-1], parameters_read)
+                    abund_dict, MMW = self.get_volume_mixing_ratios(sample[:-1], parameters_read)
                 else:
                     abund_dict, MMW = self.get_mass_fractions(sample[:-1], parameters_read)
                 for species in species_to_plot:
-                    abundances[species].append(abund_dict[species])
+                    abundances[species.split("_R_")[0]].append(abund_dict[species.split("_R_")[0]])
 
             # Plot median and 1sigma contours
             for i,species in enumerate(species_to_plot):
-                medians = np.median(np.array(abundances[species]),axis=0)
-                stds = np.std(np.array(abundances[species]),axis=0)
-                ax.plot(medians,
+                medians = np.median(np.array(abundances[species.split("_R_")[0]]),axis=0)
+                low,med,high = np.quantile(np.array(abundances[species.split("_R_")[0]]),[0.159,0.5,0.841],axis=0)
+                ax.plot(med,
                         pressures,
                         label=species.split('_')[0],
                         color = colors[i%len(colors)],
                         zorder = 0,
                         linewidth = 2)
-                ax.plot(medians-stds,
+                ax.plot(low,
                     pressures,
                     color = colors[i%len(colors)],
                     linewidth = 0.4,
                     zorder = 0)
-                ax.plot(medians+stds,
+                ax.plot(high,
                     pressures,
                     color = colors[i%len(colors)],
                     linewidth = 0.4,
                     zorder = 0)
 
                 ax.fill_betweenx(pressures,
-                                    x1 = medians-stds,
-                                    x2=medians+stds,
-                                color = colors[i%len(colors)],
-                                alpha = 0.15,
-                                zorder = -1)
+                                 x1 = low,
+                                 x2 = high,
+                                 color = colors[i%len(colors)],
+                                 alpha = 0.15,
+                                 zorder = -1)
         else:
             # Plot only the best fit abundances.
             # Default to this for speed.
             if volume_mixing_ratio:
-                abund_dict, MMW = self.get_volume_mixing_ratio(sample_use, parameters_read)
+                abund_dict, MMW = self.get_volume_mixing_ratios(sample_use, parameters_read)
             else:
                 abund_dict, MMW = self.get_mass_fractions(sample_use, parameters_read)
             for i,spec in enumerate(species_to_plot):
-                ax.plot(abund_dict[spec],
+                ax.plot(abund_dict[spec.split("_R_")[0]],
                         pressures,
                         label=spec.split('_')[0],
                         color = colors[i%len(colors)],
@@ -2570,7 +2572,7 @@ class Retrieval:
         # Check to see if we're weighting by the emission contribution.
         if contribution:
             bf_wlen, bf_spectrum,bf_contribution = self.get_best_fit_model(
-                                            sample_use[:-1],
+                                            sample_use,
                                             parameters_read,
                                             refresh=refresh,
                                             contribution = True
@@ -2653,7 +2655,7 @@ class Retrieval:
         ax.tick_params(axis='both', which='minor', labelsize=12)
 
         ax.invert_yaxis()
-        ax.set_xlim(1e-7,3)
+        ax.set_xlim(8e-13,3)
         ax.set_axisbelow(False)
         ax.tick_params(zorder =2)
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize =18)

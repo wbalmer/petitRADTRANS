@@ -239,7 +239,10 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
-    contribution = False # Not sure how to deal with having 2 separate contribution function
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
+     # Not sure how to deal with having 2 separate contribution function
 
     # Priors for these parameters are implemented here, as they depend on each other
     T3 = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3'].value)
@@ -393,7 +396,10 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
-    contribution = False # Not sure how to deal with having 2 separate contribution function
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
+     # Not sure how to deal with having 2 separate contribution function
 
     # Priors for these parameters are implemented here, as they depend on each other
     T3 = ((3./4.*parameters['T_int'].value**4.*(0.1+2./3.))**0.25)*(1.0-parameters['T3'].value)
@@ -421,7 +427,10 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
                                                   parameters,
                                                   AMR =AMR)
     if abundances is None:
+        if contribution:
+            return None,None,None
         return None, None
+    
     if PT_plot_mode:
         return p_use[small_index], temperatures[small_index]
     if AMR:
@@ -432,7 +441,9 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
     else:
         pressures = p_use
     if pressures.shape[0] != pRT_object.press.shape[0]:
-        return None,None
+        if contribution:
+            return None,None,None
+        return None, None
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
     pRT_object.calc_flux(temperatures,
