@@ -627,11 +627,12 @@ def preparing_pipeline(spectrum, uncertainties=None,
         return reduced_data
 
 
-def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations_max=10, convergence_criterion=1e-3,
+def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
+                              n_iterations_max=10, convergence_criterion=1e-3,
                               tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
                               apply_throughput_removal=True, apply_telluric_lines_removal=True,
                               correct_uncertainties=True,
-                              subtract=False, remove_mean=True, full=False, verbose=False, **kwargs):
+                              subtract=True, remove_mean=True, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
         S**2 = sum_ij ((spectrum_ij - a_j * c_i) / uncertainties)**2
@@ -647,6 +648,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations
         spectrum: spectral data to correct
         uncertainties: uncertainties on the data
         wavelengths: wavelengths of the data
+        n_passes: number of SYSREM passes
         n_iterations_max: maximum number of SYSREM iterations
         convergence_criterion: SYSREM convergence criterion
         tellurics_mask_threshold: mask wavelengths where the atmospheric transmittance estimate is below this value
@@ -720,77 +722,85 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_iterations
     shape_a.insert(0, shape_a.pop(-1))  # (..., order, exposure)
     shape_c.insert(0, shape_c.pop(-2))  # (..., order, wavelength)
 
-    uncertainties_squared_inverted = 1 / reduced_data_uncertainties ** 2
-    spectrum_uncertainties_squared = reduced_data * uncertainties_squared_inverted
-
-    # Handle masked values
-    if isinstance(spectrum_uncertainties_squared, np.ma.core.MaskedArray):
-        uncertainties_squared_inverted[spectrum_uncertainties_squared.mask] = 0
-        spectrum_uncertainties_squared = spectrum_uncertainties_squared.filled(0)
-
-    # Iterate
-    i = 0
-    c = 1
-    systematics_0 = np.zeros(reduced_data.shape)
     systematics = np.zeros(reduced_data.shape)
 
-    for i in range(n_iterations_max):
-        systematics, c = __sysrem_iteration(
-            spectrum_uncertainties_squared=spectrum_uncertainties_squared,
-            uncertainties_squared_inverted=uncertainties_squared_inverted,
-            c=c,
-            shape_a=shape_a,
-            shape_c=shape_c
-        )
-        systematics[np.nonzero(np.logical_not(np.isfinite(systematics)))] = 0
+    # Iterate
+    for j in range(n_passes):
+        uncertainties_squared_inverted = 1 / reduced_data_uncertainties ** 2
+        spectrum_uncertainties_squared = reduced_data * uncertainties_squared_inverted
 
-        # Check for convergence
-        if np.sum(np.abs(systematics_0 - systematics)) <= convergence_criterion * np.sum(np.abs(systematics_0)):
-            if verbose:
-                print(f"Iteration {i + 1} (max {n_iterations_max}): "
+        # Handle masked values
+        if isinstance(spectrum_uncertainties_squared, np.ma.core.MaskedArray):
+            uncertainties_squared_inverted[spectrum_uncertainties_squared.mask] = 0
+            spectrum_uncertainties_squared = spectrum_uncertainties_squared.filled(0)
+
+        if verbose:
+            print(f"Pass {j + 1} / {n_passes}")
+
+        i = 0
+        c = 1
+        systematics_0 = np.zeros(reduced_data.shape)
+        systematics = np.zeros(reduced_data.shape)
+
+        for i in range(n_iterations_max):
+            systematics, c = __sysrem_iteration(
+                spectrum_uncertainties_squared=spectrum_uncertainties_squared,
+                uncertainties_squared_inverted=uncertainties_squared_inverted,
+                c=c,
+                shape_a=shape_a,
+                shape_c=shape_c
+            )
+            systematics[np.nonzero(np.logical_not(np.isfinite(systematics)))] = 0
+
+            # Check for convergence
+            if np.sum(np.abs(systematics_0 - systematics)) <= convergence_criterion * np.sum(np.abs(systematics_0)):
+                if verbose:
+                    print(f" Iteration {i + 1} (max {n_iterations_max}): "
+                          f"{np.sum(np.abs(systematics_0 - systematics)) / np.sum(np.abs(systematics_0))} "
+                          f"(> {convergence_criterion})")
+                    print(" Convergence reached!")
+
+                break
+            elif verbose and i > 0:
+                print(f" Iteration {i} (max {n_iterations_max}): "
                       f"{np.sum(np.abs(systematics_0 - systematics)) / np.sum(np.abs(systematics_0))} "
                       f"(> {convergence_criterion})")
-                print("Convergence reached!")
 
-            break
-        elif verbose and i > 0:
-            print(f"Iteration {i} (max {n_iterations_max}): "
-                  f"{np.sum(np.abs(systematics_0 - systematics)) / np.sum(np.abs(systematics_0))} "
-                  f"(> {convergence_criterion})")
+            systematics_0 = systematics
 
-        systematics_0 = systematics
+        if i == n_iterations_max - 1 \
+                and np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0)) \
+                and convergence_criterion > 0:
+            warnings.warn(
+                f"convergence not reached in {n_iterations_max} iterations "
+                f"("
+                f"{np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0))}"
+                f" > {convergence_criterion})"
+            )
 
-    if i == n_iterations_max - 1 \
-            and np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0)) \
-            and convergence_criterion > 0:
-        warnings.warn(
-            f"convergence not reached in {n_iterations_max} iterations "
-            f"({np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0))} "
-            f"> {convergence_criterion})"
-        )
+        # Mask where systematics are 0 to prevent division by 0 error
+        systematics = np.ma.masked_equal(systematics, 0)
 
-    # Mask where systematics are 0 to prevent division by 0 error
-    systematics = np.ma.masked_equal(systematics, 0)
+        # Remove the systematics from the spectrum
+        '''
+        This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same results
+        and this way the pipeline can be used in retrievals more effectively.
+        '''
+        if subtract:
+            reduced_data -= systematics
+        else:
+            reduced_data /= systematics
 
-    # Remove the systematics from the spectrum
-    '''
-    This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same results
-    and this way the pipeline can be used in retrievals more effectively.
-    '''
-    if subtract:
-        reduced_data -= systematics
-    else:
-        reduced_data /= systematics
+        if full:
+            if subtract:
+                # With the subtractions, uncertainties should not be affected
+                # TODO it can be argued that the uncertainties on the systematics should be taken into account
+                reduction_matrix -= systematics
+            else:
+                reduction_matrix /= systematics
+                reduced_data_uncertainties = reduced_data_uncertainties * np.abs(reduction_matrix)
 
     if full:
-        if subtract:
-            # With the subtractions, uncertainties should not be affected
-            # TODO it can be argued that the uncertainties on the systematics should be taken into account
-            reduction_matrix -= systematics
-        else:
-            reduction_matrix /= systematics
-            reduced_data_uncertainties = reduced_data_uncertainties * np.abs(reduction_matrix)
-
-        return reduced_data, reduction_matrix, reduced_data_uncertainties
+        return reduced_data, (reduction_matrix, systematics), reduced_data_uncertainties
     else:
         return reduced_data
