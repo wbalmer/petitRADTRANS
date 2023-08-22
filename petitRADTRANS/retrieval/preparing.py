@@ -14,19 +14,19 @@ def __init_pipeline(spectrum, uncertainties):
     reduction_matrix.mask = np.zeros(spectrum.shape, dtype=bool)
 
     # Initialize reduced data and pipeline noise
-    reduced_data = copy.copy(spectrum)
+    reduced_data = copy.deepcopy(spectrum)
 
     if isinstance(spectrum, np.ma.core.MaskedArray):
-        reduced_data.mask = copy.copy(spectrum.mask)
+        reduced_data.mask = copy.deepcopy(spectrum.mask)
 
         if uncertainties is not None:
-            reduced_data_uncertainties = np.ma.masked_array(copy.copy(uncertainties))
-            reduced_data_uncertainties.mask = copy.copy(spectrum.mask)
+            reduced_data_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
+            reduced_data_uncertainties.mask = copy.deepcopy(spectrum.mask)
         else:
             reduced_data_uncertainties = None
     else:
         if uncertainties is not None:
-            reduced_data_uncertainties = copy.copy(uncertainties)
+            reduced_data_uncertainties = copy.deepcopy(uncertainties)
         else:
             reduced_data_uncertainties = None
 
@@ -40,18 +40,18 @@ def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):
 
     if isinstance(spectrum, np.ma.core.MaskedArray):
         spectral_data_corrected = np.ma.zeros(spectrum.shape)
-        spectral_data_corrected.mask = copy.copy(spectrum.mask)
+        spectral_data_corrected.mask = copy.deepcopy(spectrum.mask)
 
         if uncertainties is not None:
-            pipeline_uncertainties = np.ma.masked_array(copy.copy(uncertainties))
-            pipeline_uncertainties.mask = copy.copy(spectrum.mask)
+            pipeline_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
+            pipeline_uncertainties.mask = copy.deepcopy(spectrum.mask)
         else:
             pipeline_uncertainties = None
     else:
         spectral_data_corrected = np.zeros(spectrum.shape)
 
         if uncertainties is not None:
-            pipeline_uncertainties = copy.copy(uncertainties)
+            pipeline_uncertainties = copy.deepcopy(uncertainties)
         else:
             pipeline_uncertainties = None
 
@@ -194,6 +194,7 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
+    spectrum = copy.deepcopy(spectrum)
     degrees_of_freedom = polynomial_fit_degree + 1
 
     if spectrum.shape[1] <= degrees_of_freedom:
@@ -216,7 +217,9 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     else:
         weights = np.ones(spectrum.shape)
 
+    mask = copy.deepcopy(spectrum.mask)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
+    spectrum = np.ma.masked_where(mask, spectrum)
 
     telluric_lines_fits = np.ma.zeros(spectral_data_corrected.shape)
 
@@ -356,6 +359,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
+    spectrum = copy.deepcopy(spectrum)
     degrees_of_freedom = polynomial_fit_degree + 1
 
     if spectrum.shape[2] <= degrees_of_freedom:
@@ -376,7 +380,9 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     else:
         weights = np.ones(spectrum.shape)
 
+    mask = copy.deepcopy(spectrum.mask)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
+    spectrum = np.ma.masked_where(mask, spectrum)
 
     throughput_fits = np.ma.zeros(spectral_data_corrected.shape)
 
