@@ -491,6 +491,73 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None):
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
+def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, threshold_low=0.8, threshold_high=1.2,
+                  threshold_outlier=None, polynomial_fit_degree=2, relative_to_continnum=True):
+    if relative_to_continnum:
+        spectrum_ref, _, u = remove_throughput_fit(
+            spectrum=spectrum,
+            reduction_matrix=np.ones_like(spectrum),
+            wavelengths=wavelengths,
+            uncertainties=uncertainties,
+            polynomial_fit_degree=polynomial_fit_degree,
+            correct_uncertainties=False
+        )
+    else:
+        spectrum_ref = copy.deepcopy(spectrum)
+        u = copy.deepcopy(uncertainties)
+
+    spectrum_mean = np.ma.median(spectrum_ref, axis=1)
+
+    mask = np.logical_or(
+        np.less(spectrum_mean, threshold_low),
+        np.greater(spectrum_mean, threshold_high)
+    )
+    mask = np.moveaxis(np.tile(mask, (spectrum.shape[1], 1, 1)), 0, 1)
+
+    if threshold_outlier is not None:
+        spectrum_ref = np.ma.masked_where(mask, spectrum_ref)
+        standard_deviation = np.ma.std(spectrum_ref)
+        spectrum_mean = np.ma.mean(spectrum_ref)
+
+        mask = np.logical_or(
+            mask,
+            np.greater(
+                np.moveaxis(
+                    np.abs(np.moveaxis(spectrum_ref, -1, 0) - spectrum_mean)
+                    / standard_deviation,
+                    0, -1
+                ),
+                threshold_outlier
+            )
+        )
+
+        spectrum_ref, _, u = remove_telluric_lines_fit(
+            spectrum=np.ma.masked_where(mask, spectrum_ref),
+            reduction_matrix=np.ones_like(spectrum),
+            airmass=airmass,
+            uncertainties=np.ma.masked_where(mask, u),
+            polynomial_fit_degree=polynomial_fit_degree,
+            correct_uncertainties=False
+        )
+
+        standard_deviation = np.ma.std(spectrum_ref)
+        spectrum_mean = np.ma.mean(spectrum_ref)
+
+        mask = np.logical_or(
+            mask,
+            np.greater(
+                np.moveaxis(
+                    np.abs(np.moveaxis(spectrum_ref, -1, 0) - spectrum_mean)
+                    / standard_deviation,
+                    0, -1
+                ),
+                threshold_outlier
+            )
+        )
+
+    return np.ma.masked_where(mask, spectrum)
+
+
 def preparing_pipeline(spectrum, uncertainties=None,
                        wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
                        apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
