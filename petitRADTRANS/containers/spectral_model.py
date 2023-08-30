@@ -13,7 +13,7 @@ import scipy.ndimage
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.molar_mass import getMM
+from petitRADTRANS.prt_molmass import getMM
 from petitRADTRANS.phoenix import get_PHOENIX_spec
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
     radiosity_erg_hz2radiosity_erg_cm, radiosity2irradiance
@@ -920,7 +920,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_transit_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
                                    planet_surface_gravity, reference_pressure, planet_radius,
-                                   cloud_pressure=None, haze_factor=None, cloud_particle_size_distribution='lognormal',
+                                   cloud_pressure=None, haze_factor=1.0, cloud_particle_size_distribution='lognormal',
                                    cloud_particle_radii=None, cloud_particle_log_normal_width=None,
                                    cloud_hansen_a=None, cloud_hansen_b=None,
                                    cloud_sedimentation_factor=None, eddy_diffusion_coefficient=None,

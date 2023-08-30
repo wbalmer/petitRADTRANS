@@ -2,6 +2,8 @@
 
 from molmass import Formula
 
+import petitRADTRANS.nat_cst as nc
+
 
 def getMM(species):
     """
@@ -19,12 +21,10 @@ def getMM(species):
     Returns:
         The molar mass of the compound in atomic mass units.
     """
-    e_molar_mass = 5.4857990888e-4  # (g.mol-1) e- molar mass (source: NIST CODATA)
-
     if species == 'e-':
-        return e_molar_mass
+        return nc.e_molar_mass
     elif species == 'H-':
-        return Formula('H').mass + e_molar_mass
+        return Formula('H').mass + nc.e_molar_mass
 
     name = species.split("_")[0]
     name = name.split(',')[0]

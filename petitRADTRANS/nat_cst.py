@@ -13,7 +13,8 @@ e = snc.e * np.sqrt(1e9 / (4 * snc.pi * snc.epsilon_0))
 
 # Measured constants
 G = snc.G * 1e3
-m_elec = snc.m_e * 1e3
+m_elec = snc.electron_mass * 1e3
+e_molar_mass = m_elec * snc.Avogadro  # g.mol-1, e- molar mass
 
 # Derived exact constants
 sigma = snc.sigma * 1e3

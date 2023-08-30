@@ -9,7 +9,7 @@ from typing import Tuple
 
 import numpy as np
 from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.molar_mass import getMM
+from petitRADTRANS.prt_molmass import getMM
 from scipy.special import erfcinv
 
 SQRT2 = np.sqrt(2)
