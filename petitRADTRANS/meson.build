@@ -7,10 +7,10 @@ subdir('cli')
 subdir('ccf')
 
 py.install_sources([
-    'molar_mass.py',
     'nat_cst.py',
     'phoenix.py',
     'physics.py',
+    'prt_molmass.py',
     'radtrans.py',
     'utils.py',
     '__file_conversion.py',
