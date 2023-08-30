@@ -9,7 +9,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS import molar_mass
+from petitRADTRANS import prt_molmass
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS import phoenix
 from petitRADTRANS.fort_input import fort_input as fi
