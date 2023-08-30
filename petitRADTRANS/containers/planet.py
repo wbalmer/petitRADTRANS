@@ -1089,7 +1089,7 @@ class Planet:
         return target_coordinates.radial_velocity_correction(
             obstime=Time(time, format=time_format),
             location=observer_location
-        ).value
+        ).value * 1e2  # m.s-1 to cm.s-1
 
     @staticmethod
     def get_simple_transit_curve(time_from_mid_transit, planet_radius, star_radius,
