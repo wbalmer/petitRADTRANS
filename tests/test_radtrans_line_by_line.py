@@ -22,9 +22,9 @@ def init_radtrans_line_by_line():
         pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
-        opacity_mode='lbl'
+        line_opacity_mode='lbl'
     )
 
     return atmosphere
@@ -113,9 +113,9 @@ spectral_model_lbl, radtrans_spectral_model_lbl = init_spectral_model_line_by_li
 
 def test_line_by_line_emission_spectrum():
     # Calculate an emission spectrum
-    atmosphere_lbl.calc_flux(
+    atmosphere_lbl.get_flux(
         temp=temperature_guillot_2010,
-        abunds=radtrans_parameters['mass_fractions'],
+        mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
     )
@@ -125,7 +125,7 @@ def test_line_by_line_emission_spectrum():
         reference_file=reference_filenames['line_by_line_emission'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_lbl.spectral_radiosities
+            'spectral_radiosity': atmosphere_lbl.flux
         },
         relative_tolerance=relative_tolerance
     )
@@ -133,9 +133,9 @@ def test_line_by_line_emission_spectrum():
 
 def test_line_by_line_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_lbl.calc_transm(
+    atmosphere_lbl.get_transit_radii(
         temp=temperature_isothermal,
-        abunds=radtrans_parameters['mass_fractions'],
+        mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
         r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,

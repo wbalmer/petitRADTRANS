@@ -832,13 +832,13 @@ class BaseSpectralModel:
             )
 
         # Calculate the spectrum
-        radtrans.calc_flux(
+        radtrans.get_flux(
             temp=temperatures,
-            abunds=mass_mixing_ratios,
+            mass_fractions=mass_mixing_ratios,
             gravity=planet_surface_gravity,
             mmw=mean_molar_mass,
             r_pl=planet_radius,
-            sigma_lnorm=cloud_sigma,
+            cloud_particle_radius_distribution_std=cloud_sigma,
             fsed=cloud_sedimentation_factor,
             kzz=eddy_diffusion_coefficient,
             radius=cloud_particle_radii,
@@ -850,7 +850,7 @@ class BaseSpectralModel:
             add_cloud_scat_as_abs=add_cloud_scattering_as_absorption,
             t_star=star_effective_temperature,
             r_star=star_radius,
-            semimajoraxis=orbit_semi_major_axis,
+            orbit_semi_major_axis=orbit_semi_major_axis,
             emission_geometry=irradiation_geometry,
             star_inclination_angle=irradiation_inclination,
             hack_cloud_photospheric_tau=cloud_photospheric_optical_depth,
@@ -860,7 +860,7 @@ class BaseSpectralModel:
             stellar_intensity=planet_star_spectral_radiances,
             give_absorption_opacity=absorption_opacity_function,
             give_scattering_opacity=scattering_opacity_function,
-            cloud_wlen=cloud_photospheric_wavelengths_boundaries,
+            cloud_wavelengths=cloud_photospheric_wavelengths_boundaries,
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
             # TODO add the other arguments
         )
@@ -868,7 +868,7 @@ class BaseSpectralModel:
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
         wavelengths = hz2um(radtrans.frequencies)
-        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.spectral_radiosities, radtrans.frequencies) \
+        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.frequencies) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         return wavelengths, spectral_radiosity
@@ -961,14 +961,14 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        radtrans.calc_transm(
+        radtrans.get_transit_radii(
             temp=temperatures,
-            abunds=mass_mixing_ratios,
+            mass_fractions=mass_mixing_ratios,
             gravity=planet_surface_gravity,
             mmw=mean_molar_masses,
             p0_bar=reference_pressure,
             r_pl=planet_radius,
-            sigma_lnorm=cloud_particle_log_normal_width,
+            cloud_particle_radius_distribution_std=cloud_particle_log_normal_width,
             fsed=cloud_sedimentation_factor,
             kzz=eddy_diffusion_coefficient,
             radius=cloud_particle_radii,
@@ -1413,10 +1413,10 @@ class BaseSpectralModel:
         radtrans = Radtrans(
             line_species=line_species,
             rayleigh_species=rayleigh_species,
-            collision_induced_absorptions=continuum_opacities,
+            gas_continuum_contributors=continuum_opacities,
             cloud_species=cloud_species,
             wavelengths_boundaries=wavelengths_boundaries,
-            opacity_mode=opacity_mode,
+            line_opacity_mode=opacity_mode,
             scattering_in_emission=do_scat_emis,
             lbl_opacity_sampling=lbl_opacity_sampling,
             pressures=pressures

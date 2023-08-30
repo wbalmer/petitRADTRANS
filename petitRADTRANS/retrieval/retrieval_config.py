@@ -481,7 +481,7 @@ class RetrievalConfig:
                                scale_err=scale_err,
                                wlen_range_micron=wlen_range_micron,
                                external_radtrans_reference=external_pRT_reference,
-                               opacity_mode=opacity_mode,
+                               line_opacity_mode=opacity_mode,
                                wlen_bins=wlen_bins,
                                radtrans_grid=pRT_grid,
                                radtrans_object=pRT_object,
@@ -586,7 +586,7 @@ class RetrievalConfig:
                     scale=scale,
                     photometric_transformation_function=transform,
                     external_radtrans_reference=external_pRT_reference,
-                    opacity_mode=opacity_mode
+                    line_opacity_mode=opacity_mode
                 )
                 self.data[name].flux = flux
                 self.data[name].flux_error = err

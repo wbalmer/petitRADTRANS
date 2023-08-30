@@ -9,9 +9,9 @@ atmosphere = Radtrans(line_species = ['H2O_main_iso',
                                       'Na',
                                       'K'],
                       rayleigh_species = ['H2', 'He'],
-                      collision_induced_absorptions= ['H2-H2', 'H2-He'],
+                      gas_continuum_contributors= ['H2-H2', 'H2-He'],
                       wavelengths_boundaries= [2.2, 2.4],
-                      opacity_mode='lbl')
+                      line_opacity_mode='lbl')
 
 pressures = np.logspace(-10, 2, 130)
 atmosphere.setup_opa_structure(pressures)
@@ -41,6 +41,6 @@ mass_fractions['K'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-atmosphere.calc_transm(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.get_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
-atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW)
+atmosphere.get_flux(temperature, mass_fractions, gravity, MMW)

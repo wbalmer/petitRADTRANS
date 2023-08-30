@@ -900,7 +900,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
                 print(" Found custom PT grid")
 
                 # _sort_opa_pt_grid converts bar into cgs
-                custom_grid_data = Radtrans._sort_opa_pt_grid(custom_pt_grid_file)
+                custom_grid_data = Radtrans._sort_pt_grid(custom_pt_grid_file)
 
                 opacities_temperature_profile_grid_ = custom_grid_data[0]
                 opacities_temperatures_ = np.unique(opacities_temperature_profile_grid_[:, 0])

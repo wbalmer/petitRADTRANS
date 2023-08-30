@@ -15,10 +15,10 @@ def init_radtrans_downsampled_line_by_line():
         pressures=radtrans_parameters['pressures'],
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        collision_induced_absorptions=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
         lbl_opacity_sampling=radtrans_parameters['spectrum_parameters']['line_by_line_opacity_sampling'],
-        opacity_mode='lbl'
+        line_opacity_mode='lbl'
     )
 
     return atmosphere
@@ -29,9 +29,9 @@ atmosphere_lbl_downsampled = init_radtrans_downsampled_line_by_line()
 
 def test_line_by_line_downsampled_emission_spectrum():
     # Calculate an emission spectrum
-    atmosphere_lbl_downsampled.calc_flux(
+    atmosphere_lbl_downsampled.get_flux(
         temp=temperature_guillot_2010,
-        abunds=radtrans_parameters['mass_fractions'],
+        mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
     )
@@ -41,7 +41,7 @@ def test_line_by_line_downsampled_emission_spectrum():
         reference_file=reference_filenames['line_by_line_downsampled_emission'],
         comparison_dict={
             'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl_downsampled.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_lbl_downsampled.spectral_radiosities
+            'spectral_radiosity': atmosphere_lbl_downsampled.flux
         },
         relative_tolerance=relative_tolerance
     )
@@ -49,9 +49,9 @@ def test_line_by_line_downsampled_emission_spectrum():
 
 def test_line_by_line_downsampled_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_lbl_downsampled.calc_transm(
+    atmosphere_lbl_downsampled.get_transit_radii(
         temp=temperature_isothermal,
-        abunds=radtrans_parameters['mass_fractions'],
+        mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mmw=radtrans_parameters['mean_molar_mass'],
         r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,

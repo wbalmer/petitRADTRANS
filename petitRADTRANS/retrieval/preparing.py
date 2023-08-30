@@ -169,8 +169,9 @@ def remove_noisy_wavelength_channels(spectrum, reduction_matrix, mean_subtract=F
     return spectrum, reduction_matrix
 
 
-def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties=None, mask_threshold=1e-16,
-                              polynomial_fit_degree=2, correct_uncertainties=True):
+def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties=None,
+                              mask_threshold=1e-16, polynomial_fit_degree=2, correct_uncertainties=True,
+                              uncertainties_as_weights=True):
     """Remove telluric lines with a polynomial function.
     The telluric transmittance can be written as:
         T = exp(-airmass * optical_depth),
@@ -208,7 +209,7 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         spectrum, reduction_matrix, uncertainties
     )
 
-    if uncertainties is not None:
+    if uncertainties is not None and uncertainties_as_weights:
         # The log of the spectrum is fitted, so the weights must be the weights of the log
         spectrum = np.ma.masked_equal(spectrum, 0)
         uncertainties = np.ma.masked_equal(uncertainties, 0)
@@ -288,7 +289,8 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
-def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, mask_threshold=1e-16):
+def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, mask_threshold=1e-16,
+                               uncertainties_as_weights=True):
     """Remove the telluric lines using the weighted arithmetic mean over time.
 
     Args:
@@ -305,7 +307,7 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
         spectrum, reduction_matrix, uncertainties
     )
 
-    if uncertainties is not None:
+    if uncertainties is not None and uncertainties_as_weights:
         weights = 1 / uncertainties
         weights[weights.mask] = 0
     else:
@@ -342,8 +344,9 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
-def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties=None, mask_threshold=1e-16,
-                          polynomial_fit_degree=2, correct_uncertainties=True):
+def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties=None,
+                          mask_threshold=1e-16, polynomial_fit_degree=2, correct_uncertainties=True,
+                          uncertainties_as_weights=True):
     """Remove variable throughput with a polynomial function.
 
     Args:
@@ -373,7 +376,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         spectrum, reduction_matrix, uncertainties
     )
 
-    if uncertainties is not None:
+    if uncertainties is not None and uncertainties_as_weights:
         # Ensure low weights within tellurics, but gives more weight to noisy non-telluric wavelengths
         weights = copy.deepcopy(uncertainties)
         weights = weights.filled(0)  # polyfit doesn't take masks into account, so set weight of masked values to 0
@@ -448,7 +451,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
-def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None):
+def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None, uncertainties_as_weights=True):
     """Correct for the variable throughput using the weighted arithmetic mean over wavelength.
 
     Args:
@@ -464,7 +467,7 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None):
         spectrum, reduction_matrix, uncertainties
     )
 
-    if uncertainties is not None:
+    if uncertainties is not None and uncertainties_as_weights:
         weights = 1 / uncertainties
         weights[weights.mask] = 0
     else:
@@ -492,7 +495,8 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None):
 
 
 def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, threshold_low=0.8, threshold_high=1.2,
-                  threshold_outlier=None, polynomial_fit_degree=2, relative_to_continnum=True):
+                  threshold_outlier=None, polynomial_fit_degree=2, relative_to_continnum=True,
+                  uncertainties_as_weights=True):
     if relative_to_continnum:
         spectrum_ref, _, u = remove_throughput_fit(
             spectrum=spectrum,
@@ -500,7 +504,8 @@ def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, 
             wavelengths=wavelengths,
             uncertainties=uncertainties,
             polynomial_fit_degree=polynomial_fit_degree,
-            correct_uncertainties=False
+            correct_uncertainties=False,
+            uncertainties_as_weights=uncertainties_as_weights
         )
     else:
         spectrum_ref = copy.deepcopy(spectrum)
@@ -561,7 +566,7 @@ def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, 
 def preparing_pipeline(spectrum, uncertainties=None,
                        wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
                        apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
-                       full=False, **kwargs):
+                       uncertainties_as_weights=True, full=False, **kwargs):
     """Removes the telluric lines and variable throughput of some data.
     If airmass is None, the Earth atmospheric transmittance is assumed to be time-independent, so telluric transmittance
     will be fitted using the weighted arithmetic mean. Otherwise, telluric transmittance are fitted with a polynomial.
@@ -589,7 +594,8 @@ def preparing_pipeline(spectrum, uncertainties=None,
             reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_mean(
                 spectrum=spectrum,
                 reduction_matrix=reduction_matrix,
-                uncertainties=reduced_data_uncertainties
+                uncertainties=reduced_data_uncertainties,
+                uncertainties_as_weights=uncertainties_as_weights
             )
         else:
             reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_fit(
@@ -599,7 +605,8 @@ def preparing_pipeline(spectrum, uncertainties=None,
                 uncertainties=reduced_data_uncertainties,
                 mask_threshold=sys.float_info.min,
                 polynomial_fit_degree=2,
-                correct_uncertainties=correct_uncertainties
+                correct_uncertainties=correct_uncertainties,
+                uncertainties_as_weights=uncertainties_as_weights
             )
 
     if apply_telluric_lines_removal:
@@ -608,7 +615,8 @@ def preparing_pipeline(spectrum, uncertainties=None,
                 spectrum=reduced_data,
                 reduction_matrix=reduction_matrix,
                 uncertainties=reduced_data_uncertainties,
-                mask_threshold=tellurics_mask_threshold
+                mask_threshold=tellurics_mask_threshold,
+                uncertainties_as_weights=uncertainties_as_weights
             )
         else:
             reduced_data, reduction_matrix, reduced_data_uncertainties = remove_telluric_lines_fit(
@@ -618,7 +626,8 @@ def preparing_pipeline(spectrum, uncertainties=None,
                 uncertainties=reduced_data_uncertainties,
                 mask_threshold=tellurics_mask_threshold,
                 polynomial_fit_degree=polynomial_fit_degree,
-                correct_uncertainties=correct_uncertainties
+                correct_uncertainties=correct_uncertainties,
+                uncertainties_as_weights=uncertainties_as_weights
             )
 
     if full:
@@ -631,7 +640,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
                               n_iterations_max=10, convergence_criterion=1e-3,
                               tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
                               apply_throughput_removal=True, apply_telluric_lines_removal=True,
-                              correct_uncertainties=True,
+                              correct_uncertainties=True, uncertainties_as_weights=True,
                               subtract=True, remove_mean=True, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
@@ -677,7 +686,8 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
             reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_mean(
                 spectrum=spectrum,
                 reduction_matrix=reduction_matrix,
-                uncertainties=reduced_data_uncertainties
+                uncertainties=reduced_data_uncertainties,
+                uncertainties_as_weights=uncertainties_as_weights
             )
         else:
             if verbose:
@@ -690,7 +700,8 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
                 uncertainties=reduced_data_uncertainties,
                 mask_threshold=sys.float_info.min,
                 polynomial_fit_degree=polynomial_fit_degree,
-                correct_uncertainties=correct_uncertainties
+                correct_uncertainties=correct_uncertainties,
+                uncertainties_as_weights=uncertainties_as_weights
             )
 
     reduced_data = np.ma.masked_where(reduced_data < tellurics_mask_threshold, reduced_data)
@@ -699,8 +710,14 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
         if verbose:
             print("Subtracting mean...")
 
+        if uncertainties_as_weights:
+            weights = copy.deepcopy(uncertainties)
+        else:
+            weights = np.ma.ones(uncertainties.shape)
+            weights = np.ma.masked_where(uncertainties.mask, weights)
+
         reduced_data = np.moveaxis(
-            np.moveaxis(reduced_data, -1, 0) - np.ma.average(reduced_data, axis=-1, weights=uncertainties),
+            np.moveaxis(reduced_data, -1, 0) - np.ma.average(reduced_data, axis=-1, weights=weights),
             0,
             -1
         )
@@ -768,9 +785,10 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
 
             systematics_0 = systematics
 
-        if i == n_iterations_max - 1 \
-                and np.sum(np.abs(systematics_0 - systematics)) > convergence_criterion * np.sum(np.abs(systematics_0)) \
-                and convergence_criterion > 0:
+        if (i == n_iterations_max - 1
+                and np.sum(np.abs(systematics_0 - systematics))
+                > convergence_criterion * np.sum(np.abs(systematics_0))
+                and convergence_criterion > 0):
             warnings.warn(
                 f"convergence not reached in {n_iterations_max} iterations "
                 f"("
@@ -783,8 +801,8 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
 
         # Remove the systematics from the spectrum
         '''
-        This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same results
-        and this way the pipeline can be used in retrievals more effectively.
+        This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same
+        results and this way the pipeline can be used in retrievals more effectively.
         '''
         if subtract:
             reduced_data -= systematics

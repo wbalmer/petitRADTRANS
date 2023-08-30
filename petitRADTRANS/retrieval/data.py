@@ -72,7 +72,7 @@ class Data:
             The edges of the photometric bin in micron. [low,high]
         radtrans_grid: bool
             Set to true if data has been binned to pRT R = 1,000 c-k grid.
-        opacity_mode : str
+        line_opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
             or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
             recommended to set the model_resolution parameter. In general,
@@ -95,7 +95,7 @@ class Data:
                  photometry=False,
                  photometric_transformation_function=None,
                  photometric_bin_edges=None,
-                 opacity_mode='c-k',
+                 line_opacity_mode='c-k',
                  radtrans_grid=False,
                  radtrans_object=None,
                  wlen=None,
@@ -130,10 +130,10 @@ class Data:
         self.model_resolution = model_resolution
         self.external_pRT_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
-        self.opacity_mode = opacity_mode
+        self.line_opacity_mode = line_opacity_mode
 
-        if opacity_mode not in ['c-k', 'lbl']:
-            logging.error("opacity_mode must be either 'c-k' or 'lbl'!")
+        if line_opacity_mode not in ['c-k', 'lbl']:
+            logging.error("line_opacity_mode must be either 'c-k' or 'lbl'!")
             sys.exit(10)
         # Sanity check model function
         if not model_generating_function and not external_radtrans_reference:
@@ -141,10 +141,10 @@ class Data:
             sys.exit(8)
 
         if model_resolution is not None:
-            if opacity_mode == 'c_k' and model_resolution > 1000:
+            if line_opacity_mode == 'c_k' and model_resolution > 1000:
                 logging.warning("The maximum opacity for c-k mode is 1000!")
                 self.model_resolution = None
-            if opacity_mode == 'lbl' and model_resolution < 1000:
+            if line_opacity_mode == 'lbl' and model_resolution < 1000:
                 logging.warning("Your resolution is lower than R=1000, it's recommended to use 'c-k' mode.")
 
         # Optional, covariance and scaling
@@ -541,7 +541,7 @@ class Data:
             chi2 *= chi2
             chi2 = chi2.sum()
 
-            return penalty_term - 0.5 * chi2
+            return - 0.5 * chi2 + penalty_term
 
     @staticmethod
     def convolve(input_wavelength,

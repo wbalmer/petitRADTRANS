@@ -69,7 +69,7 @@ class Retrieval:
         sampling_efficiency=None,
         const_efficiency_mode=None,
         n_live_points=None,
-        resume=None,
+        resume=False,
         bayes_factor_species=None,
         corner_plot_names=None,
         short_names=None,
@@ -156,7 +156,7 @@ class Retrieval:
             step_sampler=False,
             warmstart_max_tau=0.5,
             n_iter_before_update=50,
-            resume=True,
+            resume=False,
             max_iters=0,
             frac_remain=0.1,
             Lepsilon=0.3):
@@ -517,7 +517,7 @@ class Retrieval:
             # Only create if there's no other data
             # object using the same pRT object
             if dd.external_pRT_reference is None:
-                if dd.opacity_mode == 'c-k' and dd.model_resolution is not None:
+                if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
                     species = []
                     # Check if low res opacities already exist
@@ -542,7 +542,7 @@ class Retrieval:
                     # we just use the default species.
                     species = cp.copy(self.rd.line_species)
                 lbl_samp = None
-                if dd.opacity_mode == 'lbl' and dd.model_resolution is not None:
+                if dd.line_opacity_mode == 'lbl' and dd.model_resolution is not None:
                     lbl_samp = int(1e6 / dd.model_resolution)
 
                 # Create random P-T profile to create RT arrays of the Radtrans object.
@@ -556,9 +556,9 @@ class Retrieval:
                     pressures=p,
                     line_species=cp.copy(species),
                     rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                    collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
+                    gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                     cloud_species=cp.copy(self.rd.cloud_species),
-                    opacity_mode=dd.opacity_mode,
+                    line_opacity_mode=dd.line_opacity_mode,
                     wavelengths_boundaries=dd.wlen_range_pRT,
                     scattering_in_emission=self.rd.scattering,
                     lbl_opacity_sampling=lbl_samp
@@ -984,9 +984,9 @@ class Retrieval:
                 pressures=p,
                 line_species=cp.copy(self.rd.line_species),
                 rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
+                gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                 cloud_species=cp.copy(self.rd.cloud_species),
-                opacity_mode='c-k',
+                line_opacity_mode='c-k',
                 wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
                 scattering_in_emission=self.rd.scattering
             )
@@ -1348,9 +1348,9 @@ class Retrieval:
             pressures=p,
             line_species=cp.copy(self.rd.line_species),
             rayleigh_species=cp.copy(self.rd.rayleigh_species),
-            collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
+            gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
-            opacity_mode='c-k',
+            line_opacity_mode='c-k',
             wavelengths_boundaries=[0.5, 28],
             scattering_in_emission=self.rd.scattering
         )
@@ -1785,9 +1785,9 @@ class Retrieval:
         # Set up parameter dictionary
         atmosphere = Radtrans(line_species=cp.copy(self.rd.line_species),
                               rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                              collision_induced_absorptions=cp.copy(self.rd.continuum_opacities),
+                              gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                               cloud_species=cp.copy(self.rd.cloud_species),
-                              opacity_mode='c-k',
+                              line_opacity_mode='c-k',
                               wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
                               scattering_in_emission=self.rd.scattering)
         fig, ax = plt.subplots(figsize=(16, 10))
@@ -1989,6 +1989,8 @@ class Retrieval:
             contr_em_weigh_intp = interp1d(pressures, contr_em_weigh)
 
             yborders = pressures
+
+            # TODO raise error if contr_em is NaN
             for i_p in range(len(yborders) - 1):
                 mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.
                 # print(1.-contr_em_weigh_intp(mean_press))
