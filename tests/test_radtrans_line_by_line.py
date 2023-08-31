@@ -137,7 +137,7 @@ def test_line_by_line_transmission_spectrum():
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
         p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
