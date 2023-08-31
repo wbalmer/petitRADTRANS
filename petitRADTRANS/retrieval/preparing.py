@@ -218,6 +218,11 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     else:
         weights = np.ones(spectrum.shape)
 
+        if uncertainties is not None:
+            uncertainties = np.ma.masked_equal(uncertainties, 0)
+            weights = np.ma.masked_where(uncertainties.mask, weights)
+            weights = weights.filled(0)
+
     mask = copy.deepcopy(spectrum.mask)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
     spectrum = np.ma.masked_where(mask, spectrum)
@@ -308,10 +313,16 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
     )
 
     if uncertainties is not None and uncertainties_as_weights:
+        uncertainties = np.ma.masked_equal(uncertainties, 0)
         weights = 1 / uncertainties
         weights[weights.mask] = 0
     else:
         weights = np.ones(spectrum.shape)
+
+        if uncertainties is not None:
+            uncertainties = np.ma.masked_equal(uncertainties, 0)
+            weights = np.ma.masked_where(uncertainties.mask, weights)
+            weights = weights.filled(0)
 
     mean_spectrum_time = np.ma.average(spectrum, axis=1, weights=weights)
     mean_spectrum_time = np.ma.masked_array(mean_spectrum_time)  # ensure that it is a masked array
@@ -382,6 +393,10 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         weights = weights.filled(0)  # polyfit doesn't take masks into account, so set weight of masked values to 0
     else:
         weights = np.ones(spectrum.shape)
+
+        if uncertainties is not None:
+            weights = np.ma.masked_where(uncertainties.mask, weights)
+            weights = weights.filled(0)
 
     mask = copy.deepcopy(spectrum.mask)
     spectrum[np.nonzero(np.equal(weights, 0))] = 0  # ensure no invalid values are hidden where weight = 0
@@ -468,10 +483,16 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None, 
     )
 
     if uncertainties is not None and uncertainties_as_weights:
+        uncertainties = np.ma.masked_equal(uncertainties, 0)
         weights = 1 / uncertainties
-        weights[weights.mask] = 0
+        weights = weights.filled(0)
     else:
         weights = np.ones(spectrum.shape)
+
+        if uncertainties is not None:
+            uncertainties = np.ma.masked_equal(uncertainties, 0)
+            weights = np.ma.masked_where(uncertainties.mask, weights)
+            weights = weights.filled(0)
 
     # Correction
     for i, data in enumerate(spectrum):
@@ -800,10 +821,6 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
         systematics = np.ma.masked_equal(systematics, 0)
 
         # Remove the systematics from the spectrum
-        '''
-        This can also be done by subtracting the systematics from the spectrum, but dividing give almost the same
-        results and this way the pipeline can be used in retrievals more effectively.
-        '''
         if subtract:
             reduced_data -= systematics
         else:
