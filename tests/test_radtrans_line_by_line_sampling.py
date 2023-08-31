@@ -30,10 +30,10 @@ atmosphere_lbl_downsampled = init_radtrans_downsampled_line_by_line()
 def test_line_by_line_downsampled_emission_spectrum():
     # Calculate an emission spectrum
     atmosphere_lbl_downsampled.get_flux(
-        temp=temperature_guillot_2010,
+        temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
     )
 
     # Comparison

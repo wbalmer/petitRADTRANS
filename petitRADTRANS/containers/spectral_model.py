@@ -833,10 +833,10 @@ class BaseSpectralModel:
 
         # Calculate the spectrum
         radtrans.get_flux(
-            temp=temperatures,
+            temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             gravity=planet_surface_gravity,
-            mmw=mean_molar_mass,
+            mean_molar_masses=mean_molar_mass,
             r_pl=planet_radius,
             cloud_particle_radius_distribution_std=cloud_sigma,
             fsed=cloud_sedimentation_factor,

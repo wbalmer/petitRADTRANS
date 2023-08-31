@@ -45,10 +45,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
     atmosphere_ck_scattering.get_flux(
-        temp=temperature_guillot_2010,
+        temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
@@ -74,10 +74,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'planetary_ave'
 
     atmosphere_ck_scattering.get_flux(
-        temp=temperature_guillot_2010,
+        temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
@@ -108,10 +108,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'dayside_ave'
 
     atmosphere_ck_scattering.get_flux(
-        temp=temperature_guillot_2010,
+        temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
@@ -140,10 +140,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     geometry = 'non-isotropic'
 
     atmosphere_ck_scattering.get_flux(
-        temp=temperature_guillot_2010,
+        temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mmw=radtrans_parameters['mean_molar_mass'],
+        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         kzz=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         fsed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],

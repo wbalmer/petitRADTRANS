@@ -18,6 +18,11 @@ from petitRADTRANS.fort_spec import fort_spec as fs
 
 
 class Radtrans:
+    __property_setting_warning_message = ("setting a Radtrans property is not recommended\n"
+                                          "Create a new Radtrans instance (recommended) "
+                                          "or re-do all the calculation steps necessary for the modification to be "
+                                          "taken into account")
+
     def __init__(
             self,
             pressures=None,
@@ -29,7 +34,7 @@ class Radtrans:
             lbl_opacity_sampling=1,
             scattering_in_emission=False,
             wavelengths_boundaries=None,
-            test_ck_shuffle_comp=False,
+            use_precise_correlated_k_opacities=False,
             anisotropic_cloud_scattering='auto',
             hack_cloud_photospheric_optical_depths=None,
             use_detailed_line_absorber_names=True,
@@ -112,7 +117,7 @@ class Radtrans:
         else:
             self.wavelengths_boundaries = wavelengths_boundaries
 
-        self.test_ck_shuffle_comp = test_ck_shuffle_comp  # TODO find better name
+        self.use_precise_correlated_k_opacities = use_precise_correlated_k_opacities  # TODO find better name
 
         self.anisotropic_cloud_scattering = anisotropic_cloud_scattering
         self.hack_cloud_photospheric_optical_depths = hack_cloud_photospheric_optical_depths  # TODO find better name
@@ -180,7 +185,6 @@ class Radtrans:
 
         # Initialize derived variables  TODO check if some of these can be made private variables instead of attributes
         self.cloud_opacities = None  # TODO only as information?
-        self.photon_destruction_probabilities = None
         self.opacities_rosseland = None
         self.optical_depths_rosseland = None
 
@@ -212,6 +216,12 @@ class Radtrans:
         self.cia_species = {}
 
         self.load_all_opacities(i_start_opacities)
+
+        # Initialize properties
+        self.__absorber_present = len(self.line_species) == 0 \
+            and len(self.gas_continuum_contributors) == 0 \
+            and len(self.rayleigh_species) == 0 \
+            and len(self.cloud_species) == 0
 
     @staticmethod
     def _get_non_cia_gas_continuum_contributions():
@@ -324,10 +334,10 @@ class Radtrans:
                 index where to start reading .dat line-by-line opacity files, not used if all lbl files are in HDF5
         """
         if self.line_opacity_mode == 'c-k':  # correlated-k
-            if self.scattering_in_emission and not self.test_ck_shuffle_comp:
-                print("Emission scattering is enabled: enforcing test_ck_shuffle_comp = True")
+            if self.scattering_in_emission and not self.use_precise_correlated_k_opacities:
+                print("Emission scattering is enabled in c-k mode: enforcing the precise calculation of c-k opacities")
 
-                self.test_ck_shuffle_comp = True
+                self.use_precise_correlated_k_opacities = True
 
             # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution.
             # Use the first entry of self.line_species for this, if given.
@@ -906,12 +916,24 @@ class Radtrans:
 
             self.photon_radius = np.zeros(self.frequencies.size)
 
-            if self.line_opacity_mode == 'lbl' or self.test_ck_shuffle_comp:
-                optical_depths = self.get_optical_depths(
+            if self.line_opacity_mode == 'lbl' or self.use_precise_correlated_k_opacities:
+                optical_depths, _ = self.get_optical_depths(
+                    pressures=self.pressures,
                     gravity=gravity,
                     opacities=opacities,
                     continuum_opacities_scattering=continuum_opacities_scattering,
-                    cloud_wavelengths=self.hack_cloud_wavelengths
+                    line_opacity_mode=self.line_opacity_mode,
+                    scattering_in_emission=self.scattering_in_emission,
+                    use_precise_correlated_k_opacities=self.use_precise_correlated_k_opacities,
+                    absorber_present=self.__absorber_present,
+                    # Custom cloud parameters
+                    frequencies=self.frequencies,
+                    weights_gauss=self.weights_gauss,
+                    cloud_wavelengths=self.cloud_wavelengths,
+                    cloud_f_sed=self.cloud_f_sed,
+                    hack_cloud_total_scattering_anisotropic=self.hack_cloud_total_scattering_anisotropic,
+                    hack_cloud_total_abs=self.hack_cloud_total_abs,
+                    hack_cloud_photospheric_optical_depths=self.hack_cloud_photospheric_optical_depths
                 )
                 weights_gauss_reshape = self.weights_gauss.reshape(len(self.weights_gauss), 1)
 
@@ -922,7 +944,7 @@ class Radtrans:
         except Exception:  # TODO find what is expected here
             self.photon_radius = -np.ones(self.frequencies.size)
 
-    def get_flux(self, temp, mass_fractions, gravity, mmw, r_pl=None,
+    def get_flux(self, temperatures, mass_fractions, gravity, mean_molar_masses, r_pl=None,
                  cloud_particle_radius_distribution_std=None,
                  fsed=None, kzz=None, radius=None,
                  contribution=False,
@@ -945,7 +967,7 @@ class Radtrans:
         (emission spectrum).
 
             Args:
-                temp:
+                temperatures:
                     the atmospheric temperature in K, at each atmospheric layer
                     (1-d numpy array, same length as pressure array).
                 mass_fractions:
@@ -956,7 +978,7 @@ class Radtrans:
                 gravity (float):
                     Surface gravity in cgs. Vertically constant for emission
                     spectra.
-                mmw:
+                mean_molar_masses:
                     the atmospheric mean molecular weight in amu,
                     at each atmospheric layer
                     (1-d numpy array, same length as pressure array).
@@ -1111,9 +1133,9 @@ class Radtrans:
                           f"set it to True or 'auto' to disable this warning")
 
         opacities, continuum_opacities_scattering = self.get_opacities(
-            temperatures=temp,
+            temperatures=temperatures,
             mass_fractions=mass_fractions,
-            mean_molar_masses=mmw,
+            mean_molar_masses=mean_molar_masses,
             gravity=gravity,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             fsed=fsed,
@@ -1128,15 +1150,23 @@ class Radtrans:
             give_scattering_opacity=give_scattering_opacity
         )
 
-        if r_pl is not None and get_photon_radius:  # TODO what is the purpose of that?
-            self.get_photon_radius(r_pl, temp, mmw, gravity, opacities, continuum_opacities_scattering)
+        if r_pl is not None and get_photon_radius:
+            self.get_photon_radius(
+                planet_radius=r_pl,
+                temperatures=temperatures,
+                mean_molar_masses=mean_molar_masses,
+                gravity=gravity,
+                opacities=opacities,
+                continuum_opacities_scattering=continuum_opacities_scattering
+            )
 
         if auto_anisotropic_cloud_scattering:
             self.anisotropic_cloud_scattering = 'auto'
 
         if not self.skip_radiative_transfer_step:
-            self._get_spectral_radiosities(
-                temperatures=temp,
+            self._get_flux(
+                temperatures=temperatures,
+                gravity=gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 contribution=contribution
@@ -1145,7 +1175,8 @@ class Radtrans:
             if self._clouds_have_effect(mass_fractions) and get_cloud_contribution:
                 self.get_cloud_optical_depths(gravity)
 
-            if (self.line_opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+            if ((self.line_opacity_mode == 'lbl' or self.use_precise_correlated_k_opacities)
+                    and len(self.line_species) > 1):
                 if self.scattering_in_emission and self.opacities_rosseland is not None:
                     self.optical_depths_rosseland = fs.calc_tau_g_tot_ck(
                         gravity,
@@ -1159,201 +1190,222 @@ class Radtrans:
             self.contribution_emission = None
             self.skip_radiative_transfer_step = False
 
-    def get_optical_depths(self, gravity, opacities, continuum_opacities_scattering, cloud_wavelengths=None):
-        # Calculate optical depth for the total opacity
-        if self.line_opacity_mode == 'lbl' or self.test_ck_shuffle_comp:
-            optical_depths = copy.deepcopy(opacities)
-            cloud_scaling_factor = None
+    @staticmethod
+    def _get_optical_depths_with_custom_cloud(pressures, gravity, opacities, continuum_opacities_scattering,
+                                              frequencies, weights_gauss, cloud_wavelengths, cloud_f_sed,
+                                              hack_cloud_total_scattering_anisotropic, hack_cloud_total_abs,
+                                              hack_cloud_photospheric_optical_depths, scattering_in_emission):
+        optical_depths = copy.deepcopy(opacities)
+        cloud_scaling_factor = None
+        photon_destruction_probabilities = None
 
-            if self.hack_cloud_photospheric_optical_depths is not None:
-                if self.scattering_in_emission:
-                    continuum_opacities_scattering_emission = copy.deepcopy(continuum_opacities_scattering)
-                else:
-                    continuum_opacities_scattering_emission = np.zeros(continuum_opacities_scattering.shape)
+        if scattering_in_emission:
+            continuum_opacities_scattering_emission = copy.deepcopy(continuum_opacities_scattering)
+        else:
+            continuum_opacities_scattering_emission = np.zeros(continuum_opacities_scattering.shape)
 
-                # TODO is this block structure intended for the user or just here for the developer tests?
-                block1 = True
-                block2 = True
-                block3 = True
-                block4 = True
+        # TODO is this block structure intended for the user or just here for the developer tests?
+        block1 = True
+        block2 = True
+        block3 = True
+        block4 = True
 
-                ab = np.ones_like(self.line_species_mass_fractions)
+        n_species = opacities.shape[2]
 
-                # BLOCK 1, subtract cloud, calc. tau for gas only
-                if block1:
-                    # Get continuum scattering opacity, without clouds:
-                    continuum_opacities_scattering_emission -= self.hack_cloud_total_scattering_anisotropic
+        _mass_fractions_1 = np.ones((pressures.size, n_species))
 
-                    opacities = fi.mix_opas_ck(
-                        ab,
-                        opacities,
-                        -self.hack_cloud_total_abs
-                    )
+        # BLOCK 1, subtract cloud, calc. tau for gas only
+        if block1:
+            # Get continuum scattering opacity, without clouds:
+            continuum_opacities_scattering_emission -= hack_cloud_total_scattering_anisotropic
 
-                    # Calc. cloud-free optical depth
-                    optical_depths[:, :, :1, :], self.photon_destruction_probabilities = \
-                        fs.calc_tau_g_tot_ck_scat(
-                            gravity,
-                            self.pressures,
-                            opacities[:, :, :1, :],
-                            self.scattering_in_emission,
-                            continuum_opacities_scattering_emission
-                        )
+            opacities = fi.mix_opas_ck(
+                _mass_fractions_1,
+                opacities,
+                -hack_cloud_total_abs
+            )
 
-                # BLOCK 2, calc optical depth of cloud only!
-                total_tau_cloud = np.zeros_like(optical_depths)
+            # Calc. cloud-free optical depth
+            optical_depths[:, :, :1, :], photon_destruction_probabilities = \
+                fs.calc_tau_g_tot_ck_scat(
+                    gravity,
+                    pressures,
+                    opacities[:, :, :1, :],
+                    scattering_in_emission,
+                    continuum_opacities_scattering_emission
+                )
 
-                if block2:
-                    # Reduce total (absorption) line opacity by continuum absorption opacity
-                    # (those two were added in  before)
-                    mock_line_cloud_continuum_only = np.zeros_like(opacities)
+        # BLOCK 2, calc optical depth of cloud only!
+        total_tau_cloud = np.zeros_like(optical_depths)
 
-                    if not block1 and not block3 and not block4:
-                        ab = np.ones_like(self.line_species_mass_fractions)
+        if block2:
+            # Reduce total (absorption) line opacity by continuum absorption opacity
+            # (those two were added in  before)
+            mock_line_cloud_continuum_only = np.zeros_like(opacities)
 
-                    mock_line_cloud_continuum_only = \
-                        fi.mix_opas_ck(ab, mock_line_cloud_continuum_only, self.hack_cloud_total_abs)
+            if not block1 and not block3 and not block4:
+                _mass_fractions_1 = np.ones((pressures.size, n_species))
 
-                    # Calc. optical depth of cloud only
-                    total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud = \
-                        fs.calc_tau_g_tot_ck_scat(
-                            gravity,
-                            self.pressures,
-                            mock_line_cloud_continuum_only[:, :, :1, :],
-                            self.scattering_in_emission,
-                            self.hack_cloud_total_scattering_anisotropic
-                        )
+            mock_line_cloud_continuum_only = fi.mix_opas_ck(
+                _mass_fractions_1, mock_line_cloud_continuum_only, hack_cloud_total_abs
+            )
 
-                    if (not block1 and not block3) and not block4:
-                        print("Cloud only (for tests purposes...)!")
-                        optical_depths[:, :, :1, :], self.photon_destruction_probabilities = \
-                            total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud
+            # Calc. optical depth of cloud only
+            total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud = \
+                fs.calc_tau_g_tot_ck_scat(
+                    gravity,
+                    pressures,
+                    mock_line_cloud_continuum_only[:, :, :1, :],
+                    scattering_in_emission,
+                    hack_cloud_total_scattering_anisotropic
+                )
 
-                # BLOCK 3, calc. photospheric position of atmo without cloud,
-                # determine cloud optical depth there, compare to
-                # hack_cloud_photospheric_tau, calculate scaling ratio
-                if block3:
-                    median = True
+            if (not block1 and not block3) and not block4:
+                print("Cloud only (for tests purposes...)!")
+                optical_depths[:, :, :1, :], photon_destruction_probabilities = \
+                    total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud
 
-                    if cloud_wavelengths is None:
-                        # Use the full wavelength range for calculating the median
-                        # optical depth of the clouds
-                        wavelengths_select = np.ones(self.frequencies.shape[0], dtype=bool)
+        # BLOCK 3, calc. photospheric position of atmo without cloud,
+        # determine cloud optical depth there, compare to
+        # hack_cloud_photospheric_tau, calculate scaling ratio
+        if block3:
+            median = True
 
-                    else:
-                        # Use a smaller wavelength range for the median optical depth
-                        # The units of cloud_wavelengths are converted from micron to cm
-                        wavelengths_select = (nc.c / self.frequencies >= 1e-4 * cloud_wavelengths[0]) & \
-                                      (nc.c / self.frequencies <= 1e-4 * cloud_wavelengths[1])
+            if cloud_wavelengths is None:
+                # Use the full wavelength range for calculating the median
+                # optical depth of the clouds
+                wavelengths_select = np.ones(frequencies.shape[0], dtype=bool)
 
-                    # Calculate the cloud-free optical depth per wavelength
-                    w_gauss_photosphere = self.weights_gauss[..., np.newaxis, np.newaxis]
-                    optical_depth = np.sum(w_gauss_photosphere * optical_depths[:, :, 0, :], axis=0)
-
-                    if median:
-                        optical_depth_integral = np.median(optical_depth[wavelengths_select, :], axis=0)
-                    else:
-                        optical_depth_integral = np.sum(
-                            (optical_depth[1:, :] + optical_depth[:-1, :]) * np.diff(self.frequencies)[..., np.newaxis],
-                            axis=0) / (self.frequencies[-1] - self.frequencies[0]) / 2.
-
-                    optical_depth_cloud = np.sum(w_gauss_photosphere * total_tau_cloud[:, :, 0, :], axis=0)
-
-                    if median:
-                        optical_depth_cloud_integral = np.median(optical_depth_cloud[wavelengths_select, :], axis=0)
-                    else:
-                        optical_depth_cloud_integral = np.sum(
-                            (optical_depth_cloud[1:, :] + optical_depth_cloud[:-1, :]) * np.diff(self.frequencies)[
-                                ..., np.newaxis], axis=0) / \
-                                                    (self.frequencies[-1] - self.frequencies[0]) / 2.
-
-                    # Interpolate the pressure where the optical
-                    # depth of cloud-free atmosphere is 1.0
-
-                    press_bol_clear = interp1d(optical_depth_integral, self.pressures)
-
-                    try:
-                        p_phot_clear = press_bol_clear(1.)
-                    except ValueError:
-                        p_phot_clear = self.pressures[-1]
-
-                    # Interpolate the optical depth of the
-                    # cloud-only atmosphere at the pressure
-                    # of the cloud-free photosphere
-                    tau_bol_cloud = interp1d(self.pressures, optical_depth_cloud_integral)
-                    tau_cloud_at_phot_clear = tau_bol_cloud(p_phot_clear)
-
-                    # Apply cloud scaling
-                    cloud_scaling_factor = self.hack_cloud_photospheric_optical_depths / tau_cloud_at_phot_clear
-
-                    if len(self.cloud_f_sed) > 0:
-                        max_rescaling = 1e100
-
-                        for f in self.cloud_f_sed.keys():
-                            mr = 2. * (self.cloud_f_sed[f] + 1.)
-                            max_rescaling = min(max_rescaling, mr)
-
-                        print(f"Scaling_physicality: {cloud_scaling_factor / max_rescaling}")
-
-                # BLOCK 4, add scaled cloud back to opacities
-                if block4:
-                    # Get continuum scattering opacity, including clouds:
-                    continuum_opacities_scattering_emission = \
-                        (continuum_opacities_scattering_emission
-                         + cloud_scaling_factor * self.hack_cloud_total_scattering_anisotropic)
-
-                    opacities = \
-                        fi.mix_opas_ck(ab, opacities, cloud_scaling_factor * self.hack_cloud_total_abs)
-
-                    # Calc. total optical depth, including clouds
-                    optical_depths[:, :, :1, :], self.photon_destruction_probabilities = \
-                        fs.calc_tau_g_tot_ck_scat(
-                            gravity,
-                            self.pressures,
-                            opacities[:, :, :1, :],
-                            self.scattering_in_emission,
-                            continuum_opacities_scattering_emission
-                        )
             else:
-                if self.scattering_in_emission:
+                # Use a smaller wavelength range for the median optical depth
+                # The units of cloud_wavelengths are converted from micron to cm
+                wavelengths_select = (nc.c / frequencies >= 1e-4 * cloud_wavelengths[0]) & \
+                                     (nc.c / frequencies <= 1e-4 * cloud_wavelengths[1])
+
+            # Calculate the cloud-free optical depth per wavelength
+            w_gauss_photosphere = weights_gauss[..., np.newaxis, np.newaxis]
+            optical_depth = np.sum(w_gauss_photosphere * optical_depths[:, :, 0, :], axis=0)
+
+            if median:
+                optical_depth_integral = np.median(optical_depth[wavelengths_select, :], axis=0)
+            else:
+                optical_depth_integral = np.sum(
+                    (optical_depth[1:, :] + optical_depth[:-1, :]) * np.diff(frequencies)[..., np.newaxis],
+                    axis=0) / (frequencies[-1] - frequencies[0]) / 2.
+
+            optical_depth_cloud = np.sum(w_gauss_photosphere * total_tau_cloud[:, :, 0, :], axis=0)
+
+            if median:
+                optical_depth_cloud_integral = np.median(optical_depth_cloud[wavelengths_select, :], axis=0)
+            else:
+                optical_depth_cloud_integral = np.sum(
+                    (optical_depth_cloud[1:, :] + optical_depth_cloud[:-1, :]) * np.diff(frequencies)[
+                        ..., np.newaxis], axis=0) / \
+                                               (frequencies[-1] - frequencies[0]) / 2.
+
+            # Interpolate the pressure where the optical
+            # depth of cloud-free atmosphere is 1.0
+
+            press_bol_clear = interp1d(optical_depth_integral, pressures)
+
+            try:
+                p_phot_clear = press_bol_clear(1.)
+            except ValueError:
+                p_phot_clear = pressures[-1]
+
+            # Interpolate the optical depth of the
+            # cloud-only atmosphere at the pressure
+            # of the cloud-free photosphere
+            tau_bol_cloud = interp1d(pressures, optical_depth_cloud_integral)
+            tau_cloud_at_phot_clear = tau_bol_cloud(p_phot_clear)
+
+            # Apply cloud scaling
+            cloud_scaling_factor = hack_cloud_photospheric_optical_depths / tau_cloud_at_phot_clear
+
+            if len(cloud_f_sed) > 0:
+                max_rescaling = 1e100
+
+                for f in cloud_f_sed.keys():
+                    mr = 2. * (cloud_f_sed[f] + 1.)
+                    max_rescaling = min(max_rescaling, mr)
+
+                print(f"Scaling_physicality: {cloud_scaling_factor / max_rescaling}")
+
+        # BLOCK 4, add scaled cloud back to opacities
+        if block4:
+            # Get continuum scattering opacity, including clouds:
+            continuum_opacities_scattering_emission = \
+                (continuum_opacities_scattering_emission
+                 + cloud_scaling_factor * hack_cloud_total_scattering_anisotropic)
+
+            opacities = \
+                fi.mix_opas_ck(_mass_fractions_1, opacities, cloud_scaling_factor * hack_cloud_total_abs)
+
+            # Calc. total optical depth, including clouds
+            optical_depths[:, :, :1, :], photon_destruction_probabilities = \
+                fs.calc_tau_g_tot_ck_scat(
+                    gravity,
+                    pressures,
+                    opacities[:, :, :1, :],
+                    scattering_in_emission,
+                    continuum_opacities_scattering_emission
+                )
+
+        return optical_depths, photon_destruction_probabilities
+
+    @staticmethod
+    def get_optical_depths(pressures, gravity, opacities, continuum_opacities_scattering,
+                           line_opacity_mode, scattering_in_emission, use_precise_correlated_k_opacities,
+                           hack_cloud_photospheric_optical_depths, absorber_present, **custom_cloud_parameters):
+        optical_depths = copy.deepcopy(opacities)
+        photon_destruction_probabilities = None
+
+        # Calculate optical depth for the total opacity
+        if line_opacity_mode == 'lbl' or use_precise_correlated_k_opacities:
+            if hack_cloud_photospheric_optical_depths is not None:
+                optical_depths, photon_destruction_probabilities = Radtrans._get_optical_depths_with_custom_cloud(
+                    pressures=pressures,
+                    gravity=gravity,
+                    opacities=opacities,
+                    continuum_opacities_scattering=continuum_opacities_scattering,
+                    **custom_cloud_parameters
+                )
+            else:
+                if scattering_in_emission:
                     _continuum_opacities_scattering = continuum_opacities_scattering
                 else:
                     _continuum_opacities_scattering = np.zeros(continuum_opacities_scattering.shape)
 
-                optical_depths[:, :, :1, :], self.photon_destruction_probabilities = \
+                optical_depths[:, :, :1, :], photon_destruction_probabilities = \
                     fs.calc_tau_g_tot_ck_scat(
                         gravity,
-                        self.pressures,
+                        pressures,
                         opacities[:, :, :1, :],
-                        self.scattering_in_emission,
+                        scattering_in_emission,
                         _continuum_opacities_scattering
                     )
 
             # Handle cases without any absorbers, where opacities are zero
-            if len(self.line_species) == 0 \
-                    and len(self.gas_continuum_contributors) == 0 \
-                    and len(self.rayleigh_species) == 0 \
-                    and len(self.cloud_species) == 0:
+            if not absorber_present:
                 print('No absorbers present, setting the photon destruction probability in the atmosphere to 1.')
-                self.photon_destruction_probabilities[np.isnan(self.photon_destruction_probabilities)] = 1.
+                photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
 
             # To handle cases when tau_cloud_at_Phot_clear = 0,
             # therefore cloud_scaling_factor = inf,
             # continuum_opacities_scattering_emission will contain nans and infs,
             # and photon_destruction_prob contains only nans
-            if len(self.photon_destruction_probabilities[np.isnan(self.photon_destruction_probabilities)]) > 0.:
+            if len(photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)]) > 0.:
                 print('Region of zero opacity detected, '
                       'setting the photon destruction probability in this spectral range to 1.')
-                self.photon_destruction_probabilities[np.isnan(self.photon_destruction_probabilities)] = 1.
-                self.skip_radiative_transfer_step = True
+                photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
         else:
             optical_depths = fs.calc_tau_g_tot_ck(
                 gravity,
-                self.pressures,
+                pressures,
                 opacities
             )
 
-        return optical_depths
+        return optical_depths, photon_destruction_probabilities
 
     @staticmethod
     def calculate_pressure_hydrostatic_equilibrium(mmw, gravity, r_pl, p0, temperature, radii, rk4=True):
@@ -1542,16 +1594,34 @@ class Radtrans:
 
         return self.opacities_rosseland, opacities_planck
 
-    def _get_spectral_radiosities(self, temperatures, opacities, continuum_opacities_scattering,
-                                  contribution=False, get_kappa_rosseland=False):
+    def _get_flux(self, temperatures, gravity, opacities, continuum_opacities_scattering,
+                  contribution=False, get_kappa_rosseland=False):
         """Calculate the flux.
         """
-        optical_depths = self.get_optical_depths(
-            gravity=self.gravity,
+        optical_depths, photon_destruction_probabilities = self.get_optical_depths(
+            pressures=self.pressures,
+            gravity=gravity,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
-            cloud_wavelengths=self.hack_cloud_wavelengths
+            line_opacity_mode=self.line_opacity_mode,
+            scattering_in_emission=self.scattering_in_emission,
+            use_precise_correlated_k_opacities=self.use_precise_correlated_k_opacities,
+            absorber_present=self.__absorber_present,
+            # Custom cloud parameters
+            frequencies=self.frequencies,
+            weights_gauss=self.weights_gauss,
+            cloud_wavelengths=self.cloud_wavelengths,
+            cloud_f_sed=self.cloud_f_sed,
+            hack_cloud_total_scattering_anisotropic=self.hack_cloud_total_scattering_anisotropic,
+            hack_cloud_total_abs=self.hack_cloud_total_abs,
+            hack_cloud_photospheric_optical_depths=self.hack_cloud_photospheric_optical_depths
         )
+
+        self.skip_radiative_transfer_step = False
+
+        if np.ndim(photon_destruction_probabilities) > 0:
+            if np.size(np.nonzero(np.equal(photon_destruction_probabilities, 1))) > 0.:
+                self.skip_radiative_transfer_step = True
 
         if contribution:
             self.contribution_emission = np.zeros(
@@ -1582,7 +1652,7 @@ class Radtrans:
                     self.mu,
                     self.w_gauss_mu,
                     self.weights_gauss,
-                    self.photon_destruction_probabilities,
+                    photon_destruction_probabilities,
                     contribution,
                     self.reflectance,
                     self.emissivity,
@@ -1598,7 +1668,7 @@ class Radtrans:
                     self.mu,
                     self.w_gauss_mu,
                     self.weights_gauss,
-                    self.photon_destruction_probabilities,
+                    photon_destruction_probabilities,
                     contribution,
                     self.reflectance,
                     self.emissivity,
@@ -1629,7 +1699,8 @@ class Radtrans:
                             np.zeros(continuum_opacities_scattering.shape)
                         )
         else:
-            if (self.line_opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+            if ((self.line_opacity_mode == 'lbl' or self.use_precise_correlated_k_opacities)
+                    and len(self.line_species) > 1):
                 if contribution:
                     self.flux, self.contribution_emission = fs.flux_ck(
                         self.frequencies,
@@ -1695,7 +1766,7 @@ class Radtrans:
             )
 
         # Calculate the transmission spectrum
-        if (self.line_opacity_mode == 'lbl' or self.test_ck_shuffle_comp) and len(self.line_species) > 1:
+        if (self.line_opacity_mode == 'lbl' or self.use_precise_correlated_k_opacities) and len(self.line_species) > 1:
             self.transit_radii, self.radius_hydrostatic_equilibrium = self.calculate_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
@@ -2657,7 +2728,7 @@ class Radtrans:
 
         # Similar to the line-by-line case below, if test_ck_shuffle_comp is True, we will put the total opacity into
         # the first species slot and then carry the remaining radiative transfer steps only over that 0 index
-        if self.line_opacity_mode == 'c-k' and self.test_ck_shuffle_comp:
+        if self.line_opacity_mode == 'c-k' and self.use_precise_correlated_k_opacities:
             opacities[:, :, 0, :] = fs.combine_opas_ck(
                 opacities,
                 self.g_gauss,
