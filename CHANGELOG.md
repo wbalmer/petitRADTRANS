@@ -4,20 +4,22 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a68] - 2023-07-23
+## [3.0.0-a68] - 2023-08-31
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
 - Support for SLURM.
 - Possibility to retrieve or optimize uncertainties.
+- Trimming preparation function.
 - Module `configuration` to manage paths.
 - Module `molar_mass`, as a more explicit interface between `petitRADTRANS` and `molmass`.
 - Function `utils.feature_scaling` to normalize arrays.
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
+- Constant `e_molar_mass` to natural constants.
 
 ### Changed
-- Functions and arguments now have clearer names and respect PEP8.
+- Functions, arguments and attributes now have clearer names and respect PEP8.
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Some functions have moved from the module `nat_cst` to another, more specific module.
@@ -34,6 +36,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Code clean-up.
 
 ### Removed
+- Multiple `Radtrans` attributes.
 - Class `ReadOpacities`, now merged with `Radtrans`.
 - Module `pyth_input`, now merged with `Radtrans`.
 - Module `version`, version is now defined in pyproject.toml.
