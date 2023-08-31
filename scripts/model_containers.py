@@ -667,20 +667,20 @@ class SpectralModelLegacy:
         )
 
         # Calculate the spectrum
-        atmosphere.calc_flux(
-            temp=temperatures,
-            abunds=mass_mixing_ratios,
+        atmosphere.get_flux(
+            temperatures=temperatures,
+            mass_fractions=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
-            mmw=mean_molar_mass,
+            mean_molar_masses=mean_molar_mass,
             t_star=parameters['star_effective_temperature'].value,
             r_star=parameters['star_radius'].value,
-            semimajoraxis=parameters['semi_major_axis'].value,
-            p_cloud=10 ** parameters['log10_cloud_pressure'].value,
+            orbit_semi_major_axis=parameters['semi_major_axis'].value,
+            opaque_layers_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
             # stellar_intensity=parameters['star_spectral_radiosity'].value
         )
 
         # Transform the outputs into the units of our data.
-        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.spectral_radiosities, atmosphere.frequencies)
+        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
         wlen_model = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
@@ -693,11 +693,11 @@ class SpectralModelLegacy:
         )
 
         # Calculate the spectrum
-        atmosphere.calc_transm(
+        atmosphere.get_transit_radii(
             temp=temperatures,
-            abunds=mass_mixing_ratios,
+            mass_fractions=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
-            mmw=mean_molar_mass,
+            mean_molar_masses=mean_molar_mass,
             p0_bar=parameters['reference_pressure'].value,
             r_pl=parameters['planet_radius'].value
         )
@@ -811,18 +811,18 @@ class SpectralModelLegacy:
     def calculate_emission_spectrum(self, atmosphere: Radtrans, planet: Planet):
         print('Calculating emission spectrum...')
 
-        atmosphere.calc_flux(
+        atmosphere.get_flux(
             self.temperature,
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
             t_star=planet.star_effective_temperature,
             r_star=planet.star_radius,
-            semimajoraxis=planet.orbit_semi_major_axis,
-            p_cloud=self.p_cloud
+            orbit_semi_major_axis=planet.orbit_semi_major_axis,
+            opaque_layers_top_pressure=self.p_cloud
         )
 
-        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.spectral_radiosities, atmosphere.frequencies)
+        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
         wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, flux
@@ -831,14 +831,14 @@ class SpectralModelLegacy:
         print('Calculating transmission spectrum...')
         # TODO better transmission spectrum with Doppler shift, RM effect, limb-darkening effect (?)
         # Doppler shift should be low, RM effect and limb-darkening might be removed by the pipeline
-        atmosphere.calc_transm(
+        atmosphere.get_transit_radii(
             self.temperature,
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
             r_pl=planet.radius,
             p0_bar=planet.reference_pressure,
-            p_cloud=self.p_cloud,
+            opaque_layers_top_pressure=self.p_cloud,
             haze_factor=self.haze_factor,
         )
 
@@ -1281,12 +1281,12 @@ class SpectralModelLegacy:
             )
 
         if calculate_emission_spectrum and not calculate_eclipse_depth:
-            model.wavelengths, model.spectral_radiosities = model.calculate_emission_spectrum(
+            model.wavelengths, model.flux = model.calculate_emission_spectrum(
                 atmosphere=atmosphere,
                 planet=planet
             )
         elif calculate_eclipse_depth:
-            model.wavelengths, model.eclipse_depth, model.spectral_radiosities = model.calculate_eclipse_depth(
+            model.wavelengths, model.eclipse_depth, model.flux = model.calculate_eclipse_depth(
                 atmosphere=atmosphere,
                 planet=planet
             )
@@ -1344,9 +1344,9 @@ class SpectralModelLegacy:
         atmosphere = Radtrans(
             line_species=line_species_list,
             rayleigh_species=rayleigh_species,
-            collision_induced_absorptions=continuum_opacities,
+            gas_continuum_contributors=continuum_opacities,
             wavelengths_boundaries=wlen_bords_micron,
-            opacity_mode=mode,
+            line_opacity_mode=mode,
             scattering_in_emission=do_scat_emis,
             lbl_opacity_sampling=lbl_opacity_sampling
         )

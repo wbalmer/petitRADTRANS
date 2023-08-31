@@ -6,6 +6,7 @@ Try:
     sudo mpiexec -n N --allow-run-as-root ...
 If for some reason the script crashes.
 """
+import copy
 import json
 
 import matplotlib.colors
@@ -702,7 +703,8 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
 def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, simulated_uncertainties, ccd_id,
                              telluric_transmittances_wavelengths, telluric_transmittances, instrumental_deformations,
                              noise_matrix, path_outputs,
-                             use_sysrem=False, xlim=None, figure_name='preparing_effect', image_format='pdf'):
+                             use_sysrem=False, n_iterations_max=10, n_passes=1,
+                             xlim=None, figure_name='preparing_effect', image_format='pdf', save=True):
     update_figure_font_size(MEDIUM_FIGURE_FONT_SIZE)
     spectral_model_ = copy.deepcopy(spectral_model)
     spectral_model_.model_parameters['output_wavelengths'] = \
@@ -711,11 +713,14 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         np.ma.array([spectral_model_.model_parameters['uncertainties'][ccd_id]])
     instrumental_deformations = instrumental_deformations[ccd_id]
 
+    if not hasattr(n_passes, '__iter__'):
+        n_passes = [n_passes]
+
     if use_sysrem:
         print("Using SysRem pipeline")
         spectral_model_.pipeline = pipeline_sys
         spectral_model_.model_parameters['preparing'] = 'SysRem'
-        spectral_model_.model_parameters['n_iterations_max'] = 15
+        spectral_model_.model_parameters['n_iterations_max'] = n_iterations_max
         spectral_model_.model_parameters['convergence_criterion'] = -1
         spectral_model_.model_parameters['subtract'] = True
 
@@ -756,9 +761,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         update_parameters=True,
         telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
         telluric_transmittances=telluric_transmittances,
-        # telluric_transmittances=None,
         instrumental_deformations=instrumental_deformations,
-        # instrumental_deformations=deformation_matrix,
         noise_matrix=None,
         scale=True,
         shift=True,
@@ -768,23 +771,32 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reduce=True
     )
 
-    _, reprocessed_data_noiseless = spectral_model_.get_spectrum_model(
-        radtrans=radtrans,
-        mode=mode,
-        update_parameters=True,
-        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
-        telluric_transmittances=telluric_transmittances,
-        # telluric_transmittances=None,
-        instrumental_deformations=instrumental_deformations,
-        # instrumental_deformations=deformation_matrix,
-        noise_matrix=None,
-        scale=True,
-        shift=True,
-        use_transit_light_loss=True,
-        convolve=True,
-        rebin=True,
-        reduce=True
-    )
+    reprocessed_data_noiseless = []
+
+    for n_p in n_passes:
+        spectral_model_.model_parameters['n_passes'] = n_p
+        _, reprocessed_data_noiseless_ = spectral_model_.get_spectrum_model(
+            radtrans=radtrans,
+            mode=mode,
+            update_parameters=True,
+            telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+            telluric_transmittances=telluric_transmittances,
+            instrumental_deformations=instrumental_deformations,
+            noise_matrix=None,
+            scale=True,
+            shift=True,
+            use_transit_light_loss=True,
+            convolve=True,
+            rebin=True,
+            reduce=True
+        )
+        reprocessed_data_noiseless.append(reprocessed_data_noiseless_)
+
+    if use_sysrem:
+        if 'n_passes' in spectral_model.model_parameters:
+            spectral_model_.model_parameters['n_passes'] = copy.deepcopy(spectral_model.model_parameters['n_passes'])
+        else:
+            spectral_model_.model_parameters['n_passes'] = n_passes[0]
 
     _, reprocessed_data_noisy = spectral_model_.get_spectrum_model(
         radtrans=radtrans,
@@ -792,9 +804,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         update_parameters=True,
         telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
         telluric_transmittances=telluric_transmittances,
-        # telluric_transmittances=None,
         instrumental_deformations=instrumental_deformations,
-        # instrumental_deformations=deformation_matrix,
         noise_matrix=np.array([noise_matrix[ccd_id]]),
         scale=True,
         shift=True,
@@ -804,21 +814,18 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reduce=True
     )
 
+    def __get_pass_str(n_passes_):
+        p_str = 'pass'
+
+        if n_passes_ > 1:
+            p_str += 'es'
+
+        return p_str
+
     # Plots
     wavelengths = wavelengths[0] * 1e-6  # um to m
 
-    fig, axes = plt.subplots(nrows=4, ncols=1, sharex='col', figsize=(6.4, 6.4))
-
-    # axes[0].imshow(
-    #     data_noiseless[0],
-    #     origin='lower',
-    #     extent=[wavelengths[0], wavelengths[-1], orbital_phases[0], orbital_phases[-1]],
-    #     aspect='auto',
-    #     vmin=None,
-    #     vmax=None,
-    #     cmap='viridis'
-    # )
-    # axes[0].set_title('Noiseless mock observations')
+    fig, axes = plt.subplots(nrows=3+len(n_passes), ncols=1, sharex='col', figsize=(6.4, 1.6 * (3+len(n_passes))))
 
     axes[0].pcolormesh(
         wavelengths,
@@ -826,32 +833,70 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reprocessed_data_noiseless_fake[0],
         cmap='viridis'
     )
-    axes[0].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N},\mathrm{sim}}$)')
 
-    axes[1].pcolormesh(
-        wavelengths,
-        orbital_phases,
-        reprocessed_data_noiseless[0],
-        cmap='viridis'
-    )
-    axes[1].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N}}$)')
+    pass_str = __get_pass_str(n_passes[0])
 
-    axes[2].pcolormesh(
+    if use_sysrem:
+        n_passes_str = f', {n_passes[0]} {pass_str})'
+    else:
+        n_passes_str = ')'
+
+    axes[0].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N},\mathrm{sim}}$' + n_passes_str)
+
+    for i, n_p in enumerate(n_passes):
+        axes[i + 1].pcolormesh(
+            wavelengths,
+            orbital_phases,
+            reprocessed_data_noiseless[i][0],
+            cmap='viridis'
+        )
+
+        pass_str = __get_pass_str(n_p)
+
+        if use_sysrem:
+            n_passes_str = f', {n_p} {pass_str})'
+        else:
+            n_passes_str = ')'
+
+        axes[i + 1].set_title(r'Prepared noiseless simulated data ($\sigma_{\mathbf{N}}$' + n_passes_str)
+
+    i = len(n_passes)
+
+    axes[i+1].pcolormesh(
         wavelengths,
         orbital_phases,
         reprocessed_data_noisy[0],
         cmap='viridis'
     )
-    axes[2].set_title(r'Prepared noisy simulated data ($\sigma_{\mathbf{N}}$)')
 
-    axes[3].pcolormesh(
+    pass_str = __get_pass_str(n_passes[0])
+
+    if use_sysrem:
+        n_passes_str = f', {n_passes[0]} {pass_str})'
+    else:
+        n_passes_str = ')'
+
+    axes[i+1].set_title(r'Prepared noisy simulated data ($\sigma_{\mathbf{N}}$' + n_passes_str)
+
+    axes[i+2].pcolormesh(
         wavelengths,
         orbital_phases,
         reprocessed_data[ccd_id],
         cmap='viridis'
     )
-    axes[3].set_title('Prepared CARMENES data')
-    axes[3].set_xlabel('Wavelength (m)')
+
+    if use_sysrem:
+        if 'n_passes' in spectral_model.model_parameters:
+            n_p = copy.deepcopy(spectral_model.model_parameters['n_passes'])
+        else:
+            n_p = n_passes[0]
+
+        n_passes_str = f" ({n_p} {pass_str})"
+    else:
+        n_passes_str = ''
+
+    axes[i+2].set_title('Prepared CARMENES data' + n_passes_str)
+    axes[i+2].set_xlabel('Wavelength (m)')
 
     if xlim is None:
         xlim = (wavelengths[0], wavelengths[-1])
@@ -869,7 +914,8 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
     spectral_axes.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
     spectral_axes.set_ylabel('Orbital phase', labelpad=20)
 
-    plt.savefig(os.path.join(path_outputs, figure_name + '.' + image_format))
+    if save:
+        plt.savefig(os.path.join(path_outputs, figure_name + '.' + image_format))
 
 
 def plot_corner_comparison(true_parameters, retrieval_directory):
@@ -3869,7 +3915,7 @@ def quick_figure_setup(external_parameters_ref=None):
     ]
 
     mid_transit_time_jd = 58004.424877  # 58004.42319302507  # 58004.425291
-    mid_transit_time_range = 1800
+    mid_transit_time_range = 300
 
     retrieved_parameters_ref, retrieved_parameters = init_retrieved_parameters(
         retrieval_parameters,
@@ -3920,7 +3966,7 @@ def plot_all_figures(retrieved_parameters,
         retrieved_parameters,
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r1500_alex4_sim_c_c816_100lp',
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp',
         sm
     )
 
@@ -4087,7 +4133,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_c818_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -4108,6 +4154,35 @@ def plot_all_figures(retrieved_parameters,
         image_format=image_format,
         figure_name='preparing_effect_sysrem',
         use_sysrem=True
+    )
+
+    # Reprocessing effect SysRem p2
+    retrieval_data = np.load(
+        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
+        r'\HD_189733_b_transmission_'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_c818_100lp'
+        r'\retrieved_parameters.npz'
+    )
+    reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
+
+    plot_reprocessing_effect(
+        spectral_model=sm,
+        radtrans=radtrans,
+        reprocessed_data=reprocessed_data,
+        mode='transmission',
+        simulated_uncertainties=simulated_uncertainties,
+        ccd_id=ccd_id,
+        telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
+        telluric_transmittances=telluric_transmittances,
+        instrumental_deformations=instrumental_deformations,
+        noise_matrix=noise_matrix,
+        xlim=xlim,
+        path_outputs=figure_directory,
+        image_format=image_format,
+        figure_name='preparing_effect_sysrem_p2',
+        use_sysrem=True,
+        n_passes=2,
+        n_iterations_max=10
     )
 
     # Validity

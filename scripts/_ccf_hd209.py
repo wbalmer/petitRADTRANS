@@ -13,7 +13,7 @@ from petitRADTRANS.ccf.ccf_core import cross_correlate, co_add_cross_correlation
 from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space, get_co_added_ccf_velocity_space
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.retrieval.preparing import preparing_pipeline
+from petitRADTRANS.retrieval.preparing import preparing_pipeline, preparing_pipeline_sysrem, trim_spectrum
 from scripts.load_spectral_matrix import construct_spectral_matrix
 from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
 
@@ -72,6 +72,163 @@ def _ccf_analysis(ccf_norm_select, detector_selection, rvs, orbital_phases, v_sy
     max_sn_peak = ccf_tot_sn[wh_max][0]
 
     return max_sn, max_kp, max_v_rest, ccf_tot, area, ccf_tot_sn, max_sn_peak, max_kp_ccf, max_v_rest_ccf
+
+
+def _test_rico(node='B'):
+    data_dir = r"C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\data\crires\hd_209458_b\hd209_crires_v3\2022_10_12\correct_wavelengths"
+    rico_loaded_data = np.load(os.path.join(data_dir, f'rico_loaded_data_{node}.npz'))
+
+    wavelengths_instrument_rico = rico_loaded_data['wavelengths']
+    observations_rico = rico_loaded_data['spec']
+    uncertainties_rico = rico_loaded_data['errors']
+    dates_rico = rico_loaded_data['obstimes']
+
+    sorted_orders = np.argsort(wavelengths_instrument_rico[0, :, 0])
+    wavelengths_instrument_rico_ = np.moveaxis(wavelengths_instrument_rico[:, sorted_orders], 1, 0) * 1e-3  # nm to um
+    observations_rico_ = np.moveaxis(observations_rico[:, sorted_orders], 1, 0)
+    uncertainties_rico_ = np.moveaxis(uncertainties_rico[:, sorted_orders], 1, 0)
+    dates_rico_ = dates_rico
+
+    truncate = 5
+    wavelengths_instrument, observations, uncertainties, dates = load_rico_data(
+        data_directory=data_dir,
+        interpolate_to_common_wl=False,
+        nodes='B',
+        truncate=truncate
+    )
+
+    wh_keep = []
+    j = 0
+
+    for i, w in enumerate(wavelengths_instrument):
+        if np.allclose(w[0, 0], wavelengths_instrument_rico_[j, 0, 0], rtol=1e-3, atol=0):
+            wh_keep.append(i)
+            j += 1
+
+    wavelengths_instrument = copy.deepcopy(wavelengths_instrument_rico_[:, :, 5+truncate:-truncate])  # TODO wavelengths are incorrect?
+    observations = observations[wh_keep]
+    uncertainties = uncertainties[wh_keep]
+    dates = copy.deepcopy(dates_rico_)  # TODO 1e-5 absolute diff with Rico's time
+    times = (dates - np.floor(dates[0])) * nc.snc.day
+
+    planet = Planet.get('HD 209458 b')
+    lsf_fwhm = 1.9e5
+    pixels_per_resolution_element = 2
+    kp_factor = 1.5
+    extra_factor = -0.25
+
+    # Exofop 20230725 parameters
+    epoch = 2459826.781018  # BJD (day)
+    epoch_error = 0.00006454682  # BJD (day)
+    planet.orbital_period = 3.5247404585539 * nc.snc.day
+    planet.orbital_period_error_lower = 0.000015326508 * nc.snc.day
+    planet.orbital_period_error_upper = 0.000015326508 * nc.snc.day
+
+    mid_transit_time = planet.calculate_mid_transit_time_from_source(
+        np.floor(dates[0]), epoch, epoch_error, epoch_error, planet.orbital_period / nc.snc.day,
+        planet.orbital_period_error_lower / nc.snc.day, planet.orbital_period_error_upper / nc.snc.day
+    )[0]  # +/- 15.6 s (20230725)
+
+    orbital_phases = (times - mid_transit_time) / planet.orbital_period
+
+    airmass = planet.get_airmass(
+        ra=planet.ra,
+        dec=planet.dec,
+        time=dates,
+        site_name='Paranal',
+        time_format='jd'
+    )
+
+    berv = planet.get_barycentric_velocities(
+        ra=planet.ra,
+        dec=planet.dec,
+        time=dates,
+        site_name='Paranal',
+        time_format='jd'
+    )
+
+    kp = planet.calculate_orbital_velocity(planet.star_mass, planet.orbit_semi_major_axis)
+    v_sys = planet.star_radial_velocity - berv * 1e2
+
+    observations = trim_spectrum(
+        spectrum=observations,
+        uncertainties=uncertainties,
+        wavelengths=wavelengths_instrument[:, 0],
+        airmass=airmass,
+        threshold_low=0.8,
+        threshold_high=1.2,
+        threshold_outlier=4,
+        polynomial_fit_degree=3,
+        relative_to_continnum=True
+    )
+    uncertainties = np.ma.masked_where(observations.mask, uncertainties)
+
+    ccf_velocities = ccf_radial_velocity(
+        v_sys=v_sys,
+        kp=kp,
+        lsf_fwhm=lsf_fwhm,  # cm.s-1
+        pixels_per_resolution_element=pixels_per_resolution_element,
+        kp_factor=kp_factor,
+        extra_factor=extra_factor
+    )
+
+    wavelengths, model, spectral_model, radtrans = get_model(
+        planet, wavelengths_instrument, v_sys, np.array([-kp, kp]) * 1.5, ccf_velocities,
+        times, mid_transit_time, airmass, uncertainties, wh_keep, 0.8,
+        'transmission',
+        scale=True, shift=False, use_transit_light_loss=False, convolve=True, rebin=False, reduce=False
+    )
+
+    rs_sys, ru_sys, rm_sys = preparing_pipeline_sysrem(
+        spectrum=observations,
+        uncertainties=uncertainties,
+        wavelengths=wavelengths_instrument[:, 0],
+        n_iterations_max=10,
+        convergence_criterion=1e-3,
+        tellurics_mask_threshold=0.8,
+        polynomial_fit_degree=3,
+        full=True
+    )
+
+    rs, ru, rm = preparing_pipeline(
+        spectrum=observations,
+        uncertainties=uncertainties,
+        wavelengths=wavelengths_instrument[:, 0],
+        airmass=airmass,
+        tellurics_mask_threshold=0.9,
+        polynomial_fit_degree=3,
+        full=True
+    )
+
+    rico_loaded_prepared_data = np.load(os.path.join(data_dir, f'rico_prepared_data_{node}.npz'))
+
+    rs_rico = rico_loaded_prepared_data['before_ccf_spec']
+
+    rs_rico = np.moveaxis(rs_rico, 1, 0)[sorted_orders]
+    rs_rico = rs_rico[:, :, truncate+5:-truncate]
+
+    co_added_cross_correlations_snr_r, co_added_cross_correlations_r, \
+        v_rest_r, kps_r, ccf_sum_r, ccfs_r, velocities_cc_rf, ccf_models_r, ccf_model_wavelengths_r = \
+        ccf_analysis(
+            wavelengths_data=wavelengths_instrument,
+            data=np.ma.masked_invalid(rs_rico),
+            wavelengths_model=wavelengths[0],
+            model=model[0],
+            velocities_ccf=None,
+            model_velocities=None,
+            normalize_ccf=True,
+            calculate_ccf_snr=True,
+            ccf_sum_axes=None,
+            planet_radial_velocity_amplitude=kp,
+            system_observer_radial_velocities=v_sys,
+            orbital_longitudes=np.rad2deg(orbital_phases * 2 * np.pi),
+            planet_orbital_inclination=planet.orbital_inclination,
+            line_spread_function_fwhm=lsf_fwhm,
+            pixels_per_resolution_element=pixels_per_resolution_element,
+            co_added_ccf_peak_width=None,
+            velocity_interval_extension_factor=extra_factor,
+            kp_factor=kp_factor
+        )
 
 
 def ccf_radial_velocity(v_sys, kp, lsf_fwhm, pixels_per_resolution_element, kp_factor=1.0, extra_factor=0.25):
@@ -274,7 +431,8 @@ def find_best_detector_selection(first_guess, detector_list, ccf_norm_select, rv
 
 def get_model(planet, wavelengths_instrument, system_observer_radial_velocities, kp_range, ccf_velocities,
               times, mid_transit_time, airmass, uncertainties, detector_selection,
-              tellurics_mask_threshold=0.5, mode='transmission'):
+              tellurics_mask_threshold=0.5, mode='transmission',
+              scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False, reduce=False):
     # Mock_observations
     print('Initializing model...')
     spectral_model = SpectralModel(
@@ -360,11 +518,12 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
-        scale=True,
-        shift=False,
-        convolve=True,
-        rebin=False,
-        reduce=False
+        scale=scale,
+        shift=shift,
+        use_transit_light_loss=use_transit_light_loss,
+        convolve=convolve,
+        rebin=rebin,
+        reduce=reduce
     )
 
     return wavelengths, model, spectral_model, radtrans
@@ -403,9 +562,12 @@ def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
 
     wavelengths_instrument, observations, uncertainties, times = construct_spectral_matrix(
         os.path.join(data_directory, ''),
-        interpolate_to_common_wl=interpolate_to_common_wl,
+        interpolate_to_common_wl=interpolate_to_common_wl,  # TODO shift happening here? Not the same results as Rico's
         nodes=nodes
     )
+
+    times -= 0.5
+    # times = (times - np.floor(times[0])) * nc.snc.day
 
     if truncate is not None:
         # mask = np.ones(wavelengths_instrument.shape, dtype=bool)
@@ -605,7 +767,7 @@ def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, da
         site_name='Paranal'
     )
 
-    times = (times - mid_transit_time) * nc.snc.day
+    #times = (times - mid_transit_time) * nc.snc.day
     orbital_phases = planet.get_orbital_phases(0, planet.orbital_period, times)
 
     # wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,

@@ -113,9 +113,9 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     atmosphere = Radtrans(
         line_species=line_species,
         rayleigh_species=rayleigh_species,
-        collision_induced_absorptions=continuum_species,
+        gas_continuum_contributors=continuum_species,
         wavelengths_boundaries=w_bords,
-        opacity_mode='lbl',
+        line_opacity_mode='lbl',
         scattering_in_emission=True,
         lbl_opacity_sampling=4
     )
@@ -392,11 +392,11 @@ def _transit_radius_model(prt_object, parameters):
     temperatures, abundances, mmw = _init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.calc_transm(
+    prt_object.get_transit_radii(
         temp=temperatures,
-        abunds=abundances,
+        mass_fractions=abundances,
         gravity=surface_gravity,
-        mmw=mmw,
+        mean_molar_masses=mmw,
         p0_bar=parameters['reference_pressure'].value,
         r_pl=pr
     )

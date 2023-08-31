@@ -292,9 +292,9 @@ def init_model(planet, w_bords, line_species_str, p0=1e-2):
     atmosphere = Radtrans(
         line_species=line_species_str,
         rayleigh_species=['H2', 'He'],
-        collision_induced_absorptions=['H2-H2', 'H2-He'],
+        gas_continuum_contributors=['H2-H2', 'H2-He'],
         wavelengths_boundaries=w_bords,
-        opacity_mode='lbl',
+        line_opacity_mode='lbl',
         lbl_opacity_sampling=1,
         scattering_in_emission=True
     )
@@ -1574,20 +1574,20 @@ def radiosity_model(prt_object, parameters):
     temperatures, abundances, mmw = init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.calc_flux(
+    prt_object.get_flux(
         temperatures,
         abundances,
         10 ** parameters['log_g'].value,
         mmw,
         t_star=parameters['star_effective_temperature'].value,
         r_star=parameters['Rstar'].value,
-        semimajoraxis=parameters['semi_major_axis'].value,
-        p_cloud=10 ** parameters['log_Pcloud'].value,
+        orbit_semi_major_axis=parameters['semi_major_axis'].value,
+        opaque_layers_top_pressure=10 ** parameters['log_Pcloud'].value,
         #stellar_intensity=parameters['star_spectral_radiosity'].value
     )
 
     # Transform the outputs into the units of our data.
-    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.spectral_radiosities, prt_object.frequencies)
+    planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.frequencies)
     wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_radiosity
@@ -1957,11 +1957,11 @@ def transit_radius_model(prt_object, parameters):
     temperatures, abundances, mmw = init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.calc_transm(
+    prt_object.get_transit_radii(
         temp=temperatures,
-        abunds=abundances,
+        mass_fractions=abundances,
         gravity=10 ** parameters['log_g'].value,
-        mmw=mmw,
+        mean_molar_masses=mmw,
         p0_bar=parameters['reference_pressure'].value,
         r_pl=parameters['R_pl'].value
     )
