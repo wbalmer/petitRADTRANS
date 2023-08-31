@@ -2365,13 +2365,13 @@ class Radtrans:
 
     @staticmethod
     def load_dat_line_opacities(has_custom_line_opacities_temperature_profile_grid, opacities_temperature_profile_grid,
-                                line_opacities_temperature_profile_grid, custom_line_paths, mode, path_input_data,
+                                size_temperature_profile_grid, custom_line_paths, mode, path_input_data,
                                 species, lbl_opacity_sampling, freq, freq_len, g_len, start_index):
         """Load k-coefficient tables or opacities tables in the classic petitRADTRANS .dat format."""
         if not has_custom_line_opacities_temperature_profile_grid:
             len_tp = len(opacities_temperature_profile_grid[:, 0])
         else:
-            len_tp = len(line_opacities_temperature_profile_grid[:, 0])
+            len_tp = size_temperature_profile_grid
 
         custom_file_names = ''
 
@@ -3006,7 +3006,7 @@ class Radtrans:
                             species
                         ],
                         opacities_temperature_profile_grid=opacities_temperature_profile_grid,
-                        line_opacities_temperature_profile_grid=self.line_opacities_temperature_profile_grid[
+                        size_temperature_profile_grid=self.line_opacities_temperature_profile_grid[
                             species
                         ].shape[0],
                         custom_line_paths=custom_line_paths[species],
