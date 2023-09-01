@@ -3729,6 +3729,7 @@ def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_tra
             'prior_type': 'uniform',
             'figure_title': r'[$P_c$]',
             'figure_label': r'$\log_{10}(P_c)$ ([Pa])',
+            'figure_offset': 5,
             'retrieval_name': 'Pc'
         },
         'log10_haze_factor': {
@@ -3768,7 +3769,7 @@ def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_tra
             'retrieval_name': 'g'
         },
         'planet_radial_velocity_amplitude': {
-            'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
+            'prior_parameters': np.array([0.4589, 1.6388]) * 15254766.005394705,  # Kp must be close to the true value to help the retrieval
             'prior_type': 'uniform',
             'figure_title': r'$K_p$',
             'figure_label': r'$K_p$ (km$\cdot$s$^{-1}$)',
@@ -3924,7 +3925,7 @@ def quick_figure_setup(external_parameters_ref=None):
         external_parameters_ref=external_parameters_ref
     )
 
-    figure_directory = r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\HD_189733_b_CARMENES',
+    figure_directory = r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\figures\HD_189733_b_CARMENES'
     image_format = 'pdf'
 
     retrieval_directory = r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
@@ -3932,7 +3933,7 @@ def quick_figure_setup(external_parameters_ref=None):
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'Kp_V0_tiso_H2O_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp\simulated_data_model.h5'
+        r'Kp_V0_tiso_H2O_Pc_k0_gams_tmt0.80_t0r300_alex4_nuaw_c819_100lp\simulated_data_model.h5'
     )
 
 
@@ -3945,7 +3946,7 @@ def plot_all_figures(retrieved_parameters,
     sm = SpectralModel.load(
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp\simulated_data_model.h5'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_nuaw_c819_100lp\simulated_data_model.h5'
     )
     radtrans = sm.get_radtrans()
 
@@ -3966,7 +3967,7 @@ def plot_all_figures(retrieved_parameters,
         retrieved_parameters,
         retrieval_directory +
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp',
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_nuaw_c819_100lp',
         sm
     )
 
@@ -4108,7 +4109,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp'
+        r'R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_nuaw_c819_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -4133,7 +4134,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_c818_100lp'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -4160,7 +4161,7 @@ def plot_all_figures(retrieved_parameters,
     retrieval_data = np.load(
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals'
         r'\HD_189733_b_transmission_'
-        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_c818_100lp'
+        r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp'
         r'\retrieved_parameters.npz'
     )
     reprocessed_data = np.ma.masked_where(retrieval_data['data_mask'], retrieval_data['data'])
@@ -4218,13 +4219,13 @@ def plot_all_figures(retrieved_parameters,
     plot_result_corner(
         result_directory=[retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_c817_100lp',
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_nuaw_c819_100lp',
                           retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim3d_f2_c_c817_100lp',
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim3d_f2_c_nuaw_c819_100lp',
                           retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_sys-sub_c817_100lp',
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_cc_sys-sub_nuaw_c819_100lp',
                           ],
         sm=None,
         retrieved_parameters=retrieved_parameters,
@@ -4240,10 +4241,10 @@ def plot_all_figures(retrieved_parameters,
     plot_result_corner(
         result_directory=[retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_c817_100lp',
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_nuaw_c819_100lp',
                           retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_sys-sub_c817_100lp',
+                          r'R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sim_ccn12345_sys-sub_nuaw_c819_100lp',
                           ],
         sm=None,
         retrieved_parameters=retrieved_parameters,
@@ -4261,10 +4262,10 @@ def plot_all_figures(retrieved_parameters,
     plot_result_corner(
         result_directory=[retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
                           retrieval_directory +
                           r'\HD_189733_b_transmission_'
-                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+                          r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
                           ],
         sm=None,
         retrieved_parameters=retrieved_parameters,
@@ -4282,10 +4283,10 @@ def plot_all_figures(retrieved_parameters,
         result_directory=[
             retrieval_directory +
             r'\HD_189733_b_transmission_'
-            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_c817_100lp',
+            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_nuaw_c819_100lp',
             retrieval_directory +
             r'\HD_189733_b_transmission_'
-            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_sys-sub_c817_100lp',
+            r'Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_all_sys-p1-i10-sub_nuaw_c819_100lp',
         ],
         sm=None,
         retrieved_parameters=retrieved_parameters,
@@ -4349,24 +4350,24 @@ def plot_all_figures(retrieved_parameters,
 
     # A00: exp_CCD_param
     directories_hist = {
-        'P-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-12': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-15': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-17': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_k0_gams_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_c817_100lp',
-        'P-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_c817_100lp',
+        'P-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-12': 'HD_189733_b_transmission_R_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-15': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-17': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_k0_gams_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
+        'P-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
 
-        'S-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
-        'S-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-sub_c817_100lp',
+        'S-10': 'HD_189733_b_transmission_R_T0_Kp_V0_g_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-11': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_CH4_CO_H2O_H2S_HCN_NH3_Pc_k0_gams_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-13': 'HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-14': 'HD_189733_b_transmission_R_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-16': 'HD_189733_b_transmission_T0_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-18': 'HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        'S-01': 'HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
     }
 
     colors = {'P': 'C0', 'S': 'C2'}
