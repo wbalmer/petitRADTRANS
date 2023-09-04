@@ -55,8 +55,9 @@ def emission_model_diseq(pRT_object,
     """
     Disequilibrium Chemistry Emission Model
 
-    This model computes an emission spectrum based on disequilibrium carbon chemistry,
-    equilibrium clouds and a spline temperature-pressure profile. (Molliere 2020).
+    This model computes an emission spectrum based on the temperature profile of (Molliere 2020).
+    (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
+    chemistry calculations is supported, but is currently under development.
     Many of the parameters are optional, but must be used in the correct combination
     with other parameters.
 
@@ -79,7 +80,7 @@ def emission_model_diseq(pRT_object,
                 *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
                 *  Fe/H : Metallicity
                 *  C/O : Carbon to oxygen ratio
-                *  fsed : sedimentation parameter - can be unique to each cloud type
+                *  fsed : sedimentation parameter - can be unique to each cloud type by adding _CloudName
                 One of:
                   *  sigma_lnorm : Width of cloud particle size distribution (log normal)
                   *  b_hans : Width of cloud particle size distribution (hansen)
@@ -89,16 +90,21 @@ def emission_model_diseq(pRT_object,
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the emission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        AMR :
+        AMR : bool
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : np.ndarray
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : np.ndarray
             Computed emission spectrum [W/m2/micron]
+        contr_em : Optional, np.ndarray
+            Emission contribution function, relative contributions for each wavelength and pressure level.
+
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -143,8 +149,6 @@ def emission_model_diseq(pRT_object,
                                                   pRT_object.cloud_species,
                                                   parameters,
                                                   AMR =AMR)
-    #if "use_easychem" in parameters.keys():
-    #    print(parameters['C'].value, parameters['O'].value, abundances, temperatures)
     if abundances is None:
         return None, None
     if PT_plot_mode:
@@ -164,6 +168,7 @@ def emission_model_diseq(pRT_object,
 
     # Hansen or log normal clouds
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters, pRT_object.cloud_species)
+
     # calculate the spectrum
     pRT_object.calc_flux(temperatures,
                         abundances,
@@ -193,8 +198,11 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     """
     Disequilibrium Chemistry Emission Model
 
-    This model computes an emission spectrum based on disequilibrium carbon chemistry,
-    equilibrium clouds and a spline temperature-pressure profile. (Molliere 2020).
+    This model computes an emission spectrum based on the temperature profile of (Molliere 2020).
+    (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
+    chemistry calculations is supported, but is currently under development.
+    This model includes patchy clouds, and requires a unique temperature profile for the
+    clear atmosphere regions.
 
     Args:
         pRT_object : object
@@ -207,11 +215,16 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                   *  R_pl : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
-                *  T3 : Innermost temperature spline [K]
-                *  T2 : Middle temperature spline [K]
-                *  T1 : Outer temperature spline [K]
+                *  T3 : Innermost temperature spline 
+                *  T2 : Middle temperature spline 
+                *  T1 : Outer temperature spline 
+                *  T3_clear : Innermost temperature spline for clear atmosphere
+                *  T2_clear : Middle temperature spline for clear atmosphere
+                *  T1_clear : Outer temperature spline for clear atmosphere
                 *  alpha : power law index in tau = delta * press_cgs**alpha
+                *  alpha_clear : power law index in tau = delta * press_cgs**alpha for clear atmosphere
                 *  log_delta : proportionality factor in tau = delta * press_cgs**alpha
+                *  log_delta_clear : proportionality factor in tau = delta * press_cgs**alpha for clear atmosphere
                 *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
                 *  Fe/H : Metallicity
                 *  C/O : Carbon to oxygen ratio
@@ -225,10 +238,12 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage
+                Optional
+                  *  contribution : return the emission contribution function
+                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        AMR :
+        AMR : bool
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -236,6 +251,10 @@ def emission_model_diseq_patchy_clouds(pRT_object,
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
+        contr_em : Optional, np.ndarray
+            Emission contribution function, relative contributions for each wavelength and pressure level.
+            Only returns the contribution of the clear atmosphere component.
+
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -350,8 +369,11 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
     """
     Disequilibrium Chemistry Emission Model
 
-    This model computes an emission spectrum based on disequilibrium carbon chemistry,
-    equilibrium clouds and a spline temperature-pressure profile. (Molliere 2020).
+    This model computes an emission spectrum based on the temperature-pressure profile of (Molliere 2020).
+    (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
+    chemistry calculations is supported, but is currently under development.
+    This model includes patchy clouds, but uses a constant pressure temperature profile
+    for both the clear and cloudy regions.
 
     Args:
         pRT_object : object
@@ -382,7 +404,9 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage
+                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
+                Optional
+                  *  contribution : return the emission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -393,6 +417,9 @@ def emission_model_diseq_simple_patchy_clouds(pRT_object,
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed emission spectrum [W/m2/micron]
+        contr_em : Optional, np.ndarray
+            Emission contribution function, relative contributions for each wavelength and pressure level.
+            Only returns the contribution of the clear atmosphere component.
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -490,11 +517,9 @@ def guillot_emission(pRT_object, \
                      PT_plot_mode = False,
                      AMR = False):
     """
-    Equilibrium Chemistry Emission Model, Guillot Profile
-
-    This model computes a emission spectrum based the Guillot temperature-pressure profile.
-    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
-    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
+    Emission spectrum calculation for the Guillot 2010 temperature profile.
+    (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
+    chemistry calculations is supported, but is currently under development.
 
     Args:
         pRT_object : object
@@ -528,6 +553,9 @@ def guillot_emission(pRT_object, \
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the emission contribution function
+        PT_plot_mode : bool
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -538,6 +566,9 @@ def guillot_emission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
+
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -598,12 +629,10 @@ def guillot_patchy_emission(pRT_object, \
                      PT_plot_mode = False,
                      AMR = False):
     """
-    Equilibrium Chemistry Emission Model, Guillot Profile
-
-    This model computes a emission spectrum based the Guillot temperature-pressure profile.
+    This model computes a emission spectrum based the Guillot temperature-pressure profile and patchy clouds.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
-
+    
     Args:
         pRT_object : object
             An instance of the pRT class, with optical properties as defined in the RunDefinition.
@@ -636,6 +665,10 @@ def guillot_patchy_emission(pRT_object, \
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
+                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
+                Optional
+                  *  contribution : return the emission contribution function
+        PT_plot_mode : bool
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -646,6 +679,10 @@ def guillot_patchy_emission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
+            Only returns the contribution of the clear atmosphere component.
+
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -726,9 +763,7 @@ def interpolated_profile_emission(pRT_object, \
                                   PT_plot_mode = False,
                                   AMR = False):
     """
-    Equilibrium Chemistry Emission Model, Guillot Profile
-
-    This model computes a emission spectrum based the Guillot temperature-pressure profile.
+    This model computes a emission spectrum based a spline temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
 
@@ -764,6 +799,8 @@ def interpolated_profile_emission(pRT_object, \
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the emission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -774,6 +811,8 @@ def interpolated_profile_emission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -839,9 +878,7 @@ def gradient_profile_emission(pRT_object, \
                                   PT_plot_mode = False,
                                   AMR = False):
     """
-    Equilibrium Chemistry Emission Model, Guillot Profile
-
-    This model computes a emission spectrum based the Guillot temperature-pressure profile.
+    This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
 
@@ -855,10 +892,10 @@ def gradient_profile_emission(pRT_object, \
                   *  log_g : Log of surface gravity
                   *  R_pl : planet radius [cm]
                   *  mass : planet mass [g]
-                *  nnodes : number of nodes to interplate, excluding the first and last points.
+                *  N_layers : number of nodes to interplate, excluding the first and last points.
                             so the total number of nodes is nnodes + 2
-                *  Temps : One parameter for each temperature node
-                *  gamma : weight for penalizing the profile curvature
+                *  T_bottom : Temperature at the base of the atmosphere
+                *  PTslope_* : Temperature gradient for each of the n_layers between which the profile is interpolated.
 
                 Either:
                   *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
@@ -877,6 +914,8 @@ def gradient_profile_emission(pRT_object, \
                 One of
                   *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                   *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the emission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -887,6 +926,8 @@ def gradient_profile_emission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
 
@@ -951,10 +992,10 @@ def guillot_transmission(pRT_object, \
                          PT_plot_mode = False,
                          AMR = False):
     """
-    Equilibrium Chemistry Transmission Model, Guillot Profile
+    Transmission Model, Guillot Profile
 
     This model computes a transmission spectrum based on the Guillot profile
-    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
+    Either free or (dis)equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
     Chemical clouds can be used, or a simple gray opacity source.
 
@@ -993,6 +1034,8 @@ def guillot_transmission(pRT_object, \
                   One of
                     *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                     *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the transmission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -1003,6 +1046,8 @@ def guillot_transmission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
     p_reference = 100.0
@@ -1101,12 +1146,12 @@ def guillot_patchy_transmission(pRT_object, \
                                     PT_plot_mode = False,
                                     AMR = False):
     """
-    Equilibrium Chemistry Transmission Model, Guillot Profile
+    Transmission Model, Guillot Profile
 
     This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
     It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
-    Chemical clouds can be used, or a simple gray opacity source.
+    Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
 
     Args:
         pRT_object : object
@@ -1143,7 +1188,9 @@ def guillot_patchy_transmission(pRT_object, \
                   One of
                     *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                     *  log_X_cb_: cloud mass fraction abundance
-                * patchiness : Fraction of cloud coverage
+                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
+                Optional
+                  *  contribution : return the transmission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -1154,6 +1201,9 @@ def guillot_patchy_transmission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
+            Only the clear atmosphere contribution is returned.
     """
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
     p_reference = 100.0
@@ -1276,9 +1326,9 @@ def isothermal_transmission(pRT_object, \
                   One of:
                     *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
                     *  log_kzz : Vertical mixing parameter
-                  One of
-                    *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
-                    *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
+                  *  contribution : return the transmission contribution function
         PT_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         AMR :
@@ -1289,7 +1339,11 @@ def isothermal_transmission(pRT_object, \
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
             Computed transmission spectrum R_pl**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the transmission contribution function, relative contributions for each wavelength and pressure level.
+            Only the clear atmosphere contribution is returned if patchy clouds are considered.
     """
+
     p_use = initialize_pressure(pRT_object.press/1e6, parameters, AMR)
     p_reference = 100.0
     if "reference_pressure" in parameters.keys():

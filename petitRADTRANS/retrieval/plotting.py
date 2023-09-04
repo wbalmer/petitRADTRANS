@@ -144,6 +144,10 @@ def contour_corner(sampledict,
         prt_plot_style : bool
             Use the prt plot style, changes the colour scheme and fonts to match the rest of
             the prt plots.
+        plot_best_fit : bool
+            Plot the maximum likelihood values as vertical lines for each parameter.
+        colors : list
+            List of colours for plotting multiple retrievals.
         kwargs : dict
             Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
             the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each

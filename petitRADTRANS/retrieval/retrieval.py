@@ -38,14 +38,11 @@ class Retrieval:
             facing class that must be setup for every retrieval.
         output_dir : Str
             The directory in which the output folders should be written
-        test_plotting : Bool
-            Only use when running locally. A boolean flag that will produce plots
-            for each sample when pymultinest is run.
         sample_spec : Bool
-            Produce plots and data files for 100 randomly sampled outputs from pymultinest.
+            Produce plots and data files for random samples drawn from the outputs of pymultinest.
         ultranest : bool
-            If true, use Ultranest sampling rather than pymultinest. This is still a work
-            in progress, so use with caution!
+            If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
+            but is significantly slower.
         bayes_factor_species : Str
             A pRT species that should be removed to test for the bayesian evidence for its presence.
         corner_plot_names : List(Str)
@@ -56,22 +53,21 @@ class Retrieval:
             Use the petitRADTRANS plotting style as described in plot_style.py. Recommended to
             turn this parameter to false if you want to use interactive plotting, or if the
             test_plotting parameter is True.
+        test_plotting : Bool
+            Only use when running locally. A boolean flag that will produce plots
+            for each sample when pymultinest is run.
     """
 
     def __init__(self,
                  run_definition,
                  output_dir="",
-                 test_plotting=False,
                  sample_spec=False,
                  ultranest=False,
-                 sampling_efficiency=None,
-                 const_efficiency_mode=None,
-                 n_live_points=None,
-                 resume=None,
                  bayes_factor_species=None,
                  corner_plot_names=None,
                  short_names=None,
-                 pRT_plot_style=True):
+                 pRT_plot_style=True,
+                 test_plotting=False,):
         self.rd = run_definition
 
         print(f"Starting retrieval {self.rd.retrieval_name}")
@@ -106,10 +102,6 @@ class Retrieval:
         self.evaluate_sample_spectra = sample_spec
 
         # Pymultinest stuff
-        self.sampling_efficiency = sampling_efficiency
-        self.const_efficiency_mode = const_efficiency_mode
-        self.n_live_points = n_live_points
-        self.resume = resume
         self.analyzer = None
 
         self.samples = {}  #: The samples produced by pymultinest.
@@ -181,13 +173,13 @@ class Retrieval:
             warmstart_max_tau : float
                 Warm start allows accelerated computation based on a different but similar UltraNest run.
             n_iter_before_update : int
-                # TODO complete docstring
+                Number of live point replacements before printing an update to a log file.
             max_iters : int
-                # TODO complete docstring
+                Maximum number of sampling iterations. If 0, will continue until convergence criteria are satisfied.
             frac_remain : float
-                # TODO complete docstring
+                Ultranest convergence criterion. Halts integration if live point weights are below the specified value.
             Lepsilon : float
-                # TODO complete docstring
+                Ultranest convergence criterion. Use with noisy likelihoods. Halts integration if live points are wihin Lepsilon.
             resume : bool
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
         """
@@ -308,12 +300,17 @@ class Retrieval:
 
         Args:
             n_live_points : Int
-                The minimum number of live points to
-                use for the Ultranest reactive sampler.
+                The minimum number of live points to use for the Ultranest reactive sampler.
             log_z_convergence : float
                 The convergence criterion on log z.
             step_sampler : bool
                 Use a step sampler to improve the efficiency in ultranest.
+            max_iters : int
+                Maximum number of sampling iterations. If 0, will continue until convergence criteria are satisfied.
+            frac_remain : float
+                Ultranest convergence criterion. Halts integration if live point weights are below the specified value.
+            Lepsilon : float
+                Ultranest convergence criterion. Use with noisy likelihoods. Halts integration if live points are wihin Lepsilon.
             resume : bool
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
         """
@@ -967,6 +964,26 @@ class Retrieval:
                              contribution=False,
                              pRT_object=None,
                              pRT_reference=None):
+        """
+    Retrieve a full wavelength range model based on the given parameters.
+
+    Parameters:
+        parameters (dict): A dictionary containing parameters used to generate the model.
+        model_generating_func (callable, optional): A function to generate the model.
+            Defaults to None.
+        ret_name (str, optional): Name of the model to be returned.
+            TODO: Remove this parameter as it's currently unused.
+            Defaults to None.
+        contribution (bool, optional): Return the emission or transmission contribution function.
+            Defaults to False.
+        pRT_object (object, optional): RadTrans object for calculating the spectrum.
+            Defaults to None.
+        pRT_reference (object, optional): Reference Data object for calculating the spectrum.
+            Defaults to None.
+
+    Returns:
+        object: The generated full range model.
+    """
         # Find the boundaries of the wavelength range to calculate
         wmin = 99999.0
         wmax = 0.0
@@ -1025,7 +1042,7 @@ class Retrieval:
             ret_name : str
                 If plotting a fit from a different retrieval, input the retrieval name to be included.
             contribution : bool
-                # TODO complete docstring
+                If True, calculate the emission or transmission contribution function as well as the spectrum.
             pRT_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for plotting,
                 instead of generating a new pRT object at R = 1000.
@@ -1105,8 +1122,8 @@ class Retrieval:
             sample : numpy.ndarray
                 A sample from the pymultinest output, the abundances returned will be
                 computed for this set of parameters.
-            parameters_read : ???
-                # TODO complete docstring
+            parameters_read : list
+                A list of the free parameters as read from the output files.
         Returns:
             abundances : dict
                 A dictionary of abundances. The keys are the species name,
@@ -1142,6 +1159,8 @@ class Retrieval:
             sample : numpy.ndarray
                 A sample from the pymultinest output, the abundances returned will be
                 computed for this set of parameters.
+            parameters_read : list
+                A list of the free parameters as read from the output files.
         Returns:
             vmr : dict
                 A dictionary of abundances. The keys are the species name,
@@ -1237,11 +1256,11 @@ class Retrieval:
 
     def get_chi2(self,sample):
         """
-        Get the 𝛘^2 of the best fit model - removing normalization term from log L
+        Get the 𝛘^2 of the given sample relative to the data - removing normalization term from log L
 
         Args:
-            samples : numpy.ndarray
-                An array of samples and likelihoods taken from a post_equal_weights file
+            sample : numpy.ndarray
+                A single sample and likelihood taken from a post_equal_weights file
         """
         logL = sample[-1]
         norm = 0
@@ -1267,13 +1286,47 @@ class Retrieval:
         print(f"Best fit 𝛘^2 = {2*(-logL - norm):.2f}")
         return 2*(-logL - norm)
 
-    def get_reduced_chi2(self,sample,subtract_n_parameters = False):
+    def get_chi2_normalisation(self,sample):
         """
-        Get the 𝛘^2/DoF of the best fit model - divide chi^2 by DoF
+        Get the 𝛘^2 normalization term from log L
 
         Args:
-            samples : numpy.ndarray
-                An array of samples and likelihoods taken from a post_equal_weights file
+            sample : numpy.ndarray
+                A single sample and likelihood taken from a post_equal_weights file
+        """
+        logL = sample[-1]
+        norm = 0
+        params = []
+        for key,val in self.parameters.items():
+            if val.is_free_parameter: params.append(key) 
+        param_dict = self.build_param_dict(sample,params)
+        for name, dd in self.data.items():
+            sf = 1.0
+            if dd.scale_err:
+                sf=param_dict[f"{name}_scale_factor"].value
+            if dd.covariance is not None:
+                _,log_det = np.linalg.slogdet(2*np.pi*dd.covariance*sf**2)
+                add = 0.5 * log_det
+            else:
+                f_err = dd.flux_error
+                if dd.scale_err:
+                    f_err = f_err * sf
+                if f"{name}_b" in self.parameters.keys():
+                    f_err = np.sqrt(f_err**2 + 10**param_dict[f"{name}_b"].value)
+                add = 0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
+            norm = norm + add
+        return norm
+
+    def get_reduced_chi2(self,sample,subtract_n_parameters = False):
+        """
+        Get the 𝛘^2/DoF of the given model - divide chi^2 by DoF or number of wavelength channels.
+
+        Args:
+            sample : numpy.ndarray
+                A single sample and likelihoods taken from a post_equal_weights file
+            subtract_n_parameters : bool
+                If True, divide the Chi2 by the degrees of freedom (n_data - n_parameters). If False, 
+                divide only by n_data
         """
         chi2 = self.get_chi2(sample)
         DoF = 0
@@ -1292,11 +1345,16 @@ class Retrieval:
 
     def get_reduced_chi2_from_model(self,wlen_model,spectrum_model,subtract_n_parameters = False):
         """
-        Get the 𝛘^2/DoF of the best fit model - divide chi^2 by DoF
+        Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
         Args:
-            samples : numpy.ndarray
-                An array of samples and likelihoods taken from a post_equal_weights file
+            wlen_model : np.ndarray
+                The wavelength grid of the model spectrum in micron.
+            spectrum_model : np.ndarray
+                The model flux in the same units as the data.
+            subtract_n_parameters : bool
+                If True, divide the Chi2 by the degrees of freedom (n_data - n_parameters). If False, 
+                divide only by n_data
         """
         logL = 0
         add = 0
@@ -1511,6 +1569,34 @@ class Retrieval:
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
         the best fit PT profile and a corner plot for parameters specified in the
         run definition.
+
+        By default, this runs the following functions:
+            plot_spectra: Plots the best fit spectrum together with the data, with an extra
+                        panel showing the residuals between the model and data.
+            plot_PT: plots the pressure-temperature profile contours
+            plot_corner : Corner plot based on the posterior sample distributions
+            plot_abundances : Abundance profiles for each line species used.
+
+        if contribution = True:
+            plot_contribution : The emission or transmission contribution function
+            In addition to plotting the contribution function, the contribution 
+            will also be overlaid on top of the PT profiles and abundance profiles.
+        
+        if self.evaluate_sample_spectra = True
+            plot_sampled : Randomly draws N samples from the posterior distribution, 
+            and plots the resulting spectrum overtop the data.
+
+        Args:
+            output_dir: string
+                Output directory to store the plots. Defaults to selt.output_dir.
+            ret_names : list(str)
+                List of retrieval names. Used if multiple retrievals are to be included 
+                in a single corner plot.
+            contribution : bool
+                If true, plot the emission or transmission contribution function.
+            mode : str
+                If 'bestfit', consider the maximum likelihood sample for plotting,
+                if median, calculate the model based on the median retrieved parameters.
         """
         if ret_names is None:
             ret_names = []
@@ -1893,7 +1979,7 @@ class Retrieval:
         return fig, ax, ax_r
 
     def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
-                     pRT_reference=None, refresh=True):
+                     nsample = None, pRT_reference=None, refresh=True):
         """
         Plot a set of randomly sampled output spectra for each dataset in
         the retrieval.
@@ -1907,16 +1993,20 @@ class Retrieval:
         Args:
             samples_use : np.ndarray
                 posterior samples from pynmultinest outputs (post_equal_weights)
-            parameters_read :
-                # TODO fill parameters_read docstring field
+            parameters_read : list(str)
+                list of free parameters as read from the output files.
             downsample_factor : int
                 Factor by which to reduce the resolution of the sampled model,
                 for smoother plotting. Defaults to None. A value of None will result
                 in the full resolution spectrum. Note that this factor can only
                 reduce the resolution from the underlying model_resolution of the
                 data.
+            nsample : int
+                Number of samples to draw from the posterior distribution. Defaults to the
+                value of self.rd.plot_kwargs["nsample"].
             save_outputs : bool
-                # TODO complete docstring
+                If true, saves each calculated spectrum as a .npy file. The name of the file indicates the 
+                index from the post_equal_weights file that was used to generate the sample.
             pRT_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for plotting,
                 instead of generating a new pRT object at R = 1000.
@@ -1954,10 +2044,13 @@ class Retrieval:
                               wlen_bords_micron=[wmin * 0.98, wmax * 1.02],
                               do_scat_emis=self.rd.scattering)
         fig, ax = plt.subplots(figsize=(16, 10))
-        for i_sample in range(self.rd.plot_kwargs["nsample"]):
-            random_index = int(np.random.uniform() * len_samples)
-            if os.path.exists(path + "posterior_sampled_spectra_" + str(int(i_sample + 1)).zfill(5)):
-                wlen, model = np.load(path + "posterior_sampled_spectra_" + str(int(i_sample + 1)).zfill(5) + ".npy")
+        nsamp = nsample
+        if nsample is None:
+            nsamp = self.rd.plot_kwargs["nsample"]
+        random_ints = np.random.randint(low=0,high = len_samples, size = int(nsamp))
+        for i_sample,random_index in enumerate(random_ints):
+            if os.path.exists(path + "posterior_sampled_spectra_" + str(random_index).zfill(5)):
+                wlen, model = np.load(path + "posterior_sampled_spectra_" + str(random_index).zfill(5) + ".npy")
             else:
                 print(f"Generating sampled spectrum {i_sample} / {self.rd.plot_kwargs['nsample']}...")
 
@@ -1982,7 +2075,7 @@ class Retrieval:
 
             if save_outputs:
                 np.save(path + "posterior_sampled_spectra_" +
-                        str(int(i_sample + 1)).zfill(5),
+                        str(random_index).zfill(5),
                         np.column_stack((wlen, model)))
             ax.plot(wlen, model * self.rd.plot_kwargs["y_axis_scaling"],
                     color="#00d2f3", alpha=1 / self.rd.plot_kwargs["nsample"] + 0.1, linewidth=0.2,
@@ -2027,8 +2120,7 @@ class Retrieval:
             sample_dict : np.ndarray
                 posterior samples from pynmultinest outputs (post_equal_weights)
             parameters_read : List
-                Used to plot correct parameters, as some in self.parameters are not free, and
-                aren't included in the PMN outputs
+                List of free parameters as read from the output file.
             contribution : bool
                 Weight the opacity of the pt profile by the emission contribution function,
                 and overplot the contribution curve.
@@ -2040,6 +2132,8 @@ class Retrieval:
             pRT_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for calculating
                 the contribution function, instead of generating a new pRT object at R = 1000.
+            mode : str
+                'bestfit' or 'median', indicating which set of values should be used to calculate the contribution function.
 
         Returns:
             fig : matplotlib.figure
@@ -2225,16 +2319,6 @@ class Retrieval:
         except:
             ax.set_ylim([pressures[-1]*1.03, pressures[0]/1.03])
 
-        # If we want to overplot an input PT profile
-        """if true_press is not None:
-            ax.plot(true_temps,
-                    true_press,
-                    color = 'k',
-                    linewidth = 4,
-                    linestyle = '--',
-                    label = "Ground Truth",
-                    zorder = 20)"""
-
         # Labelling and output
         ax.set_xlabel('Temperature [K]')
         ax.set_ylabel('Pressure [bar]')
@@ -2260,7 +2344,11 @@ class Retrieval:
                 Used to plot correct parameters, as some in self.parameters are not free, and
                 aren't included in the PMN outputs
             plot_best_fit : bool
-                # TODO complete docstring
+                If true, plot vertical lines to indicate the maximum likelihood parameter values.
+            true-values : np.ndarray
+                An array of values for each plotted parameter, where a vertical line will be plotted
+                for each value. Can be used to indicate true values if retrieving on synthetic data,
+                or to overplot additional measurements.
             kwargs : dict
                 Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
                 the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
@@ -2325,6 +2413,9 @@ class Retrieval:
         return fig
 
     def plot_data(self):
+        """
+        Plot the data used in the retrieval. 
+        """
         fig, ax = plt.subplots(figsize = (10,6))
         for name, dd in self.rd.data.items():
             if dd.photometry:
@@ -2335,11 +2426,12 @@ class Retrieval:
         ax.legend()
         plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
 
+
     def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, log_scale_contribution=False,
                           n_contour_levels=30, refresh=True, mode = 'bestfit',):
         """
-        Plot the contribution function from the best fit spectrum, the data from each dataset and the residuals
-        between the two. Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/best_fit_spec.pdf
+        Plot the contribution function of the bestfit or median model from a retrieval. This plot indicates the
+        relative contribution from each wavelength and each pressure level in the atmosphere to the spectrum.
 
         Args:
             samples_use : numpy.ndarray
@@ -2352,14 +2444,16 @@ class Retrieval:
                 and will return the wavlength and flux arrays as calculated by petitRadTrans.
                 If no argument is given, it uses the method of the first dataset included in the retrieval.
             log_scale_contribution : bool
-                # TODO complete docstring
+                If true, take the log10 of the contribution function to visualise faint features.
             n_contour_levels : int
-                # TODO complete docstring
+                Number of contour levels to pass to the matplotlib contourf function.
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
                 retrieval that is still running. If False no new spectrum will be calculated and the plot will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
+            mode : str
+                'bestfit' or 'median', indicating which set of values should be used to calculate the contribution function.
 
         Returns:
             fig : matplotlib.figure
@@ -2470,6 +2564,39 @@ class Retrieval:
                         mode = 'bestfit', 
                         sample_posteriors = False, 
                         volume_mixing_ratio = False):
+        """
+        Plot the abundance profiles in mass fractions or volume mixing ratios as a function of pressure.
+
+        Args:
+            samples_use : numpy.ndarray
+                An array of the samples from the post_equal_weights file, used to find the best fit sample
+            parameters_read : list
+                A list of the free parameters as read from the output files.
+            species_to_plot : list
+                A list of which molecular species to include in the plot.
+            contribution : bool
+                If true, overplot the emission or transmission contribution function.
+            refresh : bool
+                If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
+                by recalculating the best fit model. This is useful if plotting intermediate results from a
+                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                be generated from the .npy files in the evaluate_[retrieval_name] folder.
+            mode : str
+                'bestfit' or 'median', indicating which set of values should be used for plotting the abundances.
+            sample_posteriors : bool
+                If true, sample the posterior distribtions to calculate confidence intervales for the retrieved
+                abundance profiles. 
+            volume_mixing_ratio : bool
+                If true, plot in units of volume mixing ratio (number fraction) instead of mass fractions.
+
+        Returns:
+            fig : matplotlib.figure
+                The matplotlib figure, containing the data, best fit spectrum and residuals.
+            ax : matplotlib.axes
+                The upper pane of the plot, containing the best fit spectrum and data
+            ax_r : matplotlib.axes
+                The lower pane of the plot, containing the residuals between the fit and the data
+        """
         print("\nPlotting Abundances profiles")
         if self.prt_plot_style:
             import petitRADTRANS.retrieval.plot_style as ps
