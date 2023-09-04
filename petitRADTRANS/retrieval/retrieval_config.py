@@ -482,9 +482,7 @@ class RetrievalConfig:
             opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
-                recommended to set the model_resolution parameter. In general,
-                'c-k' mode is recommended for retrievals of everything other than
-                high-resolution (R>40000) spectra.
+                recommended to set the model_resolution parameter.
             pRT_grid: bool
                 Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
