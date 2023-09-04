@@ -123,12 +123,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
         if "eq_scaling_"+cname in parameters.keys():
             # equilibrium cloud abundance
-            Xcloud= fc.return_cloud_mass_fraction(cloud,parameters['Fe/H'].value, parameters['C/O'].value)
+            Xcloud= fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
             # Scaled by a constant factor
             clouds[cname] = 10**parameters['eq_scaling_'+cname].value*Xcloud
         else:
             # Free cloud abundance
-            clouds[cname] = 10**parameters['log_X_cb_'+cloud.split("_")[0]].value
+            clouds[cname] = 10**parameters['log_X_cb_'+cname].value
+
         # Free cloud bases
         if 'log_Pbase_'+cname in parameters.keys():
             Pbases[cname] = 10**parameters['log_Pbase_'+cname].value
@@ -136,8 +137,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             Pbases[cname] = parameters['Pbase_'+cname].value
         # Equilibrium locations
         elif 'Fe/H' in parameters.keys():
-            Pbases[cname] = fc.simple_cdf(cname, pressures, temperatures,
-                                            parameters['Fe/H'].value, parameters['C/O'].value, np.mean(MMW))
+            Pbases[cname] = fc.simple_cdf(cname, 
+                                          pressures, 
+                                          temperatures,
+                                          parameters['Fe/H'].value, 
+                                          parameters['C/O'].value, 
+                                          np.mean(MMW))
         else:
             Pbases[cname] = fc.simple_cdf_free(cname,
                                             pressures,
@@ -161,12 +166,14 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 fseds[cname] = parameters['fsed_'+cname].value
             else:
                 fseds[cname] = parameters['fsed'].value
+
             abundances[cname] = np.zeros_like(temperatures)
             abundances[cname][pressures < Pbases[cname]] = \
                             clouds[cname] *\
                             (pressures[pressures <= Pbases[cname]]/\
                             Pbases[cname])**fseds[cname]
             abundances[cname] = abundances[cname][small_index]
+
 
     for species in line_species:
         sname = species.split('_')[0]
