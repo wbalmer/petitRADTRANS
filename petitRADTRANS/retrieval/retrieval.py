@@ -103,7 +103,7 @@ class Retrieval:
 
         # Pymultinest stuff
         self.analyzer = None
-
+	self.n_live_points = 4000
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dict = {}
         # Set up pretty plotting
@@ -184,18 +184,12 @@ class Retrieval:
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
         """
         import pymultinest
-
+	self.n_live_points = n_live_points
         if self.sampling_efficiency is not None:
             logging.warning(
                 "Setting sampling_efficiency as a class variable will be deprecated. Use the run method arguments."
             )
             sampling_efficiency = self.sampling_efficiency
-
-        if self.n_live_points:
-            logging.warning(
-                "Setting n_live_points as a class variable will be deprecated. Use the run method arguments."
-            )
-            n_live_points = self.n_live_points
 
         if self.resume is not None:
             logging.warning("Setting resume as a class variable will be deprecated. Use the run method arguments.")
