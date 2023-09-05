@@ -344,6 +344,91 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     # The last two are needed for the priors on the P-T profile.
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
+def madhu_seager_2009(press, pressure_points, T_set, alpha_points, beta_points):
+    """
+    Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
+
+    This function computes temperatures using the Madhu and Seager (2009) parameterization
+    for a given set of pressure values, pressure breakpoints, temperature breakpoints,
+    alpha values, and beta values.
+
+    Based off of the POSEIDON implementation:
+    https://github.com/MartianColonist/POSEIDON/blob/main/POSEIDON/atmosphere.py
+
+    Parameters:
+        press : (numpy.ndarray)
+            An array of pressure values (in bar) at which to calculate temperatures.
+        pressure_points : (list)
+            A list of pressure breakpoints defining different temperature regimes.
+        T_set : (float)
+            A temperature at pressure_points[4] used to constrain the temperature profile.
+        alpha_points : (list)
+            A list of alpha values used in the parameterization for different regimes.
+        beta_points : (list)
+            A list of beta values used in the parameterization for different regimes.
+            By default b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
+
+    Returns:
+        temperatures : (numpy.ndarray)
+            An array of calculated temperatures (in K) corresponding to the input pressure values.
+
+    Note:
+    - This function assumes that pressure_points, temperature_points, alpha_points, and beta_points
+      are lists with the same length, defining different pressure-temperature regimes. The function
+      uses logarithmic relationships to calculate temperatures within these regimes.
+
+    Reference:
+    - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres. 
+      The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
+    """
+    temperatures = np.zeros_like(press)
+    
+    # Set up masks for the different temperature regions
+    mask_1 = press < pressure_points[1]
+    mask_2 = (press >= pressure_points[1]) & (press < pressure_points[3])
+    mask_3 = press >= pressure_points[3]
+
+    # Find index of pressure closest to the set pressure
+    i_set = np.argmin(np.abs(press - pressure_points[4]))
+    P_set_i = press[i_set]
+    
+    # Store logarithm of various pressure quantities
+    log_P = np.log10(press)
+    log_P_min = pressure_points[0]
+    log_P_set_i = np.log10(P_set_i)
+
+    # By default (P_set = 10 bar), so T(P_set) should be in layer 3
+    if (pressure_points[4] >= pressure_points[3]):
+        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
+        
+        # Use the temperature parameter to compute boundary temperatures
+        T2 = T3 - ((1.0/alpha_points[1])*(pressure_points[3] - pressure_points[2]))**(1/beta_points[1])    
+        T1 = T2 + ((1.0/alpha_points[1])*(pressure_points[1] - pressure_points[2]))**(1/beta_points[1])       
+        T0 = T1 - ((1.0/alpha_points[0])*(pressure_points[1] - log_P_min))**(1/beta_points[0])     
+        
+    # If a different P_deep has been chosen, solve equations for layer 2...
+    elif (pressure_points[4] >= pressure_points[1]):   # Temperature parameter in layer 2
+        # Use the temperature parameter to compute the boundary temperatures
+        T2 = T_set - ((1.0/alpha_points[1])*(log_P_set_i - pressure_points[2]))**(1/beta_points[1])  
+        T1 = T2 + ((1.0/alpha_points[1])*(pressure_points[1] - pressure_points[2]))**(1/beta_points[0])  
+        T3 = T2 + ((1.0/alpha_points[1])*(pressure_points[3] - pressure_points[2]))**(1/beta_points[1]) 
+        T0 = T1 - ((1.0/alpha_points[0])*(pressure_points[1] - log_P_min))**(1/beta_points[0])    
+        
+    # ...or for layer 1
+    elif (pressure_points[4] < pressure_points[1]):  # Temperature parameter in layer 1
+    
+        # Use the temperature parameter to compute the boundary temperatures
+        T0 = T_set - ((1.0/alpha_points[0])*(log_P_set_i - log_P_min))**(1/beta_points[0]) 
+        T1 = T0 + ((1.0/alpha_points[0])*(pressure_points[1] - log_P_min))**(1/beta_points[0])    
+        T2 = T1 - ((1.0/alpha_points[1])*(pressure_points[1] - pressure_points[2]))**(1/beta_points[1])   
+        T3 = T2 + ((1.0/alpha_points[1])*(pressure_points[3] - pressure_points[2]))**(1/beta_points[1]) 
+        
+
+    temperatures[mask_1] = (log_P[mask_1] - pressure_points[0])**(1/beta_points[0]) / alpha_points[0] + T0
+    temperatures[mask_2] = (log_P[mask_2] - pressure_points[2])**(1/beta_points[1]) / alpha_points[1] + T2
+    temperatures[mask_3] = T3
+    return temperatures
+
 def cubic_spline_profile(press, temperature_points, gamma, nnodes = 0):
     """
     Compute a cubic spline profile for temperature based on pressure points.

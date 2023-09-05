@@ -441,11 +441,12 @@ class Data:
         f_err = np.zeros_like(self.flux_error)
         f_err = self.flux_error
         b_val = -np.inf
-        #if "uncertainty_scaling_b" in parameters.keys():
-        #    self.b_val = self.line_b_uncertainty_scaling(parameters)
+
         if f"{self.name}_b" in parameters.keys():
             b_val = parameters[self.name + "_b"].value
-
+        elif "uncertainty_scaling_b" in parameters.keys():
+            b_val = parameters["uncertainty_scaling_b"].value
+            
         if self.scale_err:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
 
