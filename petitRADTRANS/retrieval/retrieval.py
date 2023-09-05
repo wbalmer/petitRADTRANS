@@ -155,7 +155,8 @@ class Retrieval:
             max_iters=0,
             frac_remain=0.1,
             importance_nested_sampling = True,
-            Lepsilon=0.3):
+            Lepsilon=0.3,
+            error_checking = True):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
@@ -192,6 +193,11 @@ class Retrieval:
         self.sampling_efficiency = sampling_efficiency
         self.resume = resume
         self.const_efficiency_mode = const_efficiency_mode
+
+        if error_checking:
+            self._error_check_model_function()
+        else:
+            print("Error checking is turned off!! You might overwrite your retrieval output files!")
 
         if self.ultranest:
             self._run_ultranest(n_live_points=n_live_points,
@@ -570,6 +576,41 @@ class Retrieval:
             print("c-k tables have been binned with exo-k. Exiting single-core process.")
             print("Please restart the retrieval.")
             sys.exit(12)
+
+    def _error_check_model_function(self):
+        free_params = []
+        for key, val in self.parameters:
+            if val.is_free_parameter:
+                free_params.append(key)
+        cube = np.ones(len(free_params))*0.5
+        self.prior(cube)
+        for name, data in self.rd.data:
+            try:
+                use_obj = data.pRT_object
+                if data.external_pRT_reference is not None:
+                    use_obj = self.data[data.external_pRT_reference].pRT_object
+                wlen, model = data.model_generating_function(use_obj,
+                                                           self.parameters,
+                                                           False,
+                                                           AMR=self.rd.AMR)
+            except KeyError as error:
+                logging.error(error)
+                logging.error("There is a KeyError in your model function. Please check your parameter dictionary and abundances!")
+                sys.exit(20)
+            except ValueError as error:
+                logging.error(error)
+                logging.error("There is a ValueError in your model function. Please check that your calculations and inputs are correct!")
+                sys.exit(21)
+            except IndexError as error:
+                logging.error(error)
+                logging.error("There is an IndexError in your model function. Please check that arrays are the correct shape!")
+                sys.exit(22)
+            except ZeroDivisionError as error:
+                logging.error(error)
+                logging.error("There is an ZeroDivisionError in your model function. Don't divide by zero!")
+                sys.exit(23)
+        print("No errors detected in the model function!")
+        return 
 
     def prior(self, cube, ndim=0, nparams=0):
         """

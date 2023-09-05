@@ -345,6 +345,26 @@ def PT_ret_model(T3, delta, alpha, tint, press, FeH, CO, conv = True):
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 def cubic_spline_profile(press, temperature_points, gamma, nnodes = 0):
+    """
+    Compute a cubic spline profile for temperature based on pressure points.
+
+    This function computes a cubic spline profile for temperature using
+    pressure and temperature data points, along with a curvature prior.
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        temperature_points (array-like): An array or list of temperature data points.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+            Defaults to 0, which means automatic determination of nodes.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated temperature values
+              based on the cubic spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+
     cs = PchipInterpolator(np.linspace(np.log10(press[0]),
                              np.log10(press[-1]),
                              nnodes+2),
@@ -355,6 +375,25 @@ def cubic_spline_profile(press, temperature_points, gamma, nnodes = 0):
     return interpolated_temps, prior
 
 def linear_spline_profile(press, temperature_points, gamma, nnodes = 0):
+    """
+    Compute a linear spline profile for temperature based on pressure points.
+
+    This function computes a linear spline profile for temperature using
+    pressure and temperature data points, along with a curvature prior.
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        temperature_points (array-like): An array or list of temperature data points.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+            Defaults to 0, which means automatic determination of nodes.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated temperature values
+              based on the linear spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
     interpolated_temps = np.interp(np.log10(press),
                     np.linspace(np.log10(press[0]),
                              np.log10(press[-1]),
@@ -364,11 +403,42 @@ def linear_spline_profile(press, temperature_points, gamma, nnodes = 0):
     return interpolated_temps, prior
 
 def temperature_curvature_prior(press,temps,gamma):
-        weighted_temp_prior = -0.5*np.sum((temps[2:]-2*temps[1:-1]+temps[:-2])**2)/gamma
-        weighted_temp_prior -= 0.5*np.log(2*np.pi*gamma)
-        return weighted_temp_prior
+    """
+    Compute a curvature prior for a temperature-pressure profile.
+
+    This function calculates a curvature prior for a temperature-pressure profile,
+    penalizing deviations from a smooth, low-curvature profile, based on Line 2015
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        temps (array-like): An array or list of temperature data points.
+        gamma (float): The curvature penalization factor.
+
+    Returns:
+        float: The curvature prior value.
+    """
+    weighted_temp_prior = -0.5*np.sum((temps[2:]-2*temps[1:-1]+temps[:-2])**2)/gamma
+    weighted_temp_prior -= 0.5*np.log(2*np.pi*gamma)
+    return weighted_temp_prior
 
 def dTdP_temperature_profile(press,num_layer,layer_pt_slopes,T_bottom):
+    """
+    This function takes the temperature gradient at a set number of spline points and interpolates a temperature profile as a function of pressure.
+
+    Args:
+        press : array_like
+            The pressure array.
+        num_layer : int
+            The number of layers.
+        layer_pt_slopes : array_like
+            The temperature gradient at the spline points.
+        T_bottom : float
+            The temperature at the bottom of the atmosphere.
+
+    Returns:
+        temperatures : array_like
+            The temperature profile.
+    """
     id_sub = np.where(press >= 1.0e-3)
     p_use_sub = press[id_sub]
     num_sub = len(p_use_sub)
