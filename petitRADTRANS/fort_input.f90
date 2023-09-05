@@ -241,9 +241,6 @@ subroutine read_in_molecular_opacities(path,species_names_tot,freq_len,g_len,spe
      opa_grid_kappas(:,:,i_spec,:) = opa_grid_kappas(:,:,i_spec,:)/molparam
   end do
 
-  write(*,*) 'Done.'
-  !write(*,*)
-
 end subroutine read_in_molecular_opacities
 
 !!$ #########################################################################
@@ -433,8 +430,6 @@ subroutine read_in_cloud_opacities(path,species_names_tot,species_modes_tot,N_cl
      end do
      close(11)
   END DO
-  write(*,*) 'Done.'
-  write(*,*)
 
 
 end subroutine read_in_cloud_opacities

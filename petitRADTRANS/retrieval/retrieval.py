@@ -579,20 +579,29 @@ class Retrieval:
 
     def _error_check_model_function(self):
         free_params = []
-        for key, val in self.parameters:
+        for key, val in self.parameters.items():
             if val.is_free_parameter:
                 free_params.append(key)
         cube = np.ones(len(free_params))*0.5
         self.prior(cube)
-        for name, data in self.rd.data:
+
+        i_p = 0  # parameter count
+        for pp in self.parameters:
+            if self.parameters[pp].is_free_parameter:
+                self.parameters[pp].set_param(cube[i_p])
+                i_p += 1
+
+        wlen = None
+        model = None
+        for name, data in self.rd.data.items():
             try:
                 use_obj = data.pRT_object
                 if data.external_pRT_reference is not None:
                     use_obj = self.data[data.external_pRT_reference].pRT_object
                 wlen, model = data.model_generating_function(use_obj,
-                                                           self.parameters,
-                                                           False,
-                                                           AMR=self.rd.AMR)
+                                                             self.parameters,
+                                                             False,
+                                                             AMR=self.rd.AMR)
             except KeyError as error:
                 logging.error(error)
                 logging.error("There is a KeyError in your model function. Please check your parameter dictionary and abundances!")
@@ -609,6 +618,13 @@ class Retrieval:
                 logging.error(error)
                 logging.error("There is an ZeroDivisionError in your model function. Don't divide by zero!")
                 sys.exit(23)
+            except TypeError as error:
+                logging.error(error)
+                logging.error("There is a TypeError in your model function. Are you sure your inputs are correct?")
+                sys.exit(24)
+            if wlen is None or model is None:
+                logging.error("Unable to compute a spectrum! Check your inputs and your model function!")
+                sys.exit(30)
         print("No errors detected in the model function!")
         return 
 
