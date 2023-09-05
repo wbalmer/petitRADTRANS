@@ -79,7 +79,6 @@ class Retrieval:
         self.data = self.rd.data
         self.run_mode = self.rd.run_mode
         self.parameters = self.rd.parameters
-        self.ultranest = ultranest
 
         self.output_dir = output_dir
         if self.output_dir != "" and not self.output_dir.endswith("/"):
@@ -102,8 +101,13 @@ class Retrieval:
         self.evaluate_sample_spectra = sample_spec
 
         # Pymultinest stuff
+        self.ultranest = ultranest
         self.analyzer = None
         self.n_live_points = 4000
+        self.sampling_efficiency = False
+        self.resume = False
+        self.const_efficiency_mode = False
+
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dict = {}
         # Set up pretty plotting
@@ -185,21 +189,9 @@ class Retrieval:
         """
         import pymultinest
         self.n_live_points = n_live_points
-        if self.sampling_efficiency is not None:
-            logging.warning(
-                "Setting sampling_efficiency as a class variable will be deprecated. Use the run method arguments."
-            )
-            sampling_efficiency = self.sampling_efficiency
-
-        if self.resume is not None:
-            logging.warning("Setting resume as a class variable will be deprecated. Use the run method arguments.")
-            resume = self.resume
-
-        if self.const_efficiency_mode is not None:
-            logging.warning(
-                "Setting const_efficiency_mode as a class variable will be deprecated. Use the run method arguments."
-            )
-            const_efficiency_mode = self.const_efficiency_mode
+        self.sampling_efficiency = sampling_efficiency
+        self.resume = resume
+        self.const_efficiency_mode = const_efficiency_mode
 
         if self.ultranest:
             self._run_ultranest(n_live_points=n_live_points,
@@ -220,7 +212,6 @@ class Retrieval:
         if len(self.output_dir + 'out_PMN/') > 200:
             logging.error("PyMultinest requires output directory names to be <200 characters.")
             sys.exit(3)
-        self.n_live_points = n_live_points
         # How many free parameters?
         n_params = 0
         free_parameter_names = []
