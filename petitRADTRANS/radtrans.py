@@ -840,7 +840,7 @@ class Radtrans:
 
         """
         # Initialization
-        cloud_species_mass_fractions = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
+        _cloud_species_mass_fractions = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
         hack_cloud_total_abs = None
         hack_cloud_total_scattering_anisotropic = None
         r_g = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
@@ -869,7 +869,7 @@ class Radtrans:
 
         # Initialize cloud species mass fractions and r_g
         for i_spec, cloud_name in enumerate(self._cloud_species):
-            cloud_species_mass_fractions[:, i_spec] = cloud_species_mass_fractions[cloud_name]
+            _cloud_species_mass_fractions[:, i_spec] = cloud_species_mass_fractions[cloud_name]
 
             if radius is not None:
                 r_g[:, i_spec] = radius[cloud_name]
@@ -883,7 +883,7 @@ class Radtrans:
                     self.calculate_cloud_opacities(
                         rho=rho,
                         rho_p=self._cloud_particles_densities,
-                        cloud_mass_fracs=cloud_species_mass_fractions,
+                        cloud_mass_fracs=_cloud_species_mass_fractions,
                         r_g=r_g,
                         sigma_n=cloud_particle_radius_distribution_std,
                         cloud_rad_bins=self._cloud_particle_radius_bins,
@@ -897,7 +897,7 @@ class Radtrans:
                     fs.calc_hansen_opas(
                         rho,
                         self._cloud_particles_densities,
-                        cloud_species_mass_fractions,
+                        _cloud_species_mass_fractions,
                         r_g,
                         b_hans,
                         self._cloud_particle_radius_bins,
@@ -933,7 +933,7 @@ class Radtrans:
                     self.calculate_cloud_opacities(
                         rho,
                         self._cloud_particles_densities,
-                        cloud_species_mass_fractions,
+                        _cloud_species_mass_fractions,
                         r_g,
                         cloud_particle_radius_distribution_std,
                         self._cloud_particle_radius_bins,
@@ -958,7 +958,7 @@ class Radtrans:
                     fs.calc_hansen_opas(
                         rho,
                         self._cloud_particles_densities,
-                        cloud_species_mass_fractions,
+                        _cloud_species_mass_fractions,
                         r_g,
                         b_hans,
                         self._cloud_particle_radius_bins,
@@ -3170,7 +3170,8 @@ class Radtrans:
                             freq=self.frequencies,
                             g_len=self.g_size,
                             freq_len=self.frequencies.size,
-                            temperature_profile_grid_size=self._line_opacities_temperature_profile_grid[species].shape[0]
+                            temperature_profile_grid_size=self._line_opacities_temperature_profile_grid[
+                                species].shape[0]
                         )
                     elif self._line_opacity_mode == 'lbl':
                         self._line_opacities_grid[species] = self.load_hdf5_line_opacity_table(
