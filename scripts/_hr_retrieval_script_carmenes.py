@@ -830,14 +830,16 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
 
     print('Reprocessing pipeline validity (noiseless):')
     print(f" {np.ma.mean(noiseless_validity):.3e} +/- {np.ma.std(noiseless_validity):.3e} "
-          f"({np.ma.min(noiseless_validity):.3e} <= val <= {np.ma.max(noiseless_validity):.3e})")
+          f"({np.ma.min(noiseless_validity):.3e} <= val <= {np.ma.max(noiseless_validity):.3e})\n"
+          f" Size: {np.size(noiseless_validity)}")
 
     noisy_validity = 1 - (reprocessed_true_spectrum + noise_matrix * reprocessed_matrix_noisy) \
         / reprocessed_noisy_spectrum
 
     print('Reprocessing pipeline validity (noisy):')
     print(f" {np.ma.mean(noisy_validity):.3e} +/- {np.ma.std(noisy_validity):.3e} "
-          f"({np.ma.min(noisy_validity):.3e} <= val <= {np.ma.max(noisy_validity):.3e})")
+          f"({np.ma.min(noisy_validity):.3e} <= val <= {np.ma.max(noisy_validity):.3e})\n"
+          f" Size: {np.size(noisy_validity)}")
 
     if do_pseudo_retrieval:
         print('Running pseudo retrieval...')
