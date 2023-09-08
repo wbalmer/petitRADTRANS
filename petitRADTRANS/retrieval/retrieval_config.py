@@ -7,8 +7,8 @@ import numpy as np
 from .data import Data
 from .parameter import Parameter
 
-import species
-species.SpeciesInit()
+#import species
+#species.SpeciesInit()
 
 class RetrievalConfig:
     """
@@ -557,9 +557,9 @@ class RetrievalConfig:
         with open(path) as photometry:
             if photometric_transformation_function is None:
                 try:
-                    import species
-                    species.SpeciesInit()
-                except:  # TODO find what error is expected here
+                    import species as sp
+                    sp.SpeciesInit()
+                except ModuleNotFoundError:  # TODO find what error is expected here
                     logging.error(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
@@ -578,7 +578,7 @@ class RetrievalConfig:
                 err = float(vals[4])
 
                 if photometric_transformation_function is None:
-                    transform = species.SyntheticPhotometry(name).spectrum_to_flux
+                    transform = sp.SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 

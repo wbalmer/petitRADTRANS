@@ -425,7 +425,7 @@ class Data:
         if self.scale_err:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
 
-        if not b_val is not None:
+        if b_val is not None:
             f_err = np.sqrt(f_err**2 + 10**b_val)
 
         logL=0.0
@@ -437,7 +437,7 @@ class Data:
                 inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
 
-            if not bval is not None:
+            if bval is not None:
                 cov = np.diag(np.diag(self.covariance) + 10**bval)
                 inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
