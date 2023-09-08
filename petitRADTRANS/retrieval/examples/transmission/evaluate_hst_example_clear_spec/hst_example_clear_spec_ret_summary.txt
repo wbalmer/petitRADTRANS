@@ -1,0 +1,52 @@
+hst_example_clear_spec
+2023-09-06, 12:22:12
+transmission/
+Live points: 400
+
+Fixed Parameters
+    Rstar = 45290070000.000
+
+Free Parameters, Prior^-1(0), Prior^-1(1)
+    log_g = 2.000000, 5.500000
+    R_pl = 0.200000, 0.400000
+    Temperature = 300.000200, 2299.999800
+    log_Pcloud = -5.999999, 1.999999
+    CH4 = -5.999999, -0.000001
+    H2O_Exomol = -5.999999, -0.000001
+    CO2 = -5.999999, -0.000001
+    CO_all_iso_HITEMP = -5.999999, -0.000001
+
+Data
+HST
+    /Users/nasedkin/python-packages/petitRADTRANS/petitRADTRANS/retrieval/examples/transmission/hst_example_clear_spec.txt
+    Model Function = retrieval_model_spec_iso
+    distance = 3.085677581305729e+19
+    data resolution = 60
+    model resolution = 120
+
+Multinest Outputs
+  marginal evidence:
+    log Z = 69.2 +- 0.0
+    ln Z = 159.4 +- 0.1
+  Statistical Fit Parameters
+    log_g          2.685 +- 0.097
+    R_pl           0.2301 +- 0.0095
+    Temperature    690 +- 166
+    log_Pcloud     0.3 +- 1.1
+    CH4            -2.25 +- 0.66
+    H2O_Exomol     -2.08 +- 0.80
+    CO2            -3.6 +- 1.5
+    CO_all_iso_HITEMP-3.4 +- 1.6
+
+Best Fit Parameters
+    𝛘^2/n_wlen = 0.04
+    𝛘^2/DoF = 0.06
+    Rstar = 4.529e+10
+    log_g = 2.690e+00
+    R_pl = 2.112e-01
+    Temperature = 7.589e+02
+    log_Pcloud = 8.222e-01
+    CH4 = -1.346e+00
+    H2O_Exomol = -8.617e-01
+    CO2 = -5.051e+00
+    CO_all_iso_HITEMP = -1.138e+00

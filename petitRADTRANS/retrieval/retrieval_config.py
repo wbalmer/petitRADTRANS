@@ -7,6 +7,8 @@ import numpy as np
 from .data import Data
 from .parameter import Parameter
 
+import species
+species.SpeciesInit()
 
 class RetrievalConfig:
     """
@@ -349,8 +351,8 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), PBase_lim=None, fixed_abund=None,
-                          fixed_base=None):
+    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), scaling_factor = None, 
+                          PBase_lim = None, fixed_abund = None, fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -392,13 +394,11 @@ class RetrievalConfig:
 
         self.cloud_species.append(species)
         cname = species.split('_')[0]
-        if eq:
-            self.parameters['eq_scaling_' + cname] = Parameter(
-                'eq_scaling_' + cname,
-                True,
-                transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
-            )
-        else:
+        if scaling_factor is not None:
+            self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
+                                                transform_prior_cube_coordinate = \
+                                                lambda x : scaling_factor[0] + (scaling_factor[1]-scaling_factor[0])*x)
+        if not eq:
             if abund_lim[1] > 0.0:
                 raise ValueError(
                     f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
@@ -431,24 +431,26 @@ class RetrievalConfig:
                     value=fixed_base
                 )
 
-    def add_data(self, name, path,
+    def add_data(self, 
+                 name, 
+                 path,
                  model_generating_function,
-                 data_resolution=None,
-                 model_resolution=None,
-                 distance=None,
-                 scale=False,
-                 scale_err=False,
-                 wlen_range_micron=None,
-                 external_pRT_reference=None,
-                 opacity_mode='c-k',
+                 data_resolution = None,
+                 model_resolution = None,
+                 distance = None,
+                 scale = False,
+                 scale_err = False,
+                 offset_bool = False,
+                 wlen_range_micron = None,
+                 external_pRT_reference = None,
+                 opacity_mode = 'c-k',
                  wlen_bins=None,
                  pRT_grid=False,
                  pRT_object=None,
                  wlen=None,
                  flux=None,
                  flux_error=None,
-                 mask=None
-                 ):
+                 mask=None):
         """
         Create a Data class object.
         # TODO complete docstring
@@ -493,6 +495,7 @@ class RetrievalConfig:
                                distance=distance,
                                scale=scale,
                                scale_err=scale_err,
+                               offset_bool = offset_bool,
                                wlen_range_micron=wlen_range_micron,
                                external_pRT_reference=external_pRT_reference,
                                opacity_mode=opacity_mode,

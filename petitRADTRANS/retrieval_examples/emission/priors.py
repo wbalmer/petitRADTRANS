@@ -169,27 +169,27 @@ class Priors:
         # Calculate log-likelihood
         for instrument in self.data.data_wlen.keys():
 
-            # Rebin model to observation
-            flux_rebinned = rgw.rebin_give_width(wlen, flux_sq, \
-                            self.data.data_wlen[instrument], self.data.data_wlen_bins[instrument])
+        # Rebin model to observation
+        flux_rebinned = rgw.rebin_give_width(wlen, flux_sq, \
+                        self.data.data_wlen[instrument], self.data.data_wlen_bins[instrument])
 
-            if self.plotting:
-                plt.errorbar(self.data.data_wlen[instrument], \
-                             self.data.data_flux_nu[instrument], \
-                             self.data.data_flux_nu_error[instrument], \
-                             fmt = 'o', \
-                             zorder = -20, \
-                             color = 'red')
-
-                plt.plot(self.data.data_wlen[instrument], \
-                         flux_rebinned, \
-                         's', \
+        if self.plotting:
+            plt.errorbar(self.data.data_wlen[instrument], \
+                         self.data.data_flux_nu[instrument], \
+                         self.data.data_flux_nu_error[instrument], \
+                         fmt = 'o', \
                          zorder = -20, \
-                         color = 'blue')
-
-            # Calculate log-likelihood
-            log_likelihood += -np.sum(((flux_rebinned - self.data.data_flux_nu[instrument])/ \
-                                       self.data.data_flux_nu_error[instrument])**2.)/2.
+                         color = 'red')
+            
+            plt.plot(self.data.data_wlen[instrument], \
+                     flux_rebinned, \
+                     's', \
+                     zorder = -20, \
+                     color = 'blue')
+            
+        # Calculate log-likelihood
+        log_likelihood += -np.sum(((flux_rebinned - self.data.data_flux_nu[instrument])/ \
+                                   self.data.data_flux_nu_error[instrument])**2.)/2.
 
         if self.plotting:
             plt.plot(wlen, flux_sq, color = 'black')

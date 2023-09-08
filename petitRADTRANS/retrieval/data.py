@@ -2,13 +2,12 @@ import logging
 import os
 import sys
 
-from astropy.io import fits
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from astropy.io import fits
 
 import petitRADTRANS.nat_cst as nc
 from .rebin_give_width import rebin_give_width
-
 
 class Data:
     r"""
@@ -91,6 +90,7 @@ class Data:
                  wlen_range_micron=None,
                  scale=False,
                  scale_err=False,
+                 offset_bool=False,
                  wlen_bins=None,
                  photometry=False,
                  photometric_transformation_function=None,
@@ -154,8 +154,10 @@ class Data:
         # self.flux_error = None  # TODO why doing this? flux_error is already None by default
         self.scale = scale
         self.scale_err = scale_err
-
+        self.offset_bool = offset_bool
         self.scale_factor = 1.0
+        self.offset = 0.0
+        self.bval = -np.inf
 
         # Bins and photometry
         self.wlen_bins = wlen_bins
@@ -195,15 +197,16 @@ class Data:
                 if wlen_range_micron is not None:
                     self.wlen_range_pRT = wlen_range_micron
                 else:
-                    self.wlen_range_pRT = [0.95 * self.wlen[0],
-                                           1.05 * self.wlen[-1]]
+                    self.wlen_range_pRT = [0.95 * self.wlen[0], \
+                                    1.05 * self.wlen[-1]]
 
-                if wlen_bins is not None:
-                    self.wlen_bins = wlen_bins
-                else:
-                    self.wlen_bins = np.zeros_like(self.wlen)
-                    self.wlen_bins[:-1] = np.diff(self.wlen)
-                    self.wlen_bins[-1] = self.wlen_bins[-2]
+                if self.wlen_bins is None:
+                    if wlen_bins is not None:
+                        self.wlen_bins = wlen_bins
+                    else:
+                        self.wlen_bins = np.zeros_like(self.wlen)
+                        self.wlen_bins[:-1] = np.diff(self.wlen)
+                        self.wlen_bins[-1] = self.wlen_bins[-2]
             else:
                 if wlen_range_micron is not None:
                     self.wlen_range_pRT = wlen_range_micron
@@ -241,17 +244,23 @@ class Data:
         if np.isnan(obs).any():
             obs = np.genfromtxt(path)
         if len(obs.shape) < 2:
-            obs = np.genfromtxt(path, comments=comments)
-        if obs.shape[1] != 3:
-            obs = np.genfromtxt(path)
+            obs = np.genfromtxt(path, comments = comments)
+        if obs.shape[1] == 4:
+            self.wlen = obs[:,0]
+            self.wlen_bins = obs[:,1]
+            self.flux = obs[:,2]
+            self.flux_error = obs[:,3]
+            return
+        elif obs.shape[1] != 3:
+            obs= np.genfromtxt(path)
 
         # Warnings and errors
         if obs.shape[1] < 3:
             logging.error("Failed to properly load data in " + path + "!!!")
             sys.exit(6)
-        elif obs.shape[1] > 3:
-            logging.warning(" File " + path + " has more than three columns. Retrieval package assumes that"+ \
-                          " the first three have this meaning: wavelength, flux, flux error")
+        elif obs.shape[1] > 4:
+            logging.warning(" File " + path + " has more than four columns. Retrieval package assumes that"+ \
+                          " the first three have this meaning: wavelength, [opt, wavelength bins], flux, flux error")
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
         self.wlen = obs[:, 0]
@@ -303,8 +312,13 @@ class Data:
                 self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
             except:  # TODO find what is the error expected here
                 self.flux_error = np.sqrt(self.covariance.diagonal())
-        except:  # TODO find what is the error expected here
-            self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
+        except:
+            self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
+            self.covariance = np.diag(self.flux_error**2)
+            self.inv_cov = np.linalg.inv(self.covariance)
+
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
 
     def set_distance(self, distance):
         """
@@ -345,13 +359,16 @@ class Data:
             self.flux_error = np.sqrt(self.covariance.diagonal())
         else:
             self.flux_error *= scale
+            self.covariance = np.diag(self.flux_error)
+            self.inv_cov = np.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
         self.distance = new_dist
         return scale
 
     def get_chisq(self, wlen_model,
                   spectrum_model,
                   plotting,
-                  parameters):
+                  parameters = None):
         """
         Calculate the chi square between the model and the data.
 
@@ -393,37 +410,44 @@ class Data:
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
 
-        diff = (flux_rebinned - self.flux * self.scale_factor)
+        if self.scale:
+            diff = (flux_rebinned - self.flux*parameters[self.name + "_scale_factor"].value) + self.offset
+        else:
+            diff = (flux_rebinned - self.flux) + self.offset
+        f_err = self.flux_error
+        b_val = None
 
-        param_names = list(parameters.keys())
-        tentotheb_scaling = False
-        b_val = -np.inf
-
-        for param_name in param_names:
-            if 'Mike_Line_b' in param_name:
-                tentotheb_scaling = True
-                if param_name == 'Mike_Line_b':
-                    b_val = parameters['Mike_Line_b'].value
-                else:
-                    id = param_name.split('Mike_Line_b')[-1][1:]
-                    if id in self.name:
-                        b_val = parameters[param_name].value
-
+        if f"{self.name}_b" in parameters.keys():
+            b_val = parameters[self.name + "_b"].value
+        elif "uncertainty_scaling_b" in parameters.keys():
+            b_val = parameters["uncertainty_scaling_b"].value
+            
         if self.scale_err:
-            f_err = self.flux_error * self.scale_factor
-        elif tentotheb_scaling is not None:
-            f_err = np.sqrt(self.flux_error ** 2 + 10 ** b_val)
-        else:
-            f_err = self.flux_error
+            f_err = f_err * parameters[self.name + "_scale_factor"].value
 
-        log_l = 0.0
+        if not b_val is not None:
+            f_err = np.sqrt(f_err**2 + 10**b_val)
 
+        logL=0.0
         if self.covariance is not None:
-            log_l += -1 * np.dot(diff, np.dot(self.inv_cov, diff)) / 2
-            log_l += -0.5 * self.log_covariance_determinant
+            inv_cov = self.inv_cov
+            log_covariance_determinant = self.log_covariance_determinant
+            if self.scale_err:
+                cov = self.scale_factor**2 * self.covariance
+                inv_cov = np.linalg.inv(cov)
+                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+
+            if not bval is not None:
+                cov = np.diag(np.diag(self.covariance) + 10**bval)
+                inv_cov = np.linalg.inv(cov)
+                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+
+            logL += -0.5*np.dot(diff, np.dot(inv_cov, diff))
+            logL += -0.5 * log_covariance_determinant
         else:
-            log_l += -1 * np.sum((diff / f_err) ** 2) / 2
-            log_l += -0.5 * np.sum(np.log(2 * np.pi * f_err ** 2))
+            logL += -0.5*np.sum( (diff / f_err)**2. )
+            logL += -0.5*np.sum(np.log(2.0*np.pi*f_err**2.))
+
 
         if plotting:
             import matplotlib.pyplot as plt
@@ -436,8 +460,11 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
-
-        return log_l
+        #if self.scale_err:
+        #    print(self.name, np.max(f_err), np.max(self.flux_error), parameters[self.name + "_scale_factor"].value, logL)
+        #else:
+        #    print(self.name, np.max(f_err), np.max(self.flux_error), logL)
+        return logL
 
     def get_log_likelihood(self, spectrum_model, alpha=1.0):
         """Calculate the log-likelihood between the model and the data.
@@ -529,6 +556,39 @@ class Data:
             chi2 = chi2.sum()
 
             return - data.size * np.log(beta) - 0.5 * chi2
+
+    # TODO: do we want to pass the whole parameter dict,
+    # or just set a class variable for b in the likelihood function?
+    def line_b_uncertainty_scaling(self, parameters):
+        """
+        This function implements the 10^b scaling from Line 2015, which allows
+        for us to account for underestimated uncertainties:
+
+        We modify the standard error on the data point by the factor 10^b to account for
+        underestimated uncertainties and/or unknown missing forward model physics
+        (Foreman-Mackey et al. 2013, Hogg et al. 2010, Tremain et al. 2002), e.g., imperfect fits.
+        This results in a more generous estimate of the parameter uncertainties. Note that this
+        is similar to inflating the error bars post-facto in order to achieve reduced chi-squares
+        of unity, except that this approach is more formal because uncertainties in this parameter
+        are properly marginalized into the other relevant parameters. Generally, the factor 10^b
+        takes on values that fall between the minimum and maximum of the square of the data uncertainties.
+
+        Args:
+            parameters: Dict
+                Dictionary of Parameters, should contain key 'uncertianty_scaling_b'.
+                This can be done for all data sets, or specified with a tag at the end of
+                the key to apply different factors to different datasets.
+        Returns:
+            b: float
+                10**b error bar scaling factor.
+        """
+        b_val = -np.inf
+        if parameters is not None:
+            if f'{self.name}_b' in parameters.keys():
+                b_val = parameters[f'{self.name}_b'].value
+            elif f'uncertainty_scaling_b' in parameters.keys():
+                b_val = parameters['uncertainty_scaling_b'].value
+        return b_val
 
     @staticmethod
     def convolve(input_wavelength,
