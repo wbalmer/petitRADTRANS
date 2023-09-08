@@ -745,7 +745,7 @@ class Retrieval:
 
                 # Calculate log likelihood
                 # TODO uniformize convolve/rebin handling
-                """if dd.flux.dtype == 'O':
+                if dd.flux.dtype == 'O':
                     if np.ndim(dd.flux) == 1:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
@@ -768,14 +768,15 @@ class Retrieval:
                     else:
                         raise ValueError(f"observation is an array containing object, "
                                             f"and have {np.ndim(dd.flux)} dimensions, "
-                                            f"but must have 1 to 2")"""
-                log_likelihood += dd.get_chisq(
-                        wlen_model,
-                        spectrum_model, #[~dd.mask],
-                        self.plotting,
-                        self.parameters
-                    ) + additional_logl
+                                            f"but must have 1 to 2")
                 if np.ndim(dd.flux) == 2:
+                    log_likelihood += dd.get_chisq(
+                            wlen_model,
+                            spectrum_model, #[~dd.mask],
+                            self.plotting,
+                            self.parameters
+                        ) + additional_logl
+                elif np.ndim(dd.flux) == 2:
                     # Convolution and rebin are *not* cared of in get_log_likelihood
                     # Second dimension of data must be a function of wavelength
                     for i, data in enumerate(dd.flux):
