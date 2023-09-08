@@ -513,69 +513,66 @@ class Retrieval:
             width : int
                 The number of cells in the low pressure grid to replace with the high resolution grid.
         """
+        import mpi4py
         exo_k_check = False
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        if rank == 0:
+            for name, dd in self.data.items():
+                if dd.pRT_object is not None:
+                    continue
 
-        for name, dd in self.data.items():
-            if dd.pRT_object is not None:
-                continue
+                # Only create if there's no other data
+                # object using the same pRT object
+                if dd.external_pRT_reference is None:
+                    if dd.opacity_mode == 'c-k' and dd.model_resolution is not None:
+                        # Use ExoK to have low res models.
+                        species = []
+                        # Check if low res opacities already exist
+                        for line in self.rd.line_species:
+                            if not os.path.isdir(
+                                    self.path + "opacities/lines/corr_k/" + line + "_R_" + str(dd.model_resolution)
+                            ):
+                                species.append(line)
+                        # If not, setup low-res c-k tables
+                        if len(species) > 0:
+                            exo_k_check = True
+                            print("Exo-k should only be run on a single thread.")
+                            #print("The retrieval should be run once on a single core to build the c-k\n"
+                            #    "tables, and then again with multiple cores for the remainder of the retrieval.")
+                            # Automatically build the entire table
+                            bin_species_exok(species, dd.model_resolution)
+                        species = []
+                        for spec in self.rd.line_species:
+                            species.append(spec + "_R_" + str(dd.model_resolution))
+                    else:
+                        # Otherwise for 'lbl' or no model_resolution binning,
+                        # we just use the default species.
+                        species = cp.copy(self.rd.line_species)
+                    lbl_samp = None
+                    if dd.opacity_mode == 'lbl' and dd.model_resolution is not None:
+                        lbl_samp = int(1e6 / dd.model_resolution)
 
-            # Only create if there's no other data
-            # object using the same pRT object
-            if dd.external_pRT_reference is None:
-                if dd.opacity_mode == 'c-k' and dd.model_resolution is not None:
-                    # Use ExoK to have low res models.
-                    species = []
-                    # Check if low res opacities already exist
-                    for line in self.rd.line_species:
-                        if not os.path.isdir(
-                                self.path + "opacities/lines/corr_k/" + line + "_R_" + str(dd.model_resolution)
-                        ):
-                            species.append(line)
-                    # If not, setup low-res c-k tables
-                    if len(species) > 0:
-                        exo_k_check = True
-                        print("Exo-k should only be run on a single thread.")
-                        print("The retrieval should be run once on a single core to build the c-k\n"
-                              "tables, and then again with multiple cores for the remainder of the retrieval.")
-                        # Automatically build the entire table
-                        bin_species_exok(species, dd.model_resolution)
-                    species = []
-                    for spec in self.rd.line_species:
-                        species.append(spec + "_R_" + str(dd.model_resolution))
-                else:
-                    # Otherwise for 'lbl' or no model_resolution binning,
-                    # we just use the default species.
-                    species = cp.copy(self.rd.line_species)
-                lbl_samp = None
-                if dd.opacity_mode == 'lbl' and dd.model_resolution is not None:
-                    lbl_samp = int(1e6 / dd.model_resolution)
+                    # Set up the pRT objects for the given dataset
+                    rt_object = Radtrans(
+                        line_species=cp.copy(species),
+                        rayleigh_species=cp.copy(self.rd.rayleigh_species),
+                        continuum_opacities=cp.copy(self.rd.continuum_opacities),
+                        cloud_species=cp.copy(self.rd.cloud_species),
+                        mode=dd.opacity_mode,
+                        wlen_bords_micron=dd.wlen_range_pRT,
+                        do_scat_emis=self.rd.scattering,
+                        lbl_opacity_sampling=lbl_samp
+                    )
 
-                # Set up the pRT objects for the given dataset
-                rt_object = Radtrans(
-                    line_species=cp.copy(species),
-                    rayleigh_species=cp.copy(self.rd.rayleigh_species),
-                    continuum_opacities=cp.copy(self.rd.continuum_opacities),
-                    cloud_species=cp.copy(self.rd.cloud_species),
-                    mode=dd.opacity_mode,
-                    wlen_bords_micron=dd.wlen_range_pRT,
-                    do_scat_emis=self.rd.scattering,
-                    lbl_opacity_sampling=lbl_samp
-                )
-
-                # Create random P-T profile to create RT arrays of the Radtrans object.
-                if self.rd.AMR:
-                    p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
-                else:
-                    p = self.rd.p_global
-                rt_object.setup_opa_structure(p)
-                dd.pRT_object = rt_object
-
-        if exo_k_check:
-            # Sorry that we have to do this, not sure how to use mpi4py to run the
-            # exo-k in a single thread.  # TODO use e.g. rank == 0
-            print("c-k tables have been binned with exo-k. Exiting single-core process.")
-            print("Please restart the retrieval.")
-            sys.exit(12)
+                    # Create random P-T profile to create RT arrays of the Radtrans object.
+                    if self.rd.AMR:
+                        p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
+                    else:
+                        p = self.rd.p_global
+                    rt_object.setup_opa_structure(p)
+                    dd.pRT_object = rt_object
+        comm.barrier()
 
     def _error_check_model_function(self):
         free_params = []
@@ -1249,8 +1246,8 @@ class Retrieval:
         analyzer = self.get_analyzer(ret_name)
         s = analyzer.get_stats()
         return s['global evidence'] / np.log(10), s['global evidence error'] / np.log(10)
-
-    def get_best_fit_likelihood(self, samples):  # TODO this could be static
+    @staticmethod
+    def get_best_fit_likelihood(samples): 
         """
         Get the log likelihood of the best fit model
 
@@ -2299,7 +2296,7 @@ class Retrieval:
 
             if self.plotting:
                 plt.clf()
-                plt.plot(bf_wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
+                plt.plot(bf_wlen / 1e-4, spectral_weights) 
                 plt.show()
                 print(np.shape(bf_contribution))
 
@@ -2507,7 +2504,6 @@ class Retrieval:
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
         self.evaluate_sample_spectra = False
-        # TODO: include plotting of multiple retrievals
         if not self.run_mode == 'evaluate':
             logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
             self.run_mode = 'evaluate'
@@ -2756,7 +2752,7 @@ class Retrieval:
 
             if self.plotting:
                 plt.clf()
-                plt.plot(bf_wlen / 1e-4, spectral_weights)  # TODO resolve wlen not referenced
+                plt.plot(bf_wlen / 1e-4, spectral_weights) 
                 plt.show()
                 print(np.shape(bf_contribution))
 
