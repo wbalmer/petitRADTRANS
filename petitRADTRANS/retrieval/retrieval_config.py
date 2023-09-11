@@ -563,8 +563,7 @@ class RetrievalConfig:
                     logging.error(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
-                    raise ValueError
-
+                    
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
