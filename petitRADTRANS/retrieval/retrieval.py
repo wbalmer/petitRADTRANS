@@ -1110,7 +1110,8 @@ class Retrieval:
             ret_name = self.retrieval_name
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_params = parameters
-
+        if pRT_reference is not None:
+            use_reference = pRT_reference
         if self.rd.AMR:
             _ = self.rd._setup_pres()  # TODO this function should not be private
             self.best_fit_params["pressure_scaling"] = self.parameters["pressure_scaling"]
@@ -1128,7 +1129,7 @@ class Retrieval:
                                                                               model_generating_func=None,
                                                                               ret_name=ret_name,
                                                                               contribution=contribution,
-                                                                              pRT_reference=pRT_reference)
+                                                                              pRT_reference=use_reference)
             np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_contribution",bf_contribution)
         else:
             if not refresh and os.path.exists(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_full.npy"):
@@ -1141,7 +1142,7 @@ class Retrieval:
                 model_generating_func=None,
                 ret_name=ret_name,
                 contribution=contribution,
-                pRT_reference=pRT_reference
+                pRT_reference=use_reference
             )
             bf_contribution = None  # prevent eventual reference before assignment
 
@@ -1151,7 +1152,7 @@ class Retrieval:
                 bf_wlen, bf_spectrum, _ = retVal
 
         # Add to the dictionary.
-        self.best_fit_specs[ret_name] = [bf_wlen, bf_spectrum]
+        self.best_fit_specs[use_reference] = [bf_wlen, bf_spectrum]
         np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_full",
                     np.column_stack([bf_wlen,bf_spectrum]))
 
