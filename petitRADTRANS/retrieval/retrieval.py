@@ -1110,6 +1110,8 @@ class Retrieval:
             ret_name = self.retrieval_name
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_params = parameters
+
+        use_reference = self.rd.plot_kwargs["take_PTs_from"]
         if pRT_reference is not None:
             use_reference = pRT_reference
         if self.rd.AMR:
