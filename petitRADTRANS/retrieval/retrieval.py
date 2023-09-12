@@ -806,22 +806,7 @@ class Retrieval:
                                 alpha=1.0,
                                 beta=1.0
                             )
-
-                # Save sampled outputs if necessary.
-                if self.run_mode == 'evaluate':
-                    if self.evaluate_sample_spectra:
-                        self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
-                    else:
-                        # TODO: This will overwrite the best fit spectrum with
-                        # whatever is ran through the loglike function. Not good.
-                        np.savetxt(
-                            self.output_dir + 'evaluate_' + self.retrieval_name
-                            + '/model_spec_best_fit_'
-                            + name.replace('/', '_').replace('.', '_') + '.dat',
-                            np.column_stack((wlen_model, spectrum_model))
-                        )
-
-                        self.best_fit_specs[name] = [wlen_model, spectrum_model]                    
+                    
             else:
                 # TODO what exactly is going on here? Why the double loop on the same items?
                 # Definition here to avoid possible reference before assignment
@@ -866,6 +851,56 @@ class Retrieval:
             return -1e98
         return log_likelihood + log_prior
 
+    def save_best_fit_outputs(self, parameters):
+            # Save sampled outputs if necessary.
+            for name, dd in self.rd.data.items():
+                # Only calculate spectra within a given
+                # wlen range once
+                if dd.scale or dd.scale_err:
+                    dd.scale_factor = parameters[name + "_scale_factor"].value
+                if dd.offset_bool:
+                    dd.offset = parameters[name + "_offset"].value
+                if name + "_b" in parameters.keys():
+                    dd.bval = parameters[name + "_b"].value
+
+                if dd.external_pRT_reference is None:
+                    # Compute the model
+                    retVal = \
+                        dd.model_generating_function(dd.pRT_object,
+                                                     parameters,
+                                                     False,
+                                                     AMR=self.rd.AMR)
+                    if len(retVal) == 3:
+                        wlen_model, spectrum_model, additional_logl = retVal
+                    else:
+                        wlen_model, spectrum_model = retVal
+                        additional_logl = 0.
+                else:
+                    # Compute the model
+                    pRT_obj = self.rd.data[dd.external_pRT_reference].pRT_object
+                    retVal = \
+                        self.rd.data[dd.external_pRT_reference].model_generating_function(pRT_obj,
+                                                                                          parameters,
+                                                                                          False,
+                                                                                          AMR=self.rd.AMR)
+                    if len(retVal) == 3:
+                        wlen_model, spectrum_model, additional_logl = retVal
+                    else:
+                        wlen_model, spectrum_model = retVal
+                        additional_logl = 0.
+                if self.evaluate_sample_spectra:
+                    self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
+                else:
+                    # TODO: This will overwrite the best fit spectrum with
+                    # whatever is ran through the loglike function. Not good.
+                    np.savetxt(
+                        self.output_dir + 'evaluate_' + self.retrieval_name
+                        + '/model_spec_best_fit_'
+                        + name.replace('/', '_').replace('.', '_') + '.dat',
+                        np.column_stack((wlen_model, spectrum_model))
+                    )
+
+                    self.best_fit_specs[name] = [wlen_model, spectrum_model]
     @staticmethod
     def _get_samples(ultranest, names, output_dir=None, ret_names=None):
         if ret_names is None:
@@ -1785,8 +1820,8 @@ class Retrieval:
 
             # Setup best fit spectrum
             # First get the fit for each dataset for the residual plots
-            self.log_likelihood(sample_use, 0, 0)
-
+            #self.log_likelihood(sample_use, 0, 0)
+            self.save_best_fit_outputs(self.best_fit_params)
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
