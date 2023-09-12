@@ -36,7 +36,7 @@ $(TARGET_FOLDER)/paper.%: $(ARTICLE) \
 	  --defaults=$*.yaml \
 	  --defaults=$(OPENJOURNALS_PATH)/$(JOURNAL)/defaults.yaml \
 	  --resource-path=.:$(OPENJOURNALS_PATH):$(dir $(ARTICLE)) \
-	  --metadata=article-info-file=$(ARTICLE_INFO_FILE) \
+	  --metadata=article-info-file=$(TARGET_FOLDER)/$(ARTICLE_INFO_FILE) \
 	  --variable=$(JOURNAL) \
 	  --output=$@ \
 	  $<
