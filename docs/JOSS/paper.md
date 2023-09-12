@@ -53,21 +53,21 @@ draft: false
 # Summary
 
 `petitRADTRANS` (pRT) is a fast radiative transfer code used for computing emission and transmission spectra of exoplanet atmospheres [@molliere2019], combining a FORTRAN back end with a Python based user interface.
-It is widely used in the exoplanet community, with 161 references in the literature to date.
+It is widely used in the exoplanet community with 161 references in the literature to date, and has been benchmarked against numerous similar tools, including many listed in [@macdonald_catalog_2023].
 The spectra calculated with pRT can be used as a forward model for fitting spectroscopic data using Monte Carlo techniques, commonly referred to as an atmospheric retrieval [@madu2009].
 The new retrieval module combines fast forward modelling with nested sampling codes, allowing for atmospheric retrievals on a large range of different types of exoplanet data.
-With these new retrieval tools, it is now possible to use pRT to easily and quickly infer the atmospheric properties of exoplanets in both transmission and thermal emission.
+Thus it is now possible to use pRT to easily and quickly infer the atmospheric properties of exoplanets in both transmission and thermal emission.
 
 # Statement of need
 
 Atmospheric retrievals are a cornerstone of exoplanet atmospheric characterisation.
-pRT is a powerful and user-friendly tool, and is unique in its abilities to characterise exoplanets in both emission and transmission.
+pRT provides a powerful and user-friendly tool to fit exoplanet spectra with a range of built in or custom atmospheric models.
 Various thermal structures, chemistry and cloud parameterisations and opacity calculation methods can be combined and used to perform parameter estimation and model comparison for a given atmospheric spectrum.
 With increasing volumes of both ground- and space-based spectra available, it is necessary for exoplanet researchers to have access to a range of characterisation tools.
 
 # petitRADTANS Retrieval Module
 The `Retrieval` module combines the `Radtrans` forward modelling class with a nested sampler via a likelihood function to perform an atmospheric retrieval.
-Both `MultiNest` [@feroz2008; @feroz2009; @feroz2013; @buchner2014] and `Ultranest` [@buchner2014; @buchner2019] samplers are available, with both offering MPI implementations that allow for easy parallelisation across a large cluster.
+Both `MultiNest` [@feroz2008; @feroz2009; @feroz2013; @buchner2014] and `Ultranest` [@buchner2014; @buchner2019] samplers are available, with both offering MPI implementations that allow for easy parallelisation.
 
 Datasets, priors and other retrieval hyper parameters are set through the `RetrievalConfig` class, while the `models` module includes a range of complete atmospheric models that can be fit to the data.
 Users can also define their own model function, either by making use of temperature profiles from the `physics` module and chemistry parameterisations from the `chemistry` module or by implementing their own forward model. 
@@ -93,7 +93,7 @@ This sampling process resulted in non-deterministic spectral calculations with a
 pRT has been updated to fully mix the c-k distributions, iteratively mixing in any species with a significant opacity contribution: a species is only mixed in if the highest opacity value in a given spectral bin is larger than  a threshold value. 
 This theshold value is obtained by listing the smallest opacity value for every species in a given spectral bin, and then setting the threshold to 1% of the largest value from the list for each spectral bin.
 The resulting grid is linearly interpolated back to the 16 $g$ points at each pressure and frequency bin as required by pRT.
-This fully deterministic process stabilized the log-likelihood calculations in the retrievals, and resulted in a 5$\times$ improvement in the speed of the c-k mixing function.
+This fully deterministic process produces stable log-likelihood calculations, and resulted in a 5$\times$ improvement in the speed of the c-k mixing function.
 
 Various thermal, chemical and cloud parameterisations are available in pRT.
 Built in temperature profiles range from interpolated splines to physically motivated profiles as in @guillot2010 and @molliere2020.
