@@ -13,7 +13,7 @@ PANDOC = pandoc
 # Folder in which the outputs will be placed
 TARGET_FOLDER = publishing-artifacts
 
-ARTICLE_INFO_FILE = $(OPENJOURNALS_PATH)/default-article-info.yaml
+ARTICLE_INFO_FILE = metadata.yml
 
 .PHONY: all
 all: pdf html jats crossref jats
