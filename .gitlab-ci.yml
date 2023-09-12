@@ -10,9 +10,10 @@ md-to-pdf:
     - inara
   image:
     name: openjournals/inara
-    entrypoint: ["docs/JOSS/"]
+    entrypoint: [""]
   script:
-    - make pdf ARTICLE=/docs/JOSS/paper.md
+    - make pdf ARTICLE=docs/JOSS/paper.md TARGET=docs/JOSS/
   artifacts:
     paths:
-      - /docs/JOSS/
+      - ${DOCUMENT%.md}.pdf
+
