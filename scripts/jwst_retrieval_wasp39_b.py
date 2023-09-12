@@ -16,7 +16,7 @@ from scripts.mock_observation import add_telluric_lines, add_variable_throughput
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
@@ -451,7 +451,7 @@ def _radiosity_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
     temperatures, abundances, mmw = _init_retrieval_model_old(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.get_flux(
+    prt_object.calculate_flux(
         temperatures,
         abundances,
         10 ** parameters['log10_surface_gravity'].value,
@@ -484,7 +484,7 @@ def _transit_radius_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
     temperatures, abundances, mmw = _init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.get_transit_radii(
+    prt_object.calculate_transit_radii(
         temp=temperatures,
         mass_fractions=abundances,
         gravity=surface_gravity,
@@ -565,7 +565,7 @@ def init_mock_observations(planet, line_species_str, mode,
     print('No variable throughput')
 
     # Get models
-    star_data = get_PHOENIX_spec(planet.star_effective_temperature)
+    star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = radiosity_erg_hz2radiosity_erg_cm(
         star_data[:, 1], nc.c / star_data[:, 0]
     )

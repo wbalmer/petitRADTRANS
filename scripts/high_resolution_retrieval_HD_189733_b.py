@@ -15,7 +15,7 @@ from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
@@ -392,7 +392,7 @@ def _transit_radius_model(prt_object, parameters):
     temperatures, abundances, mmw = _init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.get_transit_radii(
+    prt_object.calculate_transit_radii(
         temp=temperatures,
         mass_fractions=abundances,
         gravity=surface_gravity,
@@ -602,7 +602,7 @@ def init_mock_observations(planet, line_species_str, mode,
             doppler_shift(np.max(wavelengths_instrument), 3 * kp)
         ]
 
-    star_data = get_PHOENIX_spec(planet.star_effective_temperature)
+    star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = radiosity_erg_hz2radiosity_erg_cm(
         star_data[:, 1], nc.c / star_data[:, 0]
     )

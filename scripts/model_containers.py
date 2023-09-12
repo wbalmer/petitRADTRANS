@@ -7,7 +7,7 @@ from petitRADTRANS.fort_rebin import fort_rebin as fr
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
@@ -667,7 +667,7 @@ class SpectralModelLegacy:
         )
 
         # Calculate the spectrum
-        atmosphere.get_flux(
+        atmosphere.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
@@ -693,7 +693,7 @@ class SpectralModelLegacy:
         )
 
         # Calculate the spectrum
-        atmosphere.get_transit_radii(
+        atmosphere.calculate_transit_radii(
             temp=temperatures,
             mass_fractions=mass_mixing_ratios,
             gravity=10 ** parameters['log10_surface_gravity'].value,
@@ -811,7 +811,7 @@ class SpectralModelLegacy:
     def calculate_emission_spectrum(self, atmosphere: Radtrans, planet: Planet):
         print('Calculating emission spectrum...')
 
-        atmosphere.get_flux(
+        atmosphere.calculate_flux(
             self.temperature,
             self.mass_fractions,
             planet.surface_gravity,
@@ -831,7 +831,7 @@ class SpectralModelLegacy:
         print('Calculating transmission spectrum...')
         # TODO better transmission spectrum with Doppler shift, RM effect, limb-darkening effect (?)
         # Doppler shift should be low, RM effect and limb-darkening might be removed by the pipeline
-        atmosphere.get_transit_radii(
+        atmosphere.calculate_transit_radii(
             self.temperature,
             self.mass_fractions,
             planet.surface_gravity,
@@ -849,7 +849,7 @@ class SpectralModelLegacy:
 
     @staticmethod
     def generate_phoenix_star_spectrum_file(star_spectrum_file, star_effective_temperature):
-        stellar_spectral_radiance = get_PHOENIX_spec(star_effective_temperature)
+        stellar_spectral_radiance = compute_phoenix_spectrum(star_effective_temperature)
 
         # Convert the spectrum to units accepted by the ETC website
         # Don't take the first wavelength to avoid spike in convolution
@@ -915,7 +915,7 @@ class SpectralModelLegacy:
 
     @staticmethod
     def _get_phoenix_star_spectral_radiosity(star_effective_temperature, wavelengths):
-        star_data = get_PHOENIX_spec(star_effective_temperature)
+        star_data = compute_phoenix_spectrum(star_effective_temperature)
         star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
             star_data[:, 1], nc.c / star_data[:, 0]  # cm to Hz
         )

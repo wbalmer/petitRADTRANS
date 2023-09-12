@@ -2194,13 +2194,13 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
         else:
             fig_titles_ref = parameter_names_dict[str(np.argmax(lengths))]
     else:
-        for i, parameter_name in enumerate(parameter_names_ref):
+        for sample_id, parameter_name in enumerate(parameter_names_ref):
             if parameter_name not in parameter_names_dict[str(np.argmax(lengths))]:
                 raise ValueError(f"unknown parameter '{parameter_name}'")
 
             for j, pn in enumerate(parameter_names_dict[str(np.argmax(lengths))]):
                 if pn == parameter_name:
-                    id_ref[i] = j
+                    id_ref[sample_id] = j
 
                     if use_titles:
                         fig_titles_ref.append(fig_titles[str(np.argmax(lengths))][j])
@@ -2218,25 +2218,30 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
 
     max_col = 0
 
-    for i in sample_dict:
+    # Put last key at the end so that the largest sample is at the bottom of the figure, showing all x-axis tick labels
+    _sample_dict = {key: sample_dict[key] for key in list(sample_dict.keys())[1:]}
+    _sample_dict[list(sample_dict.keys())[0]] = sample_dict[list(sample_dict.keys())[0]]
+    i = 0
+
+    for sample_id in _sample_dict:
         if isinstance(color, dict):
-            if result_names[int(i)] in color:
-                c = color[result_names[int(i)]]
+            if result_names[int(sample_id)] in color:
+                c = color[result_names[int(sample_id)]]
             else:
-                raise ValueError(f"Title {result_names[int(i)]} not found in color")
+                raise ValueError(f"Title {result_names[int(sample_id)]} not found in color")
         else:
             c = color
 
         for j in range(ncols):
-            axes[int(i), j].set_xlim(parameter_ranges_dict[list(sample_dict.keys())[0]][id_ref[j]])
+            axes[i, j].set_xlim(parameter_ranges_dict[list(sample_dict.keys())[0]][id_ref[j]])
 
-            if parameter_names_ref[j] not in parameter_names_dict[i]:
-                axes[int(i), j].axis('off')
+            if parameter_names_ref[j] not in parameter_names_dict[sample_id]:
+                axes[i, j].axis('off')
             else:
-                if int(i) == add_rectangle:
+                if int(sample_id) == add_rectangle:
                     max_col = j
 
-                for k, parameter_name in enumerate(parameter_names_dict[i]):
+                for k, parameter_name in enumerate(parameter_names_dict[sample_id]):
                     if parameter_name not in parameter_names_ref:
                         raise KeyError(f"unknown parameter '{parameter_name}'")
                     elif parameter_name == parameter_names_ref[j]:
@@ -2246,25 +2251,34 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
                             fmt = '.2f'
 
                         plot_hist(
-                            sample_dict[i].T[k],
+                            _sample_dict[sample_id].T[k],
                             label=fig_titles_ref[j],
                             true_value=true_values,
                             cmp=None,
                             bins=bins,
                             color=c,
-                            axe=axes[int(i), j],
+                            axe=axes[i, j],
                             y_label=None,
                             tight_layout=False,
                             fmt=fmt
                         )
-                        axes[int(i), j].set_yticks([])
+                        axes[i, j].set_yticks([])
+
+                        if parameter_name == 'new_resolving_power' and i == len(sample_dict) - 1:
+                            x_ticks = axes[i, j].get_xticks()
+
+                            if len(x_ticks) > 2:
+                                x_ticks = x_ticks[::2]
+                                axes[i, j].set_xticks(x_ticks[::2])
 
                         break
 
         if result_names is not None:
-            axes[int(i), 0].set_ylabel(result_names[int(i)])
+            axes[i, 0].set_ylabel(result_names[int(sample_id)])
 
-    fig.tight_layout()
+        i += 1
+
+    fig.tight_layout(rect=(0, 0, 0.99, 1))
 
     if add_rectangle is not None:
         bbox0 = axes[add_rectangle, 0].get_tightbbox(fig.canvas.get_renderer())
@@ -2272,7 +2286,7 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
         x0, y0, width0, height = bbox0.transformed(fig.transFigure.inverted()).bounds
         x1, y1, width1, _ = bbox1.transformed(fig.transFigure.inverted()).bounds
 
-        width = x1 - x0 + width1 / 3.9
+        width = x1 - x0 + width1 / 4
         print(width, width0, width1, height, x1, x0)
 
         # slightly increase the very tight bounds:
@@ -2284,11 +2298,9 @@ def plot_multiple_hists_data(result_directory, retrieved_parameters, log_evidenc
                 (x0 - xpad0, y0 - ypad),
                 width + 2 * xpad1,
                 height + 2 * ypad,
-                edgecolor='k', linewidth=3, fill=False
+                edgecolor='k', linewidth=2, fill=False
             )
         )
-
-    fig.tight_layout()
 
     if save:
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
@@ -4531,7 +4543,7 @@ def plot_all_figures(retrieved_parameters,
         figure_font_size=9.5,
         save=True,
         color=colors,
-        add_rectangle=8,
+        add_rectangle=7,
         figure_directory=figure_directory,
         figure_name='retrievals_posteriors',
         image_format=image_format
@@ -4809,17 +4821,52 @@ def plot_all_figures(retrieved_parameters,
     model_files = r'\\wsl$\Debian\home\dblain\exorem\outputs\exorem\hd_1899733_b_z10_t100_co0.55_nocloud.h5'
     dir_best_fits = [
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
-        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        # r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_Kp_V0_tiso_H2O_Pc_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
         r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_R_Kp_V0_tiso_H2O_tmt0.80_t0r300_alex4_nuaw_c819_100lp',
-        r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
+        # r'C:\Users\Doriann\Documents\work\run_outputs\petitRADTRANS\retrievals\carmenes_retrievals\HD_189733_b_transmission_R_Kp_V0_tiso_CO_H2O_H2S_tmt0.80_t0r300_alex4_sys-p1-i10-sub_nuaw_c819_100lp',
     ]
 
-    colors = ['k', 'C0', 'C2', 'C0', 'C2']
-    linestyles = ['-', ':', ':', '-', '-']
-    linewidths = [1.5, 3, 3, 1.5, 1.5]
-    labels = [r'Exo-REM (Z = 10)', 'Polyfit (P-01)', 'SysRem (S-01)', 'Polyfit (P-18)', 'SysRem (S-13)']
-    envelope = [False, False, True, True]
-    planet_radius_offsets = [2400e5, 3600e5, 3800e5, 3600e5, .3800e5]
+    colors = [
+        'k',
+        'C0',
+        # 'C2',
+        'C0',
+        # 'C2'
+    ]
+    linestyles = [
+        '-',
+        ':',
+        # ':',
+        '-',
+        # '-'
+    ]
+    linewidths = [
+        1.5,
+        3,
+        # 3,
+        1.5,
+        # 1.5
+    ]
+    labels = [
+        r'Exo-REM (Z = 10)',
+        'Polyfit (P-01)',
+        # 'SysRem (S-01)',
+        'Polyfit (P-18)',
+        # 'SysRem (S-13)'
+    ]
+    envelope = [
+        False,
+        # False,
+        True,
+        # True
+    ]
+    planet_radius_offsets = [
+        2400e5,
+        3600e5,
+        # 3800e5,
+        3600e5,
+        # 0.3800e5
+    ]
     rebin_wavelengths = wavelengths_instrument_0
 
     sms_best_fit, wavelengths_best_fits, spectrum_best_fits, w_er, s_er, fig, axe = plot_best_fit_comparison(
