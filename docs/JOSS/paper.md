@@ -31,7 +31,11 @@ software_repository_url: "https://gitlab.com/mauricemolli/petitRADTRANS"
 editor_url: ''
 review_issue_url: ''
 citation_author: "Nasedkin, Mollière, & Blain"
-editor_name: 'Pending Editor'
+editor:
+  github_user: "@xuanxu"
+  name: Juanjo Bazán
+  url: https://juanjobazan.com
+  orcid: 0000-0001-7699-3983
 volume: ''
 issue: ''
 page: ''
@@ -61,7 +65,7 @@ Thus it is now possible to use pRT to easily and quickly infer the atmospheric p
 # Statement of need
 
 Atmospheric retrievals are a cornerstone of exoplanet atmospheric characterisation.
-pRT provides a powerful and user-friendly tool to fit exoplanet spectra with a range of built in or custom atmospheric models.
+pRT provides a powerful and user-friendly tool for researchers to fit exoplanet spectra with a range of built in or custom atmospheric models.
 Various thermal structures, chemistry and cloud parameterisations and opacity calculation methods can be combined and used to perform parameter estimation and model comparison for a given atmospheric spectrum.
 With increasing volumes of both ground- and space-based spectra available, it is necessary for exoplanet researchers to have access to a range of characterisation tools.
 
@@ -71,6 +75,8 @@ Both `MultiNest` [@feroz2008; @feroz2009; @feroz2013; @buchner2014] and `Ultrane
 
 Datasets, priors and other retrieval hyper parameters are set through the `RetrievalConfig` class, while the `models` module includes a range of complete atmospheric models that can be fit to the data.
 Users can also define their own model function, either by making use of temperature profiles from the `physics` module and chemistry parameterisations from the `chemistry` module or by implementing their own forward model. 
+
+![Typical example of default pRT outputs. This highlights the fit of a transmission spectrum model to JWST/NIRISS/SOSS data of WASP 39 b as part of the Transiting Early Release Science program.\label{fig:WASP39}](WASP39b_NIRISSSOSSO1_typical_bestfit_spec.pdf)
 
 Multiple datasets can be included into a single retrieval, with each dataset receiving its own `Radtrans` object used for the radiative transfer calculation where some or all forward model parameters may be shared between the different data sets.
 This allows for highly flexible retrievals where multiple spectral resolutions, wavelength ranges and even atmospheric models can be combined in a single retrieval.
@@ -109,7 +115,8 @@ This results in accurate synthetic photometry, which can be compared to the valu
 
 Publication-ready summary plots of best fits, temperature and abundance profiles and corner plots can be automatically generated.
 Multiple retrieval results can be combined in the plots for model intercomparisons.
-Such results have been benchmarked against other widely used retrieval codes, in particular as part of the JWST Early Release Science program (Welbanks et al, in prep).
+Such results have been benchmarked against other widely used retrieval codes, in particular as part of the JWST Early Release Science (ERS) program (Welbanks et al, in prep).
+Figure \ref{fig:WASP39} shows the fit of a transmission model to the JWST/NIRISS/SOSS observations of WASP 39 b [@feinstein_niriss_2023] from the ERS program.
 
 
 
