@@ -1554,7 +1554,7 @@ module fort_spec
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-        subroutine get_rg_n(gravity, rho, rho_p, temp, MMW, frain, &
+        subroutine compute_cloud_particles_mean_radius(gravity, rho, rho_p, temp, MMW, frain, &
              sigma_n, Kzz, r_g, struc_len, N_cloud_spec)
 
           use constants_block
@@ -1615,9 +1615,9 @@ module fort_spec
 
           end do
 
-        end subroutine get_rg_n
+        end subroutine compute_cloud_particles_mean_radius
 
-        subroutine get_rg_n_hansen(gravity,rho,rho_p,temp,MMW,frain, &
+        subroutine compute_cloud_particles_mean_radius_hansen(gravity,rho,rho_p,temp,MMW,frain, &
                 b_h,Kzz,a_h,struc_len,N_cloud_spec)
             use constants_block
             
@@ -1740,7 +1740,7 @@ module fort_spec
                     end if
                 end do
             end do
-        end subroutine get_rg_n_hansen
+        end subroutine compute_cloud_particles_mean_radius_hansen
 
         subroutine turbulent_settling_speed(x,gravity,rho,rho_p,temp,MMW,turbulent_settling_speed_ret)
 

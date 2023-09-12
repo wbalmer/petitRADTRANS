@@ -450,7 +450,7 @@ def create_mock_observation_transmission_spectrum(plot_figure=False):
 def create_radtrans_correlated_k_emission_spectrum_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -469,7 +469,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_ref(p
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -511,7 +511,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_stell
     ]
 
     for geometry in geometries:
-        atmosphere_ck_scattering.get_flux(
+        atmosphere_ck_scattering.calculate_flux(
             temperatures=temperature_guillot_2010,
             mass_fractions=mass_fractions,
             gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -542,7 +542,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_hansen_radius_ref(plot_
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -567,7 +567,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_scatt
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck_scattering.get_flux(
+    atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -596,7 +596,7 @@ def create_radtrans_correlated_k_emission_spectrum_surface_scattering_ref(plot_f
     atmosphere.reflectance = radtrans_parameters['planetary_parameters']['surface_reflectance'] \
         * np.ones_like(atmosphere.frequencies)
 
-    atmosphere.get_flux(
+    atmosphere.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -621,7 +621,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck_scattering.get_transit_radii(
+    atmosphere_ck_scattering.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -645,7 +645,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
 def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -663,7 +663,7 @@ def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
 def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -683,7 +683,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_
 def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -702,7 +702,7 @@ def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figur
 def create_radtrans_correlated_k_transmission_spectrum_rayleigh_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -725,7 +725,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -749,7 +749,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -781,7 +781,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
 def create_radtrans_line_by_line_downsampled_emission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line_sampling import atmosphere_lbl_downsampled
 
-    atmosphere_lbl_downsampled.get_flux(
+    atmosphere_lbl_downsampled.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -797,7 +797,7 @@ def create_radtrans_line_by_line_downsampled_emission_spectrum_ref(plot_figure=F
 def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line_sampling import atmosphere_lbl_downsampled
 
-    atmosphere_lbl_downsampled.get_transit_radii(
+    atmosphere_lbl_downsampled.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -815,7 +815,7 @@ def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figu
 def create_radtrans_line_by_line_emission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line import atmosphere_lbl
 
-    atmosphere_lbl.get_flux(
+    atmosphere_lbl.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -831,7 +831,7 @@ def create_radtrans_line_by_line_emission_spectrum_ref(plot_figure=False):
 def create_radtrans_line_by_line_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line import atmosphere_lbl
 
-    atmosphere_lbl.get_transit_radii(
+    atmosphere_lbl.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

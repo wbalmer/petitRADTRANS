@@ -45,7 +45,7 @@ R_pl = 1.838*nc.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
-atmosphere.get_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
@@ -58,7 +58,7 @@ plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
 plt.show()
 #plt.clf()
 
-atmosphere.get_flux(temperature, abundances, gravity, MMW)
+atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
 
@@ -83,7 +83,7 @@ plt.ylabel('P (bar)')
 plt.show()
 #plt.clf()
 
-atmosphere.get_flux(temperature, abundances, gravity, MMW)
+atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
 

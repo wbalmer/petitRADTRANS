@@ -152,17 +152,17 @@ def emission_model_diseq(pRT_object,
                                                                            pRT_object.cloud_species)
 
     # calculate the spectrum
-    pRT_object.get_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution=contribution,
-                        cloud_f_sed=fseds,
-                        kzz=kzz,
-                        cloud_particle_radius_distribution_std=sigma_lnorm,
-                        b_hans=b_hans,
-                        radius=radii,
-                        dist=distribution)
+    pRT_object.calculate_flux(temperatures,
+                              abundances,
+                              gravity,
+                              MMW,
+                              contribution=contribution,
+                              cloud_f_sed=fseds,
+                              kzz=kzz,
+                              cloud_particle_radius_distribution_std=sigma_lnorm,
+                              b_hans=b_hans,
+                              radius=radii,
+                              dist=distribution)
 
     # Getting the model into correct units (W/m2/micron)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
@@ -282,17 +282,17 @@ def emission_model_diseq_patchy_clouds(pRT_object,
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            pRT_object.cloud_species)
-    pRT_object.get_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution=contribution,
-                        cloud_f_sed=fseds,
-                        kzz=kzz,
-                        cloud_particle_radius_distribution_std=sigma_lnorm,
-                        b_hans=b_hans,
-                        radius=radii,
-                        dist=distribution)
+    pRT_object.calculate_flux(temperatures,
+                              abundances,
+                              gravity,
+                              MMW,
+                              contribution=contribution,
+                              cloud_f_sed=fseds,
+                              kzz=kzz,
+                              cloud_particle_radius_distribution_std=sigma_lnorm,
+                              b_hans=b_hans,
+                              radius=radii,
+                              dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
                                          R_pl,
@@ -302,16 +302,16 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
-    pRT_object.get_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution=contribution,
-                        cloud_f_sed=fseds,
-                        kzz=kzz,
-                        cloud_particle_radius_distribution_std=sigma_lnorm,
-                        b_hans=b_hans,
-                        dist=distribution)
+    pRT_object.calculate_flux(temperatures,
+                              abundances,
+                              gravity,
+                              MMW,
+                              contribution=contribution,
+                              cloud_f_sed=fseds,
+                              kzz=kzz,
+                              cloud_particle_radius_distribution_std=sigma_lnorm,
+                              b_hans=b_hans,
+                              dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
                                         R_pl,
@@ -417,17 +417,17 @@ def guillot_emission(pRT_object,
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            pRT_object.cloud_species)
-    pRT_object.get_flux(temperatures,
-                        abundances,
-                        gravity,
-                        MMW,
-                        contribution=contribution,
-                        cloud_f_sed=fseds,
-                        kzz=kzz,
-                        cloud_particle_radius_distribution_std=sigma_lnorm,
-                        b_hans=b_hans,
-                        radius=radii,
-                        dist=distribution)
+    pRT_object.calculate_flux(temperatures,
+                              abundances,
+                              gravity,
+                              MMW,
+                              contribution=contribution,
+                              cloud_f_sed=fseds,
+                              kzz=kzz,
+                              cloud_particle_radius_distribution_std=sigma_lnorm,
+                              b_hans=b_hans,
+                              radius=radii,
+                              dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
@@ -541,21 +541,21 @@ def guillot_transmission(pRT_object,
     if len(pRT_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                                pRT_object.cloud_species)
-        pRT_object.get_transit_radii(temperatures,
-                                     abundances,
-                                     gravity,
-                                     MMW,
-                                     r_pl=R_pl,
-                                     p0_bar=0.01,
-                                     cloud_particle_radius_distribution_std=sigma_lnorm,
-                                     radius=radii,
-                                     fsed=fseds,
-                                     kzz=kzz,
-                                     b_hans=b_hans,
-                                     distribution=distribution,
-                                     contribution=contribution)
+        pRT_object.calculate_transit_radii(temperatures,
+                                           abundances,
+                                           gravity,
+                                           MMW,
+                                           r_pl=R_pl,
+                                           p0_bar=0.01,
+                                           cloud_particle_radius_distribution_std=sigma_lnorm,
+                                           radius=radii,
+                                           fsed=fseds,
+                                           kzz=kzz,
+                                           b_hans=b_hans,
+                                           distribution=distribution,
+                                           contribution=contribution)
     elif pcloud is not None:
-        pRT_object.get_transit_radii(
+        pRT_object.calculate_transit_radii(
             temperatures,
             abundances,
             gravity,
@@ -566,7 +566,7 @@ def guillot_transmission(pRT_object,
             contribution=contribution
         )
     else:
-        pRT_object.get_transit_radii(
+        pRT_object.calculate_transit_radii(
             temperatures,
             abundances,
             gravity,
@@ -685,7 +685,7 @@ def guillot_patchy_transmission(pRT_object,
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            pRT_object.cloud_species)
     # Calculate the spectrum
-    pRT_object.get_transit_radii(
+    pRT_object.calculate_transit_radii(
         temperatures,
         abundances,
         gravity,
@@ -706,7 +706,7 @@ def guillot_patchy_transmission(pRT_object,
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
-    pRT_object.get_transit_radii(
+    pRT_object.calculate_transit_radii(
         temperatures,
         abundances,
         gravity,
@@ -820,7 +820,7 @@ def isothermal_transmission(pRT_object,
         # P0_bar is important for low gravity transmission
         # spectrum. 100 is standard, 0.01 is good for small,
         # low gravity objects
-        pRT_object.get_transit_radii(
+        pRT_object.calculate_transit_radii(
             temperatures,
             abundances,
             gravity,
@@ -832,7 +832,7 @@ def isothermal_transmission(pRT_object,
     elif len(pRT_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                                pRT_object.cloud_species)
-        pRT_object.get_transit_radii(
+        pRT_object.calculate_transit_radii(
             temperatures,
             abundances,
             gravity,
@@ -847,7 +847,7 @@ def isothermal_transmission(pRT_object,
             contribution=contribution
         )
     else:
-        pRT_object.get_transit_radii(
+        pRT_object.calculate_transit_radii(
             temperatures,
             abundances,
             gravity,

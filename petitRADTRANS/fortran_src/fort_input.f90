@@ -16,7 +16,7 @@ module fort_input
     implicit none
 
     contains
-        subroutine get_freq_len(path, spec_name, freq_len, g_len)
+        subroutine load_frequencies_g_sizes(path, spec_name, freq_len, g_len)
             ! """
             ! Subroutine to get length of frequency grid in correlated-k mode.
             ! """
@@ -32,14 +32,16 @@ module fort_input
 
             open(newunit=file_unit,file=trim(adjustl(path)) // '/opacities/lines/corr_k/' // &
                  trim(adjustl(spec_name)) // '/kappa_g_info.dat')
+
             read(file_unit, *) freq_len, g_len
+
             close(file_unit)
 
-            freq_len = freq_len-1
-        end subroutine get_freq_len
+            freq_len = freq_len - 1
+        end subroutine load_frequencies_g_sizes
 
 
-        subroutine get_freq(path,spec_name,freq_len,freq,freq_use_ck)
+        subroutine load_frequencies(path,spec_name,freq_len,freq,freq_use_ck)
             ! """
             ! Subroutine to read in frequency grid
             ! """
@@ -54,28 +56,25 @@ module fort_input
             integer :: i_freq, file_unit, freq_len_use_ck
             double precision :: buffer
 
-            ! Because freqs fot c-k are stored as borders!
+            ! Because freqs for c-k are stored as borders!
             freq_len_use_ck = freq_len + 1
+
             open(newunit=file_unit, file=trim(adjustl(path)) // '/opacities/lines/corr_k/' // &
                trim(adjustl(spec_name))//'/kappa_g_info.dat')
+
             read(file_unit,*)
-            do i_freq = 1, freq_len_use_ck-2
-             read(file_unit,*) buffer, freq_use_ck(i_freq)
+
+            do i_freq = 1, freq_len_use_ck - 2
+                read(file_unit,*) buffer, freq_use_ck(i_freq)
             end do
-            read(file_unit,*) freq_use_ck(freq_len_use_ck), &
-               freq_use_ck(freq_len_use_ck-1)
+
+            read(file_unit,*) freq_use_ck(freq_len_use_ck), freq_use_ck(freq_len_use_ck-1)
             close(file_unit)
 
-            !write(*,*) 3e10/freq_use_ck(1)/1d-4
             ! Correct, smallest wlen is slightly offset (not following log-spacing)
-            freq_use_ck(1) = freq_use_ck(2)*exp(-LOG(freq_use_ck(4)/freq_use_ck(3)))
-            !write(*,*) 3e10/freq_use_ck(1)/1d-4
-            !write(*,*) LOG(freq_use_ck(2)/freq_use_ck(1)), &
-            !     LOG(freq_use_ck(4)/freq_use_ck(3)), &
-            !     LOG(freq_use_ck(5)/freq_use_ck(4))
-
-            freq = (freq_use_ck(1:freq_len_use_ck-1)+freq_use_ck(2:freq_len_use_ck))/2d0
-        end subroutine get_freq
+            freq_use_ck(1) = freq_use_ck(2) * exp(-log(freq_use_ck(4) / freq_use_ck(3)))
+            freq = (freq_use_ck(1:freq_len_use_ck-1) + freq_use_ck(2:freq_len_use_ck)) / 2d0
+        end subroutine load_frequencies
         
 
         subroutine read_in_molecular_opacities(path,species_names_tot,freq_len,g_len,species_len,opa_TP_grid_len, &
@@ -739,8 +738,8 @@ module fort_input
         end subroutine cia_read
 
 
-        subroutine get_arr_len_array_bords(wlen_min_read, wlen_max_read, &
-                                           file_path, arr_len, arr_min, arr_max)
+        subroutine find_lbl_frequency_loading_boundaries(wlen_min_read, wlen_max_read, &
+                                                         file_path, arr_len, arr_min)
             ! """
             ! Subroutine to get the length of the opacity arrays in the high-res case.
             ! """
@@ -748,10 +747,10 @@ module fort_input
 
             double precision, intent(in) :: wlen_min_read, wlen_max_read
             character(len=4000), intent(in)    :: file_path
-            integer, intent(out)         :: arr_len, arr_min, arr_max
+            integer, intent(out)         :: arr_len, arr_min
 
             double precision :: curr_wlen, last_wlen
-            integer          :: curr_int
+            integer          :: curr_int, arr_max
 
             ! open wavelength file
             open(file=trim(adjustl(file_path)), unit=10, form = 'unformatted', &
@@ -808,7 +807,7 @@ module fort_input
             end if
 
             arr_len = arr_max - arr_min + 1
-        end subroutine get_arr_len_array_bords
+        end subroutine find_lbl_frequency_loading_boundaries
 
 
         subroutine read_wlen(arr_min, arr_len, file_path, wlen)
@@ -863,7 +862,7 @@ module fort_input
         end subroutine read_kappa
 
 
-        subroutine get_file_size(file_path, arr_len)
+        subroutine compute_file_size(file_path, arr_len)
             ! """
             ! Subroutine to get a kappa array size in the high-res case.
             ! """
@@ -895,7 +894,7 @@ module fort_input
             close(49)
 
             arr_len = arr_len - 1
-        end subroutine get_file_size
+        end subroutine compute_file_size
 
 
         subroutine read_all_kappa(file_path, arr_len, kappa)

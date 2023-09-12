@@ -37,7 +37,7 @@ atmosphere_ck = init_radtrans_correlated_k()
 # Tests
 def test_correlated_k_emission_spectrum():
     # Calculate an emission spectrum
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -60,7 +60,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -87,7 +87,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -113,7 +113,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_flux(
+    atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -137,7 +137,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
 
 def test_correlated_k_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -159,7 +159,7 @@ def test_correlated_k_transmission_spectrum():
 
 def test_correlated_k_transmission_spectrum_cloud_power_law():
     # Calculate a transmission spectrum
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -183,7 +183,7 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
 
 def test_correlated_k_transmission_spectrum_gray_cloud():
     # Calculate a transmission spectrum
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -206,7 +206,7 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
 
 def test_correlated_k_transmission_spectrum_rayleigh():
     # Calculate a transmission spectrum
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -232,7 +232,7 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -259,7 +259,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -292,7 +292,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.get_transit_radii(
+    atmosphere_ck.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

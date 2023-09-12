@@ -948,7 +948,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
             else:
                 raise FileNotFoundError(f"file '{molparam_file}' not found: unable to load isotopic ratio")
 
-            n_items = fi.get_file_size(os.path.join(directory, 'wlen.dat'))
+            n_items = fi.compute_file_size(os.path.join(directory, 'wlen.dat'))
             wavelengths = fi.read_all_kappa(os.path.join(directory, 'wlen.dat'), n_items)
             wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 

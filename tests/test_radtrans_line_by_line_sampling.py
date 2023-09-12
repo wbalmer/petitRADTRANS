@@ -29,7 +29,7 @@ atmosphere_lbl_downsampled = init_radtrans_downsampled_line_by_line()
 
 def test_line_by_line_downsampled_emission_spectrum():
     # Calculate an emission spectrum
-    atmosphere_lbl_downsampled.get_flux(
+    atmosphere_lbl_downsampled.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -49,7 +49,7 @@ def test_line_by_line_downsampled_emission_spectrum():
 
 def test_line_by_line_downsampled_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_lbl_downsampled.get_transit_radii(
+    atmosphere_lbl_downsampled.calculate_transit_radii(
         temp=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

@@ -24,7 +24,18 @@ spec_path = os.path.join(petitradtrans_config['Paths']['pRT_input_data_path'], '
 logTempGrid, StarRadGrid, specDats, wavelength_stellar = __load_stellar_spectra()
 
 
-def __get_phoenix_spec_wrap(temperature):
+def compute_phoenix_spectrum(temperature):
+    """
+    Returns a matrix where the first column is the wavelength in cm
+    and the second is the stellar flux :math:`F_\\nu` in units of
+    :math:`\\rm erg/cm^2/s/Hz`, at the surface of the star.
+    The spectra are PHOENIX models from (Husser et al. 2013), the spectral
+    grid used here was described in van Boekel et al. (2012).
+
+    Args:
+        temperature (float):
+            stellar effective temperature in K.
+    """
     log_temp = np.log10(temperature)
     interpolation_index = np.searchsorted(logTempGrid, log_temp)
 
@@ -65,42 +76,5 @@ def __get_phoenix_spec_wrap(temperature):
     spec_dat = flux / norm * nc.sigma * temperature ** 4.
 
     spec_dat = np.transpose(np.stack((wavelength_stellar, spec_dat)))
-
-    return spec_dat, radius
-
-
-def get_PHOENIX_spec(temperature):
-    """
-    Returns a matrix where the first column is the wavelength in cm
-    and the second is the stellar flux :math:`F_\\nu` in units of
-    :math:`\\rm erg/cm^2/s/Hz`, at the surface of the star.
-    The spectra are PHOENIX models from (Husser et al. 2013), the spectral
-    grid used here was described in van Boekel et al. (2012).
-
-    Args:
-        temperature (float):
-            stellar effective temperature in K.
-    """
-    spec_dat, _ = __get_phoenix_spec_wrap(temperature)
-
-    return spec_dat
-
-
-def get_PHOENIX_spec_rad(temperature):
-    """
-    Returns a matrix where the first column is the wavelength in cm
-    and the second is the stellar flux :math:`F_\\nu` in units of
-    :math:`\\rm erg/cm^2/s/Hz`, at the surface of the star.
-    The spectra are PHOENIX models from (Husser et al. 2013), the spectral
-    grid used here was described in van Boekel et al. (2012).
-
-    UPDATE: It also returns a float that is the corresponding estimate
-    of the stellar radius.
-
-    Args:
-        temperature (float):
-            stellar effective temperature in K.
-    """
-    spec_dat, radius = __get_phoenix_spec_wrap(temperature)
 
     return spec_dat, radius

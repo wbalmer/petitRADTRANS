@@ -46,7 +46,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     atmosphere.reflectance = radtrans_parameters['planetary_parameters']['surface_reflectance'] * \
         np.ones_like(atmosphere.frequencies)
 
-    atmosphere.get_flux(
+    atmosphere.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

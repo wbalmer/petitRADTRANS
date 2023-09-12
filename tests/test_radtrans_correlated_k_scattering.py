@@ -44,7 +44,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck_scattering.get_flux(
+    atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -73,7 +73,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
     geometry = 'planetary_ave'
 
-    atmosphere_ck_scattering.get_flux(
+    atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -107,7 +107,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
     geometry = 'dayside_ave'
 
-    atmosphere_ck_scattering.get_flux(
+    atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -139,7 +139,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
     geometry = 'non-isotropic'
 
-    atmosphere_ck_scattering.get_flux(
+    atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -172,7 +172,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck_scattering.get_transit_radii(
+    atmosphere_ck_scattering.calculate_transit_radii(
         temp=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

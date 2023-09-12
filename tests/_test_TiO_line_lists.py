@@ -49,8 +49,8 @@ R_pl = 1.838*nc.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
-atmosphere.get_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
-atmosphere2.get_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere2.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 #import pdb
 #pdb.set_trace()
@@ -70,8 +70,8 @@ plt.show()
 
 temperature = 200. * np.ones_like(pressures)
 
-atmosphere.get_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
-atmosphere2.get_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere2.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='Plez')
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / nc.r_jup_mean, label ='Exomol')

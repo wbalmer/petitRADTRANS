@@ -23,7 +23,7 @@ from scripts.model_containers import SpectralModelLegacy
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.fort_rebin import fort_rebin as fr
-from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import guillot_global, doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval
@@ -410,7 +410,7 @@ def init_parameters(planet, line_species_str, mode,
         ]
     }
 
-    star_data = get_PHOENIX_spec(planet.star_effective_temperature)
+    star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
         star_data[:, 1], nc.c / star_data[:, 0]
     )
@@ -1574,7 +1574,7 @@ def radiosity_model(prt_object, parameters):
     temperatures, abundances, mmw = init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.get_flux(
+    prt_object.calculate_flux(
         temperatures,
         abundances,
         10 ** parameters['log_g'].value,
@@ -1957,7 +1957,7 @@ def transit_radius_model(prt_object, parameters):
     temperatures, abundances, mmw = init_retrieval_model(prt_object, parameters)
 
     # Calculate the spectrum
-    prt_object.get_transit_radii(
+    prt_object.calculate_transit_radii(
         temp=temperatures,
         mass_fractions=abundances,
         gravity=10 ** parameters['log_g'].value,

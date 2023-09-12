@@ -14,7 +14,7 @@ from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.prt_molmass import getMM
-from petitRADTRANS.phoenix import get_PHOENIX_spec
+from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
     radiosity_erg_hz2radiosity_erg_cm, radiosity2irradiance
 from petitRADTRANS.radtrans import Radtrans
@@ -832,7 +832,7 @@ class BaseSpectralModel:
             )
 
         # Calculate the spectrum
-        radtrans.get_flux(
+        radtrans.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             gravity=planet_surface_gravity,
@@ -875,7 +875,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
         # The PHOENIX data are loaded only when the module is imported
-        star_data = get_PHOENIX_spec(star_effective_temperature)
+        star_data = compute_phoenix_spectrum(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
         star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um
@@ -960,7 +960,7 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        radtrans.get_transit_radii(
+        radtrans.calculate_transit_radii(
             temp=temperatures,
             mass_fractions=mass_mixing_ratios,
             gravity=planet_surface_gravity,
