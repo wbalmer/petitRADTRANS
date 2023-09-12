@@ -15,5 +15,5 @@ md-to-pdf:
     - make pdf ARTICLE=docs/JOSS/paper.md
   artifacts:
     paths:
-      - docs/JOSS/${DOCUMENT%.md}.pdf
+      - ${DOCUMENT%.md}.pdf
 
