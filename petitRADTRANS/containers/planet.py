@@ -2,14 +2,14 @@
 import os
 import warnings
 
+import astropy.io.votable.exceptions
+import astropy.units as u
 import h5py
 import numpy as np
 import pyvo
-import astropy.io.votable.exceptions
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.table.table import Table
 from astropy.time import Time
-from astropy.coordinates import AltAz, EarthLocation, SkyCoord
-import astropy.units as u
 
 from petitRADTRANS import nat_cst as nc
 from petitRADTRANS.config import petitradtrans_config
