@@ -941,7 +941,7 @@ class Planet:
         return value, key
 
     @staticmethod
-    def bjd_utc2bjd_tmd(times_utc, ra, dec, site_name=None, latitude=None, longitude=None, height=None):
+    def bjd_utc2bjd_tdb(times_utc, ra, dec, site_name=None, latitude=None, longitude=None, height=None):
         observer_location, target_coordinates = Planet.get_astropy_coordinates(
             ra=ra,
             dec=dec,
@@ -952,9 +952,9 @@ class Planet:
         )
 
         times_utc = Time(times_utc, format='jd', scale='utc')
-        times_tmd = times_utc.tdb + times_utc.light_travel_time(target_coordinates, location=observer_location)
+        times_tdb = times_utc.tdb + times_utc.light_travel_time(target_coordinates, location=observer_location)
 
-        return times_tmd.value
+        return times_tdb.value
 
     @staticmethod
     def calculate_full_transit_duration(total_transit_duration, planet_radius, star_radius, impact_parameter):
