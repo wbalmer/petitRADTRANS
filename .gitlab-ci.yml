@@ -12,7 +12,7 @@ md-to-pdf:
     name: openjournals/inara
     entrypoint: ["docs/JOSS/"]
   script:
-    - make pdf ARTICLE=DOCUMENT TARGET_FOLDER=docs/JOSS/
+    - make pdf ARTICLE=$DOCUMENT TARGET_FOLDER=docs/JOSS/
   artifacts:
     paths:
       - ${DOCUMENT%.md}.pdf
