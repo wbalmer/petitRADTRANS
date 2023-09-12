@@ -9,7 +9,7 @@ Tutorial
    notebooks/clouds
    notebooks/emis_scat
    notebooks/analysis
-   notebooks/pRT_Retrieval_Example
+   retrieval_examples
    notebooks/Rebinning_opacities
    notebooks/nat_cst_utility
    notebooks/poor_man
