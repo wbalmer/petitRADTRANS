@@ -5,23 +5,43 @@ tags:
   - astronomy
   - exoplanets
   - atmospheres
+languages:
+  - Python
+  - Fortran
 authors:
   - name: Evert Nasedkin
     orcid: 0000-0002-9792-3121
-    equal-contrib: true
     corresponding: true
     affiliation: 1 # (Multiple affiliations must be quoted)
   - name: Paul Mollière
-    equal-contrib: false # (This is how you can denote equal contributions between multiple authors)
+    orcid: 0000-0003-4096-7067
     affiliation: 1
   - name: Doriann Blain
-    equal-contrib: false 
+    orcid: 0000-0002-1957-0455
     affiliation: 1
 affiliations:
  - name: Max Planck Institut für Astronomie, DE
    index: 1
-date: 14 August 2023
 bibliography: paper.bib
+submitted_at: '2023-09-12'
+published_at: '1970-01-01'
+doi: "10.5281/zenodo.8337871"
+archive_doi: "https://doi.org/10.5281/zenodo.8337871"
+software_repository_url: "https://gitlab.com/mauricemolli/petitRADTRANS"
+editor_url: ''
+review_issue_url: ''
+citation_author: "Nasedkin, Mollière, & Blain"
+editor_name: 'Pending Editor'
+volume: ''
+issue: ''
+page: ''
+reviewers:
+  - 'Pending Reviewers'
+paper_url: ''
+journal_name: "Journal of Open Source Software"
+journal_alias: "JOSS"
+citation_string: 'Nasedkin, E., Mollière, P & Blain, D, (2023). Atmospheric Retrievals with petitRADTRANS. Journal of Open Source Software'
+draft: false
 
 # Optional fields if submitting to a AAS journal too, see this blog post:
 # https://blog.joss.theoj.org/2018/12/a-new-collaboration-with-aas-publishing
@@ -61,12 +81,13 @@ The resulting spectrum compared to the data with flux $\vec{F}$ and covariance $
     -2\log\mathcal{L} = \left(\vec{S}-\vec{F}\right)^{T}\mathbf{C}^{-1}\left(\vec{S}-\vec{F}\right) + \log\left(2\pi\det\left(\mathbf{C}\right)\right).
 \end{equation}
 The second term is included in the likelihood to allow for uncertainties to vary as a free parameter during the retrieval, and penalizes overly large uncertainties.
+An likelihood function for high resolution data based on that of [@gibson_likelihood_2020] is also available.
 
 pRT can compute spectra either using line-by-line calculations, or using correlated-k (c-k) tables for defining the opacities of molecular species.
 We include up-to-date correlated-k line lists from Exomol [@tennyson2012; @mckemmish2016; @polyansky2018; @chubb2020] and HITEMP [@rothman2010, @hargreaves2020], with the full set of available opacities listed in the online documentation.
 The \verb|exo-k| package is used to resample the the correlated-k opacity tables to a lower spectral resolution in order to reduce the computation time [@leconte2021].
 Combining the c-k opacities of multiple species requires mixing the distributions in $g$ space. 
-This operation is necessary when calculating emission spectra, and accounting for multiple scattering in the clouds.
+This operation is necessary when calculating emission spectra and accounting for multiple scattering in the clouds.
 Previously, this was accomplished by taking 1000 samples of each distribution.
 This sampling process resulted in non-deterministic spectral calculations with a small (up to 1%) scatter about the expected result, which could lead to unexpected behaviour from the nested sampler as the same set of parameters could result in different log-likelihood.
 pRT has been updated to fully mix the c-k distributions, iteratively mixing in any species with a significant opacity contribution: a species is only mixed in if the highest opacity value in a given spectral bin is larger than  a threshold value. 
