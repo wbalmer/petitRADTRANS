@@ -852,55 +852,57 @@ class Retrieval:
         return log_likelihood + log_prior
 
     def save_best_fit_outputs(self, parameters):
-            # Save sampled outputs if necessary.
-            for name, dd in self.rd.data.items():
-                # Only calculate spectra within a given
-                # wlen range once
-                if dd.scale or dd.scale_err:
-                    dd.scale_factor = parameters[name + "_scale_factor"].value
-                if dd.offset_bool:
-                    dd.offset = parameters[name + "_offset"].value
-                if name + "_b" in parameters.keys():
-                    dd.bval = parameters[name + "_b"].value
+        # Save sampled outputs if necessary.
+        for name, dd in self.rd.data.items():
+            # Only calculate spectra within a given
+            # wlen range once
+            if dd.scale or dd.scale_err:
+                dd.scale_factor = parameters[name + "_scale_factor"].value
+            if dd.offset_bool:
+                dd.offset = parameters[name + "_offset"].value
+            if name + "_b" in parameters.keys():
+                dd.bval = parameters[name + "_b"].value
 
-                if dd.external_pRT_reference is None:
-                    # Compute the model
-                    retVal = \
-                        dd.model_generating_function(dd.pRT_object,
-                                                     parameters,
-                                                     False,
-                                                     AMR=self.rd.AMR)
-                    if len(retVal) == 3:
-                        wlen_model, spectrum_model, additional_logl = retVal
-                    else:
-                        wlen_model, spectrum_model = retVal
-                        additional_logl = 0.
+            if dd.external_pRT_reference is None:
+                # Compute the model
+                retVal = \
+                    dd.model_generating_function(dd.pRT_object,
+                                                 parameters,
+                                                 False,
+                                                 AMR=self.rd.AMR)
+                if len(retVal) == 3:
+                    wlen_model, spectrum_model, additional_logl = retVal
                 else:
-                    # Compute the model
-                    pRT_obj = self.rd.data[dd.external_pRT_reference].pRT_object
-                    retVal = \
-                        self.rd.data[dd.external_pRT_reference].model_generating_function(pRT_obj,
-                                                                                          parameters,
-                                                                                          False,
-                                                                                          AMR=self.rd.AMR)
-                    if len(retVal) == 3:
-                        wlen_model, spectrum_model, additional_logl = retVal
-                    else:
-                        wlen_model, spectrum_model = retVal
-                        additional_logl = 0.
-                if self.evaluate_sample_spectra:
-                    self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
+                    wlen_model, spectrum_model = retVal
+                    additional_logl = 0.
+            else:
+                # Compute the model
+                pRT_obj = self.rd.data[dd.external_pRT_reference].pRT_object
+                retVal = \
+                    self.rd.data[dd.external_pRT_reference].model_generating_function(pRT_obj,
+                                                                                        parameters,
+                                                                                        False,
+                                                                                        AMR=self.rd.AMR)
+                if len(retVal) == 3:
+                    wlen_model, spectrum_model, additional_logl = retVal
                 else:
-                    # TODO: This will overwrite the best fit spectrum with
-                    # whatever is ran through the loglike function. Not good.
-                    np.savetxt(
-                        self.output_dir + 'evaluate_' + self.retrieval_name
-                        + '/model_spec_best_fit_'
-                        + name.replace('/', '_').replace('.', '_') + '.dat',
-                        np.column_stack((wlen_model, spectrum_model))
-                    )
+                    wlen_model, spectrum_model = retVal
+                    additional_logl = 0.
 
-                    self.best_fit_specs[name] = [wlen_model, spectrum_model]
+
+            if self.evaluate_sample_spectra:
+                self.posterior_sample_specs[name] = [wlen_model, spectrum_model]
+            else:
+                # TODO: This will overwrite the best fit spectrum with
+                # whatever is ran through the loglike function. Not good.
+                np.savetxt(
+                    self.output_dir + 'evaluate_' + self.retrieval_name
+                    + '/model_spec_best_fit_'
+                    + name.replace('/', '_').replace('.', '_') + '.dat',
+                    np.column_stack((wlen_model, spectrum_model))
+                )
+                self.best_fit_specs[name] = [wlen_model, spectrum_model]
+
     @staticmethod
     def _get_samples(ultranest, names, output_dir=None, ret_names=None):
         if ret_names is None:
@@ -1157,9 +1159,7 @@ class Retrieval:
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_params = parameters
 
-        use_reference = self.rd.plot_kwargs["take_PTs_from"]
-        if pRT_reference is not None:
-            use_reference = pRT_reference
+        
         if self.rd.AMR:
             _ = self.rd._setup_pres()  # TODO this function should not be private
             self.best_fit_params["pressure_scaling"] = self.parameters["pressure_scaling"]
@@ -1177,7 +1177,7 @@ class Retrieval:
                                                                               model_generating_func=None,
                                                                               ret_name=ret_name,
                                                                               contribution=contribution,
-                                                                              pRT_reference=use_reference)
+                                                                              pRT_reference=pRT_reference)
             np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_contribution",bf_contribution)
         else:
             if not refresh and os.path.exists(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_full.npy"):
@@ -1190,7 +1190,7 @@ class Retrieval:
                 model_generating_func=None,
                 ret_name=ret_name,
                 contribution=contribution,
-                pRT_reference=use_reference
+                pRT_reference=pRT_reference
             )
             bf_contribution = None  # prevent eventual reference before assignment
 
@@ -1200,7 +1200,10 @@ class Retrieval:
                 bf_wlen, bf_spectrum, _ = retVal
 
         # Add to the dictionary.
-        self.best_fit_specs[use_reference] = [bf_wlen, bf_spectrum]
+        name = f"FullRange_{mode}"
+        if pRT_reference is not None:
+            name = pRT_reference
+        self.best_fit_specs[name] = [bf_wlen, bf_spectrum]
         np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_full",
                     np.column_stack([bf_wlen,bf_spectrum]))
 
@@ -1646,9 +1649,9 @@ class Retrieval:
                 samp = samples[int(rint), :-1]
                 params = self.build_param_dict(samp, parameters_read)
                 retVal = duse.model_generating_function(prt_object,
-                                                             params,
-                                                             False,
-                                                             self.rd.AMR)
+                                                        params,
+                                                        False,
+                                                        self.rd.AMR)
                 if len(retVal) == 2:
                     wlen, model = retVal
                 else:
@@ -1989,7 +1992,7 @@ class Retrieval:
 
             # weird scaling to get axis to look ok on log plots
             if self.rd.plot_kwargs["xscale"] == 'log':
-                lims = [lims[0] * 1.09, lims[1] * 1.02]
+                lims = [bf_wlen[0] * 0.98, lims[1] * 1.02]
             else:
                 lims = [bf_wlen[0] * 0.98, bf_wlen[-1] * 1.02]
 
@@ -2026,11 +2029,15 @@ class Retrieval:
             ntick_div = 1
             if maxwlen >6:
                 ntick_div = 2
+            min_wlen = bf_wlen[0]
+            max_wlen = bf_wlen[-1]
             if self.rd.plot_kwargs["xscale"] == 'log':
+                if min_wlen < 0:
+                    min_wlen = 0.08
                 # For the minor ticks, use no labels; default NullFormatter.
-                x_major = LogLocator(base=10.0, subs=(1, 2, 3, 4), numticks=4)
+                x_major = LogLocator(base=10.0, subs = np.linspace(min_wlen,max_wlen,4,dtype = int), numticks=4)
                 ax.xaxis.set_major_locator(x_major)
-                x_minor = LogLocator(base=10.0, subs=np.arange(0.1, 10.1, 0.1) * 0.1, numticks=100)
+                x_minor = LogLocator(base=10.0, subs = np.linspace(min_wlen,max_wlen,40), numticks=100)
                 ax.xaxis.set_minor_locator(x_minor)
                 ax.xaxis.set_minor_formatter(NullFormatter())
             else:
