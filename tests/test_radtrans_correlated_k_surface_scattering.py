@@ -43,19 +43,17 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     # Copy atmosphere so that change in reflectance is not carried outside the function
     atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
 
-    atmosphere.reflectance = radtrans_parameters['planetary_parameters']['surface_reflectance'] * \
-        np.ones_like(atmosphere.frequencies)
-
     atmosphere.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         emission_geometry='non-isotropic',
         t_star=radtrans_parameters['stellar_parameters']['effective_temperature'],
         r_star=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
+        star_inclination_angle=radtrans_parameters['stellar_parameters']['incidence_angle'],
+        reflectances=radtrans_parameters['planetary_parameters']['surface_reflectance']
     )
 
     # Comparison

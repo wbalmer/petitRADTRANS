@@ -63,11 +63,11 @@ if case1:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                              kzz= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
+                              eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                               contribution = False)
     plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
-    contribution_scat = atmosphere.contribution_emission
+    contribution_scat = atmosphere.emission_contribution
     plt.show()
 
 if case2:
@@ -120,7 +120,7 @@ if case2:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                              kzz=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                              eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                               emission_geometry='non-isotropic', t_star=5778, \
                               r_star=nc.r_sun, orbit_semi_major_axis=0.05 * nc.AU, \
                               star_inclination_angle=30.)
@@ -181,7 +181,7 @@ if case3:
         atmosphere.reflectance = r * np.ones_like(atmosphere.frequencies)
 
         atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                                  kzz=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                                  eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                                   emission_geometry='planetary_ave', t_star=5778, \
                                   r_star=nc.r_sun, orbit_semi_major_axis=nc.AU)
 

@@ -69,14 +69,14 @@ plt.rcParams['figure.figsize'] = (10, 6)
 
 # Clear
 atmosphere.calculate_transit_radii(temperature, mass_fractions, \
-                                   gravity, MMW, r_pl=R_pl, p0_bar=P0)
+                                   gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 clear = atmosphere.transit_radii / nc.r_jup_mean
 
 kappa_zero = 0.01
 gamma_scat = -4.
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, \
-                                   gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+                                   gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    power_law_opacity_350nm= kappa_zero, power_law_opacity_coefficient= gamma_scat)
 
 m4 = atmosphere.transit_radii / nc.r_jup_mean
@@ -85,7 +85,7 @@ kappa_zero = 0.01
 gamma_scat = -2.
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, \
-                                   gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+                                   gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    power_law_opacity_350nm= kappa_zero, power_law_opacity_coefficient= gamma_scat)
 
 m2 = atmosphere.transit_radii / nc.r_jup_mean
@@ -94,7 +94,7 @@ kappa_zero = 0.01
 gamma_scat = 0.
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, \
-                                   gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+                                   gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    power_law_opacity_350nm= kappa_zero, power_law_opacity_coefficient= gamma_scat)
 
 m0 = atmosphere.transit_radii / nc.r_jup_mean
@@ -103,7 +103,7 @@ kappa_zero = 0.01
 gamma_scat = 1.
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, \
-                                   gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+                                   gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    power_law_opacity_350nm= kappa_zero, power_law_opacity_coefficient= gamma_scat)
 
 p1 = atmosphere.transit_radii / nc.r_jup_mean
@@ -134,24 +134,24 @@ import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
 # Clear
-atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Clear')
 
 # Gray cloud deck at 0.01 bar
-atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    opaque_layers_top_pressure= 0.01)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Gray cloud deck at 0.01 bar')
 
 # Haze (10 x gas Rayleigh scattering)
-atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    haze_factor = 10)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Rayleigh haze')
 
 # Haze + cloud deck
-atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0, \
+atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
                                    haze_factor = 10, opaque_layers_top_pressure= 0.01)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Rayleigh haze + cloud deck')
@@ -237,16 +237,16 @@ sigma_lnorm = 1.05
 
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
-                                   r_pl=R_pl, p0_bar=P0, \
-                                   radius = radius, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   planet_radius=R_pl, reference_pressure=P0, \
+                                   cloud_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='cloudy', zorder = 2)
 
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
-                                   r_pl=R_pl, p0_bar=P0, \
-                                   radius = radius, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   planet_radius=R_pl, reference_pressure=P0, \
+                                   cloud_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='clear', zorder = 1)
 
 plt.xscale('log')
@@ -264,16 +264,16 @@ sigma_lnorm = 1.05
 mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
-                                   r_pl=R_pl, p0_bar=P0, \
-                                   kzz= Kzz, fsed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   planet_radius=R_pl, reference_pressure=P0, \
+                                   eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='cloudy', zorder = 2)
 
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
-                                   r_pl=R_pl, p0_bar=P0, \
-                                   kzz= Kzz, fsed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   planet_radius=R_pl, reference_pressure=P0, \
+                                   eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='clear', zorder = 1)
 
@@ -302,7 +302,7 @@ Kzz = np.ones_like(temperature)*1e1**7.5
 fsed = 2.
 b_hans = 0.01
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW,
-                          kzz= Kzz, cloud_f_sed=fsed, b_hans=b_hans, dist='hansen')
+                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, b_hans=b_hans, dist='hansen')
 
 plt.yscale('log')
 plt.xscale('log')
@@ -319,7 +319,7 @@ plt.clf()
 mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          kzz= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
          color = 'black', label = 'cloudy, no scattering', zorder = 1)
@@ -354,7 +354,7 @@ pressures = np.logspace(-6, 2, 100)
 atmosphere.setup_opa_structure(pressures)
 
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          kzz= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
+                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                           add_cloud_scat_as_abs = True)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
          label = 'cloudy, including scattering', zorder = 2)
@@ -362,7 +362,7 @@ plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          kzz= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, '-', \
          color = 'red', label = 'clear', zorder = 0)

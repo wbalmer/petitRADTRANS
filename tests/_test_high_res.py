@@ -41,6 +41,6 @@ mass_fractions['K'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW)

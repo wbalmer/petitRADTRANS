@@ -45,7 +45,7 @@ R_pl = 1.838*nc.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
-atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, r_pl=R_pl, p0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)

@@ -393,12 +393,12 @@ def _transit_radius_model(prt_object, parameters):
 
     # Calculate the spectrum
     prt_object.calculate_transit_radii(
-        temp=temperatures,
+        temperatures=temperatures,
         mass_fractions=abundances,
-        gravity=surface_gravity,
+        surface_gravity=surface_gravity,
         mean_molar_masses=mmw,
-        p0_bar=parameters['reference_pressure'].value,
-        r_pl=pr
+        reference_pressure=parameters['reference_pressure'].value,
+        planet_radius=pr
     )
 
     # Transform the outputs into the units of our data.

@@ -158,10 +158,10 @@ def emission_model_diseq(pRT_object,
                               MMW,
                               contribution=contribution,
                               cloud_f_sed=fseds,
-                              kzz=kzz,
+                              eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
                               b_hans=b_hans,
-                              radius=radii,
+                              cloud_particles_mean_radii=radii,
                               dist=distribution)
 
     # Getting the model into correct units (W/m2/micron)
@@ -170,7 +170,7 @@ def emission_model_diseq(pRT_object,
                                   R_pl,
                                   parameters['D_pl'].value)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contribution_emission
+        return wlen_model, spectrum_model, pRT_object.emission_contribution
     return wlen_model, spectrum_model
 
 
@@ -288,10 +288,10 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                               MMW,
                               contribution=contribution,
                               cloud_f_sed=fseds,
-                              kzz=kzz,
+                              eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
                               b_hans=b_hans,
-                              radius=radii,
+                              cloud_particles_mean_radii=radii,
                               dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
@@ -308,7 +308,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                               MMW,
                               contribution=contribution,
                               cloud_f_sed=fseds,
-                              kzz=kzz,
+                              eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
                               b_hans=b_hans,
                               dist=distribution)
@@ -423,17 +423,17 @@ def guillot_emission(pRT_object,
                               MMW,
                               contribution=contribution,
                               cloud_f_sed=fseds,
-                              kzz=kzz,
+                              eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
                               b_hans=b_hans,
-                              radius=radii,
+                              cloud_particles_mean_radii=radii,
                               dist=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contribution_emission
+        return wlen_model, spectrum_model, pRT_object.emission_contribution
     return wlen_model, spectrum_model
 
 
@@ -545,12 +545,12 @@ def guillot_transmission(pRT_object,
                                            abundances,
                                            gravity,
                                            MMW,
-                                           r_pl=R_pl,
-                                           p0_bar=0.01,
+                                           planet_radius=R_pl,
+                                           reference_pressure=0.01,
                                            cloud_particle_radius_distribution_std=sigma_lnorm,
-                                           radius=radii,
-                                           fsed=fseds,
-                                           kzz=kzz,
+                                           cloud_particles_mean_radii=radii,
+                                           cloud_f_sed=fseds,
+                                           eddy_diffusion_coefficient=kzz,
                                            b_hans=b_hans,
                                            distribution=distribution,
                                            contribution=contribution)
@@ -560,8 +560,8 @@ def guillot_transmission(pRT_object,
             abundances,
             gravity,
             MMW,
-            r_pl=R_pl,
-            p0_bar=0.01,
+            planet_radius=R_pl,
+            reference_pressure=0.01,
             opaque_layers_top_pressure=pcloud,
             contribution=contribution
         )
@@ -571,15 +571,15 @@ def guillot_transmission(pRT_object,
             abundances,
             gravity,
             MMW,
-            r_pl=R_pl,
-            p0_bar=0.01,
+            planet_radius=R_pl,
+            reference_pressure=0.01,
             contribution=contribution
         )
 
     wlen_model = nc.c / pRT_object.frequencies / 1e-4
     spectrum_model = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contribution_transmission
+        return wlen_model, spectrum_model, pRT_object.transmission_contribution
     return wlen_model, spectrum_model
 
 
@@ -690,13 +690,13 @@ def guillot_patchy_transmission(pRT_object,
         abundances,
         gravity,
         MMW,
-        r_pl=R_pl,
-        p0_bar=0.01,
+        planet_radius=R_pl,
+        reference_pressure=0.01,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         b_hans=b_hans,
-        fsed=fseds,
-        kzz=kzz,
-        radius=radii,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficient=kzz,
+        cloud_particles_mean_radii=radii,
         distribution=distribution,
         contribution=contribution
     )
@@ -711,10 +711,10 @@ def guillot_patchy_transmission(pRT_object,
         abundances,
         gravity,
         MMW,
-        r_pl=R_pl,
-        p0_bar=0.01,
+        planet_radius=R_pl,
+        reference_pressure=0.01,
         cloud_particle_radius_distribution_std=parameters['sigma_lnorm'].value,
-        radius=radii,
+        cloud_particles_mean_radii=radii,
         contribution=contribution
     )
 
@@ -724,7 +724,7 @@ def guillot_patchy_transmission(pRT_object,
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
                      ((1 - patchiness) * spectrum_model_clear)
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contribution_transmission
+        return wlen_model, spectrum_model, pRT_object.transmission_contribution
     return wlen_model, spectrum_model
 
 
@@ -825,8 +825,8 @@ def isothermal_transmission(pRT_object,
             abundances,
             gravity,
             MMW,
-            r_pl=R_pl,
-            p0_bar=0.01,
+            planet_radius=R_pl,
+            reference_pressure=0.01,
             opaque_layers_top_pressure=pcloud
         )
     elif len(pRT_object.cloud_species) > 0:
@@ -837,13 +837,13 @@ def isothermal_transmission(pRT_object,
             abundances,
             gravity,
             MMW,
-            r_pl=R_pl,
-            p0_bar=0.01,
+            planet_radius=R_pl,
+            reference_pressure=0.01,
             cloud_particle_radius_distribution_std=sigma_lnorm,
             b_hans=b_hans,
-            fsed=fseds,
-            kzz=kzz,
-            radius=radii,
+            cloud_f_sed=fseds,
+            eddy_diffusion_coefficient=kzz,
+            cloud_particles_mean_radii=radii,
             contribution=contribution
         )
     else:
@@ -852,8 +852,8 @@ def isothermal_transmission(pRT_object,
             abundances,
             gravity,
             MMW,
-            r_pl=R_pl,
-            p0_bar=0.01,
+            planet_radius=R_pl,
+            reference_pressure=0.01,
             contribution=contribution
         )
 
@@ -861,7 +861,7 @@ def isothermal_transmission(pRT_object,
     spectrum_model = (pRT_object.transit_radii / parameters['Rstar'].value) ** 2.
 
     if contribution:
-        return wlen_model, spectrum_model, pRT_object.contribution_transmission
+        return wlen_model, spectrum_model, pRT_object.transmission_contribution
 
     return wlen_model, spectrum_model
 

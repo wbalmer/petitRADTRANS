@@ -199,8 +199,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
         abundances,
         10 ** parameters['log_g'].value,
         mmw,
-        r_pl=parameters['R_pl'].value,
-        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        planet_radius=parameters['R_pl'].value,
+        reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         opaque_layers_top_pressure=10 ** parameters['log_Pcloud'].value
     )
 

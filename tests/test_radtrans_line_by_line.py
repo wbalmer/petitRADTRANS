@@ -116,7 +116,7 @@ def test_line_by_line_emission_spectrum():
     atmosphere_lbl.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
     )
 
@@ -134,12 +134,12 @@ def test_line_by_line_emission_spectrum():
 def test_line_by_line_transmission_spectrum():
     # Calculate a transmission spectrum
     atmosphere_lbl.calculate_transit_radii(
-        temp=temperature_isothermal,
+        temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        r_pl=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
-        p0_bar=radtrans_parameters['planetary_parameters']['reference_pressure']
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
     # Comparison

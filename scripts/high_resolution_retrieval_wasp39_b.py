@@ -455,7 +455,7 @@ def _radiosity_model(prt_object, parameters):
         t_star=parameters['star_effective_temperature'].value,
         r_star=parameters['star_radius'].value,
         orbit_semi_major_axis=parameters['semi_major_axis'].value,
-        opaque_layers_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
+        cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
         #stellar_intensity=parameters['star_spectral_radiosity'].value
     )
 
@@ -481,12 +481,12 @@ def _transit_radius_model(prt_object, parameters):
 
     # Calculate the spectrum
     prt_object.calculate_transit_radii(
-        temp=temperatures,
+        temperatures=temperatures,
         mass_fractions=abundances,
-        gravity=surface_gravity,
+        surface_gravity=surface_gravity,
         mean_molar_masses=mmw,
-        p0_bar=parameters['reference_pressure'].value,
-        r_pl=pr
+        reference_pressure=parameters['reference_pressure'].value,
+        planet_radius=pr
     )
 
     # Transform the outputs into the units of our data.

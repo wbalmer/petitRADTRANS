@@ -670,12 +670,12 @@ class SpectralModelLegacy:
         atmosphere.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            gravity=10 ** parameters['log10_surface_gravity'].value,
+            surface_gravity=10 ** parameters['log10_surface_gravity'].value,
             mean_molar_masses=mean_molar_mass,
             t_star=parameters['star_effective_temperature'].value,
             r_star=parameters['star_radius'].value,
             orbit_semi_major_axis=parameters['semi_major_axis'].value,
-            opaque_layers_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
+            cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
             # stellar_intensity=parameters['star_spectral_radiosity'].value
         )
 
@@ -694,12 +694,12 @@ class SpectralModelLegacy:
 
         # Calculate the spectrum
         atmosphere.calculate_transit_radii(
-            temp=temperatures,
+            temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            gravity=10 ** parameters['log10_surface_gravity'].value,
+            surface_gravity=10 ** parameters['log10_surface_gravity'].value,
             mean_molar_masses=mean_molar_mass,
-            p0_bar=parameters['reference_pressure'].value,
-            r_pl=parameters['planet_radius'].value
+            reference_pressure=parameters['reference_pressure'].value,
+            planet_radius=parameters['planet_radius'].value
         )
 
         # Transform the outputs into the units of our data.
@@ -819,7 +819,7 @@ class SpectralModelLegacy:
             t_star=planet.star_effective_temperature,
             r_star=planet.star_radius,
             orbit_semi_major_axis=planet.orbit_semi_major_axis,
-            opaque_layers_top_pressure=self.p_cloud
+            cloud_top_pressure=self.p_cloud
         )
 
         flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
@@ -836,8 +836,8 @@ class SpectralModelLegacy:
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
-            r_pl=planet.radius,
-            p0_bar=planet.reference_pressure,
+            planet_radius=planet.radius,
+            reference_pressure=planet.reference_pressure,
             opaque_layers_top_pressure=self.p_cloud,
             haze_factor=self.haze_factor,
         )
