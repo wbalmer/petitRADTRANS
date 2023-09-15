@@ -10,7 +10,23 @@ from petitRADTRANS.config import petitradtrans_config
 
 
 def __load_stellar_spectra():
-    with h5py.File(spec_path + os.path.sep + "stellar_spectra.h5", "r") as f:
+    spec_file = os.path.join(spec_path, "stellar_spectra.h5")
+
+    if not os.path.isfile(spec_file):
+        raise FileNotFoundError(
+            f"No such file: '{spec_file}'\n"
+            f"This may be caused by an incorrect input_data path, outdated file formatting, or a missing file\n\n"
+            f"To set the input_data path, execute: \n"
+            f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
+            f">>> petitradtrans_config_parser.set_input_data_path('path/to/input_data')\n"
+            f"replacing 'path/to/' with the path to the input_data directory\n\n"
+            f"To update the outdated files, execute:\n"
+            f">>> from petitRADTRANS.__file_conversion import convert_all\n"
+            f">>> convert_all()\n\n"
+            f"To download the missing file, "
+            f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html")
+
+    with h5py.File(spec_file, "r") as f:
         log_temp_grid = f['log10_effective_temperature'][()]
         star_rad_grid = f['radius'][()]
         spec_dats = f['spectral_radiosity'][()]
