@@ -121,9 +121,9 @@ if case2:
 
     atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                               eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                              emission_geometry='non-isotropic', t_star=5778, \
-                              r_star=nc.r_sun, orbit_semi_major_axis=0.05 * nc.AU, \
-                              star_inclination_angle=30.)
+                              emission_geometry='non-isotropic', star_effective_temperature=5778, \
+                              star_radius=nc.r_sun, orbit_semi_major_axis=0.05 * nc.AU, \
+                              star_irradiation_angle=30.)
     plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
 
@@ -182,8 +182,8 @@ if case3:
 
         atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                                   eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                                  emission_geometry='planetary_ave', t_star=5778, \
-                                  r_star=nc.r_sun, orbit_semi_major_axis=nc.AU)
+                                  emission_geometry='planetary_ave', star_effective_temperature=5778, \
+                                  star_radius=nc.r_sun, orbit_semi_major_axis=nc.AU)
 
         plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)

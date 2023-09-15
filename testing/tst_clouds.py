@@ -140,7 +140,7 @@ plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
 
 # Gray cloud deck at 0.01 bar
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
-                                   opaque_layers_top_pressure= 0.01)
+                                   opaque_cloud_top_pressure= 0.01)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Gray cloud deck at 0.01 bar')
 
@@ -152,7 +152,7 @@ plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
 
 # Haze + cloud deck
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, planet_radius=R_pl, reference_pressure=P0, \
-                                   haze_factor = 10, opaque_layers_top_pressure= 0.01)
+                                   haze_factor = 10, opaque_cloud_top_pressure= 0.01)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, \
          atmosphere.transit_radii / nc.r_jup_mean, label ='Rayleigh haze + cloud deck')
 
@@ -302,7 +302,7 @@ Kzz = np.ones_like(temperature)*1e1**7.5
 fsed = 2.
 b_hans = 0.01
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW,
-                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, b_hans=b_hans, dist='hansen')
+                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_b_hansen=b_hans, cloud_particles_radius_distribution='hansen')
 
 plt.yscale('log')
 plt.xscale('log')
@@ -355,7 +355,7 @@ atmosphere.setup_opa_structure(pressures)
 
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
-                          add_cloud_scat_as_abs = True)
+                          add_cloud_scattering_as_absorption= True)
 plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
          label = 'cloudy, including scattering', zorder = 2)
 

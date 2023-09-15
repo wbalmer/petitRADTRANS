@@ -201,7 +201,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
         mmw,
         planet_radius=parameters['R_pl'].value,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        opaque_layers_top_pressure=10 ** parameters['log_Pcloud'].value
+        opaque_cloud_top_pressure=10 ** parameters['log_Pcloud'].value
     )
 
     # Transform the outputs into the units of our data.

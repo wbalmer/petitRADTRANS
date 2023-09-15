@@ -452,10 +452,10 @@ def _radiosity_model(prt_object, parameters):
         abundances,
         10 ** parameters['log10_surface_gravity'].value,
         mmw,
-        t_star=parameters['star_effective_temperature'].value,
-        r_star=parameters['star_radius'].value,
+        star_effective_temperature=parameters['star_effective_temperature'].value,
+        star_radius=parameters['star_radius'].value,
         orbit_semi_major_axis=parameters['semi_major_axis'].value,
-        cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
+        opaque_cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
         #stellar_intensity=parameters['star_spectral_radiosity'].value
     )
 

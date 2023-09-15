@@ -672,10 +672,10 @@ class SpectralModelLegacy:
             mass_fractions=mass_mixing_ratios,
             surface_gravity=10 ** parameters['log10_surface_gravity'].value,
             mean_molar_masses=mean_molar_mass,
-            t_star=parameters['star_effective_temperature'].value,
-            r_star=parameters['star_radius'].value,
+            star_effective_temperature=parameters['star_effective_temperature'].value,
+            star_radius=parameters['star_radius'].value,
             orbit_semi_major_axis=parameters['semi_major_axis'].value,
-            cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
+            opaque_cloud_top_pressure=10 ** parameters['log10_cloud_pressure'].value,
             # stellar_intensity=parameters['star_spectral_radiosity'].value
         )
 
@@ -816,10 +816,10 @@ class SpectralModelLegacy:
             self.mass_fractions,
             planet.surface_gravity,
             self.mass_fractions['MMW'],
-            t_star=planet.star_effective_temperature,
-            r_star=planet.star_radius,
+            star_effective_temperature=planet.star_effective_temperature,
+            star_radius=planet.star_radius,
             orbit_semi_major_axis=planet.orbit_semi_major_axis,
-            cloud_top_pressure=self.p_cloud
+            opaque_cloud_top_pressure=self.p_cloud
         )
 
         flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
@@ -838,7 +838,7 @@ class SpectralModelLegacy:
             self.mass_fractions['MMW'],
             planet_radius=planet.radius,
             reference_pressure=planet.reference_pressure,
-            opaque_layers_top_pressure=self.p_cloud,
+            opaque_cloud_top_pressure=self.p_cloud,
             haze_factor=self.haze_factor,
         )
 

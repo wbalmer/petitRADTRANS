@@ -832,43 +832,43 @@ class BaseSpectralModel:
             )
 
         # Calculate the spectrum
-        radtrans.calculate_flux(
+        wavelengths, spectral_radiosity = radtrans.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             surface_gravity=planet_surface_gravity,
             mean_molar_masses=mean_molar_mass,
-            r_pl=planet_radius,
+            planet_radius=planet_radius,
             cloud_particle_radius_distribution_std=cloud_sigma,
             cloud_f_sed=cloud_sedimentation_factor,
             eddy_diffusion_coefficient=eddy_diffusion_coefficient,
             cloud_particles_mean_radii=cloud_particle_radii,
             contribution=calculate_contribution,
             gray_opacity=uniform_gray_opacity,
-            cloud_top_pressure=cloud_pressure,
+            opaque_cloud_top_pressure=cloud_pressure,
             power_law_opacity_350nm=scattering_opacity_350nm,
             power_law_opacity_coefficient=scattering_opacity_coefficient,
-            add_cloud_scat_as_abs=add_cloud_scattering_as_absorption,
-            t_star=star_effective_temperature,
-            r_star=star_radius,
+            add_cloud_scattering_as_absorption=add_cloud_scattering_as_absorption,
+            star_effective_temperature=star_effective_temperature,
+            star_radius=star_radius,
             orbit_semi_major_axis=orbit_semi_major_axis,
             emission_geometry=irradiation_geometry,
-            star_inclination_angle=irradiation_inclination,
-            hack_cloud_photospheric_optical_depths=cloud_photospheric_optical_depth,
-            dist=cloud_particle_size_distribution,
-            a_hans=cloud_hansen_a,
-            b_hans=cloud_hansen_b,
+            star_irradiation_angle=irradiation_inclination,
+            cloud_photosphere_median_optical_depth=cloud_photospheric_optical_depth,
+            cloud_particles_radius_distribution=cloud_particle_size_distribution,
+            cloud_a_hansen=cloud_hansen_a,
+            cloud_b_hansen=cloud_hansen_b,
             stellar_intensity=planet_star_spectral_radiances,
-            give_absorption_opacity=absorption_opacity_function,
-            give_scattering_opacity=scattering_opacity_function,
+            additional_absorption_opacities_function=absorption_opacity_function,
+            additional_scattering_opacities_function=scattering_opacity_function,
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
             # TODO add the other arguments
         )
 
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
-        wavelengths = hz2um(radtrans.frequencies)
-        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(radtrans.flux, radtrans.frequencies) \
+        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(spectral_radiosity, wavelengths) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+        wavelengths = hz2um(wavelengths)
 
         return wavelengths, spectral_radiosity
 
@@ -971,7 +971,7 @@ class BaseSpectralModel:
             cloud_f_sed=cloud_sedimentation_factor,
             eddy_diffusion_coefficient=eddy_diffusion_coefficient,
             cloud_particles_mean_radii=cloud_particle_radii,
-            opaque_layers_top_pressure=cloud_pressure,
+            opaque_cloud_top_pressure=cloud_pressure,
             power_law_opacity_350nm=scattering_opacity_350nm,
             power_law_opacity_coefficient=scattering_opacity_coefficient,
             contribution=calculate_contribution,
@@ -979,10 +979,10 @@ class BaseSpectralModel:
             gray_opacity=uniform_gray_opacity,
             variable_gravity=gravity_is_variable,
             cloud_particles_radius_distribution=cloud_particle_size_distribution,
-            b_hans=cloud_hansen_b,
-            a_hans=cloud_hansen_a,
-            give_absorption_opacity=absorption_opacity_function,
-            give_scattering_opacity=scattering_opacity_function
+            cloud_b_hansen=cloud_hansen_b,
+            cloud_a_hansen=cloud_hansen_a,
+            additional_absorption_opacities_function=absorption_opacity_function,
+            additional_scattering_opacities_function=scattering_opacity_function
         )
 
         # Convert into more useful units
@@ -2993,9 +2993,11 @@ class SpectralModel(BaseSpectralModel):
             else:
                 if parameter == 'imposed_mass_mixing_ratios':
                     if parameter is None:
-                        parameter = {}
+                        imposed_mass_mixing_ratios = {}
+                    else:
+                        imposed_mass_mixing_ratios = parameters[parameter]
 
-                    for species, mass_mixing_ratios in parameters[parameter].items():
+                    for species, mass_mixing_ratios in imposed_mass_mixing_ratios.items():
                         if species not in kwargs[parameter]:
                             kwargs[parameter][species] = copy.copy(mass_mixing_ratios)
                 elif parameter in kwargs:

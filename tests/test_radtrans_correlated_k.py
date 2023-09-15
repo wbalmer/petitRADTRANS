@@ -37,7 +37,7 @@ atmosphere_ck = init_radtrans_correlated_k()
 # Tests
 def test_correlated_k_emission_spectrum():
     # Calculate an emission spectrum
-    atmosphere_ck.calculate_flux(
+    frequencies, flux = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -48,8 +48,8 @@ def test_correlated_k_emission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck.flux
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
     )
@@ -60,7 +60,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_flux(
+    frequencies, flux, emission_contribution = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -75,8 +75,8 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_contribution_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'contribution': atmosphere_ck.emission_contribution
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'contribution': emission_contribution
         },
         relative_tolerance=relative_tolerance
     )
@@ -87,7 +87,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_flux(
+    frequencies, flux = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -101,8 +101,8 @@ def test_correlated_k_emission_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck.flux
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
     )
@@ -113,23 +113,23 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_flux(
+    frequencies, flux = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        b_hans=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['b_hansen'],
-        dist='hansen'
+        cloud_b_hansen=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['b_hansen'],
+        cloud_particles_radius_distribution='hansen'
     )
 
     # Comparison
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_hansen_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'spectral_radiosity': atmosphere_ck.flux
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
     )
@@ -190,7 +190,7 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        opaque_layers_top_pressure=radtrans_parameters['cloud_parameters']['cloud_pressure']
+        opaque_cloud_top_pressure=radtrans_parameters['cloud_parameters']['cloud_pressure']
     )
 
     # Comparison

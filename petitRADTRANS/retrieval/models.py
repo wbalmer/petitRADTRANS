@@ -160,9 +160,9 @@ def emission_model_diseq(pRT_object,
                               cloud_f_sed=fseds,
                               eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
-                              b_hans=b_hans,
+                              cloud_b_hansen=b_hans,
                               cloud_particles_mean_radii=radii,
-                              dist=distribution)
+                              cloud_particles_radius_distribution=distribution)
 
     # Getting the model into correct units (W/m2/micron)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
@@ -290,9 +290,9 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                               cloud_f_sed=fseds,
                               eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
-                              b_hans=b_hans,
+                              cloud_b_hansen=b_hans,
                               cloud_particles_mean_radii=radii,
-                              dist=distribution)
+                              cloud_particles_radius_distribution=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
                                          R_pl,
@@ -310,8 +310,8 @@ def emission_model_diseq_patchy_clouds(pRT_object,
                               cloud_f_sed=fseds,
                               eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
-                              b_hans=b_hans,
-                              dist=distribution)
+                              cloud_b_hansen=b_hans,
+                              cloud_particles_radius_distribution=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
                                         R_pl,
@@ -425,9 +425,9 @@ def guillot_emission(pRT_object,
                               cloud_f_sed=fseds,
                               eddy_diffusion_coefficient=kzz,
                               cloud_particle_radius_distribution_std=sigma_lnorm,
-                              b_hans=b_hans,
+                              cloud_b_hansen=b_hans,
                               cloud_particles_mean_radii=radii,
-                              dist=distribution)
+                              cloud_particles_radius_distribution=distribution)
     wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
@@ -551,7 +551,7 @@ def guillot_transmission(pRT_object,
                                            cloud_particles_mean_radii=radii,
                                            cloud_f_sed=fseds,
                                            eddy_diffusion_coefficient=kzz,
-                                           b_hans=b_hans,
+                                           cloud_b_hansen=b_hans,
                                            distribution=distribution,
                                            contribution=contribution)
     elif pcloud is not None:
@@ -562,7 +562,7 @@ def guillot_transmission(pRT_object,
             MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            opaque_layers_top_pressure=pcloud,
+            opaque_cloud_top_pressure=pcloud,
             contribution=contribution
         )
     else:
@@ -693,7 +693,7 @@ def guillot_patchy_transmission(pRT_object,
         planet_radius=R_pl,
         reference_pressure=0.01,
         cloud_particle_radius_distribution_std=sigma_lnorm,
-        b_hans=b_hans,
+        cloud_b_hansen=b_hans,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
         cloud_particles_mean_radii=radii,
@@ -827,7 +827,7 @@ def isothermal_transmission(pRT_object,
             MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            opaque_layers_top_pressure=pcloud
+            opaque_cloud_top_pressure=pcloud
         )
     elif len(pRT_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
@@ -840,7 +840,7 @@ def isothermal_transmission(pRT_object,
             planet_radius=R_pl,
             reference_pressure=0.01,
             cloud_particle_radius_distribution_std=sigma_lnorm,
-            b_hans=b_hans,
+            cloud_b_hansen=b_hans,
             cloud_f_sed=fseds,
             eddy_diffusion_coefficient=kzz,
             cloud_particles_mean_radii=radii,
