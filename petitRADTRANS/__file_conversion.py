@@ -4,24 +4,93 @@ The functions in this module are stored for the sake of keeping trace of changes
 used only once.
 """
 import copy
+import datetime
 import os
+import warnings
 
 import h5py
 import numpy as np
 
-import datetime
-import warnings
-from petitRADTRANS.prt_molmass import getMM
 import petitRADTRANS
-import petitRADTRANS.nat_cst as nc
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.fort_input import fort_input as fi
-from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.prt_molmass import getMM
+
+
+def __print_skipping_message(hdf5_opacity_file):
+    print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
+
+
+def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
+    from petitRADTRANS.chem_fortran_util import chem_fortran_util as cfu
+    # Read in parameters of chemistry grid
+    path = os.path.join(path_input_data, "abundance_files")
+    hdf5_file = os.path.join(path, 'mass_mixing_ratios.h5')
+
+    if os.path.isfile(hdf5_file) and not rewrite:
+        __print_skipping_message(hdf5_file)
+        return
+
+    feh = np.genfromtxt(os.path.join(path, "FEHs.dat"))
+    co_ratios = np.genfromtxt(os.path.join(path, "COs.dat"))
+    temperature = np.genfromtxt(os.path.join(path, "temps.dat"))
+    pressure = np.genfromtxt(os.path.join(path, "pressures.dat"))
+
+    with open(os.path.join(path, "species.dat"), 'r') as f:
+        species_name = f.readlines()
+
+    for i in range(len(species_name)):
+        species_name[i] = species_name[i][:-1]
+
+    chemistry_table = cfu.read_data(
+        int(len(feh)), int(len(co_ratios)), int(len(temperature)), int(len(pressure)), int(len(species_name)),
+        path_input_data + os.path.sep  # the complete path is defined in the function
+    )
+
+    chemistry_table = np.array(chemistry_table, dtype='d', order='F')
+
+    with h5py.File(hdf5_file, 'w') as f:
+        feh = f.create_dataset(
+            name='iron_to_hydrogen_ratios',
+            data=feh
+        )
+        feh.attrs['units'] = 'dex'
+
+        co = f.create_dataset(
+            name='carbon_to_oxygen_ratios',
+            data=co_ratios
+        )
+        co.attrs['units'] = 'None'
+
+        temp = f.create_dataset(
+            name='temperatures',
+            data=temperature
+        )
+        temp.attrs['units'] = 'K'
+
+        p = f.create_dataset(
+            name='pressures',
+            data=pressure
+        )
+        p.attrs['units'] = 'bar'
+
+        name = f.create_dataset(
+            name='species_names',
+            data=species_name
+        )
+        name.attrs['units'] = 'N/A'
+
+        table = f.create_dataset(
+            name='mass_mixing_ratios',
+            data=chemistry_table
+        )
+        table.attrs['units'] = 'None'
 
 
 def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                          rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
+    from petitRADTRANS.fort_input import fort_input as fi
+
     # Initialize infos
     molliere2019_doi = '10.1051/0004-6361/201935470'
 
@@ -122,7 +191,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
         hdf5_cia_file = os.path.join(output_directory, key + '.ciatable.petitRADTRANS.h5')
 
         if os.path.isfile(hdf5_cia_file) and not rewrite:
-            print(f"File '{hdf5_cia_file}' already exists, skipping conversion...")
+            __print_skipping_message(hdf5_cia_file)
             continue
 
         # Write HDF5 file
@@ -199,6 +268,8 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
 
 def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                       rewrite=False, output_directory=None):
+    from petitRADTRANS.fort_input import fort_input as fi
+
     """Using ExoMol units for HDF5 files."""
     # Initialize infos
     molliere2019_doi = '10.1051/0004-6361/201935470'
@@ -429,7 +500,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
         hdf5_opacity_file = os.path.join(output_directory, key + '.cotable.petitRADTRANS.h5')
 
         if os.path.isfile(hdf5_opacity_file) and not rewrite:
-            print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
+            __print_skipping_message(hdf5_opacity_file)
             continue
 
         # Write HDF5 file
@@ -535,6 +606,9 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                   rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
+    from petitRADTRANS.fort_input import fort_input as fi
+    from petitRADTRANS.radtrans import Radtrans
+
     # Initialize infos
     kurucz_website = 'http://kurucz.harvard.edu/'
     molliere2019_doi = '10.1051/0004-6361/201935470'
@@ -889,7 +963,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
             hdf5_opacity_file = os.path.join(output_directory, species + '.otable.petitRADTRANS.h5')
 
             if os.path.isfile(hdf5_opacity_file) and not rewrite:
-                print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
+                __print_skipping_message(hdf5_opacity_file)
                 continue
 
             print(f"Converting opacities in '{directory}'...")
@@ -1059,12 +1133,19 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
     print("Conversions successful.")
 
 
-def phoenix_spec_dat2h5():
+def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
     """
     Convert a PHOENIX stellar spectrum in .dat format to HDF5 format.
     """
     # Load the stellar parameters
-    description = np.genfromtxt(nc.spec_path + os.path.sep + 'stellar_params.dat')
+    path = os.path.join(path_input_data, 'stellar_specs')
+    hdf5_file = os.path.join(path, "stellar_spectra.h5", "w")
+
+    if os.path.isfile(hdf5_file) and not rewrite:
+        __print_skipping_message(hdf5_file)
+        return
+
+    description = np.genfromtxt(os.path.join(path, 'stellar_params.dat'))
 
     # Initialize the grids
     log_temp_grid = description[:, 0]
@@ -1074,11 +1155,13 @@ def phoenix_spec_dat2h5():
     spec_dats = []
 
     for spec_num in range(len(log_temp_grid)):
-        spec_dats.append(np.genfromtxt(nc.spec_path + '/spec_'
-                                       + str(int(spec_num)).zfill(2) + '.dat'))
+        spec_dats.append(np.genfromtxt(os.path.join(
+            path_input_data,
+            'spec_' + str(int(spec_num)).zfill(2) + '.dat')
+        ))
 
     # Write the HDF5 file
-    with h5py.File("stellar_spectra.h5", "w") as f:
+    with h5py.File(hdf5_file) as f:
         t_eff = f.create_dataset(
             name='log10_effective_temperature',
             data=log_temp_grid
@@ -1116,3 +1199,24 @@ def phoenix_spec_dat2h5():
         spectral_radiosity.attrs['units'] = 'erg/s/cm^2/Hz'
 
     print("Conversion successful.")
+
+
+def convert_all(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
+    print("Starting all conversions...")
+
+    print("Stellar spectra...")
+    phoenix_spec_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
+
+    print("CIA...")
+    continuum_cia_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
+
+    print("Line-by-line opacities...")
+    line_by_line_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
+
+    print("Clouds continuum...")
+    continuum_clouds_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
+
+    print("Chemical tables...")
+    chemical_table_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
+
+    print("Successfully converted all files")

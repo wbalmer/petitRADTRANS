@@ -15,64 +15,6 @@ from petitRADTRANS.chem_fortran_util import chem_fortran_util as cfu
 path = petitradtrans_config['Paths']['pRT_input_data_path']
 
 
-def __chem_table_dat2h5():
-    # Read in parameters of chemistry grid
-    feh = np.genfromtxt(os.path.join(path, "abundance_files/FEHs.dat"))
-    co_ratios = np.genfromtxt(os.path.join(path, "abundance_files/COs.dat"))
-    temperature = np.genfromtxt(os.path.join(path, "abundance_files/temps.dat"))
-    pressure = np.genfromtxt(os.path.join(path, "abundance_files/pressures.dat"))
-
-    with open(os.path.join(path, "abundance_files/species.dat"), 'r') as f:
-        species_name = f.readlines()
-
-    for i in range(len(species_name)):
-        species_name[i] = species_name[i][:-1]
-
-    chemistry_table = cfu.read_data(
-        int(len(feh)), int(len(co_ratios)), int(len(temperature)), int(len(pressure)), int(len(species_name)),
-        path + '/'
-    )
-
-    chemistry_table = np.array(chemistry_table, dtype='d', order='F')
-
-    with h5py.File(f"{path}{os.path.sep}abundance_files{os.path.sep}mass_mixing_ratios.h5", 'w') as f:
-        feh = f.create_dataset(
-            name='iron_to_hydrogen_ratios',
-            data=feh
-        )
-        feh.attrs['units'] = 'dex'
-
-        co = f.create_dataset(
-            name='carbon_to_oxygen_ratios',
-            data=co_ratios
-        )
-        co.attrs['units'] = 'None'
-
-        temp = f.create_dataset(
-            name='temperatures',
-            data=temperature
-        )
-        temp.attrs['units'] = 'K'
-
-        p = f.create_dataset(
-            name='pressures',
-            data=pressure
-        )
-        p.attrs['units'] = 'bar'
-
-        name = f.create_dataset(
-            name='species_names',
-            data=species_name
-        )
-        name.attrs['units'] = 'N/A'
-
-        table = f.create_dataset(
-            name='mass_mixing_ratios',
-            data=chemistry_table
-        )
-        table.attrs['units'] = 'None'
-
-
 def __load_mass_mixing_ratios():
     mass_mixing_ratios_file = f'{path}{os.path.sep}abundance_files{os.path.sep}mass_mixing_ratios.h5'
 
