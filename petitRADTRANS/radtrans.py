@@ -691,7 +691,7 @@ class Radtrans:
             mass_fractions: dictionary of the Rayleigh scattering species mass fractions
         """
         wavelengths_angstroem = np.array(nc.c / frequencies * 1e8, dtype='d', order='F')
-        rayleigh_scattering_opacities = 0
+        rayleigh_scattering_opacities = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
 
         for species in rayleigh_species:
             rayleigh_scattering_opacities += haze_factor * fs.add_rayleigh(
@@ -1794,7 +1794,6 @@ class Radtrans:
                     contribution
                 )
 
-
         return flux, emission_contribution
 
     def _calculate_cloud_optical_depths(self, surface_gravity):
@@ -2380,7 +2379,7 @@ class Radtrans:
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
             n_wavelengths = len(f['bin_centers'][:])
-            frequencies = nc.c * f['bin_centers'][:][::-1]
+            _frequencies = nc.c * f['bin_centers'][:][::-1]
             n_temperatures = len(f['t'][:])
             n_pressures = len(f['p'][:])
 
@@ -2399,10 +2398,10 @@ class Radtrans:
             ).reshape(
                 (g_size, frequencies.size, 1, temperature_profile_grid_size)
             )
-            index_fill = (frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                         (frequencies >= frequencies[-1] * (1. - 1e-10))
-            index_use = (frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                        (frequencies >= frequencies[-1] * (1. - 1e-10))
+            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
+                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
+            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
+                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
             ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
 
             ret_val[ret_val < 0.] = 0.
@@ -2479,7 +2478,7 @@ class Radtrans:
             local_freq_len_full = copy.copy(local_freq_len)
 
             # Read in the frequency range of the opacity data
-            frequencies, bin_edges = fi.load_frequencies(path_input_data, species, local_freq_len)
+            _frequencies, bin_edges = fi.load_frequencies(path_input_data, species, local_freq_len)
         else:
             if lbl_opacity_sampling <= 1:
                 local_freq_len_full = frequencies.size
@@ -2487,7 +2486,7 @@ class Radtrans:
                 local_freq_len_full = frequencies.size * lbl_opacity_sampling
 
             local_g_len = g_size
-            frequencies = None
+            _frequencies = None
 
         line_opacities_grid = fi.read_in_molecular_opacities(
             path_input_data,
@@ -2512,11 +2511,11 @@ class Radtrans:
             ret_val = np.zeros(g_size * frequencies.size * len_tp).reshape((g_size, frequencies.size, 1, len_tp))
 
             # Indices in retVal to be filled with read-in opacities
-            index_fill = (frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                         (frequencies >= frequencies[-1] * (1. - 1e-10))
+            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
+                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
             # Indices of read-in opacities to be filled into retVal
-            index_use = (frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                        (frequencies >= frequencies[-1] * (1. - 1e-10))
+            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
+                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
 
             ret_val[:, index_fill, 0, :] = \
                 line_opacities_grid[:, index_use, 0, :]
@@ -2664,6 +2663,7 @@ class Radtrans:
         # Add rayleigh scattering opacities
         if len(self._rayleigh_species) > 0:
             self.__scattering_in_transmission = True
+
             continuum_opacities_scattering += (
                 self._compute_rayleigh_scattering_opacities(
                     rayleigh_species=self._rayleigh_species,
