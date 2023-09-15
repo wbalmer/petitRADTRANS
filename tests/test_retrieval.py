@@ -195,10 +195,10 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
 
     # Calculate the spectrum
     prt_object.calculate_transit_radii(
-        temperatures,
-        abundances,
-        10 ** parameters['log_g'].value,
-        mmw,
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        surface_gravity=10 ** parameters['log_g'].value,
+        mean_molar_masses=mmw,
         planet_radius=parameters['R_pl'].value,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         opaque_cloud_top_pressure=10 ** parameters['log_Pcloud'].value
