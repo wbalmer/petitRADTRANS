@@ -1,13 +1,9 @@
 from .configuration import (
-    load_petitradtrans_config_file,
-    update_petitradtrans_config_file,
-    petitradtrans_config,
-    petitradtrans_config_file
+    petitradtrans_config_parser,
+    petitradtrans_config
 )
 
 __all__ = [
-    'load_petitradtrans_config_file',
-    'update_petitradtrans_config_file',
-    'petitradtrans_config',
-    'petitradtrans_config_file',
+    'petitradtrans_config_parser',
+    'petitradtrans_config'
 ]
