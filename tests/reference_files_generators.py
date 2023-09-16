@@ -217,9 +217,9 @@ def __save_temperature_profile(filename, temperature, plot_figure=False, figure_
         plt.title(figure_title)
 
 
-def __save_transmission_spectrum(filename, atmosphere, plot_figure=False, figure_title=None, prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4)
-    transit_radius = np.asarray(atmosphere.transit_radii / petitRADTRANS.nat_cst.r_jup_mean)
+def __save_transmission_spectrum(filename, frequencies, transit_radii, plot_figure=False, figure_title=None, prt_version=version):
+    wavelength = np.asarray(petitRADTRANS.nat_cst.c / frequencies * 1e4)
+    transit_radius = np.asarray(transit_radii / petitRADTRANS.nat_cst.r_jup_mean)
 
     np.savez_compressed(
         os.path.join(filename),
@@ -621,7 +621,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck_scattering.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck_scattering.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -635,7 +635,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
 
     __save_transmission_spectrum(
         reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'],
-        atmosphere_ck_scattering,
+        frequencies, transit_radii,
         plot_figure,
         'Correlated-k transmission spectrum, with non-gray cloud using calculated radius and scattering',
         prt_version=version
@@ -645,7 +645,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
 def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -655,7 +655,7 @@ def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
     )
 
     __save_transmission_spectrum(
-        reference_filenames['correlated_k_transmission'], atmosphere_ck, plot_figure,
+        reference_filenames['correlated_k_transmission'], frequencies, transit_radii, plot_figure,
         'Correlated-k transmission spectrum'
     )
 
@@ -663,7 +663,7 @@ def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
 def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -676,14 +676,14 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_
 
     __save_transmission_spectrum(
         reference_filenames['correlated_k_transmission_cloud_power_law'],
-        atmosphere_ck, plot_figure, 'Correlated-k transmission spectrum, with power law cloud'
+        frequencies, transit_radii, plot_figure, 'Correlated-k transmission spectrum, with power law cloud'
     )
 
 
 def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -695,14 +695,14 @@ def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figur
 
     __save_transmission_spectrum(
         reference_filenames['correlated_k_transmission_gray_cloud'],
-        atmosphere_ck, plot_figure, 'Correlated-k transmission spectrum, with gray cloud'
+        frequencies, transit_radii, plot_figure, 'Correlated-k transmission spectrum, with gray cloud'
     )
 
 
 def create_radtrans_correlated_k_transmission_spectrum_rayleigh_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -714,7 +714,7 @@ def create_radtrans_correlated_k_transmission_spectrum_rayleigh_ref(plot_figure=
 
     __save_transmission_spectrum(
         reference_filenames['correlated_k_transmission_rayleigh'],
-        atmosphere_ck, plot_figure, 'Correlated-k transmission spectrum, with hazes'
+        frequencies, transit_radii, plot_figure, 'Correlated-k transmission spectrum, with hazes'
     )
 
 
@@ -725,7 +725,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -737,7 +737,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
     )
 
     __save_transmission_spectrum(
-        reference_filenames['correlated_k_transmission_cloud_fixed_radius'], atmosphere_ck, plot_figure,
+        reference_filenames['correlated_k_transmission_cloud_fixed_radius'], frequencies, transit_radii, plot_figure,
         'Correlated-k transmission spectrum, with non-gray cloud using fixed radius'
     )
 
@@ -749,7 +749,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -763,7 +763,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
     )
 
     __save_transmission_spectrum(
-        reference_filenames['correlated_k_transmission_cloud_calculated_radius'], atmosphere_ck, plot_figure,
+        reference_filenames['correlated_k_transmission_cloud_calculated_radius'], frequencies, transit_radii, plot_figure,
         'Correlated-k transmission spectrum, with non-gray cloud using calculated radius'
     )
 
@@ -797,7 +797,7 @@ def create_radtrans_line_by_line_downsampled_emission_spectrum_ref(plot_figure=F
 def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line_sampling import atmosphere_lbl_downsampled
 
-    atmosphere_lbl_downsampled.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_lbl_downsampled.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -808,7 +808,7 @@ def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figu
 
     __save_transmission_spectrum(
         reference_filenames['line_by_line_downsampled_transmission'],
-        atmosphere_lbl_downsampled, plot_figure, 'Line-by-line downsampled transmission spectrum'
+        frequencies, transit_radii, plot_figure, 'Line-by-line downsampled transmission spectrum'
     )
 
 
@@ -831,7 +831,7 @@ def create_radtrans_line_by_line_emission_spectrum_ref(plot_figure=False):
 def create_radtrans_line_by_line_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line import atmosphere_lbl
 
-    atmosphere_lbl.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_lbl.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -842,7 +842,7 @@ def create_radtrans_line_by_line_transmission_spectrum_ref(plot_figure=False):
 
     __save_transmission_spectrum(
         reference_filenames['line_by_line_transmission'],
-        atmosphere_lbl, plot_figure, 'Line-by-line transmission spectrum'
+        frequencies, transit_radii, plot_figure, 'Line-by-line transmission spectrum'
     )
 
 

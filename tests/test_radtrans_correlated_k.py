@@ -137,7 +137,7 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
 
 def test_correlated_k_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -150,8 +150,8 @@ def test_correlated_k_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -159,7 +159,7 @@ def test_correlated_k_transmission_spectrum():
 
 def test_correlated_k_transmission_spectrum_cloud_power_law():
     # Calculate a transmission spectrum
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -174,8 +174,8 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_power_law'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -183,7 +183,7 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
 
 def test_correlated_k_transmission_spectrum_gray_cloud():
     # Calculate a transmission spectrum
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -197,8 +197,8 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_gray_cloud'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -206,7 +206,7 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
 
 def test_correlated_k_transmission_spectrum_rayleigh():
     # Calculate a transmission spectrum
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -220,8 +220,8 @@ def test_correlated_k_transmission_spectrum_rayleigh():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_rayleigh'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -232,7 +232,7 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -247,8 +247,8 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_fixed_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -259,7 +259,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -278,7 +278,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
             'correlated_k_transmission_contribution_cloud_calculated_radius'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
             'contribution': atmosphere_ck.transmission_contribution
         },
         relative_tolerance=relative_tolerance,
@@ -292,7 +292,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
     mass_fractions['Mg2SiO4(c)'] = \
         radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
 
-    atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -308,8 +308,8 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_calculated_radius'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_ck.frequencies * 1e4,
-            'transit_radius': atmosphere_ck.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )

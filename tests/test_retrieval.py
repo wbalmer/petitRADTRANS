@@ -194,7 +194,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     mmw = calc_MMW(abundances)
 
     # Calculate the spectrum
-    prt_object.calculate_transit_radii(
+    frequencies, transit_radii = prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
         surface_gravity=10 ** parameters['log_g'].value,
@@ -205,8 +205,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     )
 
     # Transform the outputs into the units of our data.
-    wlen_model = petitRADTRANS.nat_cst.c / prt_object.frequencies * 1e4  # wlen in micron
-    spectrum_model = (prt_object.transit_radii / parameters['Rstar'].value) ** 2.
+    wlen_model = petitRADTRANS.nat_cst.c / frequencies * 1e4  # wlen in micron
+    spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
 
     return wlen_model, spectrum_model
 

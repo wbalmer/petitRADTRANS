@@ -49,7 +49,7 @@ def test_line_by_line_downsampled_emission_spectrum():
 
 def test_line_by_line_downsampled_transmission_spectrum():
     # Calculate a transmission spectrum
-    atmosphere_lbl_downsampled.calculate_transit_radii(
+    frequencies, transit_radii = atmosphere_lbl_downsampled.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -62,8 +62,8 @@ def test_line_by_line_downsampled_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_downsampled_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / atmosphere_lbl_downsampled.frequencies * 1e4,
-            'transit_radius': atmosphere_lbl_downsampled.transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )

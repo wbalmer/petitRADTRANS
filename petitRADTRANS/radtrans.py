@@ -148,9 +148,6 @@ class Radtrans:
             self.emission_contribution, self.transmission_contribution, self.radius_hydrostatic_equilibrium = \
             self._init_pressure_dependent_parameters(pressures=pressures)
 
-        # Initialize outputs attributes  # TODO remove them?
-        self.transit_radii = np.zeros(self.frequencies.size, dtype='d', order='F')
-
         # Initialize information attributes (will change when calculating spectra)
         # TODO put attributes that must be updated to calculate spectra into these dicts below
         self.emission_parameters = {}
@@ -1821,7 +1818,7 @@ class Radtrans:
         # Calculate the transmission spectrum
         if ((self._line_opacity_mode == 'lbl' or self._use_precise_correlated_k_opacities)
                 and len(self._line_species) > 1):
-            self.transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
+            transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -1837,7 +1834,7 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if contribution:
-                self.transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
+                transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
                     opacities[:, :, :1, :],
                     temperatures,
                     self._pressures,
@@ -1860,13 +1857,13 @@ class Radtrans:
                     reference_pressure,
                     planet_radius,
                     self._weights_gauss,
-                    self.transit_radii ** 2,
+                    transit_radii ** 2,
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
                     variable_gravity
                 )
         else:
-            self.transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
+            transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -1882,7 +1879,7 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if contribution:
-                self.transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
+                transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
                     opacities,
                     temperatures,
                     self._pressures,
@@ -1905,11 +1902,13 @@ class Radtrans:
                     reference_pressure,
                     planet_radius,
                     self._weights_gauss,
-                    self.transit_radii ** 2.,
+                    transit_radii ** 2.,
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
                     variable_gravity
                 )
+
+        return transit_radii
 
     def calculate_transit_radii(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity,
                                 reference_pressure, planet_radius, variable_gravity=True,
@@ -2057,7 +2056,7 @@ class Radtrans:
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
 
-        self._calculate_transit_radii(
+        transit_radii = self._calculate_transit_radii(
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
             surface_gravity=surface_gravity,
@@ -2068,6 +2067,8 @@ class Radtrans:
             continuum_opacities_scattering=continuum_opacities_scattering,
             contribution=contribution
         )
+
+        return self.frequencies, transit_radii
 
     @staticmethod
     def _compute_cloud_opacities(

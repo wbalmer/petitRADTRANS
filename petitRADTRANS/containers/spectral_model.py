@@ -960,7 +960,7 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        radtrans.calculate_transit_radii(
+        frequencies, transit_radii = radtrans.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             surface_gravity=planet_surface_gravity,
@@ -986,8 +986,8 @@ class BaseSpectralModel:
         )
 
         # Convert into more useful units
-        planet_transit_radius = copy.copy(radtrans.transit_radii)
-        wavelengths = hz2um(radtrans.frequencies)
+        planet_transit_radius = copy.copy(transit_radii)
+        wavelengths = hz2um(frequencies)
         # TODO convert into radiosities by adding a star spectrum, so that it is consistent with emission?
 
         return wavelengths, planet_transit_radius
