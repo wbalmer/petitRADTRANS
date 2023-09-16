@@ -187,13 +187,17 @@ class Radtrans:
         )
 
         # Initialize loaded cloud opacities variables
-        self._cloud_particles_densities = None
-        self._cloud_species_absorption_opacities = None
-        self._cloud_species_scattering_opacities = None
-        self._cloud_particles_asymmetry_parameters = None
-        self._cloud_wavelengths = None
-        self._cloud_particle_radius_bins = None
-        self._cloud_particles_radii = None
+        self._cloud_loaded_opacities = LockedDict()
+        self._cloud_loaded_opacities.update({
+            'wavelengths': None,
+            'absorption_opacities': None,
+            'scattering_opacities': None,
+            'particles_radii': None,
+            'particles_radii_bins': None,
+            'particles_densities': None,
+            'particles_asymmetry_parameters': None,
+        })
+        self._cloud_loaded_opacities.lock()
 
         # Load in the angle (mu) grid for the emission spectral calculations
         self._emission_cos_angle_grid, self._emission_cos_angle_grid_weights = (
@@ -229,6 +233,37 @@ class Radtrans:
             cia.append(gas_continuum_contributor)
 
         return cia
+
+    @property
+    def cia_loaded_opacities(self):
+        return self._cia_loaded_opacities
+
+    @cia_loaded_opacities.setter
+    def cia_loaded_opacities(self, dictionary: dict):
+        warnings.warn(
+            "setting the Radtrans CIA opacity property should be avoided\n"
+            "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
+            "(they need to be updated for consistency)\n"
+            "It is recommended to create a new Radtrans instance instead"
+        )
+        for key1, value1 in dictionary.items():
+            for key2, value2 in value1.items():
+                self._cia_loaded_opacities[key1][key2] = value2
+
+    @property
+    def cloud_loaded_opacities(self):
+        return self._cloud_loaded_opacities
+
+    @cloud_loaded_opacities.setter
+    def cloud_loaded_opacities(self, dictionary: dict):
+        warnings.warn(
+            "setting the Radtrans cloud opacity property should be avoided\n"
+            "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
+            "(they need to be updated for consistency)\n"
+            "It is recommended to create a new Radtrans instance instead"
+        )
+        for key, value in dictionary.items():
+            self._cloud_loaded_opacities[key] = value
 
     @property
     def frequencies(self):
@@ -269,9 +304,9 @@ class Radtrans:
     @line_opacities.setter
     def line_opacities(self, dictionary: dict):
         warnings.warn(self.__line_opacity_property_setting_warning_message)
-        self._line_loaded_opacities.unlock()
-        self._line_loaded_opacities.update(dictionary)
-        self._line_loaded_opacities.lock()
+
+        for key, value in dictionary.items():
+            self._line_loaded_opacities[key] = value
 
     @property
     def pressures(self):
@@ -972,29 +1007,29 @@ class Radtrans:
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_anisotropic_tot = \
                     self._compute_cloud_opacities(
                         rho=rho,
-                        rho_p=self._cloud_particles_densities,
+                        rho_p=self._cloud_loaded_opacities['particles_densities'],
                         cloud_mass_fractions=_cloud_species_mass_fractions,
                         r_g=r_g,
                         sigma_n=cloud_particle_radius_distribution_std,
-                        cloud_rad_bins=self._cloud_particle_radius_bins,
-                        cloud_radii=self._cloud_particles_radii,
-                        cloud_specs_abs_opa=self._cloud_species_absorption_opacities,
-                        cloud_specs_scat_opa=self._cloud_species_scattering_opacities,
-                        cloud_anisotropy=self._cloud_particles_asymmetry_parameters
+                        cloud_rad_bins=self._cloud_loaded_opacities['particles_radii_bins'],
+                        cloud_radii=self._cloud_loaded_opacities['particles_radii'],
+                        cloud_specs_abs_opa=self._cloud_loaded_opacities['absorption_opacities'],
+                        cloud_specs_scat_opa=self._cloud_loaded_opacities['scattering_opacities'],
+                        cloud_anisotropy=self._cloud_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_anisotropic_tot = \
                     fs.calc_hansen_opas(
                         rho,
-                        self._cloud_particles_densities,
+                        self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
                         r_g,
                         cloud_b_hansen,
-                        self._cloud_particle_radius_bins,
-                        self._cloud_particles_radii,
-                        self._cloud_species_absorption_opacities,
-                        self._cloud_species_scattering_opacities,
-                        self._cloud_particles_asymmetry_parameters
+                        self._cloud_loaded_opacities['particles_radii_bins'],
+                        self._cloud_loaded_opacities['particles_radii'],
+                        self._cloud_loaded_opacities['absorption_opacities'],
+                        self._cloud_loaded_opacities['scattering_opacities'],
+                        self._cloud_loaded_opacities['particles_asymmetry_parameters']
                     )
         else:
             # Initialize f_seds
@@ -1011,7 +1046,7 @@ class Radtrans:
                 r_g = fs.compute_cloud_particles_mean_radius(
                     surface_gravity,
                     rho,
-                    self._cloud_particles_densities,
+                    self._cloud_loaded_opacities['particles_densities'],
                     temperatures,
                     mean_molar_masses,
                     f_seds,
@@ -1022,21 +1057,21 @@ class Radtrans:
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_anisotropic_tot = \
                     self._compute_cloud_opacities(
                         rho,
-                        self._cloud_particles_densities,
+                        self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
                         r_g,
                         cloud_particle_radius_distribution_std,
-                        self._cloud_particle_radius_bins,
-                        self._cloud_particles_radii,
-                        self._cloud_species_absorption_opacities,
-                        self._cloud_species_scattering_opacities,
-                        self._cloud_particles_asymmetry_parameters
+                        self._cloud_loaded_opacities['particles_radii_bins'],
+                        self._cloud_loaded_opacities['particles_radii'],
+                        self._cloud_loaded_opacities['absorption_opacities'],
+                        self._cloud_loaded_opacities['scattering_opacities'],
+                        self._cloud_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
                 r_g = fs.compute_cloud_particles_mean_radius_hansen(
                     surface_gravity,
                     rho,
-                    self._cloud_particles_densities,
+                    self._cloud_loaded_opacities['particles_densities'],
                     temperatures,
                     mean_molar_masses,
                     f_seds,
@@ -1047,15 +1082,15 @@ class Radtrans:
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_anisotropic_tot = \
                     fs.calc_hansen_opas(
                         rho,
-                        self._cloud_particles_densities,
+                        self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
                         r_g,
                         cloud_b_hansen,
-                        self._cloud_particle_radius_bins,
-                        self._cloud_particles_radii,
-                        self._cloud_species_absorption_opacities,
-                        self._cloud_species_scattering_opacities,
-                        self._cloud_particles_asymmetry_parameters
+                        self._cloud_loaded_opacities['particles_radii_bins'],
+                        self._cloud_loaded_opacities['particles_radii'],
+                        self._cloud_loaded_opacities['absorption_opacities'],
+                        self._cloud_loaded_opacities['scattering_opacities'],
+                        self._cloud_loaded_opacities['particles_asymmetry_parameters']
                     )
 
         # Take into account anisotropy
@@ -1065,7 +1100,7 @@ class Radtrans:
                 cloud_abs_opa_tot,
                 cloud_scat_opa_tot,
                 cloud_red_fac_anisotropic_tot,
-                self._cloud_wavelengths,
+                self._cloud_loaded_opacities['wavelengths'],
                 self._frequencies_bin_edges
             )
 
@@ -1125,7 +1160,7 @@ class Radtrans:
                     # Custom cloud parameters
                     frequencies=self._frequencies,
                     weights_gauss=self._line_loaded_opacities['weights_gauss'],
-                    cloud_wavelengths=self._cloud_wavelengths,
+                    cloud_wavelengths=self._cloud_loaded_opacities['wavelengths'],
                     cloud_f_sed=cloud_f_sed,
                     hack_cloud_total_scattering_anisotropic=hack_cloud_total_scattering_anisotropic,
                     hack_cloud_total_abs=hack_cloud_total_abs,
@@ -1813,7 +1848,7 @@ class Radtrans:
             # Custom cloud parameters
             frequencies=self._frequencies,
             weights_gauss=self._line_loaded_opacities['weights_gauss'],
-            cloud_wavelengths=self._cloud_wavelengths,
+            cloud_wavelengths=self._cloud_loaded_opacities['wavelengths'],
             cloud_f_sed=cloud_f_sed,
             hack_cloud_total_scattering_anisotropic=hack_cloud_total_scattering_anisotropic,
             hack_cloud_total_abs=hack_cloud_total_abs,
@@ -3359,13 +3394,15 @@ class Radtrans:
         cloud_specs_abs_opa[cloud_specs_abs_opa < 0.] = 0.
         cloud_specs_scat_opa[cloud_specs_scat_opa < 0.] = 0.
 
-        self._cloud_particles_densities = np.array(rho_cloud_particles, dtype='d', order='F')
-        self._cloud_species_absorption_opacities = np.array(cloud_specs_abs_opa, dtype='d', order='F')
-        self._cloud_species_scattering_opacities = np.array(cloud_specs_scat_opa, dtype='d', order='F')
-        self._cloud_particles_asymmetry_parameters = np.array(cloud_anisotropy, dtype='d', order='F')
-        self._cloud_wavelengths = np.array(cloud_lambdas, dtype='d', order='F')
-        self._cloud_particle_radius_bins = np.array(cloud_rad_bins, dtype='d', order='F')
-        self._cloud_particles_radii = np.array(cloud_radii, dtype='d', order='F')
+        self._cloud_loaded_opacities['particles_densities'] = np.array(rho_cloud_particles, dtype='d', order='F')
+        self._cloud_loaded_opacities['absorption_opacities'] = np.array(cloud_specs_abs_opa, dtype='d', order='F')
+        self._cloud_loaded_opacities['scattering_opacities'] = np.array(cloud_specs_scat_opa, dtype='d', order='F')
+        self._cloud_loaded_opacities['particles_asymmetry_parameters'] = np.array(
+            cloud_anisotropy, dtype='d', order='F'
+        )
+        self._cloud_loaded_opacities['wavelengths'] = np.array(cloud_lambdas, dtype='d', order='F')
+        self._cloud_loaded_opacities['particles_radii_bins'] = np.array(cloud_rad_bins, dtype='d', order='F')
+        self._cloud_loaded_opacities['particles_radii'] = np.array(cloud_radii, dtype='d', order='F')
 
     def write_out_rebin(self, resolution, path='', species=None, masses=None):
         # TODO should be removed as it is only used in one retrieval.util function
