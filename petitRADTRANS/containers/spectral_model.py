@@ -832,7 +832,7 @@ class BaseSpectralModel:
             )
 
         # Calculate the spectrum
-        wavelengths, spectral_radiosity = radtrans.calculate_flux(
+        wavelengths, spectral_radiosity, _ = radtrans.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             surface_gravity=planet_surface_gravity,
@@ -960,7 +960,7 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        frequencies, transit_radii = radtrans.calculate_transit_radii(
+        frequencies, transit_radii, _ = radtrans.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             surface_gravity=planet_surface_gravity,

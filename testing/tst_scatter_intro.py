@@ -62,12 +62,12 @@ if case1:
 
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
-    frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+    frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                               eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                               contribution = False)
     plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
-    contribution_scat = atmosphere.emission_contribution
+
     plt.show()
 
 if case2:
@@ -119,7 +119,7 @@ if case2:
 
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
-    frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+    frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                                                   eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                                                   emission_geometry='non-isotropic', star_effective_temperature=5778, \
                                                   star_radius=cst.r_sun, orbit_semi_major_axis=0.05 * cst.au, \
@@ -180,7 +180,7 @@ if case3:
     for r in [0, 0.5, 1]:
         atmosphere.reflectance = r * np.ones_like(atmosphere._frequencies)
 
-        frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+        frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                                                       eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                                                       emission_geometry='planetary_ave', star_effective_temperature=5778, \
                                                       star_radius=cst.r_sun, orbit_semi_major_axis=cst.au)

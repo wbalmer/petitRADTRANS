@@ -58,7 +58,7 @@ plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
 plt.show()
 #plt.clf()
 
-frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 
@@ -83,7 +83,7 @@ plt.ylabel('P (bar)')
 plt.show()
 #plt.clf()
 
-frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 

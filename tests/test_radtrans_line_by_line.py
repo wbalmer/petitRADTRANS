@@ -113,7 +113,7 @@ spectral_model_lbl, radtrans_spectral_model_lbl = init_spectral_model_line_by_li
 
 def test_line_by_line_emission_spectrum():
     # Calculate an emission spectrum
-    frequencies, flux = atmosphere_lbl.calculate_flux(
+    frequencies, flux, _ = atmosphere_lbl.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -133,7 +133,7 @@ def test_line_by_line_emission_spectrum():
 
 def test_line_by_line_transmission_spectrum():
     # Calculate a transmission spectrum
-    frequencies, transit_radii = atmosphere_lbl.calculate_transit_radii(
+    frequencies, transit_radii, _ =atmosphere_lbl.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

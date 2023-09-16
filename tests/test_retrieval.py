@@ -194,7 +194,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     mmw = calc_MMW(abundances)
 
     # Calculate the spectrum
-    frequencies, transit_radii = prt_object.calculate_transit_radii(
+    frequencies, transit_radii, _ =prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
         surface_gravity=10 ** parameters['log_g'].value,

@@ -318,7 +318,7 @@ plt.clf()
 
 mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
-frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
@@ -353,7 +353,7 @@ else:
 pressures = np.logspace(-6, 2, 100)
 atmosphere.setup_opa_structure(pressures)
 
-frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                           add_cloud_scattering_as_absorption= True)
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
@@ -361,7 +361,7 @@ plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
 
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
-frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, '-', \

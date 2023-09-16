@@ -43,7 +43,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     # Copy atmosphere so that change in reflectance is not carried outside the function
     atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
 
-    frequencies, flux = atmosphere.calculate_flux(
+    frequencies, flux, _ = atmosphere.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
