@@ -8,7 +8,7 @@ import seaborn as sns  # TODO is seaborn really that useful?
 from matplotlib.lines import Line2D
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import binned_statistic
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 
 
 def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list, color_list,
@@ -52,7 +52,7 @@ def plot_specs(fig, ax, path, name, nsample, color1, color2, zorder, rebin_val=N
     specs = sorted([f for f in glob.glob(path + '/' + name + '*.dat')])
     wlen = np.genfromtxt(specs[0])[:, 0]
     if rebin_val is not None:
-        wlen = nc.running_mean(wlen, rebin_val)[::rebin_val]
+        wlen = cst.running_mean(wlen, rebin_val)[::rebin_val]
     npoints = int(len(wlen))
     spectra = np.zeros((nsample, npoints))
 

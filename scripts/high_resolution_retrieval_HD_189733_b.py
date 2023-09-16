@@ -7,7 +7,7 @@ import os
 import numpy as np
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_transit_spectra, get_orbital_phases
@@ -403,7 +403,7 @@ def _transit_radius_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_transit_radius = prt_object.transit_radii
-    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
+    wlen_model = cst.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius
 
@@ -431,7 +431,7 @@ def load_airmassorg_data(file):
             altitudes.append(float(altitude))
 
     jd_times = np.array(jd_times)
-    times = (jd_times - jd_times[0]) * nc.snc.day
+    times = (jd_times - jd_times[0]) * cst.s_cst.day
 
     altitudes = np.array(altitudes)
     airmasses = 1 / np.cos(np.deg2rad(90 - altitudes))
@@ -604,7 +604,7 @@ def init_mock_observations(planet, line_species_str, mode,
 
     star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = radiosity_erg_hz2radiosity_erg_cm(
-        star_data[:, 1], nc.c / star_data[:, 0]
+        star_data[:, 1], cst.c / star_data[:, 0]
     )
 
     star_data[:, 0] *= 1e4  # cm to um

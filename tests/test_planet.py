@@ -61,7 +61,7 @@ def test_planet_from_tab():
 def test_planet_calculate_equilibrium_temperature():
     # Override planet parameters to ensure constant values are used
     planet.star_effective_temperature = radtrans_parameters['stellar_parameters']['effective_temperature']
-    planet.star_radius = radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun
+    planet.star_radius = radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
     planet.orbit_semi_major_axis = radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
     planet.bond_albedo = radtrans_parameters['planetary_parameters']['surface_reflectance']
 

@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 import scipy.ndimage
 
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.prt_molmass import getMM
@@ -1986,7 +1986,7 @@ class BaseSpectralModel:
 
     @staticmethod
     def um2hz(wavelength):
-        return nc.c / (wavelength * 1e-4)  # um to cm
+        return cst.c / (wavelength * 1e-4)  # um to cm
 
     def update_spectral_calculation_parameters(self, radtrans: Radtrans, **kwargs):
         self.temperatures, self.mass_mixing_ratios, self.mean_molar_masses, self.model_parameters = \
@@ -2667,7 +2667,7 @@ class SpectralModel(BaseSpectralModel):
         Returns:
             An estimation of the planet atmospheric metallicity in solar metallicity.
         """
-        return beta * (planet_mass / nc.m_jup) ** alpha * star_metallicity * atmospheric_mixing
+        return beta * (planet_mass / cst.m_jup) ** alpha * star_metallicity * atmospheric_mixing
 
     @staticmethod
     def calculate_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,

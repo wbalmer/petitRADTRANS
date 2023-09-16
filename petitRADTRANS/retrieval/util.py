@@ -8,7 +8,7 @@ import sys
 from typing import Tuple
 
 import numpy as np
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.prt_molmass import getMM
 from scipy.special import erfcinv
 
@@ -39,11 +39,11 @@ def surf_to_meas(flux, p_rad, dist):
 
 
 def freq_to_micron(frequency):
-    return nc.c / frequency / 1e-4
+    return cst.c / frequency / 1e-4
 
 
 def fnu_to_flambda(wlen, spectrum):
-    f_lambda = spectrum * nc.c / wlen ** 2.
+    f_lambda = spectrum * cst.c / wlen ** 2.
     # convert from ergs to Joule
     f_lambda = f_lambda * 1e-7
     return f_lambda
@@ -248,13 +248,13 @@ def bin_species_exok(species, resolution):
 def compute_gravity(parameters):
     if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
-        R_pl = np.sqrt(nc.G * parameters['mass'].value / gravity)
+        R_pl = np.sqrt(cst.G * parameters['mass'].value / gravity)
     elif 'log_g' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
         R_pl = parameters['R_pl'].value
     elif 'mass' in parameters.keys():
         R_pl = parameters['R_pl'].value
-        gravity = nc.G * parameters['mass'].value / R_pl ** 2
+        gravity = cst.G * parameters['mass'].value / R_pl ** 2
     else:
         print("Pick two of log_g, R_pl and mass priors!")
         sys.exit(5)

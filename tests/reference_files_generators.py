@@ -62,7 +62,7 @@ def __save_co_added_cross_correlation(filename,
 
 def __save_contribution_function(filename, atmosphere, mode='emission', plot_figure=False, figure_title=None,
                                  prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / atmosphere.frequencies * 1e4)
+    wavelength = np.asarray(petitRADTRANS.physical_constants.c / atmosphere.frequencies * 1e4)
 
     if mode == 'emission':
         contribution = np.asarray(atmosphere.emission_contribution)
@@ -97,7 +97,7 @@ def __save_contribution_function(filename, atmosphere, mode='emission', plot_fig
 
 
 def __save_emission_spectrum(filename, frequencies, flux, plot_figure=False, figure_title=None, prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / frequencies * 1e4)
+    wavelength = np.asarray(petitRADTRANS.physical_constants.c / frequencies * 1e4)
 
     np.savez_compressed(
         os.path.join(filename),
@@ -218,8 +218,8 @@ def __save_temperature_profile(filename, temperature, plot_figure=False, figure_
 
 
 def __save_transmission_spectrum(filename, frequencies, transit_radii, plot_figure=False, figure_title=None, prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.nat_cst.c / frequencies * 1e4)
-    transit_radius = np.asarray(transit_radii / petitRADTRANS.nat_cst.r_jup_mean)
+    wavelength = np.asarray(petitRADTRANS.physical_constants.c / frequencies * 1e4)
+    transit_radius = np.asarray(transit_radii / petitRADTRANS.physical_constants.r_jup_mean)
 
     np.savez_compressed(
         os.path.join(filename),
@@ -263,15 +263,15 @@ def npz2dat(file, new_resolving_power=60.0, relative_error=0.05, mode='transmiss
     if mode == 'emission':
         flux = petitRADTRANS.physics.radiosity_erg_hz2radiosity_erg_cm(
             npz_data['spectral_radiosity'],
-            petitRADTRANS.nat_cst.c * 1e4 / wavelength  # um to Hz
+            petitRADTRANS.physical_constants.c * 1e4 / wavelength  # um to Hz
         )
         flux *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
 
         flux_str = 'spectral_radiosity units: W.m-2/um\n'
     elif mode == 'transmission':
         flux = (
-                       npz_data['transit_radius'] * petitRADTRANS.nat_cst.r_jup_mean
-                       / (radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun)
+                       npz_data['transit_radius'] * petitRADTRANS.physical_constants.r_jup_mean
+                       / (radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun)
                ) ** 2
         flux_str = 'transit_radius units: (R_p/R_star)^2\n'
     else:
@@ -357,7 +357,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
         reduce=False
     )
 
-    line_spread_function_fwhm = petitRADTRANS.nat_cst.c /\
+    line_spread_function_fwhm = petitRADTRANS.physical_constants.c /\
         radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power']
 
     co_added_cross_correlations_snr, co_added_cross_correlations, \
@@ -521,7 +521,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_stell
             cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
             emission_geometry=geometry,
             star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-            star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+            star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
             orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
             star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
         )
@@ -603,7 +603,7 @@ def create_radtrans_correlated_k_emission_spectrum_surface_scattering_ref(plot_f
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         emission_geometry='non-isotropic',
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
         star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
     )
@@ -626,7 +626,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
@@ -650,7 +650,7 @@ def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
@@ -668,7 +668,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         power_law_opacity_350nm=radtrans_parameters['cloud_parameters']['kappa_zero'],
         power_law_opacity_coefficient=radtrans_parameters['cloud_parameters']['gamma_scattering']
@@ -688,7 +688,7 @@ def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figur
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         opaque_cloud_top_pressure=radtrans_parameters['cloud_parameters']['cloud_pressure']
     )
@@ -707,7 +707,7 @@ def create_radtrans_correlated_k_transmission_spectrum_rayleigh_ref(plot_figure=
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         haze_factor=radtrans_parameters['cloud_parameters']['haze_factor']
     )
@@ -730,7 +730,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         cloud_particles_mean_radii={'Mg2SiO4(c)': radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['radius']},
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal']
@@ -754,7 +754,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
@@ -802,7 +802,7 @@ def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figu
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
@@ -836,7 +836,7 @@ def create_radtrans_line_by_line_transmission_spectrum_ref(plot_figure=False):
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
@@ -976,7 +976,7 @@ def create_singular_values():
     planet = petitRADTRANS.containers.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
 
     planet.star_effective_temperature = radtrans_parameters['stellar_parameters']['effective_temperature']
-    planet.star_radius = radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun
+    planet.star_radius = radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
     planet.orbit_semi_major_axis = radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
     planet.bond_albedo = radtrans_parameters['planetary_parameters']['surface_reflectance']
 

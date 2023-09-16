@@ -14,7 +14,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from scripts.ccf_utils import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     convolve_shift_rebin, generate_mock_observations, get_orbital_phases, \
@@ -412,7 +412,7 @@ def init_parameters(planet, line_species_str, mode,
 
     star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
-        star_data[:, 1], nc.c / star_data[:, 0]
+        star_data[:, 1], cst.c / star_data[:, 0]
     )
 
     star_data[:, 0] *= 1e4  # cm to um
@@ -1588,7 +1588,7 @@ def radiosity_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.frequencies)
-    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
+    wlen_model = cst.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_radiosity
 
@@ -1699,7 +1699,7 @@ def simple_ccf(wavelength_data, spectral_data_earth_corrected, wavelength_model,
 
     for j in range(np.size(radial_velocity_lag)):
         wavelength_shift[j, :] = wavelength_model \
-                                 * np.sqrt((1 + radial_velocity_lag[j] / nc.c) / (1 - radial_velocity_lag[j] / nc.c))
+                                 * np.sqrt((1 + radial_velocity_lag[j] / cst.c) / (1 - radial_velocity_lag[j] / cst.c))
 
     for i in range(n_detectors):
         for k in range(np.size(radial_velocity_lag)):
@@ -1802,7 +1802,7 @@ def simple_log_l(wavelength_data, spectral_data_earth_corrected, wavelength_mode
 
     for j in range(np.size(radial_velocity_lag)):
         wavelength_shift[j, :] = wavelength_model \
-                                 * np.sqrt((1 + radial_velocity_lag[j] / nc.c) / (1 - radial_velocity_lag[j] / nc.c))
+                                 * np.sqrt((1 + radial_velocity_lag[j] / cst.c) / (1 - radial_velocity_lag[j] / cst.c))
 
     # Get star radiosity assuming the system-observer radial velocity is well-known (e.g. no need to iterate to find it)
     for i in range(n_detectors):
@@ -1968,7 +1968,7 @@ def transit_radius_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_transit_radius = prt_object.transit_radii
-    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
+    wlen_model = cst.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius
 

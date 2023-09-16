@@ -1750,23 +1750,23 @@ def plot_planet_distribution(data_directory, planet, figure_directory):
     gs = fig.add_gridspec(4, 4)
 
     fig_ax1 = fig.add_subplot(gs[:-1, 1:])
-    plt.plot([2, 2], np.array([0, 1e10]) * 1e5 / nc.r_earth, ls='--', color='C7', lw=1)
-    plt.plot([0.03 * nc.m_jup / nc.m_earth, 0.03 * nc.m_jup / nc.m_earth],
-             np.array([0, 1e10]) * 1e5 / nc.r_earth, ls=':', color='lightgray',
+    plt.plot([2, 2], np.array([0, 1e10]) * 1e5 / cst.r_earth, ls='--', color='C7', lw=1)
+    plt.plot([0.03 * cst.m_jup / cst.m_earth, 0.03 * cst.m_jup / cst.m_earth],
+             np.array([0, 1e10]) * 1e5 / cst.r_earth, ls=':', color='lightgray',
              lw=1)
-    plt.text(2, 2e5 * 1e5 / nc.r_earth, 'Rocky planets', rotation=90, ha='right', va='top', c='C7', fontsize=12,
+    plt.text(2, 2e5 * 1e5 / cst.r_earth, 'Rocky planets', rotation=90, ha='right', va='top', c='C7', fontsize=12,
              zorder=4)
-    plt.text(4.44, 1.6e5 * 1e5 / nc.r_earth, 'Super-earths/\nSub-Neptunes', rotation=90, ha='center', va='top', c='C7',
+    plt.text(4.44, 1.6e5 * 1e5 / cst.r_earth, 'Super-earths/\nSub-Neptunes', rotation=90, ha='center', va='top', c='C7',
              fontsize=10, zorder=4)
-    plt.text(0.03 * nc.m_jup / nc.m_earth, 1.6e5 * 1e5 / nc.r_earth, '?', rotation=0, ha='left', va='center', c='C7',
+    plt.text(0.03 * cst.m_jup / cst.m_earth, 1.6e5 * 1e5 / cst.r_earth, '?', rotation=0, ha='left', va='center', c='C7',
              fontsize=10, bbox=dict(fc='w', ec='none'), zorder=4)
-    plt.annotate('', (2, 1.6e5 * 1e5 / nc.r_earth), (0.03 * nc.m_jup / nc.m_earth, 1.6e5 * 1e5 / nc.r_earth),
+    plt.annotate('', (2, 1.6e5 * 1e5 / cst.r_earth), (0.03 * cst.m_jup / cst.m_earth, 1.6e5 * 1e5 / cst.r_earth),
                  arrowprops=dict(arrowstyle='<|-|>', fc='C7', ec='C7'), zorder=4)
-    plt.text(0.41 * nc.m_jup / nc.m_earth, 2e5 * 1e5 / nc.r_earth, 'Ice giants ', rotation=0, ha='right', va='top',
+    plt.text(0.41 * cst.m_jup / cst.m_earth, 2e5 * 1e5 / cst.r_earth, 'Ice giants ', rotation=0, ha='right', va='top',
              c='C7', fontsize=12, zorder=4)
-    plt.text(0.41 * nc.m_jup / nc.m_earth, 2e5 * 1e5 / nc.r_earth, ' Gas giants', rotation=0, ha='left', va='top',
+    plt.text(0.41 * cst.m_jup / cst.m_earth, 2e5 * 1e5 / cst.r_earth, ' Gas giants', rotation=0, ha='left', va='top',
              c='C7', fontsize=12, zorder=4)
-    plt.plot([0.41 * nc.m_jup / nc.m_earth, 0.41 * nc.m_jup / nc.m_earth], np.array([0, 1e10]) * 1e5 / nc.r_earth,
+    plt.plot([0.41 * cst.m_jup / cst.m_earth, 0.41 * cst.m_jup / cst.m_earth], np.array([0, 1e10]) * 1e5 / cst.r_earth,
              ls='--', color='C7', lw=1, zorder=4)
 
     plt.errorbar(
@@ -1776,20 +1776,20 @@ def plot_planet_distribution(data_directory, planet, figure_directory):
         ls='', marker='+', color='darkgrey'
     )
     plt.errorbar(
-        np.array([planet.mass]) / nc.m_earth, np.array([planet.radius]) / nc.r_earth,
-        xerr=(np.array([np.abs(planet.mass_error_lower)]) / nc.m_earth, np.array([planet.mass_error_upper]) / nc.m_earth),
-        yerr=(np.array([np.abs(planet.radius_error_lower)]) / nc.r_earth, np.array([planet.radius_error_upper]) / nc.r_earth),
+        np.array([planet.mass]) / cst.m_earth, np.array([planet.radius]) / cst.r_earth,
+        xerr=(np.array([np.abs(planet.mass_error_lower)]) / cst.m_earth, np.array([planet.mass_error_upper]) / cst.m_earth),
+        yerr=(np.array([np.abs(planet.radius_error_lower)]) / cst.r_earth, np.array([planet.radius_error_upper]) / cst.r_earth),
         ls='', marker='o', color='r'
     )
     plt.plot(
-        np.array([planet.mass, planet.mass]) / nc.m_earth,
-        np.array([1e-300, planet.radius]) / nc.r_earth, c='r', ls=':', zorder=3
+        np.array([planet.mass, planet.mass]) / cst.m_earth,
+        np.array([1e-300, planet.radius]) / cst.r_earth, c='r', ls=':', zorder=3
     )
     plt.plot(
-        np.array([1e-300, planet.mass]) / nc.m_earth,
-        np.array([planet.radius, planet.radius]) / nc.r_earth, c='r', ls=':', zorder=3
+        np.array([1e-300, planet.mass]) / cst.m_earth,
+        np.array([planet.radius, planet.radius]) / cst.r_earth, c='r', ls=':', zorder=3
     )
-    plt.text(planet.mass / nc.m_earth, planet.radius / nc.r_earth, planet.name,
+    plt.text(planet.mass / cst.m_earth, planet.radius / cst.r_earth, planet.name,
              ha='left', va='bottom', c='r', fontsize=16)
 
     plt.errorbar(
@@ -1799,38 +1799,38 @@ def plot_planet_distribution(data_directory, planet, figure_directory):
     plt.text(1, 1, 'Earth', ha='left', va='top', c='k', fontsize=16)
 
     plt.errorbar(
-        1.02413e26 * 1e3 / nc.m_earth, 24622 * 1e5 / nc.r_earth,
+        1.02413e26 * 1e3 / cst.m_earth, 24622 * 1e5 / cst.r_earth,
         ls='', marker='o', color='b'
     )
-    plt.text(1.02413e26 * 1e3 / nc.m_earth, 24622 * 1e5 / nc.r_earth, 'Neptune', ha='left', va='bottom', c='b',
+    plt.text(1.02413e26 * 1e3 / cst.m_earth, 24622 * 1e5 / cst.r_earth, 'Neptune', ha='left', va='bottom', c='b',
              fontsize=16)
 
     # plt.errorbar(
-    #     np.array([8.6810e25]) * 1e3 / nc.m_earth, np.array([25362]) * 1e5 / nc.r_earth,
+    #     np.array([8.6810e25]) * 1e3 / cst.m_earth, np.array([25362]) * 1e5 / cst.r_earth,
     #     ls='', marker='o', color='c'
     # )
-    # plt.text(8.6810e25 * 1e3 / nc.m_earth, 25362 * 1e5 / nc.r_earth, 'Uranus', ha='right', va='bottom', c='c', fontsize=16)
+    # plt.text(8.6810e25 * 1e3 / cst.m_earth, 25362 * 1e5 / cst.r_earth, 'Uranus', ha='right', va='bottom', c='c', fontsize=16)
 
     plt.errorbar(
-        np.array([nc.m_jup]) / nc.m_earth, np.array([nc.r_jup]) / nc.r_earth,
+        np.array([cst.m_jup]) / cst.m_earth, np.array([cst.r_jup]) / cst.r_earth,
         ls='', marker='o', color='C1'
     )
-    plt.text(nc.m_jup / nc.m_earth, nc.r_jup / nc.r_earth, 'Jupiter', ha='left', va='top', c='C1', fontsize=16,
+    plt.text(cst.m_jup / cst.m_earth, cst.r_jup / cst.r_earth, 'Jupiter', ha='left', va='top', c='C1', fontsize=16,
              zorder=4)
 
     rad_xlim = 749
     mass_ylim = 499
     plt.xscale('log')
     plt.yscale('log')
-    plt.xlim(np.array([5e24, 1e29]) * 1e3 / nc.m_earth)
-    plt.ylim(np.array([5e3, 2e5]) * 1e5 / nc.r_earth)
+    plt.xlim(np.array([5e24, 1e29]) * 1e3 / cst.m_earth)
+    plt.ylim(np.array([5e3, 2e5]) * 1e5 / cst.r_earth)
     plt.setp(fig_ax1.get_xticklabels(), visible=False)
     plt.setp(fig_ax1.get_yticklabels(), visible=False)
     plt.minorticks_on()
 
     fig.add_subplot(gs[-1, 1:], sharex=fig_ax1)
-    plt.hist(masses, bins=10 ** np.linspace(24, 29, 51) * 1e3 / nc.m_earth, edgecolor='black', color='w')
-    plt.plot(np.array([planet.mass, planet.mass]) / nc.m_earth, np.array([0, mass_ylim]), c='r', ls=':')
+    plt.hist(masses, bins=10 ** np.linspace(24, 29, 51) * 1e3 / cst.m_earth, edgecolor='black', color='w')
+    plt.plot(np.array([planet.mass, planet.mass]) / cst.m_earth, np.array([0, mass_ylim]), c='r', ls=':')
     plt.semilogx()
     plt.xlabel(r'Mass (M$_\oplus$)')
     # plt.ylabel('Count')
@@ -1838,10 +1838,10 @@ def plot_planet_distribution(data_directory, planet, figure_directory):
     plt.minorticks_on()
 
     fig.add_subplot(gs[:-1, 0], sharey=fig_ax1)
-    plt.hist(radius, bins=10 ** np.linspace(3.5, 5.5, 51) * 1e5 / nc.r_earth,
+    plt.hist(radius, bins=10 ** np.linspace(3.5, 5.5, 51) * 1e5 / cst.r_earth,
              orientation='horizontal', edgecolor='black', color='w')
     plt.plot(np.array([0, rad_xlim]),
-             np.array([planet.radius, planet.radius]) / nc.r_earth, c='r', ls=':')
+             np.array([planet.radius, planet.radius]) / cst.r_earth, c='r', ls=':')
     plt.semilogy()
     plt.ylabel(r'Radius (R$_\oplus$)')
     plt.xlabel('Count      ')
@@ -3146,11 +3146,11 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
 
         t0_, t0_el, t0_eu, _ = planet.calculate_mid_transit_time_from_source(
             observation_day,
-            planet.transit_midpoint_time / nc.snc.day,
-            -planet.transit_midpoint_time_error_lower / nc.snc.day,
-            planet.transit_midpoint_time_error_upper / nc.snc.day,
-            planet.orbital_period/ nc.snc.day, planet.orbital_period_error_lower / nc.snc.day,
-            planet.orbital_period_error_upper/ nc.snc.day,
+            planet.transit_midpoint_time / cst.s_cst.day,
+            -planet.transit_midpoint_time_error_lower / cst.s_cst.day,
+            planet.transit_midpoint_time_error_upper / cst.s_cst.day,
+            planet.orbital_period/ cst.s_cst.day, planet.orbital_period_error_lower / cst.s_cst.day,
+            planet.orbital_period_error_upper/ cst.s_cst.day,
             True
         )
 
@@ -3901,7 +3901,7 @@ def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_tra
             'prior_type': 'uniform',
             'figure_title': r'$T_0$',
             'figure_label': r'$T_0$ (s)',
-            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
+            'figure_offset': - (mid_transit_time_jd % 1 * cst.s_cst.day),
             'retrieval_name': 'T0'
         },
         'beta': {

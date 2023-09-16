@@ -35,7 +35,7 @@ def init_run():
     run_definition_simple.add_parameter(
         'Rstar',
         False,
-        value=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun
+        value=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
     )
 
     # Log of the surface gravity
@@ -51,9 +51,9 @@ def init_run():
         return petitRADTRANS.retrieval.util.uniform_prior(
             cube=x,
             x1=radtrans_parameters['retrieval_parameters']['planetary_radius_bounds'][0]
-            * petitRADTRANS.nat_cst.r_jup_mean,
+            * petitRADTRANS.physical_constants.r_jup_mean,
             x2=radtrans_parameters['retrieval_parameters']['planetary_radius_bounds'][1]
-            * petitRADTRANS.nat_cst.r_jup_mean,
+            * petitRADTRANS.physical_constants.r_jup_mean,
         )
 
     def prior_temperature(x):
@@ -118,7 +118,7 @@ def init_run():
     # Corner plot
     run_definition_simple.parameters['R_pl'].plot_in_corner = True
     run_definition_simple.parameters['R_pl'].corner_label = r'$R_{\rm P}$ ($\rm R_{Jup}$)'
-    run_definition_simple.parameters['R_pl'].corner_transform = lambda x: x / petitRADTRANS.nat_cst.r_jup_mean
+    run_definition_simple.parameters['R_pl'].corner_transform = lambda x: x / petitRADTRANS.physical_constants.r_jup_mean
     run_definition_simple.parameters['Temperature'].plot_in_corner = True
     run_definition_simple.parameters['Temperature'].corner_label = "Temp"
     run_definition_simple.parameters['log_Pcloud'].plot_in_corner = True
@@ -205,7 +205,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     )
 
     # Transform the outputs into the units of our data.
-    wlen_model = petitRADTRANS.nat_cst.c / frequencies * 1e4  # wlen in micron
+    wlen_model = petitRADTRANS.physical_constants.c / frequencies * 1e4  # wlen in micron
     spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
 
     return wlen_model, spectrum_model

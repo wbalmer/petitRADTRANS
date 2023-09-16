@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import colors
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_secondary_eclipse_spectra, get_mock_transit_spectra, get_orbital_phases
@@ -443,7 +443,7 @@ def _radiosity_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_radiosity = radiosity_erg_hz2radiosity_erg_cm(prt_object.flux, prt_object.frequencies)
-    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
+    wlen_model = cst.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_radiosity
 
@@ -473,7 +473,7 @@ def _transit_radius_model(prt_object, parameters):
 
     # Transform the outputs into the units of our data.
     planet_transit_radius = prt_object.transit_radii
-    wlen_model = nc.c / prt_object.frequencies * 1e4  # wlen in micron
+    wlen_model = cst.c / prt_object.frequencies * 1e4  # wlen in micron
 
     return wlen_model, planet_transit_radius
 
@@ -602,7 +602,7 @@ def init_mock_observations(planet, line_species_str, mode,
 
     star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
     star_data[:, 1] = radiosity_erg_hz2radiosity_erg_cm(
-        star_data[:, 1], nc.c / star_data[:, 0]
+        star_data[:, 1], cst.c / star_data[:, 0]
     )
 
     star_data[:, 0] *= 1e4  # cm to um

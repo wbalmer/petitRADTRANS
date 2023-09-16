@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import guillot_global
@@ -177,7 +177,7 @@ class SimplePlanet(Planet):
 
     @staticmethod
     def surface_gravity2mass(surface_gravity, radius, **kwargs):
-        return surface_gravity * radius ** 2 / nc.G
+        return surface_gravity * radius ** 2 / cst.G
 
 
 class SpectralModelLegacy:
@@ -681,7 +681,7 @@ class SpectralModelLegacy:
 
         # Transform the outputs into the units of our data.
         planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
-        wlen_model = nc.c / atmosphere.frequencies * 1e4  # cm to um
+        wlen_model = cst.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
 
@@ -704,7 +704,7 @@ class SpectralModelLegacy:
 
         # Transform the outputs into the units of our data.
         planet_transit_radius = atmosphere.transit_radii
-        wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
+        wavelengths = cst.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, planet_transit_radius
 
@@ -823,7 +823,7 @@ class SpectralModelLegacy:
         )
 
         flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
-        wavelengths = nc.c / atmosphere.frequencies * 1e4  # cm to um
+        wavelengths = cst.c / atmosphere.frequencies * 1e4  # cm to um
 
         return wavelengths, flux
 
@@ -843,7 +843,7 @@ class SpectralModelLegacy:
         )
 
         transit_radius = (atmosphere.transit_radii / planet.star_radius) ** 2
-        wavelengths = nc.c / atmosphere.frequencies * 1e4  # m to um
+        wavelengths = cst.c / atmosphere.frequencies * 1e4  # m to um
 
         return wavelengths, transit_radius
 
@@ -857,7 +857,7 @@ class SpectralModelLegacy:
             stellar_spectral_radiance[1:, 0]  # in cm
         stellar_spectral_radiance = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
             stellar_spectral_radiance[1:, 1],
-            nc.c / wavelength_stellar  # cm to Hz
+            cst.c / wavelength_stellar  # cm to Hz
         )
 
         wavelength_stellar *= 1e-2  # cm to m
@@ -917,7 +917,7 @@ class SpectralModelLegacy:
     def _get_phoenix_star_spectral_radiosity(star_effective_temperature, wavelengths):
         star_data = compute_phoenix_spectrum(star_effective_temperature)
         star_data[:, 1] = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(
-            star_data[:, 1], nc.c / star_data[:, 0]  # cm to Hz
+            star_data[:, 1], cst.c / star_data[:, 0]  # cm to Hz
         )
 
         star_data[:, 0] *= 1e4  # cm to um
@@ -1162,7 +1162,7 @@ class SpectralModelLegacy:
         Returns:
             (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
         """
-        return radiosity_erg_cm * wavelength ** 2 / nc.c
+        return radiosity_erg_cm * wavelength ** 2 / cst.c
 
     @staticmethod
     def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
@@ -1184,7 +1184,7 @@ class SpectralModelLegacy:
         Returns:
             (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
         """
-        return radiosity_erg_hz * frequency ** 2 / nc.c
+        return radiosity_erg_hz * frequency ** 2 / cst.c
 
     @classmethod
     def species_init(cls, include_species, planet_name, wavelength_boundaries, lbl_opacity_sampling, do_scat_emis,
@@ -1379,7 +1379,7 @@ def get_orbital_phases(phase_start, orbital_period, dit, ndit, return_times=Fals
 
 
 def _get_generic_planet_name(radius, surface_gravity, equilibrium_temperature):
-    return f"generic_{radius / nc.r_jup:.2f}Rjup_logg{np.log10(surface_gravity):.2f}_teq{equilibrium_temperature:.2f}K"
+    return f"generic_{radius / cst.r_jup:.2f}Rjup_logg{np.log10(surface_gravity):.2f}_teq{equilibrium_temperature:.2f}K"
 
 
 def generate_model_grid(models, pressures,
@@ -1599,7 +1599,7 @@ def load_model_grid(models):
 
 
 def make_generic_planet(radius, surface_gravity, equilibrium_temperature,
-                        star_effective_temperature=5500, star_radius=nc.r_sun, orbit_semi_major_axis=nc.AU):
+                        star_effective_temperature=5500, star_radius=cst.r_sun, orbit_semi_major_axis=cst.au):
     name = _get_generic_planet_name(radius, surface_gravity, equilibrium_temperature)
 
     return SimplePlanet(

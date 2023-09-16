@@ -7,7 +7,7 @@ import numpy as np
 
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from scipy.interpolate import interp1d
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate, co_add_cross_correlation
 from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space, get_co_added_ccf_velocity_space
@@ -109,7 +109,7 @@ def _test_rico(node='B'):
     observations = observations[wh_keep]
     uncertainties = uncertainties[wh_keep]
     dates = copy.deepcopy(dates_rico_)  # TODO 1e-5 absolute diff with Rico's time
-    times = (dates - np.floor(dates[0])) * nc.snc.day
+    times = (dates - np.floor(dates[0])) * cst.s_cst.day
 
     planet = Planet.get('HD 209458 b')
     lsf_fwhm = 1.9e5
@@ -120,13 +120,13 @@ def _test_rico(node='B'):
     # Exofop 20230725 parameters
     epoch = 2459826.781018  # BJD (day)
     epoch_error = 0.00006454682  # BJD (day)
-    planet.orbital_period = 3.5247404585539 * nc.snc.day
-    planet.orbital_period_error_lower = 0.000015326508 * nc.snc.day
-    planet.orbital_period_error_upper = 0.000015326508 * nc.snc.day
+    planet.orbital_period = 3.5247404585539 * cst.s_cst.day
+    planet.orbital_period_error_lower = 0.000015326508 * cst.s_cst.day
+    planet.orbital_period_error_upper = 0.000015326508 * cst.s_cst.day
 
     mid_transit_time = planet.calculate_mid_transit_time_from_source(
-        np.floor(dates[0]), epoch, epoch_error, epoch_error, planet.orbital_period / nc.snc.day,
-        planet.orbital_period_error_lower / nc.snc.day, planet.orbital_period_error_upper / nc.snc.day
+        np.floor(dates[0]), epoch, epoch_error, epoch_error, planet.orbital_period / cst.s_cst.day,
+        planet.orbital_period_error_lower / cst.s_cst.day, planet.orbital_period_error_upper / cst.s_cst.day
     )[0]  # +/- 15.6 s (20230725)
 
     orbital_phases = (times - mid_transit_time) / planet.orbital_period
@@ -567,7 +567,7 @@ def load_rico_data(data_directory, interpolate_to_common_wl, nodes='both',
     )
 
     times -= 0.5
-    # times = (times - np.floor(times[0])) * nc.snc.day
+    # times = (times - np.floor(times[0])) * cst.s_cst.day
 
     if truncate is not None:
         # mask = np.ones(wavelengths_instrument.shape, dtype=bool)
@@ -767,7 +767,7 @@ def get_data(planet, planet_transit_duration, dates, night, mid_transit_time, da
         site_name='Paranal'
     )
 
-    #times = (times - mid_transit_time) * nc.snc.day
+    #times = (times - mid_transit_time) * cst.s_cst.day
     orbital_phases = planet.get_orbital_phases(0, planet.orbital_period, times)
 
     # wh = np.where(np.logical_and(times >= -planet_transit_duration / 2,

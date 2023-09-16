@@ -50,7 +50,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         emission_geometry='non-isotropic',
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
         star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle'],
         reflectances=radtrans_parameters['planetary_parameters']['surface_reflectance']
@@ -62,7 +62,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
             'correlated_k_emission_surface_scattering'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance

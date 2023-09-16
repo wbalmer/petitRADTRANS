@@ -6,7 +6,7 @@ import numpy as np
 from astropy.io import fits
 from scipy.interpolate import interp1d
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate
 from petitRADTRANS.containers.planet import Planet
@@ -1207,9 +1207,9 @@ def main():
     planet_name = 'HD 189733 b'
     planet = Planet.get(planet_name)
     # Overriding to Rosenthal et al. 2021
-    planet.star_radius = 0.78271930158600000 * nc.r_sun
-    planet.star_radius_error_upper = +0.01396094224705000 * nc.r_sun
-    planet.star_radius_error_lower = -0.01396094224705000 * nc.r_sun
+    planet.star_radius = 0.78271930158600000 * cst.r_sun
+    planet.star_radius_error_upper = +0.01396094224705000 * cst.r_sun
+    planet.star_radius_error_lower = -0.01396094224705000 * cst.r_sun
 
     tellurics_mask_threshold = 0.5
 

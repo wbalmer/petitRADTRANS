@@ -51,7 +51,7 @@ def init_spectral_model_line_by_line():
         use_equilibrium_chemistry=False,
         imposed_mass_mixing_ratios=radtrans_parameters['mass_fractions'],
         # Transmission spectrum parameters (radtrans.calc_transm)
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,  # cm
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,  # cm
         planet_surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
         # cloud_pressure=1e-1,
@@ -65,9 +65,9 @@ def init_spectral_model_line_by_line():
         ),  # um
         wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
         # Scaling parameters
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,  # cm
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,  # cm
         # Orbital parameters
-        star_mass=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.m_sun,  # g
+        star_mass=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.m_sun,  # g
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
         orbital_longitudes=np.linspace(
             radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][0] * 360,
@@ -124,7 +124,7 @@ def test_line_by_line_emission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_emission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -138,7 +138,7 @@ def test_line_by_line_transmission_spectrum():
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
@@ -146,8 +146,8 @@ def test_line_by_line_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
-            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.physical_constants.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -256,7 +256,7 @@ def test_line_by_line_spectral_model_transmission():
         reference_file=reference_filenames['line_by_line_transmission'],
         comparison_dict={
             'wavelength': wavelengths,
-            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'transit_radius': transit_radii / petitRADTRANS.physical_constants.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
@@ -333,7 +333,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
     )
 
     # Cross-correlate spectrum with itself
-    line_spread_function_fwhm = petitRADTRANS.nat_cst.c /\
+    line_spread_function_fwhm = petitRADTRANS.physical_constants.c /\
         radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power']
 
     co_added_cross_correlations_snr, co_added_cross_correlations, \

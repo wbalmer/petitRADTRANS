@@ -20,8 +20,8 @@ import petitRADTRANS.ccf.ccf
 import petitRADTRANS.containers
 import petitRADTRANS.containers.planet
 import petitRADTRANS.containers.spectral_model
-import petitRADTRANS.nat_cst
 import petitRADTRANS.phoenix
+import petitRADTRANS.physical_constants
 import petitRADTRANS.physics
 import petitRADTRANS.poor_mans_nonequ_chem
 import petitRADTRANS.poor_mans_nonequ_chem.poor_mans_nonequ_chem

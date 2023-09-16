@@ -32,7 +32,7 @@ def test_guillot_2010_temperature_profile():
 
 
 def test_planck_function():
-    frequencies = petitRADTRANS.nat_cst.c / np.linspace(
+    frequencies = petitRADTRANS.physical_constants.c / np.linspace(
         radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'][0] * 1e-4,
         radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'][1] * 1e-4,
         10

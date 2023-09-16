@@ -6,7 +6,7 @@ from astropy.io import fits
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.rebin_give_width import rebin as rgw
 
 
@@ -122,8 +122,8 @@ class Data:
         # Sanity check distance
         self.distance = distance
         if not distance:
-            self.distance = 10. * nc.pc
-        if self.distance < 1.0 * nc.pc:
+            self.distance = 10. * cst.pc
+        if self.distance < 1.0 * cst.pc:
             logging.warning("Your distance is less than 1pc, are you sure you're using cgs units?")
 
         self.data_resolution = data_resolution

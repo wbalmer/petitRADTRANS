@@ -5,7 +5,7 @@ import os
 import h5py
 import numpy as np
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config
 
 
@@ -85,11 +85,11 @@ def compute_phoenix_spectrum(temperature):
         radius = weight_low * StarRadGrid[int(interpolation_index - 1)] \
             + weight_high * StarRadGrid[int(interpolation_index)]
 
-    freq = nc.c / wavelength_stellar
+    freq = cst.c / wavelength_stellar
     flux = spec_dat
     norm = -np.sum((flux[1:] + flux[:-1]) * np.diff(freq)) / 2.
 
-    spec_dat = flux / norm * nc.sigma * temperature ** 4.
+    spec_dat = flux / norm * cst.sigma * temperature ** 4.
 
     spec_dat = np.transpose(np.stack((wavelength_stellar, spec_dat)))
 

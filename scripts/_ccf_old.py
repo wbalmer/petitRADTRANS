@@ -6,7 +6,7 @@ from scipy.signal import correlate
 from scipy.stats import norm
 
 import numpy as np
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 
 
 def ccf_analysis(wavelengths, observed_spectrum, modelled_spectrum, velocity_range=2000., get_snr=True):
@@ -38,8 +38,8 @@ def ccf_analysis(wavelengths, observed_spectrum, modelled_spectrum, velocity_ran
     if get_snr:
         # Get S/N of detection, the 1e-5 coefficient is to convert from cm.s-1 to km.s-1
         velocities = np.linspace(
-            -(np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * nc.c * 1e-5,
-            (np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * nc.c * 1e-5,
+            -(np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * cst.c * 1e-5,
+            (np.max(wavelengths) - np.min(wavelengths)) / np.mean(wavelengths) * cst.c * 1e-5,
             np.size(ccf, axis=1)
         )
 

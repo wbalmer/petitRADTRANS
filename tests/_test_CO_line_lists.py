@@ -40,8 +40,8 @@ abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-from petitRADTRANS import nat_cst as nc
-R_pl = 1.838*nc.r_jup_mean
+from petitRADTRANS import physical_constants as cst
+R_pl = 1.838*cst.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
@@ -51,8 +51,8 @@ atmosphere2.calculate_transit_radii(temperature, abundances, gravity, MMW, plane
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='HITEMP')
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / nc.r_jup_mean, label ='Exomol')
+plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='HITEMP')
+plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Exomol')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -66,8 +66,8 @@ temperature = 200. * np.ones_like(pressures)
 atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 atmosphere2.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean, label ='HITEMP')
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / nc.r_jup_mean, label ='Exomol')
+plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='HITEMP')
+plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Exomol')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

@@ -15,7 +15,7 @@ import time
 import warnings
 
 import numpy as np
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from astropy.io import fits
 from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
 from petitRADTRANS.containers.planet import Planet
@@ -1045,7 +1045,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'prior_type': 'uniform',
             'figure_title': r'$T_0$',
             'figure_label': r'$T_0$ (s)',
-            'figure_offset': - (mid_transit_time_jd % 1 * nc.snc.day),
+            'figure_offset': - (mid_transit_time_jd % 1 * cst.s_cst.day),
             'retrieval_name': 'T0'
         },
         'beta': {
@@ -1084,7 +1084,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
     if use_gaussian_priors:
         retrieved_parameters_ref['mid_transit_time']['prior_type'] = 'gaussian'
         retrieved_parameters_ref['mid_transit_time']['prior_parameters'] = [
-            mid_transit_time_jd % 1 * nc.snc.day,
+            mid_transit_time_jd % 1 * cst.s_cst.day,
             12.53
         ]
 
@@ -1193,9 +1193,9 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
     planet = Planet.get(planet_name)
 
     # Overriding to Rosenthal et al. 2021
-    planet.star_radius = 0.78271930158600000 * nc.r_sun
-    planet.star_radius_error_upper = +0.01396094224705000 * nc.r_sun
-    planet.star_radius_error_lower = -0.01396094224705000 * nc.r_sun
+    planet.star_radius = 0.78271930158600000 * cst.r_sun
+    planet.star_radius_error_upper = +0.01396094224705000 * cst.r_sun
+    planet.star_radius_error_lower = -0.01396094224705000 * cst.r_sun
 
     # Others
     resolving_power = 8.04e4  # CARMENES resolving power

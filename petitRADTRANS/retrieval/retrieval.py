@@ -11,7 +11,7 @@ import numpy as np
 # Plotting
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config.configuration import petitradtrans_config
 # Read own packages
 from petitRADTRANS.radtrans import Radtrans
@@ -1944,7 +1944,7 @@ class Retrieval:
                 refresh=refresh,
                 pRT_reference=pRT_reference
             )
-            nu = nc.c / bf_wlen
+            nu = cst.c / bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
             diff_nu[:-1] = mean_diff_nu
@@ -2238,7 +2238,7 @@ class Retrieval:
                 refresh=refresh
             )
 
-            nu = nc.c / bf_wlen
+            nu = cst.c / bf_wlen
             mean_diff_nu = -np.diff(nu)
             diff_nu = np.zeros_like(nu)
             diff_nu[:-1] = mean_diff_nu

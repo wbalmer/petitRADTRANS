@@ -38,7 +38,7 @@ def main():
     }
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = 10.663
     # star_apparent_magnitude_j = 10
@@ -286,7 +286,7 @@ def main_tic():
     }
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
 
     # Models to be tested
@@ -526,7 +526,7 @@ def main_wasp():
     }
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
 
     # Models to be tested
@@ -769,7 +769,7 @@ def main_lp():
     planet = Planet.get(planet_name)
 
     pressures = np.logspace(-10, 2, 100)
-    distances = [0 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [0 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -965,7 +965,7 @@ def main_ltt2():
     }
 
     pressures = np.logspace(-10, 2, 100)
-    distances = [0 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [0 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
 
     # Load planet
@@ -1190,7 +1190,7 @@ def main_toi270():
     }
 
     pressures = np.logspace(-10, 2, 100)
-    distances = [0 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [0 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
 
     # Load planet
@@ -1418,7 +1418,7 @@ def main_ltt():
     planet_1 = Planet.get(planet_name)
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet_1.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -1762,7 +1762,7 @@ def main_aumicc():
 
     # Parameters
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -1993,7 +1993,7 @@ def main_hd():
     planet_1 = Planet.get(planet_name)
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet_1.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -2323,7 +2323,7 @@ def main_toi776():
 
     # Parameters
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -2514,7 +2514,7 @@ def main_toi():
     planet = Planet.get(planet_name)
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     # star_apparent_magnitude_j = 10
@@ -2765,7 +2765,7 @@ def main_teff():
     }
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     # star_apparent_magnitude_j = 10.663
     star_apparent_magnitude_j = 10
@@ -2825,7 +2825,7 @@ def main_teff():
 
     for equilibrium_temperature in equilibrium_temperatures:
         for g in surface_gravities:
-            planets.append(make_generic_planet(nc.r_jup, g, equilibrium_temperature))
+            planets.append(make_generic_planet(cst.r_jup, g, equilibrium_temperature))
             planets[-1].save()
 
     # Load/generate relevant models
@@ -2973,7 +2973,7 @@ def main_tiso():
     planet = Planet.get(planet_name)
 
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]  # np.logspace(1, 3, 7) * nc.c * 3600 * 24 * 365.25
+    distances = [213.982 * cst.pc]  # np.logspace(1, 3, 7) * cst.c * 3600 * 24 * 365.25
     # star_apparent_magnitude_v = 12.095
     # star_apparent_magnitude_j = 10.663
     star_apparent_magnitude_j = 10
@@ -3179,7 +3179,7 @@ def _test():
 
     planet = Planet.get(planet_name)
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]
+    distances = [213.982 * cst.pc]
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     star_apparent_magnitudes = [star_apparent_magnitude_j]
 
@@ -3357,7 +3357,7 @@ def _test_emission():
 
     planet = Planet.get(planet_name)
     pressures = np.logspace(-10, 2, 130)
-    distances = [213.982 * nc.pc]
+    distances = [213.982 * cst.pc]
     star_apparent_magnitude_j = planet.system_apparent_magnitude_j
     star_apparent_magnitudes = [star_apparent_magnitude_j]
 

@@ -59,7 +59,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -83,7 +83,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
     )
 
@@ -93,7 +93,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'correlated_k_emission_cloud_calculated_radius_scattering_planetary_ave'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -117,7 +117,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
     )
 
@@ -125,7 +125,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_emission_cloud_calculated_radius_scattering_dayside_ave'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -149,7 +149,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.nat_cst.r_sun,
+        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
         star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
     )
@@ -160,7 +160,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'correlated_k_emission_cloud_calculated_radius_scattering_non-isotropic'
         ],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -177,7 +177,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         mass_fractions=mass_fractions,
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
@@ -188,8 +188,8 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
     compare_from_reference_file(
         reference_file=reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
-            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.physical_constants.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )

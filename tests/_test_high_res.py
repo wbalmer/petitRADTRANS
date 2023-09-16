@@ -16,10 +16,10 @@ atmosphere = Radtrans(line_species = ['H2O_main_iso',
 pressures = np.logspace(-10, 2, 130)
 atmosphere.setup_opa_structure(pressures)
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import guillot_global
 
-R_pl = 1.838*nc.r_jup_mean
+R_pl = 1.838*cst.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 

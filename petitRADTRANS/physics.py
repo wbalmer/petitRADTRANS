@@ -2,7 +2,7 @@
 """
 import numpy as np
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 
 
 def b(temperature, nu):
@@ -16,7 +16,7 @@ def b(temperature, nu):
             Array containing the frequency in Hz.
     """
 
-    planck_function = 2. * nc.h * nu ** 3. / nc.c ** 2. / (np.exp(nc.h * nu / nc.kB / temperature) - 1.)
+    planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
 
     return planck_function
 
@@ -34,8 +34,8 @@ def d_b_d_temperature(temperature, nu):
 
     """
     planck_function = b(temperature, nu)
-    planck_function /= np.exp(nc.h * nu / nc.kB / temperature) - 1.
-    planck_function *= np.exp(nc.h * nu / nc.kB / temperature) * nc.h * nu / nc.kB / temperature ** 2.
+    planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
+    planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
 
     return planck_function
 
@@ -53,7 +53,7 @@ def doppler_shift(wavelength_0, velocity):
     Returns:
         (cm) the wavelength of the source as measured by the observer
     """
-    return wavelength_0 * np.sqrt((1 + velocity / nc.c) / (1 - velocity / nc.c))
+    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
 
 
 def get_dist(t_irr, dist, t_star, r_star, mode, mode_what):
@@ -67,19 +67,19 @@ def get_dist(t_irr, dist, t_star, r_star, mode, mode_what):
 
     if mode_what == 'temp':
         if angle_use:
-            t_irr = ((r_star * nc.r_sun / (dist * nc.AU)) ** 2. * t_star ** 4. * mu_star) ** 0.25
+            t_irr = ((r_star * cst.r_sun / (dist * cst.au)) ** 2. * t_star ** 4. * mu_star) ** 0.25
         elif mode == 'p':
-            t_irr = ((r_star * nc.r_sun / (dist * nc.AU)) ** 2. * t_star ** 4. / 4.) ** 0.25
+            t_irr = ((r_star * cst.r_sun / (dist * cst.au)) ** 2. * t_star ** 4. / 4.) ** 0.25
         else:
-            t_irr = ((r_star * nc.r_sun / (dist * nc.AU)) ** 2. * t_star ** 4. / 2.) ** 0.25
+            t_irr = ((r_star * cst.r_sun / (dist * cst.au)) ** 2. * t_star ** 4. / 2.) ** 0.25
         return t_irr
     elif mode_what == 'dist':
         if angle_use:
-            dist = np.sqrt((r_star * nc.r_sun) ** 2. * (t_star / t_irr) ** 4. * mu_star) / nc.AU
+            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. * mu_star) / cst.au
         elif mode == 'p':
-            dist = np.sqrt((r_star * nc.r_sun) ** 2. * (t_star / t_irr) ** 4. / 4.) / nc.AU
+            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 4.) / cst.au
         else:
-            dist = np.sqrt((r_star * nc.r_sun) ** 2. * (t_star / t_irr) ** 4. / 2.) / nc.AU
+            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 2.) / cst.au
         return dist
 
 
@@ -258,7 +258,7 @@ def hz2um(frequency):
     Returns:
         (um) the corresponding wavelengths
     """
-    return nc.c / frequency * 1e4  # cm to um
+    return cst.c / frequency * 1e4  # cm to um
 
 
 def isothermal(pressures, temperature):
@@ -469,7 +469,7 @@ def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
     Returns:
         (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
     """
-    return radiosity_erg_cm * wavelength ** 2 / nc.c
+    return radiosity_erg_cm * wavelength ** 2 / cst.c
 
 
 def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
@@ -492,7 +492,7 @@ def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
         (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
     """
     # TODO move to physics
-    return radiosity_erg_hz * frequency ** 2 / nc.c
+    return radiosity_erg_hz * frequency ** 2 / cst.c
 
 
 def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):

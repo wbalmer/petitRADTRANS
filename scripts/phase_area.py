@@ -1,5 +1,5 @@
 import numpy as np
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.rebin_give_width import rebin as rgw
 import time
 
@@ -43,7 +43,7 @@ class Rtfl:
         if path is not None:
             # Read in spectra
             dat = np.genfromtxt(path)
-            self.freq = nc.c / (dat[:, 0] * 1e-4)
+            self.freq = cst.c / (dat[:, 0] * 1e-4)
             self.flux = dat[:, 1]
         else:
             self.freq = freq
@@ -59,9 +59,9 @@ class Rtfl:
         print('phase_reduction', phase_reduction)
 
         # Apply a doppler shift, using the relative radial velocity
-        freq_use = self.freq * (1. - rel_velocity / nc.c)
+        freq_use = self.freq * (1. - rel_velocity / cst.c)
 
-        wlen_nm = nc.c / freq_use * 1e7
+        wlen_nm = cst.c / freq_use * 1e7
         # Calculate noise-less mock observation of planet in
         # isolation
         flux_lsf_iso, freq_instrument, flux_rebin_iso = \
@@ -180,12 +180,12 @@ def planet_vel(phases=None, times=None, k_p=None,
             k_p = v_kepler * np.sin(inclination * np.pi / 180.)
             ret_val = k_p * np.cos(phases + np.pi / 2.)
     else:
-        p_orb = 2. * np.pi * np.sqrt(sma ** 3. / nc.G / m_star)
+        p_orb = 2. * np.pi * np.sqrt(sma ** 3. / cst.G / m_star)
 
         if times is not None:
             phases = times / p_orb * 2. * np.pi
 
-        v_kepler = np.sqrt(nc.G * m_star / sma)
+        v_kepler = np.sqrt(cst.G * m_star / sma)
         k_p = v_kepler * np.sin(inclination * np.pi / 180.)
         ret_val = k_p * np.cos(phases + np.pi / 2.)
 

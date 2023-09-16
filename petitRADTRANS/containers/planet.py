@@ -11,7 +11,7 @@ from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.table.table import Table
 from astropy.time import Time
 
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.utils import calculate_uncertainty
 
@@ -749,21 +749,21 @@ class Planet:
             key = key.replace('_orbper', '_orbital_period')
 
             if not skip_unit_conversion:
-                value *= nc.snc.day
+                value *= cst.s_cst.day
         elif '_orblper' in key:
             key = key.replace('_orblper', '_argument_of_periastron')
         elif '_orbsmax' in key:
             key = key.replace('_orbsmax', '_orbit_semi_major_axis')
 
             if not skip_unit_conversion:
-                value *= nc.AU
+                value *= cst.au
         elif '_orbincl' in key:
             key = key.replace('_orbincl', '_orbital_inclination')
         elif '_orbtper' in key:
             key = key.replace('_orbtper', '_epoch_of_periastron')
 
             if not skip_unit_conversion:
-                value *= nc.snc.day
+                value *= cst.s_cst.day
         elif '_orbeccen' in key:
             key = key.replace('_orbeccen', '_orbital_eccentricity')
         elif '_eqt' in key:
@@ -774,7 +774,7 @@ class Planet:
             key = key.replace('_insol', '_insolation_flux')
 
             if not skip_unit_conversion:
-                value *= nc.s_earth
+                value *= cst.s_earth
         elif '_dens' in key:
             key = key.replace('_dens', '_density')
         elif '_trandep' in key:
@@ -786,19 +786,19 @@ class Planet:
             key = key.replace('_tranmid', '_transit_midpoint_time')
 
             if not skip_unit_conversion:
-                value *= nc.snc.day
+                value *= cst.s_cst.day
         elif '_trandur' in key:
             key = key.replace('_trandur', '_transit_duration')
 
             if not skip_unit_conversion:
-                value *= nc.snc.hour
+                value *= cst.s_cst.hour
         elif '_spectype' in key:
             key = key.replace('_spectype', '_spectral_type')
         elif '_rotp' in key:
             key = key.replace('_rotp', '_rotational_period')
 
             if not skip_unit_conversion:
-                value *= nc.snc.day
+                value *= cst.s_cst.day
         elif '_projobliq' in key:
             key = key.replace('_projobliq', '_projected_obliquity')
         elif '_rvamp' in key:
@@ -810,7 +810,7 @@ class Planet:
             key = key.replace('_radj', '_radius')
 
             if not skip_unit_conversion:
-                value *= nc.r_jup
+                value *= cst.r_jup
         elif '_ratror' in key:
             key = key.replace('_ratror', '_planet_stellar_radius_ratio')
         elif '_trueobliq' in key:
@@ -823,19 +823,19 @@ class Planet:
             key = key.replace('_msinij', '_mass_sini')
 
             if not skip_unit_conversion:
-                value *= nc.m_jup
+                value *= cst.m_jup
         elif '_massj' in key:
             if not use_best_mass:
                 key = key.replace('_massj', '_mass')
 
                 if not skip_unit_conversion:
-                    value *= nc.m_jup
+                    value *= cst.m_jup
         elif '_bmassj' in key:
             if use_best_mass:
                 key = key.replace('_bmassj', '_mass')
 
                 if not skip_unit_conversion:
-                    value *= nc.m_jup
+                    value *= cst.m_jup
         elif '_teff' in key:
             key = key.replace('_teff', '_effective_temperature')
         elif '_met' in key:
@@ -854,7 +854,7 @@ class Planet:
             key = key.replace('_lum', '_luminosity')
 
             if not skip_unit_conversion:
-                value = 10 ** value * nc.l_sun
+                value = 10 ** value * cst.l_sun
         elif '_logg' in key:
             key = key.replace('_logg', '_surface_gravity')
 
@@ -862,20 +862,20 @@ class Planet:
                 value = 10 ** value
         elif '_age' in key:
             if not skip_unit_conversion:
-                value *= 1e9 * nc.snc.year
+                value *= 1e9 * cst.s_cst.year
         elif 'star_mass' in key:
             if not skip_unit_conversion:
-                value *= nc.m_sun
+                value *= cst.m_sun
         elif 'star_rad' in key:
             key = key.replace('star_rad', 'star_radius')
 
             if not skip_unit_conversion:
-                value *= nc.r_sun
+                value *= cst.r_sun
         elif '_dist' in key:
             key = key.replace('_dist', '_distance')
 
             if not skip_unit_conversion:
-                value *= nc.pc
+                value *= cst.pc
         elif '_plx' in key:
             key = key.replace('_plx', '_parallax')
 
@@ -889,7 +889,7 @@ class Planet:
                 key = key[:i] + '_proper_motion_' + key[i + len('_pm'):]
 
             if not skip_unit_conversion:
-                value *= np.deg2rad(1e-3 / 3600 / nc.snc.year)
+                value *= np.deg2rad(1e-3 / 3600 / cst.s_cst.year)
         elif key == 'hostname':
             key = 'host_name'
         elif key == 'discoverymethod':
@@ -991,9 +991,9 @@ class Planet:
         errors = calculate_uncertainty(derivatives, uncertainties)
 
         if day2second:
-            observation_mid_transit_time = np.mod(observation_mid_transit_time, 1) * nc.snc.day
-            errors[0] *= nc.snc.day
-            errors[1] *= nc.snc.day
+            observation_mid_transit_time = np.mod(observation_mid_transit_time, 1) * cst.s_cst.day
+            errors[0] *= cst.s_cst.day
+            errors[1] *= cst.s_cst.day
 
         return observation_mid_transit_time, errors[1], -errors[0], n_orbits
 
@@ -1029,7 +1029,7 @@ class Planet:
 
         Returns: (cm.s-1) the mean orbital velocity, assuming 0 eccentricity and mass_object << mass_star
         """
-        return np.sqrt(nc.G * star_mass / orbit_semi_major_axis)
+        return np.sqrt(cst.G * star_mass / orbit_semi_major_axis)
 
     @staticmethod
     def generate_filename(name, directory=default_planet_models_directory):
@@ -1232,7 +1232,7 @@ class Planet:
 
             return None, None, None
 
-        surface_gravity = nc.G * mass / radius ** 2
+        surface_gravity = cst.G * mass / radius ** 2
 
         partial_derivatives = np.array([
             surface_gravity / mass,  # dg/dm
@@ -1269,7 +1269,7 @@ class Planet:
 
             return None, None, None
 
-        radius = (nc.G * mass / surface_gravity) ** 0.5
+        radius = (cst.G * mass / surface_gravity) ** 0.5
 
         partial_derivatives = np.array([
             radius / (2 * mass),  # dr/dm
@@ -1301,7 +1301,7 @@ class Planet:
         Returns:
             (g) the mass of the planet, and its upper and lower error
         """
-        mass = surface_gravity / nc.G * radius ** 2
+        mass = surface_gravity / cst.G * radius ** 2
 
         partial_derivatives = np.array([
             mass / surface_gravity,  # dm/dg

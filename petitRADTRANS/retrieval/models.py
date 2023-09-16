@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.retrieval import cloud_cond as fc
 
 from petitRADTRANS.physics import pt_ret_model, guillot_global, isothermal
@@ -586,7 +586,7 @@ def guillot_transmission(pRT_object,
             contribution=contribution
         )
 
-    wlen_model = nc.c / frequencies / 1e-4
+    wlen_model = cst.c / frequencies / 1e-4
     spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
     if contribution:
         return wlen_model, spectrum_model, pRT_object.transmission_contribution
@@ -711,7 +711,7 @@ def guillot_patchy_transmission(pRT_object,
         contribution=contribution
     )
 
-    wlen_model = nc.c / frequencies / 1e-4
+    wlen_model = cst.c / frequencies / 1e-4
     spectrum_model_cloudy = (transit_radii / parameters['Rstar'].value) ** 2.
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
@@ -728,7 +728,7 @@ def guillot_patchy_transmission(pRT_object,
         contribution=contribution
     )
 
-    wlen_model = nc.c / frequencies / 1e-4
+    wlen_model = cst.c / frequencies / 1e-4
     spectrum_model_clear = (transit_radii / parameters['Rstar'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
@@ -867,7 +867,7 @@ def isothermal_transmission(pRT_object,
             contribution=contribution
         )
 
-    wlen_model = nc.c / frequencies / 1e-4
+    wlen_model = cst.c / frequencies / 1e-4
     spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
 
     if contribution:

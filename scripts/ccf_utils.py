@@ -9,7 +9,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.stats import norm
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS import phoenix
 from petitRADTRANS import physics
 from scripts._ccf_old import calculate_ccf_snr, ccf_analysis
@@ -35,12 +35,12 @@ def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, sta
 
     stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
         stellar_spectral_radiance[wh, 1],
-        nc.c / wavelength_stellar  # in Hz
+        cst.c / wavelength_stellar  # in Hz
     )
     stellar_spectral_radiance = np.mean(stellar_spectral_radiance)
     wavelength_mean = np.mean(wavelengths)
 
-    photon_number = stellar_spectral_radiance * wavelength_mean / (nc.h * nc.c) \
+    photon_number = stellar_spectral_radiance * wavelength_mean / (cst.h * cst.c) \
         * (star_radius / star_distance) ** 2 \
         * exposure_time * np.pi * telescope_mirror_radius ** 2 * telescope_throughput \
         * wavelength_mean / instrument_resolving_power / pixel_per_resolution_element
@@ -53,7 +53,7 @@ def calculate_star_radiosity(wavelength_boundaries, star_effective_temperature, 
     wavelength_stellar = stellar_spectral_radiance[:, 0]  # in cm
     stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
         stellar_spectral_radiance[:, 1],
-        nc.c / wavelength_stellar
+        cst.c / wavelength_stellar
     )
 
     wh = np.asarray(np.where(np.logical_and(wavelength_stellar > wavelength_boundaries[0],
@@ -93,8 +93,8 @@ def calculate_star_apparent_magnitude(wavelength_boundaries, star_effective_temp
     vega_radiosity = calculate_star_radiosity(
         wavelength_boundaries=wavelength_boundaries,
         star_effective_temperature=9602,
-        star_radius=np.mean([2.362, 2.818]) * nc.r_sun,
-        star_distance=25.04 * nc.c * 3600 * 24 * 365.25
+        star_radius=np.mean([2.362, 2.818]) * cst.r_sun,
+        star_distance=25.04 * cst.c * 3600 * 24 * 365.25
     )
 
     return -2.5 * np.log10(star_radiosity / vega_radiosity)
@@ -126,7 +126,7 @@ def calculate_esm(wavelength_boundaries, planet_radius, planet_equilibrium_tempe
 
     planet_dayside_temperature = planet_equilibrium_temperature * 1.1  # from Kempton et al. 2018
 
-    nu_75 = nc.c / 7.5e-4  # (cgs) frequency at 7.5 um, following Kempton et al. 2018
+    nu_75 = cst.c / 7.5e-4  # (cgs) frequency at 7.5 um, following Kempton et al. 2018
     planck_75_planet = physics.b(planet_dayside_temperature, nu_75)
     planck_75_star = physics.b(star_effective_temperature, nu_75)
 
@@ -159,16 +159,16 @@ def calculate_tsm(wavelength_boundaries, planet_radius, planet_mass, planet_equi
             wavelength_boundaries, star_effective_temperature, star_radius, star_distance
         )
 
-    return (planet_radius / nc.r_earth) ** 3 * planet_equilibrium_temperature \
-        / ((planet_mass / nc.m_earth) * (star_radius / nc.r_sun) ** 2) * scale_factor \
+    return (planet_radius / cst.r_earth) ** 3 * planet_equilibrium_temperature \
+        / ((planet_mass / cst.m_earth) * (star_radius / cst.r_sun) ** 2) * scale_factor \
         * 10 ** (-star_apparent_magnitude / 5)
 
 
 def calculate_tsm_derivatives(tsm, planet_radius, planet_mass, planet_equilibrium_temperature, star_radius):
-    d_tsm_d_planet_radius = 3 * tsm / planet_radius * nc.r_earth
+    d_tsm_d_planet_radius = 3 * tsm / planet_radius * cst.r_earth
     d_tsm_d_planet_equilibrium_temperature = tsm / planet_equilibrium_temperature
-    d_tsm_d_planet_mass = - tsm / planet_mass * nc.m_earth
-    d_tsm_d_star_radius = - 2 * tsm / star_radius * nc.r_sun
+    d_tsm_d_planet_mass = - tsm / planet_mass * cst.m_earth
+    d_tsm_d_star_radius = - 2 * tsm / star_radius * cst.r_sun
     d_tsm_d_star_apparent_magnitude = - np.log(10) / 5 * tsm
 
     return np.array([

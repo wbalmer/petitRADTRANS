@@ -7,8 +7,8 @@ subdir('cli')
 subdir('ccf')
 
 py.install_sources([
-    'nat_cst.py',
     'phoenix.py',
+    'physical_constants.py',
     'physics.py',
     'prt_molmass.py',
     'radtrans.py',

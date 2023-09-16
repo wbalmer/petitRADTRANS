@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS import prt_molmass
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS import phoenix
 from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.fort_rebin import fort_rebin as fr
@@ -396,7 +396,7 @@ class Radtrans:
     @staticmethod
     def _compute_power_law_opacities(power_law_opacity_350nm, power_law_opacity_coefficient,
                                      frequencies, n_layers):
-        wavelengths = nc.c / frequencies / 1e-4  # Hz to um
+        wavelengths = cst.c / frequencies / 1e-4  # Hz to um
         power_law_opacities = power_law_opacity_350nm * (wavelengths / 0.35) ** power_law_opacity_coefficient
 
         return np.tile(power_law_opacities, (n_layers, 1)).T  # (p, wavelengths)
@@ -446,7 +446,7 @@ class Radtrans:
             if hdf5_files:
                 with h5py.File(hdf5_files[0], 'r') as f:
                     n_g = len(f['samples'][:])
-                    frequencies_bin_edges = nc.c * f['bin_edges'][:][::-1]
+                    frequencies_bin_edges = cst.c * f['bin_edges'][:][::-1]
             else:
                 # Use classical pRT format
                 # In the long run: move to hdf5 fully?
@@ -460,7 +460,7 @@ class Radtrans:
                 )
 
             # Extend the wavelength range if user requests larger range than what first line opa species contains
-            wavelengths = nc.c / frequencies_bin_edges * 1e4  # Hz to um
+            wavelengths = cst.c / frequencies_bin_edges * 1e4  # Hz to um
 
             if wavelengths[-1] < self._wavelengths_boundaries[1]:
                 delta_log_wavelength = np.diff(np.log10(wavelengths))[-1]
@@ -480,13 +480,13 @@ class Radtrans:
                 )[1:][::-1])
                 wavelengths = np.concatenate((add_low, wavelengths))
 
-            frequencies_bin_edges = nc.c / (wavelengths * 1e-4)  # um to Hz
+            frequencies_bin_edges = cst.c / (wavelengths * 1e-4)  # um to Hz
             frequencies = (frequencies_bin_edges[1:] + frequencies_bin_edges[:-1]) * 0.5
 
             # Cut the wavelength range if user requests smaller range than what first line opa species contains
             indices_within_boundaries = np.nonzero(np.logical_and(
-                np.greater(nc.c / frequencies, self._wavelengths_boundaries[0] * 1e-4),
-                np.less(nc.c / frequencies, self._wavelengths_boundaries[1] * 1e-4)
+                np.greater(cst.c / frequencies, self._wavelengths_boundaries[0] * 1e-4),
+                np.less(cst.c / frequencies, self._wavelengths_boundaries[1] * 1e-4)
             ))[0]
 
             frequencies = np.array(frequencies[indices_within_boundaries], dtype='d', order='F')
@@ -570,12 +570,12 @@ class Radtrans:
                     # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
                     selection[-1] += self._lbl_opacity_sampling - 1
 
-                frequencies = nc.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
+                frequencies = cst.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
             else:
                 if self._lbl_opacity_sampling > 1:
                     size_frequencies += self._lbl_opacity_sampling - 1
 
-                frequencies = nc.c / fi.read_wlen(start_index, size_frequencies, wavelengths_dat_file)
+                frequencies = cst.c / fi.read_wlen(start_index, size_frequencies, wavelengths_dat_file)
 
             n_g = 1
 
@@ -583,7 +583,7 @@ class Radtrans:
             if self._lbl_opacity_sampling > 1:
                 frequencies = frequencies[::self._lbl_opacity_sampling]
 
-            frequencies_bin_edges = np.array(nc.c / self.compute_bins_edges(nc.c / frequencies), dtype='d', order='F')
+            frequencies_bin_edges = np.array(cst.c / self.compute_bins_edges(cst.c / frequencies), dtype='d', order='F')
         else:
             raise ValueError(f"line opacity mode must be 'c-k' or 'lbl', but was '{self._line_opacity_mode}'")
 
@@ -686,7 +686,7 @@ class Radtrans:
             temperatures: temperatures in each atmospheric layer
             mass_fractions: dictionary of the Rayleigh scattering species mass fractions
         """
-        wavelengths_angstroem = np.array(nc.c / frequencies * 1e8, dtype='d', order='F')
+        wavelengths_angstroem = np.array(cst.c / frequencies * 1e8, dtype='d', order='F')
         rayleigh_scattering_opacities = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
 
         for species in rayleigh_species:
@@ -842,7 +842,7 @@ class Radtrans:
         hack_cloud_total_abs = None
         hack_cloud_total_scattering_anisotropic = None
         r_g = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
-        rho = self._pressures / nc.kB / temperatures * mean_molar_masses * nc.amu
+        rho = self._pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         # Initialize Hansen's b coefficient
         if "hansen" in cloud_particles_radius_distribution.lower():
@@ -1382,8 +1382,8 @@ class Radtrans:
             else:
                 # Use a smaller wavelength range for the median optical depth
                 # The units of cloud_wavelengths are converted from micron to cm
-                wavelengths_select = (nc.c / frequencies >= 1e-4 * cloud_wavelengths[0]) & \
-                                     (nc.c / frequencies <= 1e-4 * cloud_wavelengths[1])
+                wavelengths_select = (cst.c / frequencies >= 1e-4 * cloud_wavelengths[0]) & \
+                                     (cst.c / frequencies <= 1e-4 * cloud_wavelengths[1])
 
             # Calculate the cloud-free optical depth per wavelength
             w_gauss_photosphere = weights_gauss[..., np.newaxis, np.newaxis]
@@ -1524,7 +1524,7 @@ class Radtrans:
             if not np.isscalar(mu):
                 mu = mu[0]
 
-            integral = mu * nc.amu * surface_gravity * r_pl_sq / nc.kB / temp
+            integral = mu * cst.amu * surface_gravity * r_pl_sq / cst.kB / temp
             return integral
 
         pressures = [p0]
@@ -1559,7 +1559,7 @@ class Radtrans:
         pressures = pressures * 1e6  # bar to cgs
         reference_pressure = reference_pressure * 1e6  # bar to cgs
 
-        rho = pressures * mean_molar_masses * nc.amu / nc.kB / temperatures
+        rho = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         radius_hydrostatic_equilibrium = fs.calc_radius(
             pressures,
             surface_gravity,
@@ -2160,7 +2160,7 @@ class Radtrans:
         leads to > 1e-6 errors in the tox tests.
         '''
         factor = combined_mass_fractions / collision_dict['weight'] \
-            * mean_molar_masses / nc.amu / (nc.L0 ** 2) * pressures / nc.kB / temperatures
+            * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
 
         log10_alpha = np.log10(collision_dict['alpha'])
 
@@ -2185,7 +2185,7 @@ class Radtrans:
                 axis=0
             )
 
-            cia_opacities = np.exp(interpolating_function(nc.c / frequencies) * np.log(10))
+            cia_opacities = np.exp(interpolating_function(cst.c / frequencies) * np.log(10))
 
             cia_opacities = np.where(cia_opacities < sys.float_info.min, 0, cia_opacities)
 
@@ -2286,7 +2286,7 @@ class Radtrans:
         wavelengths_interp = np.append(spec[:, 0], add_wavelengths)
         fluxes_interp = np.append(spec[:, 1], add_stellar_flux)
 
-        stellar_intensity = fr.rebin_spectrum(wavelengths_interp, fluxes_interp, nc.c / frequencies)
+        stellar_intensity = fr.rebin_spectrum(wavelengths_interp, fluxes_interp, cst.c / frequencies)
 
         stellar_intensity = stellar_intensity / np.pi * (rad / orbit_semi_major_axis) ** 2
 
@@ -2379,7 +2379,7 @@ class Radtrans:
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
             n_wavelengths = len(f['bin_centers'][:])
-            _frequencies = nc.c * f['bin_centers'][:][::-1]
+            _frequencies = cst.c * f['bin_centers'][:][::-1]
             n_temperatures = len(f['t'][:])
             n_pressures = len(f['p'][:])
 
@@ -2408,7 +2408,7 @@ class Radtrans:
 
             # Divide by mass to convert cross-sections to opacities
             mol_mass = float(f['mol_mass'][0])
-            line_opacities_grid = ret_val / mol_mass / nc.amu
+            line_opacities_grid = ret_val / mol_mass / cst.amu
 
         return line_opacities_grid
 
@@ -2416,7 +2416,7 @@ class Radtrans:
     def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, lbl_opacity_sampling=1):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
-            frequency_grid = nc.c * f['wavenumbers'][:]  # cm-1 to s-1
+            frequency_grid = cst.c * f['wavenumbers'][:]  # cm-1 to s-1
 
             selection = np.nonzero(np.logical_and(
                 np.greater_equal(frequency_grid, np.min(frequencies)),
@@ -2738,7 +2738,7 @@ class Radtrans:
                     hack_cloud_total_abs = np.zeros((self.frequencies.shape[0], self._pressures.shape[0]))
             else:
                 cloud_abs = additional_absorption_opacities_function(
-                    nc.c / self.frequencies / 1e-4,
+                    cst.c / self.frequencies / 1e-4,
                     self._pressures * 1e-6
                 )
                 continuum_opacities += cloud_abs
@@ -2756,7 +2756,7 @@ class Radtrans:
                     )
             else:
                 cloud_scat = additional_scattering_opacities_function(
-                    nc.c / self.frequencies / 1e-4,
+                    cst.c / self.frequencies / 1e-4,
                     self._pressures * 1e-6
                 )
                 continuum_opacities_scattering += cloud_scat
@@ -2866,7 +2866,7 @@ class Radtrans:
             for i, s in enumerate(self._line_species):
                 opacities_dict[s] = np.sum(_opacities[:, :, i, :] * weights_gauss, axis=0)
 
-            return nc.c / self.frequencies, opacities_dict
+            return cst.c / self.frequencies, opacities_dict
 
         temp = np.array(temperature)
         pressure_bar = np.array(pressure_bar)
@@ -2971,10 +2971,10 @@ class Radtrans:
         radius_hydrostatic_equilibrium[neg_rad] = radius_hydrostatic_equilibrium[~neg_rad][0]
 
         # Calculate the density
-        # TODO: replace values here with nc.amu and nc.kB.
+        # TODO: replace values here with cst.amu and cst.kB.
         # Currently it is kept at the values of the Fortran implementation, such that
         # unit tests are still being passed.
-        #                           nc.amu        # nc.kB  # the Fortran values are different from the nc values
+        #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
         rho = (pressures * 1e6  # bar to cgs
                * mean_molar_masses * 1.66053892e-24 / 1.3806488e-16 / temperatures)
         # Bring in right shape for matrix operations later.
@@ -3305,12 +3305,12 @@ class Radtrans:
             except ValueError:  # TODO check if ValueError is expected here
                 f.create_dataset('DOI', data=['--'])
 
-            f.create_dataset('bin_centers', data=self.frequencies[::-1] / nc.c)
-            f.create_dataset('bin_edges', data=self.frequencies_bin_edges[::-1] / nc.c)
+            f.create_dataset('bin_centers', data=self.frequencies[::-1] / cst.c)
+            f.create_dataset('bin_edges', data=self.frequencies_bin_edges[::-1] / cst.c)
             ret_opa_table = copy.copy(self._line_opacities_grid[spec])
 
             # Mass to go from opacities to cross-sections
-            ret_opa_table = ret_opa_table * nc.amu * masses[spec.split('_')[0]]
+            ret_opa_table = ret_opa_table * cst.amu * masses[spec.split('_')[0]]
 
             # Do the opposite of what I do when loading in Katy's ExoMol tables
             # To get opacities into the right format
@@ -3343,10 +3343,10 @@ class Radtrans:
             f.create_dataset('t', data=self._line_opacities_temperature_profile_grid[spec][
                                        ::self._line_opacities_pressure_grid_size[spec], 0])
             f.create_dataset('weights', data=self._weights_gauss)
-            f.create_dataset('wlrange', data=[np.min(nc.c / self.frequencies_bin_edges / 1e-4),
-                                              np.max(nc.c / self.frequencies_bin_edges / 1e-4)])
-            f.create_dataset('wnrange', data=[np.min(self.frequencies_bin_edges / nc.c),
-                                              np.max(self.frequencies_bin_edges / nc.c)])
+            f.create_dataset('wlrange', data=[np.min(cst.c / self.frequencies_bin_edges / 1e-4),
+                                              np.max(cst.c / self.frequencies_bin_edges / 1e-4)])
+            f.create_dataset('wnrange', data=[np.min(self.frequencies_bin_edges / cst.c),
+                                              np.max(self.frequencies_bin_edges / cst.c)])
             f.close()
             ###############################################
             # Use Exo-k to rebin to low-res, save to desired folder
@@ -3366,8 +3366,8 @@ class Radtrans:
     def compute_h_minus_opacities(mass_fractions, pressures, temperatures, frequencies, frequencies_bin_edges,
                                   mean_molar_masses, **kwargs):
         """Calc the H- opacity."""
-        wavelengths = nc.c / frequencies * 1e8,  # Hz to Angstroem
-        wavelengths_bin_edges = nc.c / frequencies_bin_edges * 1e8,  # Hz to Angstroem
+        wavelengths = cst.c / frequencies * 1e8,  # Hz to Angstroem
+        wavelengths_bin_edges = cst.c / frequencies_bin_edges * 1e8,  # Hz to Angstroem
 
         ret_val = np.array(np.zeros(len(wavelengths) * len(pressures)).reshape(
             len(wavelengths),
@@ -3375,20 +3375,20 @@ class Radtrans:
 
         # Calc. electron number fraction
         # e- mass in amu:
-        m_e = nc.e_molar_mass
+        m_e = cst.e_molar_mass
         n_e = mean_molar_masses / m_e * mass_fractions['e-']
 
         # Calc. e- partial pressure
         p_e = pressures * n_e
 
-        opacities_h_minus_bf = Radtrans._compute_h_minus_bound_free_xsec(wavelengths_bin_edges) / nc.amu
+        opacities_h_minus_bf = Radtrans._compute_h_minus_bound_free_xsec(wavelengths_bin_edges) / cst.amu
 
         for i_struct in range(len(n_e)):
             opacities_h_minus_ff = Radtrans._compute_h_minus_free_free_xsec(
                 wavelengths,
                 temperatures[i_struct],
                 p_e[i_struct]
-            ) / nc.amu * mass_fractions['H'][i_struct]
+            ) / cst.amu * mass_fractions['H'][i_struct]
 
             ret_val[:, i_struct] = opacities_h_minus_bf * mass_fractions['H-'][i_struct] + opacities_h_minus_ff
 

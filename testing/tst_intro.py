@@ -39,9 +39,9 @@ abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.physics import guillot_global
-R_pl = 1.838*nc.r_jup_mean
+R_pl = 1.838*cst.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
@@ -50,7 +50,7 @@ atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / nc.r_jup_mean)
+plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -60,7 +60,7 @@ plt.show()
 
 frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6)
+plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -85,7 +85,7 @@ plt.show()
 
 frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6)
+plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

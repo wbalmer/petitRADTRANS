@@ -3,7 +3,7 @@ import pylab as plt
 
 plt.rcParams['figure.figsize'] = (10, 6)
 from petitRADTRANS import Radtrans
-from petitRADTRANS import nat_cst as nc
+from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.physics import guillot_global
 
 case1 = False
@@ -27,7 +27,7 @@ if case1:
     pressures = np.logspace(-6, 2, 100)
     atmosphere.setup_opa_structure(pressures)
 
-    R_pl = 1.2*nc.r_jup_mean
+    R_pl = 1.2*cst.r_jup_mean
     gravity = 1e1**3.5
 
     # P-T parameters
@@ -65,7 +65,7 @@ if case1:
     frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                               eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                               contribution = False)
-    plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
+    plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
     contribution_scat = atmosphere.emission_contribution
     plt.show()
@@ -86,7 +86,7 @@ if case2:
 
     pressures = np.logspace(-6, 2, 100)
     atmosphere.setup_opa_structure(pressures)
-    R_pl = 1.838 * nc.r_jup_mean
+    R_pl = 1.838 * cst.r_jup_mean
     gravity = 1e1 ** 2.45
     P0 = 0.01
 
@@ -120,14 +120,14 @@ if case2:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                              eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                              emission_geometry='non-isotropic', star_effective_temperature=5778, \
-                              star_radius=nc.r_sun, orbit_semi_major_axis=0.05 * nc.AU, \
-                              star_irradiation_angle=30.)
-    plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
+                                                  eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                                                  emission_geometry='non-isotropic', star_effective_temperature=5778, \
+                                                  star_radius=cst.r_sun, orbit_semi_major_axis=0.05 * cst.au, \
+                                                  star_irradiation_angle=30.)
+    plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
 
-    plt.plot(nc.c / frequencies / 1e-4, atmosphere.stellar_intensity * np.cos(30. / 180. * np.pi) * np.pi / 1e-6, \
+    plt.plot(cst.c / frequencies / 1e-4, atmosphere.stellar_intensity * np.cos(30. / 180. * np.pi) * np.pi / 1e-6, \
              label=r'Stellar spectrum at TOA for $\mu_*={\rm cos}(30^\circ)$', alpha=0.6, \
              color='C2', linestyle=':')
 
@@ -151,8 +151,8 @@ if case3:
 
     pressures = np.logspace(-6, 0, 100)
     atmosphere.setup_opa_structure(pressures)
-    R_pl = nc.r_earth
-    gravity = nc.G * (nc.m_earth) / R_pl ** 2
+    R_pl = cst.r_earth
+    gravity = cst.G * (cst.m_earth) / R_pl ** 2
 
     # P-T parameters
     kappa_IR = 0.0009
@@ -181,14 +181,14 @@ if case3:
         atmosphere.reflectance = r * np.ones_like(atmosphere.frequencies)
 
         frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                                  eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                                  emission_geometry='planetary_ave', star_effective_temperature=5778, \
-                                  star_radius=nc.r_sun, orbit_semi_major_axis=nc.AU)
+                                                      eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                                                      emission_geometry='planetary_ave', star_effective_temperature=5778, \
+                                                      star_radius=cst.r_sun, orbit_semi_major_axis=cst.au)
 
-        plt.semilogy(nc.c / frequencies / 1e-4, flux / 1e-6, \
+        plt.semilogy(cst.c / frequencies / 1e-4, flux / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)
 
-    plt.semilogy(nc.c / frequencies / 1e-4, atmosphere.stellar_intensity / 4. * np.pi / 1e-6, \
+    plt.semilogy(cst.c / frequencies / 1e-4, atmosphere.stellar_intensity / 4. * np.pi / 1e-6, \
                  label='Stellar spectrum at TOA', alpha=0.6)
 
     plt.legend(loc='best')

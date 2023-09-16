@@ -40,7 +40,7 @@ def test_line_by_line_downsampled_emission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_downsampled_emission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'spectral_radiosity': flux
         },
         relative_tolerance=relative_tolerance
@@ -54,7 +54,7 @@ def test_line_by_line_downsampled_transmission_spectrum():
         mass_fractions=radtrans_parameters['mass_fractions'],
         surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.nat_cst.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure']
     )
 
@@ -62,8 +62,8 @@ def test_line_by_line_downsampled_transmission_spectrum():
     compare_from_reference_file(
         reference_file=reference_filenames['line_by_line_downsampled_transmission'],
         comparison_dict={
-            'wavelength': petitRADTRANS.nat_cst.c / frequencies * 1e4,
-            'transit_radius': transit_radii / petitRADTRANS.nat_cst.r_jup_mean
+            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
+            'transit_radius': transit_radii / petitRADTRANS.physical_constants.r_jup_mean
         },
         relative_tolerance=relative_tolerance
     )
