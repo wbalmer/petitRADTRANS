@@ -9,6 +9,65 @@ from scipy.special import erf, erfinv, lambertw
 
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
+
+class LockedDict(dict):
+    """Derivative of dict with a lock.
+    Can be used to ensure that no new key is added once the lock is on, to prevent errors due to key typos.
+    """
+    def __init__(self):
+        super().__init__()
+        self._locked = False
+
+    def __copy__(self):
+        """Override the copy.copy method. Necessary to allow locked LockedDict to be copied."""
+        cls = self.__class__
+        result = cls.__new__(cls)
+
+        result.unlock()  # force initialization of _locked
+
+        # First copy the keys in the new object
+        for key, value in self.items():
+            result[key] = value
+
+        # Then copy the attributes to prevent the effect of the lock
+        result.__dict__.update(self.__dict__)
+
+        return result
+
+    def __deepcopy__(self, memo):
+        """Override the copy.deepcopy method. Necessary to allow locked LockedDict to be copied."""
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+
+        result.unlock()  # force initialization of _locked
+
+        # First copy the keys in the new object
+        for key, value in self.items():
+            key = copy.deepcopy(key, memo)
+            value = copy.deepcopy(value, memo)
+            result[key] = value
+
+        # Then copy the attributes to prevent the effect of the lock
+        for key, value in self.__dict__.items():
+            setattr(result, key, copy.deepcopy(value, memo))
+
+        return result
+
+    def __setitem__(self, key, value):
+        """Prevent a key to be added if the lock is on."""
+        if key not in self and self._locked:
+            raise KeyError(f"'{key}' not in LockedDict (locked), unlock the LockedDict to add new keys")
+        else:
+            super().__setitem__(key, value)
+
+    def lock(self):
+        self._locked = True
+
+    def unlock(self):
+        self._locked = False
+
+
 # TODO are these actually used outside of calc_met?
 def _get_log_gs():
     return np.array([12., 10.93])
