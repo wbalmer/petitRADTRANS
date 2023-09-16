@@ -149,7 +149,6 @@ class Radtrans:
             self._init_pressure_dependent_parameters(pressures=pressures)
 
         # Initialize outputs attributes  # TODO remove them?
-        self.flux = np.zeros(self.frequencies.size, dtype='d', order='F')
         self.transit_radii = np.zeros(self.frequencies.size, dtype='d', order='F')
 
         # Initialize information attributes (will change when calculating spectra)

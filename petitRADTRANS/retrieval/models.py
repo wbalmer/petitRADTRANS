@@ -152,20 +152,22 @@ def emission_model_diseq(pRT_object,
                                                                            pRT_object.cloud_species)
 
     # calculate the spectrum
-    pRT_object.calculate_flux(temperatures,
-                              abundances,
-                              gravity,
-                              MMW,
-                              contribution=contribution,
-                              cloud_f_sed=fseds,
-                              eddy_diffusion_coefficient=kzz,
-                              cloud_particle_radius_distribution_std=sigma_lnorm,
-                              cloud_b_hansen=b_hans,
-                              cloud_particles_mean_radii=radii,
-                              cloud_particles_radius_distribution=distribution)
+    frequencies, flux = pRT_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        surface_gravity=gravity,
+        mean_molar_masses=MMW,
+        contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficient=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_b_hansen=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
+    )
 
     # Getting the model into correct units (W/m2/micron)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)
@@ -282,18 +284,20 @@ def emission_model_diseq_patchy_clouds(pRT_object,
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            pRT_object.cloud_species)
-    pRT_object.calculate_flux(temperatures,
-                              abundances,
-                              gravity,
-                              MMW,
-                              contribution=contribution,
-                              cloud_f_sed=fseds,
-                              eddy_diffusion_coefficient=kzz,
-                              cloud_particle_radius_distribution_std=sigma_lnorm,
-                              cloud_b_hansen=b_hans,
-                              cloud_particles_mean_radii=radii,
-                              cloud_particles_radius_distribution=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    frequencies, flux = pRT_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        surface_gravity=gravity,
+        mean_molar_masses=MMW,
+        contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficient=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_b_hansen=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
+    )
+    wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
                                          R_pl,
                                          parameters['D_pl'].value)
@@ -302,17 +306,19 @@ def emission_model_diseq_patchy_clouds(pRT_object,
     for cloud in pRT_object.cloud_species:
         cname = cloud.split('_')[0]
         abundances[cname] = np.zeros_like(temperatures)
-    pRT_object.calculate_flux(temperatures,
-                              abundances,
-                              gravity,
-                              MMW,
-                              contribution=contribution,
-                              cloud_f_sed=fseds,
-                              eddy_diffusion_coefficient=kzz,
-                              cloud_particle_radius_distribution_std=sigma_lnorm,
-                              cloud_b_hansen=b_hans,
-                              cloud_particles_radius_distribution=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    frequencies, flux = pRT_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        surface_gravity=gravity,
+        mean_molar_masses=MMW,
+        contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficient=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_b_hansen=b_hans,
+        cloud_particles_radius_distribution=distribution
+    )
+    wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
                                         R_pl,
                                         parameters['D_pl'].value)
@@ -417,18 +423,20 @@ def guillot_emission(pRT_object,
 
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            pRT_object.cloud_species)
-    pRT_object.calculate_flux(temperatures,
-                              abundances,
-                              gravity,
-                              MMW,
-                              contribution=contribution,
-                              cloud_f_sed=fseds,
-                              eddy_diffusion_coefficient=kzz,
-                              cloud_particle_radius_distribution_std=sigma_lnorm,
-                              cloud_b_hansen=b_hans,
-                              cloud_particles_mean_radii=radii,
-                              cloud_particles_radius_distribution=distribution)
-    wlen_model, f_lambda = spectrum_cgs_to_si(pRT_object.frequencies, pRT_object.flux)
+    frequencies, flux = pRT_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        surface_gravity=gravity,
+        mean_molar_masses=MMW,
+        contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficient=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_b_hansen=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
+    )
+    wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model = surf_to_meas(f_lambda,
                                   R_pl,
                                   parameters['D_pl'].value)

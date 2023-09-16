@@ -58,9 +58,9 @@ plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
 plt.show()
 #plt.clf()
 
-atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
+frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
+plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -83,9 +83,9 @@ plt.ylabel('P (bar)')
 plt.show()
 #plt.clf()
 
-atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
+frequencies, flux = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6)
+plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

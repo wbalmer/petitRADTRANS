@@ -318,10 +318,10 @@ plt.clf()
 
 mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
-atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
          color = 'black', label = 'cloudy, no scattering', zorder = 1)
 
 # Load scattering version of pRT
@@ -353,18 +353,18 @@ else:
 pressures = np.logspace(-6, 2, 100)
 atmosphere.setup_opa_structure(pressures)
 
-atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                           add_cloud_scattering_as_absorption= True)
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
          label = 'cloudy, including scattering', zorder = 2)
 
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
-atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                           eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
-plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, '-', \
+plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, '-', \
          color = 'red', label = 'clear', zorder = 0)
 
 plt.legend(loc='best')

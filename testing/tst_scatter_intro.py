@@ -62,10 +62,10 @@ if case1:
 
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
-    atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+    frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                               eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                               contribution = False)
-    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+    plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
     contribution_scat = atmosphere.emission_contribution
     plt.show()
@@ -119,15 +119,15 @@ if case2:
 
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
-    atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+    frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                               eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                               emission_geometry='non-isotropic', star_effective_temperature=5778, \
                               star_radius=nc.r_sun, orbit_semi_major_axis=0.05 * nc.AU, \
                               star_irradiation_angle=30.)
-    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+    plt.plot(nc.c / frequencies / 1e-4, flux / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
 
-    plt.plot(nc.c / atmosphere.frequencies / 1e-4, atmosphere.stellar_intensity * np.cos(30. / 180. * np.pi) * np.pi / 1e-6, \
+    plt.plot(nc.c / frequencies / 1e-4, atmosphere.stellar_intensity * np.cos(30. / 180. * np.pi) * np.pi / 1e-6, \
              label=r'Stellar spectrum at TOA for $\mu_*={\rm cos}(30^\circ)$', alpha=0.6, \
              color='C2', linestyle=':')
 
@@ -180,15 +180,15 @@ if case3:
     for r in [0, 0.5, 1]:
         atmosphere.reflectance = r * np.ones_like(atmosphere.frequencies)
 
-        atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
+        frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                                   eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
                                   emission_geometry='planetary_ave', star_effective_temperature=5778, \
                                   star_radius=nc.r_sun, orbit_semi_major_axis=nc.AU)
 
-        plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.flux / 1e-6, \
+        plt.semilogy(nc.c / frequencies / 1e-4, flux / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)
 
-    plt.semilogy(nc.c / atmosphere.frequencies / 1e-4, atmosphere.stellar_intensity / 4. * np.pi / 1e-6, \
+    plt.semilogy(nc.c / frequencies / 1e-4, atmosphere.stellar_intensity / 4. * np.pi / 1e-6, \
                  label='Stellar spectrum at TOA', alpha=0.6)
 
     plt.legend(loc='best')
