@@ -9,6 +9,17 @@ from scipy.special import erf, erfinv, lambertw
 
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 
+# TODO are these actually used outside of calc_met?
+def _get_log_gs():
+    return np.array([12., 10.93])
+
+
+def _get_log_mets():
+    return np.array([1.05, 1.38, 2.7, 8.43, 7.83, 8.69, 4.56, 7.93, 6.24, 7.6, 6.45, 7.51, 5.41,
+                     7.12, 5.5, 6.4, 5.03, 6.34, 3.15, 4.95, 3.93, 5.64, 5.43, 7.5,
+                     4.99, 6.22, 4.19, 4.56, 3.04, 3.65, 3.25, 2.52, 2.87, 2.21, 2.58,
+                     1.46, 1.88])
+
 
 def bayes_factor2sigma(bayes_factor):
     """
@@ -70,18 +81,10 @@ def box_car_conv(array, points):
     return res
 
 
-# TODO are these actually used outside of calc_met?
-logs_g = np.array([12., 10.93])
-
-logs_met = np.array([1.05, 1.38, 2.7, 8.43, 7.83, 8.69, 4.56, 7.93, 6.24, 7.6, 6.45, 7.51, 5.41,
-                     7.12, 5.5, 6.4, 5.03, 6.34, 3.15, 4.95, 3.93, 5.64, 5.43, 7.5,
-                     4.99, 6.22, 4.19, 4.56, 3.04, 3.65, 3.25, 2.52, 2.87, 2.21, 2.58,
-                     1.46, 1.88])
-
-
 def calc_met(f):
-    return np.log10((f / (np.sum(1e1 ** logs_g) + f * np.sum(1e1 ** logs_met)))
-                    / (1. / (np.sum(1e1 ** logs_g) + np.sum(1e1 ** logs_met))))
+    # TODO unused?
+    return np.log10((f / (np.sum(1e1 ** _get_log_gs()) + f * np.sum(1e1 ** _get_log_mets())))
+                    / (1. / (np.sum(1e1 ** _get_log_gs()) + np.sum(1e1 ** _get_log_mets()))))
 
 
 def calculate_chi2(data, model, uncertainties):
