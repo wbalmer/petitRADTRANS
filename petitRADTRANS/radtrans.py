@@ -157,7 +157,7 @@ class Radtrans:
         # Initialize pressure-dependent parameters
         # TODO is radius_hse (planetary radius at hydrostatic equilibrium) useful?
         self._pressures, \
-            self.emission_contribution, self.transmission_contribution, self.radius_hydrostatic_equilibrium = \
+            self.emission_contribution, self.transmission_contribution = \
             self._init_pressure_dependent_parameters(pressures=pressures)
 
         # Initialize information attributes (will change when calculating spectra)
@@ -736,9 +736,8 @@ class Radtrans:
         n_layers = pressures.shape[0]
         contribution_emission = None
         contribution_transmission = None
-        radius_hydrostatic_equilibrium = np.zeros(n_layers, dtype='d', order='F')
 
-        return pressures, contribution_emission, contribution_transmission, radius_hydrostatic_equilibrium
+        return pressures, contribution_emission, contribution_transmission
 
     @staticmethod
     def _load_emission_angle_grid(path_input_data):
@@ -1963,7 +1962,7 @@ class Radtrans:
         # Calculate the transmission spectrum
         if ((self._line_opacity_mode == 'lbl' or self._use_precise_correlated_k_opacities)
                 and len(self._line_species) > 1):
-            transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
+            transit_radii, radius_hydrostatic_equilibrium = self.compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -1979,7 +1978,7 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if contribution:
-                transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
+                transit_radii, radius_hydrostatic_equilibrium = fs.calc_transm_spec(
                     opacities[:, :, :1, :],
                     temperatures,
                     self._pressures,
@@ -1993,7 +1992,7 @@ class Radtrans:
                     variable_gravity
                 )
 
-                self.transmission_contribution, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec_contr(
+                self.transmission_contribution, radius_hydrostatic_equilibrium = fs.calc_transm_spec_contr(
                     opacities[:, :, :1, :],
                     temperatures,
                     self._pressures,
@@ -2008,7 +2007,7 @@ class Radtrans:
                     variable_gravity
                 )
         else:
-            transit_radii, self.radius_hydrostatic_equilibrium = self.compute_transit_radii(
+            transit_radii, radius_hydrostatic_equilibrium = self.compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -2024,7 +2023,7 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if contribution:
-                transit_radii, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec(
+                transit_radii, radius_hydrostatic_equilibrium = fs.calc_transm_spec(
                     opacities,
                     temperatures,
                     self._pressures,
@@ -2038,7 +2037,7 @@ class Radtrans:
                     variable_gravity
                 )
 
-                self.transmission_contribution, self.radius_hydrostatic_equilibrium = fs.calc_transm_spec_contr(
+                self.transmission_contribution, radius_hydrostatic_equilibrium = fs.calc_transm_spec_contr(
                     opacities,
                     temperatures,
                     self._pressures,
@@ -2053,7 +2052,7 @@ class Radtrans:
                     variable_gravity
                 )
 
-        return transit_radii
+        return transit_radii, radius_hydrostatic_equilibrium
 
     def calculate_transit_radii(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity,
                                 reference_pressure, planet_radius, variable_gravity=True,
@@ -2067,7 +2066,7 @@ class Radtrans:
                                 contribution=False,
                                 additional_absorption_opacities_function=None,
                                 additional_scattering_opacities_function=None,
-                                return_cloud_contribution=False):
+                                return_cloud_contribution=False, return_radius_hydrostatic_equilibrium=False):
         """ Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
 
@@ -2163,7 +2162,9 @@ class Radtrans:
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
                 return_cloud_contribution (Optional[bool]):
-                    if True, the cloud contribution is calculated
+                    if True, the cloud contribution is calculated and returned
+                return_radius_hydrostatic_equilibrium (Optional[bool]):
+                    if True, the radius at hydrostatic equilibrium of the planet is returned
         """
         auto_anisotropic_cloud_scattering = False
 
@@ -2201,7 +2202,7 @@ class Radtrans:
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
 
-        transit_radii = self._calculate_transit_radii(
+        transit_radii, radius_hydrostatic_equilibrium = self._calculate_transit_radii(
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
             surface_gravity=surface_gravity,
@@ -2213,7 +2214,12 @@ class Radtrans:
             contribution=contribution
         )
 
-        return self._frequencies, transit_radii
+        return_list = [self._frequencies, transit_radii]
+
+        if return_radius_hydrostatic_equilibrium:
+            return_list.append(radius_hydrostatic_equilibrium)
+
+        return return_list
 
     @staticmethod
     def _compute_cloud_opacities(
