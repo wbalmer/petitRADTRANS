@@ -162,7 +162,7 @@ def emission_model_diseq(pRT_object,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
-        cloud_particles_mean_radii=radii,
+        clouds_particles_mean_radii=radii,
         cloud_particles_radius_distribution=distribution
     )
 
@@ -294,7 +294,7 @@ def emission_model_diseq_patchy_clouds(pRT_object,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
-        cloud_particles_mean_radii=radii,
+        clouds_particles_mean_radii=radii,
         cloud_particles_radius_distribution=distribution
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
@@ -433,7 +433,7 @@ def guillot_emission(pRT_object,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
-        cloud_particles_mean_radii=radii,
+        clouds_particles_mean_radii=radii,
         cloud_particles_radius_distribution=distribution
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
@@ -557,7 +557,7 @@ def guillot_transmission(pRT_object,
             planet_radius=R_pl,
             reference_pressure=0.01,
             cloud_particle_radius_distribution_std=sigma_lnorm,
-            cloud_particles_mean_radii=radii,
+            clouds_particles_mean_radii=radii,
             cloud_f_sed=fseds,
             eddy_diffusion_coefficient=kzz,
             cloud_b_hansen=b_hans,
@@ -706,7 +706,7 @@ def guillot_patchy_transmission(pRT_object,
         cloud_b_hansen=b_hans,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
-        cloud_particles_mean_radii=radii,
+        clouds_particles_mean_radii=radii,
         distribution=distribution,
         contribution=contribution
     )
@@ -724,7 +724,7 @@ def guillot_patchy_transmission(pRT_object,
         planet_radius=R_pl,
         reference_pressure=0.01,
         cloud_particle_radius_distribution_std=parameters['sigma_lnorm'].value,
-        cloud_particles_mean_radii=radii,
+        clouds_particles_mean_radii=radii,
         contribution=contribution
     )
 
@@ -853,7 +853,7 @@ def isothermal_transmission(pRT_object,
             cloud_b_hansen=b_hans,
             cloud_f_sed=fseds,
             eddy_diffusion_coefficient=kzz,
-            cloud_particles_mean_radii=radii,
+            clouds_particles_mean_radii=radii,
             contribution=contribution
         )
     else:

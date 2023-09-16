@@ -151,6 +151,9 @@ class Radtrans:
             self._frequencies_bin_edges = None
             i_start_opacities = None
 
+        # Initialize cloud particles mean radii
+        self._clouds_particles_mean_radii = None
+
         # Initialize pressure-dependent parameters
         # TODO is radius_hse (planetary radius at hydrostatic equilibrium) useful?
         self._pressures, \
@@ -264,6 +267,19 @@ class Radtrans:
         )
         for key, value in dictionary.items():
             self._cloud_loaded_opacities[key] = value
+
+    @property
+    def clouds_particles_mean_radii(self):
+        return self._clouds_particles_mean_radii
+
+    @clouds_particles_mean_radii.setter
+    def clouds_particles_mean_radii(self, array: np.ndarray):
+        warnings.warn(
+            "setting the Radtrans clouds particles mean radii property is not recommended as it will have no effect\n"
+            "It is recommended to pass it as an argument when calculating a spectrum, "
+            "or to let Radtrans calculate it"
+        )
+        self._clouds_particles_mean_radii = array
 
     @property
     def frequencies(self):
@@ -939,7 +955,7 @@ class Radtrans:
     def _calculate_cloud_opacities(self, temperatures, cloud_species_mass_fractions, mean_molar_masses, surface_gravity,
                                    cloud_particle_radius_distribution_std, cloud_f_sed=None,
                                    eddy_diffusion_coefficient=None,
-                                   cloud_particles_mean_radius=None, add_cloud_scattering_as_absorption=False,
+                                   clouds_particles_mean_radius=None, add_cloud_scattering_as_absorption=False,
                                    cloud_particles_radius_distribution="lognormal",
                                    cloud_a_hansen=None, cloud_b_hansen=None,
                                    hack_cloud_photospheric_optical_depths=None,
@@ -954,7 +970,7 @@ class Radtrans:
             cloud_particle_radius_distribution_std:
             cloud_f_sed:
             eddy_diffusion_coefficient:
-            cloud_particles_mean_radius:
+            clouds_particles_mean_radius:
             add_cloud_scattering_as_absorption:
             cloud_particles_radius_distribution:
             cloud_a_hansen:
@@ -968,7 +984,9 @@ class Radtrans:
         _cloud_species_mass_fractions = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
         hack_cloud_total_abs = None
         hack_cloud_total_scattering_anisotropic = None
-        r_g = np.zeros((self._pressures.size, len(self._cloud_species)), dtype='d', order='F')
+        self._clouds_particles_mean_radii = np.zeros(
+            (self._pressures.size, len(self._cloud_species)), dtype='d', order='F'
+        )
         rho = self._pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         # Initialize Hansen's b coefficient
@@ -992,24 +1010,24 @@ class Radtrans:
                 raise ValueError(f"The Hansen distribution width (cloud_b_hansen) must be an array, a dict, "
                                  f"or a float, but is of type '{type(cloud_b_hansen)}' ({cloud_b_hansen})")
 
-        # Initialize cloud species mass fractions and r_g
+        # Initialize cloud species mass fractions and cloud_particles_mean_radii
         for i_spec, cloud_name in enumerate(self._cloud_species):
             _cloud_species_mass_fractions[:, i_spec] = cloud_species_mass_fractions[cloud_name]
 
-            if cloud_particles_mean_radius is not None:
-                r_g[:, i_spec] = cloud_particles_mean_radius[cloud_name]
+            if clouds_particles_mean_radius is not None:
+                self._clouds_particles_mean_radii[:, i_spec] = clouds_particles_mean_radius[cloud_name]
             elif cloud_a_hansen is not None:
-                r_g[:, i_spec] = cloud_a_hansen[cloud_name]
+                self._clouds_particles_mean_radii[:, i_spec] = cloud_a_hansen[cloud_name]
 
         # Calculate cloud opacities
-        if cloud_particles_mean_radius is not None or cloud_a_hansen is not None:
+        if clouds_particles_mean_radius is not None or cloud_a_hansen is not None:
             if cloud_particles_radius_distribution == "lognormal":
                 cloud_abs_opa_tot, cloud_scat_opa_tot, cloud_red_fac_anisotropic_tot = \
                     self._compute_cloud_opacities(
                         rho=rho,
                         rho_p=self._cloud_loaded_opacities['particles_densities'],
                         cloud_mass_fractions=_cloud_species_mass_fractions,
-                        r_g=r_g,
+                        clouds_particles_mean_radii=self._clouds_particles_mean_radii,
                         sigma_n=cloud_particle_radius_distribution_std,
                         cloud_rad_bins=self._cloud_loaded_opacities['particles_radii_bins'],
                         cloud_radii=self._cloud_loaded_opacities['particles_radii'],
@@ -1023,7 +1041,7 @@ class Radtrans:
                         rho,
                         self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
-                        r_g,
+                        self._clouds_particles_mean_radii,
                         cloud_b_hansen,
                         self._cloud_loaded_opacities['particles_radii_bins'],
                         self._cloud_loaded_opacities['particles_radii'],
@@ -1041,9 +1059,9 @@ class Radtrans:
                 elif not hasattr(cloud_f_sed, '__iter__'):
                     f_seds[i_spec] = cloud_f_sed
 
-            # Calculate r_g then cloud opacities
+            # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
-                r_g = fs.compute_cloud_particles_mean_radius(
+                self._clouds_particles_mean_radii = fs.compute_cloud_particles_mean_radius(
                     surface_gravity,
                     rho,
                     self._cloud_loaded_opacities['particles_densities'],
@@ -1059,7 +1077,7 @@ class Radtrans:
                         rho,
                         self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
-                        r_g,
+                        self._clouds_particles_mean_radii,
                         cloud_particle_radius_distribution_std,
                         self._cloud_loaded_opacities['particles_radii_bins'],
                         self._cloud_loaded_opacities['particles_radii'],
@@ -1068,7 +1086,7 @@ class Radtrans:
                         self._cloud_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
-                r_g = fs.compute_cloud_particles_mean_radius_hansen(
+                self._clouds_particles_mean_radii = fs.compute_cloud_particles_mean_radius_hansen(
                     surface_gravity,
                     rho,
                     self._cloud_loaded_opacities['particles_densities'],
@@ -1084,7 +1102,7 @@ class Radtrans:
                         rho,
                         self._cloud_loaded_opacities['particles_densities'],
                         _cloud_species_mass_fractions,
-                        r_g,
+                        self._clouds_particles_mean_radii,
                         cloud_b_hansen,
                         self._cloud_loaded_opacities['particles_radii_bins'],
                         self._cloud_loaded_opacities['particles_radii'],
@@ -1179,7 +1197,7 @@ class Radtrans:
 
     def calculate_flux(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity,
                        opaque_cloud_top_pressure=None,
-                       cloud_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
+                       clouds_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
                        cloud_particles_radius_distribution="lognormal", cloud_a_hansen=None, cloud_b_hansen=None,
                        cloud_f_sed=None, eddy_diffusion_coefficient=None,
                        haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
@@ -1210,7 +1228,7 @@ class Radtrans:
                     Surface gravity in cgs. Vertically constant for emission spectra.
                 opaque_cloud_top_pressure (Optional[float]):
                     Pressure, in bar, where opaque cloud deck is added to the absorption opacity.
-                cloud_particles_mean_radii (Optional):
+                clouds_particles_mean_radii (Optional):
                     dictionary of mean particle radii for all cloud species.
                     Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
                 cloud_particle_radius_distribution_std (Optional[float]):
@@ -1352,7 +1370,7 @@ class Radtrans:
                 mean_molar_masses=mean_molar_masses,
                 surface_gravity=surface_gravity,
                 opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particles_mean_radii=clouds_particles_mean_radii,
                 cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_a_hansen=cloud_a_hansen,
@@ -2042,7 +2060,7 @@ class Radtrans:
     def calculate_transit_radii(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity,
                                 reference_pressure, planet_radius, variable_gravity=True,
                                 opaque_cloud_top_pressure=None,
-                                cloud_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
+                                clouds_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
                                 cloud_particles_radius_distribution="lognormal",
                                 cloud_a_hansen=None, cloud_b_hansen=None,
                                 cloud_f_sed=None, eddy_diffusion_coefficient=None,
@@ -2084,7 +2102,7 @@ class Radtrans:
                 opaque_cloud_top_pressure (Optional[float]):
                     Pressure, in bar, where opaque cloud deck is added to the
                     absorption opacity.
-                cloud_particles_mean_radii (Optional):
+                clouds_particles_mean_radii (Optional):
                     dictionary of mean particle radii for all cloud species.
                     Dictionary keys are the cloud species names.
                     Every radius array has same length as pressure array.
@@ -2173,7 +2191,7 @@ class Radtrans:
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficient=eddy_diffusion_coefficient,
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particles_mean_radii=clouds_particles_mean_radii,
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_a_hansen=cloud_a_hansen,
             cloud_b_hansen=cloud_b_hansen,
@@ -2204,7 +2222,7 @@ class Radtrans:
             rho,  # (M,)
             rho_p,  # (N,)
             cloud_mass_fractions,  # (M, N)
-            r_g,  # (M, N)
+            clouds_particles_mean_radii,  # (M, N)
             sigma_n,
             cloud_rad_bins,  # (P + 1,)
             cloud_radii,  # (P,)
@@ -2224,11 +2242,11 @@ class Radtrans:
                 3.0
                 * cloud_mass_fractions
                 * rho[:, None]
-                / (4.0 * np.pi * rho_p * (r_g ** 3))
+                / (4.0 * np.pi * rho_p * (clouds_particles_mean_radii ** 3))
                 * np.exp(-4.5 * np.log(sigma_n) ** 2)
         )
 
-        diff = np.log(cloud_radii[:, None, None]) - np.log(r_g)
+        diff = np.log(cloud_radii[:, None, None]) - np.log(clouds_particles_mean_radii)
         dn_dr = (  # (P, M, N)
                 n
                 / (cloud_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(sigma_n))
@@ -2842,7 +2860,7 @@ class Radtrans:
                     cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
                     cloud_f_sed=cloud_f_sed,
                     eddy_diffusion_coefficient=eddy_diffusion_coefficient,
-                    cloud_particles_mean_radius=cloud_particles_mean_radii,
+                    clouds_particles_mean_radius=cloud_particles_mean_radii,
                     add_cloud_scattering_as_absorption=add_cloud_scattering_as_absorption,
                     cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                     cloud_a_hansen=cloud_a_hansen,
