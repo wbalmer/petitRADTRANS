@@ -169,8 +169,8 @@ class Radtrans:
         self.photosphere_radius = None
 
         # Initialize loaded line opacities variables
-        self._line_opacities = LockedDict()
-        self._line_opacities.update({
+        self._line_loaded_opacities = LockedDict()
+        self._line_loaded_opacities.update({
             'has_custom_tp_grid': {},
             'temperature_profile_grid': {},
             'temperature_grid_size': {},
@@ -179,7 +179,12 @@ class Radtrans:
             'g_gauss': np.array(np.ones(1), dtype='d', order='F'),
             'weights_gauss': np.array(np.ones(1), dtype='d', order='F')
         })
-        self._line_opacities.lock()
+        self._line_loaded_opacities.lock()
+
+        # Initialize cia opacities
+        self._cia_loaded_opacities = self._init_cia_loaded_opacities(
+            cia_contributors=self.__get_cia_contributors(self._gas_continuum_contributors)
+        )
 
         # Initialize loaded cloud opacities variables
         self._cloud_particles_densities = None
@@ -196,8 +201,6 @@ class Radtrans:
         )
 
         # Load all opacities
-        self._cia_dicts = {}
-
         self.load_all_opacities(i_start_opacities)
 
     @staticmethod
@@ -214,6 +217,18 @@ class Radtrans:
     def __check_anisotropic_cloud_scattering(mode):
         if mode not in ['auto', True, False]:
             raise ValueError(f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'")
+
+    @staticmethod
+    def __get_cia_contributors(gas_continuum_contributors):
+        cia = []
+
+        for gas_continuum_contributor in gas_continuum_contributors:
+            if gas_continuum_contributor in Radtrans._get_non_cia_gas_continuum_contributions():
+                continue
+
+            cia.append(gas_continuum_contributor)
+
+        return cia
 
     @property
     def frequencies(self):
@@ -249,14 +264,14 @@ class Radtrans:
 
     @property
     def line_opacities(self):
-        return self._line_opacities
+        return self._line_loaded_opacities
 
     @line_opacities.setter
     def line_opacities(self, dictionary: dict):
         warnings.warn(self.__line_opacity_property_setting_warning_message)
-        self._line_opacities.unlock()
-        self._line_opacities.update(dictionary)
-        self._line_opacities.lock()
+        self._line_loaded_opacities.unlock()
+        self._line_loaded_opacities.update(dictionary)
+        self._line_loaded_opacities.lock()
 
     @property
     def pressures(self):
@@ -473,6 +488,27 @@ class Radtrans:
                     break
 
         return add_cloud_opacity
+
+    @staticmethod
+    def _init_cia_loaded_opacities(cia_contributors):
+        tmp_collision_dict = LockedDict()
+        tmp_collision_dict.update({
+            'molecules': None,
+            'weight': None,
+            'lambda': None,
+            'temperature': None,
+            'alpha': None
+        })
+        tmp_collision_dict.lock()
+
+        cia_loaded_opacities = LockedDict()
+
+        for cia in cia_contributors:
+            cia_loaded_opacities[cia] = copy.deepcopy(tmp_collision_dict)
+
+        cia_loaded_opacities.lock()
+
+        return cia_loaded_opacities
 
     def _init_line_opacities_parameters(self):
         """Initialize parameters useful for loading line opacities.
@@ -1088,15 +1124,15 @@ class Radtrans:
                     absorber_present=self.__absorber_present,
                     # Custom cloud parameters
                     frequencies=self._frequencies,
-                    weights_gauss=self._line_opacities['weights_gauss'],
+                    weights_gauss=self._line_loaded_opacities['weights_gauss'],
                     cloud_wavelengths=self._cloud_wavelengths,
                     cloud_f_sed=cloud_f_sed,
                     hack_cloud_total_scattering_anisotropic=hack_cloud_total_scattering_anisotropic,
                     hack_cloud_total_abs=hack_cloud_total_abs,
                     hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth
                 )
-                weights_gauss_reshape = self._line_opacities['weights_gauss'].reshape(
-                    len(self._line_opacities['weights_gauss']), 1
+                weights_gauss_reshape = self._line_loaded_opacities['weights_gauss'].reshape(
+                    len(self._line_loaded_opacities['weights_gauss']), 1
                 )
 
                 for i_freq in range(self._frequencies.size):
@@ -1747,12 +1783,12 @@ class Radtrans:
 
         self.opacities_rosseland = \
             fs.calc_kappa_rosseland(opacities[:, :, :1, :], temperatures,
-                                    self._line_opacities['weights_gauss'], self._frequencies_bin_edges,
+                                    self._line_loaded_opacities['weights_gauss'], self._frequencies_bin_edges,
                                     self._scattering_in_emission, continuum_opacities_scattering)
 
         opacities_planck = \
             fs.calc_kappa_planck(opacities[:, :, :1, :], temperatures,
-                                 self._line_opacities['weights_gauss'], self._frequencies_bin_edges,
+                                 self._line_loaded_opacities['weights_gauss'], self._frequencies_bin_edges,
                                  self._scattering_in_emission, continuum_opacities_scattering)
 
         return self.opacities_rosseland, opacities_planck
@@ -1776,7 +1812,7 @@ class Radtrans:
             absorber_present=self.__absorber_present,
             # Custom cloud parameters
             frequencies=self._frequencies,
-            weights_gauss=self._line_opacities['weights_gauss'],
+            weights_gauss=self._line_loaded_opacities['weights_gauss'],
             cloud_wavelengths=self._cloud_wavelengths,
             cloud_f_sed=cloud_f_sed,
             hack_cloud_total_scattering_anisotropic=hack_cloud_total_scattering_anisotropic,
@@ -1794,7 +1830,7 @@ class Radtrans:
                 temperatures,
                 self._emission_cos_angle_grid,
                 self._emission_cos_angle_grid_weights,
-                self._line_opacities['weights_gauss'],
+                self._line_loaded_opacities['weights_gauss'],
                 photon_destruction_probabilities,
                 contribution,
                 reflectances,
@@ -1810,7 +1846,7 @@ class Radtrans:
                         fs.calc_kappa_rosseland(
                             opacities[:, :, 0, :],
                             temperatures,
-                            self._line_opacities['weights_gauss'],
+                            self._line_loaded_opacities['weights_gauss'],
                             self._frequencies_bin_edges,
                             self._scattering_in_emission,
                             continuum_opacities_scattering
@@ -1820,7 +1856,7 @@ class Radtrans:
                         fs.calc_kappa_rosseland(
                             opacities[:, :, 0, :],
                             temperatures,
-                            self._line_opacities['weights_gauss'],
+                            self._line_loaded_opacities['weights_gauss'],
                             self._frequencies_bin_edges,
                             self._scattering_in_emission,
                             np.zeros(continuum_opacities_scattering.shape)
@@ -1834,7 +1870,7 @@ class Radtrans:
                     temperatures,
                     self._emission_cos_angle_grid,
                     self._emission_cos_angle_grid_weights,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     contribution
                 )
             else:
@@ -1844,7 +1880,7 @@ class Radtrans:
                     temperatures,
                     self._emission_cos_angle_grid,
                     self._emission_cos_angle_grid_weights,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     contribution
                 )
 
@@ -1881,7 +1917,7 @@ class Radtrans:
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
                 temperatures=temperatures,
-                weights_gauss=self._line_opacities['weights_gauss'],
+                weights_gauss=self._line_loaded_opacities['weights_gauss'],
                 mean_molar_masses=mean_molar_masses,
                 surface_gravity=surface_gravity,
                 reference_pressure=reference_pressure,
@@ -1900,7 +1936,7 @@ class Radtrans:
                     mean_molar_masses,
                     reference_pressure,
                     planet_radius,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
                     variable_gravity
@@ -1914,7 +1950,7 @@ class Radtrans:
                     mean_molar_masses,
                     reference_pressure,
                     planet_radius,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     transit_radii ** 2,
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
@@ -1926,7 +1962,7 @@ class Radtrans:
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
                 temperatures=temperatures,
-                weights_gauss=self._line_opacities['weights_gauss'],
+                weights_gauss=self._line_loaded_opacities['weights_gauss'],
                 mean_molar_masses=mean_molar_masses,
                 surface_gravity=surface_gravity,
                 reference_pressure=reference_pressure,
@@ -1945,7 +1981,7 @@ class Radtrans:
                     mean_molar_masses,
                     reference_pressure,
                     planet_radius,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
                     variable_gravity
@@ -1959,7 +1995,7 @@ class Radtrans:
                     mean_molar_masses,
                     reference_pressure,
                     planet_radius,
-                    self._line_opacities['weights_gauss'],
+                    self._line_loaded_opacities['weights_gauss'],
                     transit_radii ** 2.,
                     self.__scattering_in_transmission,
                     continuum_opacities_scattering,
@@ -2362,16 +2398,13 @@ class Radtrans:
 
         # CIA
         if len(self._gas_continuum_contributors) > 0:
-            self._cia_dicts = self.load_cia_opacities(
+            self.load_cia_opacities(
                 self._path_input_data,
                 self._gas_continuum_contributors
             )
 
-    @staticmethod
-    def load_cia_opacities(path_input_data, continuum_opacities):
-        cia_dicts = {}
-
-        for collision in continuum_opacities:
+    def load_cia_opacities(self, path_input_data, gas_continuum_contributors):
+        for collision in self._cia_loaded_opacities:
             if collision in Radtrans._get_non_cia_gas_continuum_contributions():
                 continue
 
@@ -2389,13 +2422,14 @@ class Radtrans:
                     species = f['mol_name'][:]
                     species = [s.decode('utf-8') for s in species]
 
-                    collision_dict = {
-                        'molecules': species,
-                        'weight': np.prod(f['mol_mass'][:]),
-                        'lambda': wavelengths,
-                        'temperature': f['t'][:],
-                        'alpha': np.transpose(f['cross_sections'][:])[::-1, :]  # (wavelength, temperature), cor. order
-                    }
+                    # Update keys one-by-one to keep the LockedDict
+                    self._cia_loaded_opacities[collision]['molecules'] = species
+                    self._cia_loaded_opacities[collision]['weight'] = np.prod(f['mol_mass'][:])
+                    self._cia_loaded_opacities[collision]['lambda'] = wavelengths
+                    self._cia_loaded_opacities[collision]['temperature'] = f['t'][:]
+                    self._cia_loaded_opacities[collision]['alpha'] = np.transpose(
+                        f['cross_sections'][:]
+                    )[::-1, :]  # (wavelength, temperature), cor. order
             else:
                 print(f"HDF5 CIA file '{hdf5_file}' not found, loading from .dat...")
 
@@ -2418,19 +2452,14 @@ class Radtrans:
                 for collision_dict in colliding_species:
                     weight = weight * prt_molmass.getMM(collision_dict)
 
-                collision_dict = {
-                    'molecules': colliding_species,
-                    'weight': weight,
-                    'lambda': cia_wavelength_grid,
-                    'temperature': cia_temperature_grid,
-                    'alpha': cia_alpha_grid
-                }
-
-            cia_dicts[collision] = collision_dict
+                # Update keys one-by-one to keep the LockedDict
+                self._cia_loaded_opacities[collision]['molecules'] = colliding_species
+                self._cia_loaded_opacities[collision]['weight'] = weight
+                self._cia_loaded_opacities[collision]['lambda'] = cia_wavelength_grid
+                self._cia_loaded_opacities[collision]['temperature'] = cia_temperature_grid
+                self._cia_loaded_opacities[collision]['alpha'] = cia_alpha_grid
 
         print('Done.\n')
-
-        return cia_dicts
 
     @staticmethod
     def load_hdf5_ktables(file_path_hdf5, frequencies, g_size, temperature_profile_grid_size):
@@ -2692,7 +2721,7 @@ class Radtrans:
         # Add CIA opacities
         continuum_opacities += (
             self._compute_cia_opacities(
-                cia_dicts=self._cia_dicts,
+                cia_dicts=self._cia_loaded_opacities,
                 mass_fractions=mass_fractions,
                 pressures=self._pressures,
                 temperatures=temperatures,
@@ -2831,11 +2860,11 @@ class Radtrans:
             temperatures=temperatures,
             n_g=self._g_size,
             n_frequencies=self._frequencies.size,
-            line_opacities_grid=self._line_opacities['opacity_grid'],
-            line_opacities_temperature_profile_grid=self._line_opacities['temperature_profile_grid'],
-            has_custom_line_opacities_tp_grid=self._line_opacities['has_custom_tp_grid'],
-            line_opacities_temperature_grid_size=self._line_opacities['temperature_grid_size'],
-            line_opacities_pressure_grid_size=self._line_opacities['pressure_grid_size']
+            line_opacities_grid=self._line_loaded_opacities['opacity_grid'],
+            line_opacities_temperature_profile_grid=self._line_loaded_opacities['temperature_profile_grid'],
+            has_custom_line_opacities_tp_grid=self._line_loaded_opacities['has_custom_tp_grid'],
+            line_opacities_temperature_grid_size=self._line_loaded_opacities['temperature_grid_size'],
+            line_opacities_pressure_grid_size=self._line_loaded_opacities['pressure_grid_size']
         )
 
         # Fill line mass fraction dictionary with provided mass fraction dictionary
@@ -2859,8 +2888,8 @@ class Radtrans:
         if self._line_opacity_mode == 'c-k' and self._use_precise_correlated_k_opacities:
             opacities[:, :, 0, :] = fs.combine_opas_ck(
                 opacities,
-                self._line_opacities['g_gauss'],
-                self._line_opacities['weights_gauss']
+                self._line_loaded_opacities['g_gauss'],
+                self._line_loaded_opacities['weights_gauss']
             )
 
         # In the line-by-line case we can simply add the opacities of different species in frequency space
@@ -2910,17 +2939,17 @@ class Radtrans:
                 temperatures=t,
                 n_g=self._g_size,
                 n_frequencies=self._frequencies.size,
-                line_opacities_grid=self._line_opacities['opacity_grid'],
-                line_opacities_temperature_profile_grid=self._line_opacities['temperature_profile_grid'],
-                has_custom_line_opacities_tp_grid=self._line_opacities['has_custom_tp_grid'],
-                line_opacities_temperature_grid_size=self._line_opacities['temperature_grid_size'],
-                line_opacities_pressure_grid_size=self._line_opacities['pressure_grid_size']
+                line_opacities_grid=self._line_loaded_opacities['opacity_grid'],
+                line_opacities_temperature_profile_grid=self._line_loaded_opacities['temperature_profile_grid'],
+                has_custom_line_opacities_tp_grid=self._line_loaded_opacities['has_custom_tp_grid'],
+                line_opacities_temperature_grid_size=self._line_loaded_opacities['temperature_grid_size'],
+                line_opacities_pressure_grid_size=self._line_loaded_opacities['pressure_grid_size']
             )
 
             opacities_dict = {}
 
-            weights_gauss = self._line_opacities['weights_gauss'].reshape(
-                (len(self._line_opacities['weights_gauss']), 1, 1)
+            weights_gauss = self._line_loaded_opacities['weights_gauss'].reshape(
+                (len(self._line_loaded_opacities['weights_gauss']), 1, 1)
             )
 
             for i, s in enumerate(self._line_species):
@@ -3153,11 +3182,11 @@ class Radtrans:
                 else:
                     print("HDF5 opacity file not found, loading from .dat...")
 
-                self._line_opacities['temperature_profile_grid'][species], \
+                self._line_loaded_opacities['temperature_profile_grid'][species], \
                     custom_line_paths[species], \
-                    self._line_opacities['temperature_grid_size'][species], \
-                    self._line_opacities['pressure_grid_size'][species], \
-                    self._line_opacities['has_custom_tp_grid'][species] \
+                    self._line_loaded_opacities['temperature_grid_size'][species], \
+                    self._line_loaded_opacities['pressure_grid_size'][species], \
+                    self._line_loaded_opacities['has_custom_tp_grid'][species] \
                     = self.load_line_opacities_pressure_temperature_grid(
                     file_path_hdf5=file_path_hdf5,
                     path_input_data=path_input_data,
@@ -3170,12 +3199,12 @@ class Radtrans:
 
                 # Read the opacities
                 if file_path_hdf5 is None:
-                    self._line_opacities['opacity_grid'][species] = self.load_dat_line_opacities(
-                        has_custom_line_opacities_temperature_profile_grid=self._line_opacities['has_custom_tp_grid'][
-                            species
-                        ],
+                    self._line_loaded_opacities['opacity_grid'][species] = self.load_dat_line_opacities(
+                        has_custom_line_opacities_temperature_profile_grid=self._line_loaded_opacities[
+                            'has_custom_tp_grid'
+                        ][species],
                         opacities_temperature_profile_grid=opacities_temperature_profile_grid,
-                        size_temperature_profile_grid=self._line_opacities['temperature_profile_grid'][
+                        size_temperature_profile_grid=self._line_loaded_opacities['temperature_profile_grid'][
                             species
                         ].shape[0],
                         custom_line_paths=custom_line_paths[species],
@@ -3191,15 +3220,15 @@ class Radtrans:
                     print(f" Loading line opacities of species '{species}'...")
 
                     if self._line_opacity_mode == 'c-k':
-                        self._line_opacities['opacity_grid'][species] = self.load_hdf5_ktables(
+                        self._line_loaded_opacities['opacity_grid'][species] = self.load_hdf5_ktables(
                             file_path_hdf5=file_path_hdf5,
                             frequencies=self._frequencies,
                             g_size=self._g_size,
-                            temperature_profile_grid_size=self._line_opacities['temperature_profile_grid'][
+                            temperature_profile_grid_size=self._line_loaded_opacities['temperature_profile_grid'][
                                 species].shape[0]
                         )
                     elif self._line_opacity_mode == 'lbl':
-                        self._line_opacities['opacity_grid'][species] = self.load_hdf5_line_opacity_table(
+                        self._line_loaded_opacities['opacity_grid'][species] = self.load_hdf5_line_opacity_table(
                             file_path_hdf5=file_path_hdf5,
                             frequencies=self._frequencies,
                             lbl_opacity_sampling=self._lbl_opacity_sampling
@@ -3208,8 +3237,8 @@ class Radtrans:
                     print(" Done.")
 
                 # Convert into F-ordered array for more efficient processing in the Fortran modules
-                self._line_opacities['opacity_grid'][species] = \
-                    np.array(self._line_opacities['opacity_grid'][species][:, :, 0, :], dtype='d', order='F')
+                self._line_loaded_opacities['opacity_grid'][species] = \
+                    np.array(self._line_loaded_opacities['opacity_grid'][species][:, :, 0, :], dtype='d', order='F')
 
             print('\n')
 
@@ -3218,8 +3247,8 @@ class Radtrans:
             buffer = np.genfromtxt(
                 os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
             )
-            self._line_opacities['g_gauss'] = np.array(buffer[:, 0], dtype='d', order='F')
-            self._line_opacities['weights_gauss'] = np.array(buffer[:, 1], dtype='d', order='F')
+            self._line_loaded_opacities['g_gauss'] = np.array(buffer[:, 0], dtype='d', order='F')
+            self._line_loaded_opacities['weights_gauss'] = np.array(buffer[:, 1], dtype='d', order='F')
 
     def load_cloud_opacities(self, path_input_data):
         # Function to read cloud opacities
@@ -3367,7 +3396,7 @@ class Radtrans:
 
             f.create_dataset('bin_centers', data=self._frequencies[::-1] / cst.c)
             f.create_dataset('bin_edges', data=self._frequencies_bin_edges[::-1] / cst.c)
-            ret_opa_table = copy.copy(self._line_opacities['opacity_grid'][spec])
+            ret_opa_table = copy.copy(self._line_loaded_opacities['opacity_grid'][spec])
 
             # Mass to go from opacities to cross-sections
             ret_opa_table = ret_opa_table * cst.amu * masses[spec.split('_')[0]]
@@ -3377,10 +3406,10 @@ class Radtrans:
             ret_opa_table = ret_opa_table[:, ::-1, :]
             ret_opa_table = np.swapaxes(ret_opa_table, 2, 0)
             ret_opa_table = ret_opa_table.reshape((
-                self._line_opacities['temperature_grid_size'][spec],
-                self._line_opacities['pressure_grid_size'][spec],
+                self._line_loaded_opacities['temperature_grid_size'][spec],
+                self._line_loaded_opacities['pressure_grid_size'][spec],
                 self._frequencies.size,
-                len(self._line_opacities['weights_gauss'])
+                len(self._line_loaded_opacities['weights_gauss'])
             ))
             ret_opa_table = np.swapaxes(ret_opa_table, 1, 0)
             ret_opa_table[ret_opa_table < 1e-60] = 1e-60
@@ -3395,14 +3424,14 @@ class Radtrans:
 
             f.create_dataset('mol_name', data=spec.split('_')[0], dtype=dt)
             f.create_dataset('mol_mass', data=[masses[spec.split('_')[0]]])
-            f.create_dataset('ngauss', data=len(self._line_opacities['weights_gauss']))
-            f.create_dataset('p', data=self._line_opacities['temperature_profile_grid'][spec][
-                                       :self._line_opacities['pressure_grid_size'][spec], 1] / 1e6)
+            f.create_dataset('ngauss', data=len(self._line_loaded_opacities['weights_gauss']))
+            f.create_dataset('p', data=self._line_loaded_opacities['temperature_profile_grid'][spec][
+                                       :self._line_loaded_opacities['pressure_grid_size'][spec], 1] / 1e6)
             f['p'].attrs.create('units', 'bar')
-            f.create_dataset('samples', data=self._line_opacities['g_gauss'])
-            f.create_dataset('t', data=self._line_opacities['temperature_profile_grid'][spec][
-                                       ::self._line_opacities['pressure_grid_size'][spec], 0])
-            f.create_dataset('weights', data=self._line_opacities['weights_gauss'])
+            f.create_dataset('samples', data=self._line_loaded_opacities['g_gauss'])
+            f.create_dataset('t', data=self._line_loaded_opacities['temperature_profile_grid'][spec][
+                                       ::self._line_loaded_opacities['pressure_grid_size'][spec], 0])
+            f.create_dataset('weights', data=self._line_loaded_opacities['weights_gauss'])
             f.create_dataset('wlrange', data=[np.min(cst.c / self._frequencies_bin_edges / 1e-4),
                                               np.max(cst.c / self._frequencies_bin_edges / 1e-4)])
             f.create_dataset('wnrange', data=[np.min(self._frequencies_bin_edges / cst.c),
