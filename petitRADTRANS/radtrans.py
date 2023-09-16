@@ -143,10 +143,9 @@ class Radtrans:
 
         # Initialize line parameters
         if len(line_species) > 0:  # TODO init Radtrans even if there is no opacity
-            self._frequencies, self._frequencies_bin_edges, self._g_size, i_start_opacities \
+            self._frequencies, self._frequencies_bin_edges, i_start_opacities \
                 = self._init_line_opacities_parameters()
         else:
-            self._g_size = None
             self._frequencies = None
             self._frequencies_bin_edges = None
             i_start_opacities = None
@@ -308,15 +307,6 @@ class Radtrans:
     def frequencies_bin_edges(self, array: np.ndarray):
         warnings.warn(self.__line_opacity_property_setting_warning_message)
         self._frequencies_bin_edges = array
-
-    @property
-    def g_size(self):
-        return self._g_size
-
-    @g_size.setter
-    def g_size(self, value: int):
-        warnings.warn(self.__line_opacity_property_setting_warning_message)
-        self._g_size = value
 
     @property
     def line_opacities(self):
@@ -575,7 +565,6 @@ class Radtrans:
                 (Hz) frequencies (center of bin) of the line opacities, also use for spectral calculations, of size N
             frequencies_bin_edges:
                 (Hz) edges of the frequencies bins, of size N+1
-            n_g:
                 for correlated-k only, number of points used to sample the g-space (1 in the case lbl is used)
             start_index:
                 index where to start reading .dat line-by-line opacity files, not used if all lbl files are in HDF5
@@ -593,14 +582,13 @@ class Radtrans:
 
             if hdf5_files:
                 with h5py.File(hdf5_files[0], 'r') as f:
-                    n_g = len(f['samples'][:])
                     frequencies_bin_edges = cst.c * f['bin_edges'][:][::-1]
             else:
                 # Use classical pRT format
                 # In the long run: move to hdf5 fully?
                 # But: people calculate their own k-tables with my code sometimes now.
                 # TODO make a code to convert Paul's k-tables into HDF5 (if it doesn't exists), and get rid of this
-                size_frequencies, n_g = fi.load_frequencies_g_sizes(self._path_input_data, self._line_species[0])
+                size_frequencies, _ = fi.load_frequencies_g_sizes(self._path_input_data, self._line_species[0])
 
                 # Read the frequency range of the opacity data
                 frequencies, frequencies_bin_edges = fi.load_frequencies(
@@ -725,8 +713,6 @@ class Radtrans:
 
                 frequencies = cst.c / fi.read_wlen(start_index, size_frequencies, wavelengths_dat_file)
 
-            n_g = 1
-
             # Down-sample frequency grid in lbl mode if requested
             if self._lbl_opacity_sampling > 1:
                 frequencies = frequencies[::self._lbl_opacity_sampling]
@@ -735,7 +721,7 @@ class Radtrans:
         else:
             raise ValueError(f"line opacity mode must be 'c-k' or 'lbl', but was '{self._line_opacity_mode}'")
 
-        return frequencies, frequencies_bin_edges, n_g, start_index
+        return frequencies, frequencies_bin_edges, start_index
 
     @staticmethod
     def _init_pressure_dependent_parameters(pressures):
@@ -2925,7 +2911,7 @@ class Radtrans:
         opacities = self._interpolate_species_opacities(
             pressures=self._pressures,
             temperatures=temperatures,
-            n_g=self._g_size,
+            n_g=self._line_loaded_opacities['g_gauss'].size,
             n_frequencies=self._frequencies.size,
             line_opacities_grid=self._line_loaded_opacities['opacity_grid'],
             line_opacities_temperature_profile_grid=self._line_loaded_opacities['temperature_profile_grid'],
@@ -3007,7 +2993,7 @@ class Radtrans:
             _opacities = self._interpolate_species_opacities(
                 pressures=self._pressures,
                 temperatures=t,
-                n_g=self._g_size,
+                n_g=self._line_loaded_opacities['g_gauss'].size,
                 n_frequencies=self._frequencies.size,
                 line_opacities_grid=self._line_loaded_opacities['opacity_grid'],
                 line_opacities_temperature_profile_grid=self._line_loaded_opacities['temperature_profile_grid'],
@@ -3229,6 +3215,14 @@ class Radtrans:
 
         # Read opacities grid
         if len(self._line_species) > 0:
+            # Read in g grid for correlated-k
+            if self._line_opacity_mode == 'c-k':
+                buffer = np.genfromtxt(
+                    os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
+                )
+                self._line_loaded_opacities['g_gauss'] = np.array(buffer[:, 0], dtype='d', order='F')
+                self._line_loaded_opacities['weights_gauss'] = np.array(buffer[:, 1], dtype='d', order='F')
+
             for species in self._line_species:
                 file_path_hdf5 = None
 
@@ -3283,7 +3277,7 @@ class Radtrans:
                         species=species,
                         lbl_opacity_sampling=self._lbl_opacity_sampling,
                         frequencies=self._frequencies,
-                        g_size=self._g_size,
+                        g_size=self._line_loaded_opacities['g_gauss'].size,
                         start_index=start_index
                     )
                 else:
@@ -3293,7 +3287,7 @@ class Radtrans:
                         self._line_loaded_opacities['opacity_grid'][species] = self.load_hdf5_ktables(
                             file_path_hdf5=file_path_hdf5,
                             frequencies=self._frequencies,
-                            g_size=self._g_size,
+                            g_size=self._line_loaded_opacities['g_gauss'].size,
                             temperature_profile_grid_size=self._line_loaded_opacities['temperature_profile_grid'][
                                 species].shape[0]
                         )
@@ -3311,14 +3305,6 @@ class Radtrans:
                     np.array(self._line_loaded_opacities['opacity_grid'][species][:, :, 0, :], dtype='d', order='F')
 
             print('\n')
-
-        # Read in g grid for correlated-k
-        if self._line_opacity_mode == 'c-k':
-            buffer = np.genfromtxt(
-                os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
-            )
-            self._line_loaded_opacities['g_gauss'] = np.array(buffer[:, 0], dtype='d', order='F')
-            self._line_loaded_opacities['weights_gauss'] = np.array(buffer[:, 1], dtype='d', order='F')
 
     def load_cloud_opacities(self, path_input_data):
         # Function to read cloud opacities
