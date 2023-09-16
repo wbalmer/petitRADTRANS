@@ -53,9 +53,9 @@ atmosphere3.calculate_transit_radii(temperature, abundances, gravity, MMW, plane
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='Allard wings')
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Burrows wings')
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere3.transit_radii / cst.r_jup_mean, label ='Lorentz wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='Allard wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Burrows wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere3.transit_radii / cst.r_jup_mean, label ='Lorentz wings')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -70,9 +70,9 @@ atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet
 atmosphere2.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 atmosphere3.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='Allard wings')
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Burrows wings')
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere3.transit_radii / cst.r_jup_mean, label ='Lorentz wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='Allard wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere2.transit_radii / cst.r_jup_mean, label ='Burrows wings')
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere3.transit_radii / cst.r_jup_mean, label ='Lorentz wings')
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

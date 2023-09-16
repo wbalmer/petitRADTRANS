@@ -60,14 +60,14 @@ def __save_co_added_cross_correlation(filename,
         plt.title(figure_title)
 
 
-def __save_contribution_function(filename, atmosphere, mode='emission', plot_figure=False, figure_title=None,
-                                 prt_version=version):
-    wavelength = np.asarray(petitRADTRANS.physical_constants.c / atmosphere.frequencies * 1e4)
+def __save_contribution_function(filename, frequencies, emission_contribution, transmission_contribution,
+                                 mode='emission', plot_figure=False, figure_title=None, prt_version=version):
+    wavelength = np.asarray(petitRADTRANS.physical_constants.c / frequencies * 1e4)
 
     if mode == 'emission':
-        contribution = np.asarray(atmosphere.emission_contribution)
+        contribution = np.asarray(emission_contribution)
     elif mode == 'transmission':
-        contribution = np.asarray(atmosphere.transmission_contribution)
+        contribution = np.asarray(transmission_contribution)
     else:
         raise ValueError(f"unknown contribution mode '{mode}', available modes are 'emission' or 'transmission'")
 
@@ -487,8 +487,10 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_ref(p
     )
 
     __save_contribution_function(
-        reference_filenames['correlated_k_emission_contribution_cloud_calculated_radius'],
-        atmosphere_ck,
+        filename=reference_filenames['correlated_k_emission_contribution_cloud_calculated_radius'],
+        frequencies=frequencies,
+        emission_contribution=atmosphere_ck.emission_contribution,
+        transmission_contribution=atmosphere_ck.transmission_contribution,
         mode='emission',
         plot_figure=plot_figure,
         figure_title='Correlated-k emission contribution function, '
@@ -768,8 +770,10 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
     )
 
     __save_contribution_function(
-        reference_filenames['correlated_k_transmission_contribution_cloud_calculated_radius'],
-        atmosphere_ck,
+        filename=reference_filenames['correlated_k_transmission_contribution_cloud_calculated_radius'],
+        frequencies=frequencies,
+        emission_contribution=atmosphere_ck.emission_contribution,
+        transmission_contribution=atmosphere_ck.transmission_contribution,
         mode='transmission',
         plot_figure=plot_figure,
         figure_title='Correlated-k transmission contribution function, '

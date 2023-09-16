@@ -680,8 +680,8 @@ class SpectralModelLegacy:
         )
 
         # Transform the outputs into the units of our data.
-        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
-        wlen_model = cst.c / atmosphere.frequencies * 1e4  # cm to um
+        planet_radiosity = SpectralModelLegacy.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere._frequencies)
+        wlen_model = cst.c / atmosphere._frequencies * 1e4  # cm to um
 
         return wlen_model, planet_radiosity
 
@@ -704,7 +704,7 @@ class SpectralModelLegacy:
 
         # Transform the outputs into the units of our data.
         planet_transit_radius = atmosphere.transit_radii
-        wavelengths = cst.c / atmosphere.frequencies * 1e4  # cm to um
+        wavelengths = cst.c / atmosphere._frequencies * 1e4  # cm to um
 
         return wavelengths, planet_transit_radius
 
@@ -822,8 +822,8 @@ class SpectralModelLegacy:
             opaque_cloud_top_pressure=self.p_cloud
         )
 
-        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere.frequencies)
-        wavelengths = cst.c / atmosphere.frequencies * 1e4  # cm to um
+        flux = self.radiosity_erg_hz2radiosity_erg_cm(atmosphere.flux, atmosphere._frequencies)
+        wavelengths = cst.c / atmosphere._frequencies * 1e4  # cm to um
 
         return wavelengths, flux
 
@@ -843,7 +843,7 @@ class SpectralModelLegacy:
         )
 
         transit_radius = (atmosphere.transit_radii / planet.star_radius) ** 2
-        wavelengths = cst.c / atmosphere.frequencies * 1e4  # m to um
+        wavelengths = cst.c / atmosphere._frequencies * 1e4  # m to um
 
         return wavelengths, transit_radius
 

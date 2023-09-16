@@ -178,7 +178,7 @@ if case3:
     mass_fractions['CH4'] = 0.0001 * 16. / MMW * np.ones_like(temperature)
 
     for r in [0, 0.5, 1]:
-        atmosphere.reflectance = r * np.ones_like(atmosphere.frequencies)
+        atmosphere.reflectance = r * np.ones_like(atmosphere._frequencies)
 
         frequencies, flux = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
                                                       eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \

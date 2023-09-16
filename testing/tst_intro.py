@@ -50,7 +50,7 @@ atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(cst.c / atmosphere.frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean)
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
