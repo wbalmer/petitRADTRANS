@@ -438,7 +438,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
         del doi_dict[key]
 
     if len(doi_dict) == 0:
-        print(f"No cloud opacities conversion is necessary or possible")
+        print("No cloud opacities conversion is necessary or possible")
         return
 
     # Prepare single strings delimited by ':' which are then put into Fortran routines
