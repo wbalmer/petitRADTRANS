@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a69] - 2023-16-09
+## [3.0.0-a70] - 2023-16-09
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -16,13 +16,17 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `utils.feature_scaling` to normalize arrays.
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
-- Constant `e_molar_mass` to natural constants.
+- Constant `e_molar_mass` to physical constants.
+- Some helpful error and warning messages.
 
 ### Changed
 - Functions, arguments and attributes now have clearer names and respect PEP8.
+- Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return frequencies, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
-- Some functions have moved from the module `nat_cst` to another, more specific module.
+- Module `nat_cst` renamed `physical_constants`.
+- Some functions have moved from the module `physical_constants` to another, more specific module.
+- Some functions have moved from the module `Radtrans` to another, more specific module.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
@@ -30,13 +34,13 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Line-by-line opacities can now be read from HDF5 files.
 - Cloud opacities can now be read from HDF5 files.
 - CIA cross-sections can now be read from HDF5 files.
-- petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`.
+- petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`. The installation procedure is mostly unchanged.
 - Various optimisations.
 - Package structure.
 - Code clean-up.
 
 ### Removed
-- Multiple `Radtrans` attributes.
+- Multiple `Radtrans` attributes, some are now function outputs.
 - Class `ReadOpacities`, now merged with `Radtrans`.
 - Module `pyth_input`, now merged with `Radtrans`.
 - Module `version`, version is now defined in pyproject.toml.
