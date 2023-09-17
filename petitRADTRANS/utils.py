@@ -428,6 +428,109 @@ def normalize(array, axis=None):
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
 
 
+def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_fractions=None, co_ratio=0.55,
+                            log10_metallicity=0., return_opacities=False, **kwargs):
+    import matplotlib.pyplot as plt
+    import petitRADTRANS.physical_constants as cst
+
+    def __compute_opacities(_pressures, _temperatures):
+        """ Method to calculate and return the line opacities (assuming an abundance
+        of 100% for the individual species) of the Radtrans object. This method
+        updates the line_struc_kappas attribute within the Radtrans class. For the
+        low resolution (`c-k`) mode, the wavelength-mean within every frequency bin
+        is returned.
+
+            Args:
+                _temperatures:
+                    the atmospheric temperature in K, at each atmospheric layer
+                    (1-d numpy array, same length as pressure array).
+
+            Returns:
+                * wavelength in cm (1-d numpy array)
+                * dictionary of opacities, keys are the names of the line_species
+                  dictionary, entries are 2-d numpy arrays, with the shape
+                  being (number of frequencies, number of atmospheric layers).
+                  Units are cm^2/g, assuming an absorber abundance of 100 % for all
+                  respective species.
+
+        """
+
+        # Function to calc flux, called from outside
+        _opacities = radtrans._interpolate_species_opacities(
+            pressures=_pressures,
+            temperatures=_temperatures,
+            n_g=radtrans.lines_loaded_opacities['g_gauss'].size,
+            n_frequencies=radtrans.frequencies.size,
+            line_opacities_grid=radtrans.lines_loaded_opacities['opacity_grid'],
+            line_opacities_temperature_profile_grid=radtrans.lines_loaded_opacities['temperature_profile_grid'],
+            has_custom_line_opacities_tp_grid=radtrans.lines_loaded_opacities['has_custom_tp_grid'],
+            line_opacities_temperature_grid_size=radtrans.lines_loaded_opacities['temperature_grid_size'],
+            line_opacities_pressure_grid_size=radtrans.lines_loaded_opacities['pressure_grid_size']
+        )
+
+        _opacities_dict = {}
+
+        weights_gauss = radtrans.lines_loaded_opacities['weights_gauss'].reshape(
+            (len(radtrans.lines_loaded_opacities['weights_gauss']), 1, 1)
+        )
+
+        for i, s in enumerate(radtrans.line_species):
+            _opacities_dict[s] = np.sum(_opacities[:, :, i, :] * weights_gauss, axis=0)
+
+        return cst.c / radtrans.frequencies, _opacities_dict
+
+    temperatures = np.array(temperature)
+    pressure_bar = np.array(pressure_bar)
+
+    temperatures = temperatures.reshape(1)
+    pressure_bar = pressure_bar.reshape(1)
+
+    pressures = pressure_bar * 1e6
+
+    wavelengths, opacities = __compute_opacities(pressures, temperatures)
+    wavelengths *= 1e4  # cm to um
+
+    opacities_weights = {}
+
+    if mass_fractions is None:
+        for s in species:
+            opacities_weights[s] = 1.
+    elif mass_fractions == 'eq':
+        from .poor_mans_nonequ_chem import interpol_abundances
+
+        mass_fractions = interpol_abundances(
+            COs_goal_in=co_ratio * np.ones_like(temperatures),
+            FEHs_goal_in=log10_metallicity * np.ones_like(temperatures),
+            temps_goal_in=temperatures,
+            pressures_goal_in=pressure_bar
+        )
+
+        for s in species:
+            opacities_weights[s] = mass_fractions[s.split('_')[0]]
+    else:
+        for s in species:
+            opacities_weights[s] = mass_fractions[s]
+
+    if return_opacities:
+        opacities_dict = {}
+
+        for s in species:
+            opacities_dict[s] = [
+                wavelengths,
+                opacities_weights[s] * opacities[s]
+            ]
+
+        return opacities_dict
+    else:
+        for s in species:
+            plt.plot(
+                wavelengths,
+                opacities_weights[s] * opacities[s],
+                label=s,
+                **kwargs
+            )
+
+
 def read_abunds(path):
     f = open(path)
     header = f.readlines()[0][:-1]

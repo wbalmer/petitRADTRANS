@@ -14,7 +14,7 @@ def __load_stellar_spectra():
 
     if not os.path.isfile(spec_file):
         raise FileNotFoundError(
-            f"No such file: '{spec_file}'\n"
+            f"no such file: '{spec_file}'\n"
             f"This may be caused by an incorrect input_data path, outdated file formatting, or a missing file\n\n"
             f"To set the input_data path, execute: \n"
             f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
@@ -24,7 +24,8 @@ def __load_stellar_spectra():
             f">>> from petitRADTRANS.__file_conversion import convert_all\n"
             f">>> convert_all()\n\n"
             f"To download the missing file, "
-            f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html")
+            f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"
+        )
 
     with h5py.File(spec_file, "r") as f:
         log_temp_grid = f['log10_effective_temperature'][()]
