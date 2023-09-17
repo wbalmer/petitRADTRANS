@@ -439,7 +439,7 @@ class Radtrans:
     @staticmethod
     def _get_non_cia_gas_continuum_contributions():
         return {
-            'H-': Radtrans.compute_h_minus_opacities
+            'H-': Radtrans._compute_h_minus_opacities
         }
 
     @staticmethod
@@ -3406,8 +3406,8 @@ class Radtrans:
         self._clouds_loaded_opacities['particles_radii'] = np.array(cloud_radii, dtype='d', order='F')
 
     @staticmethod
-    def compute_h_minus_opacities(mass_fractions, pressures, temperatures, frequencies, frequencies_bin_edges,
-                                  mean_molar_masses, **kwargs):
+    def _compute_h_minus_opacities(mass_fractions, pressures, temperatures, frequencies, frequencies_bin_edges,
+                                   mean_molar_masses, **kwargs):
         """Calc the H- opacity."""
         wavelengths = cst.c / frequencies * 1e8,  # Hz to Angstroem
         wavelengths_bin_edges = cst.c / frequencies_bin_edges * 1e8,  # Hz to Angstroem
