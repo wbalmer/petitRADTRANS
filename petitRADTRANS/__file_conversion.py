@@ -16,6 +16,10 @@ from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.prt_molmass import getMM
 
 
+def __print_missing_data_file_message(object, object_name, directory):
+    print(f"Data for {object} '{object_name}' not found (path '{directory}' does not exist), skipping...")
+
+
 def __print_skipping_message(hdf5_opacity_file):
     print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
 
@@ -85,6 +89,8 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
         )
         table.attrs['units'] = 'None'
 
+    print("Successfully converted chemical tables")
+
 
 def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                          rewrite=False, output_directory=None):
@@ -135,7 +141,15 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
         cia_dir = os.path.join(input_directory, key)
 
         if not os.path.isdir(cia_dir):
-            print(f"data for CIA '{key}' not found (path '{cia_dir}' does not exist), skipping...")
+            __print_missing_data_file_message('CIA', key, cia_dir)
+            continue
+
+        # Get HDF5 file name
+        output_directory = output_directory_ref
+        hdf5_cia_file = os.path.join(output_directory, key + '.ciatable.petitRADTRANS.h5')
+
+        if os.path.isfile(hdf5_cia_file) and not rewrite:
+            __print_skipping_message(hdf5_cia_file)
             continue
 
         # Check if current key is in all information dicts
@@ -182,17 +196,8 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
 
         wavenumbers = 1 / cia_dict['lambda'][::-1]  # cm to cm-1, with correct ordering
 
-        # Get HDF5 file name
-        output_directory = output_directory_ref
-
         if not os.path.isdir(output_directory):
             os.makedirs(output_directory)
-
-        hdf5_cia_file = os.path.join(output_directory, key + '.ciatable.petitRADTRANS.h5')
-
-        if os.path.isfile(hdf5_cia_file) and not rewrite:
-            __print_skipping_message(hdf5_cia_file)
-            continue
 
         # Write HDF5 file
         print(f" Writing file '{hdf5_cia_file}'...", end=' ')
@@ -263,7 +268,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
 
         print("Done.")
 
-    print("Conversions successful.")
+    print("Successfully converted CIA opacities")
 
 
 def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
@@ -401,7 +406,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
         species_dir = os.path.join(input_directory, species + '_c')
 
         if not os.path.isdir(species_dir):
-            print(f"data for cloud '{key}' not found (path '{species_dir}' does not exist), skipping...")
+            __print_missing_data_file_message('cloud', key, species_dir)
             bad_keys.append(key)
             continue
 
@@ -415,7 +420,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
             particle_mode_dir = os.path.join(species_dir, 'amorphous')
 
         if not os.path.isdir(particle_mode_dir):
-            print(f"data for cloud '{key}' not found (path '{particle_mode_dir}' does not exist), skipping...")
+            __print_missing_data_file_message('cloud', key, particle_mode_dir)
             del doi_dict[key]
             continue
 
@@ -425,12 +430,16 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
             particle_mode_dir = os.path.join(particle_mode_dir, 'DHS')
 
         if not os.path.isdir(particle_mode_dir):
-            print(f"data for cloud '{key}' not found (path '{particle_mode_dir}' does not exist), skipping...")
+            print(__print_missing_data_file_message('cloud', key, particle_mode_dir))
             del doi_dict[key]
             continue
 
     for key in bad_keys:
         del doi_dict[key]
+
+    if len(doi_dict) == 0:
+        print(f"No cloud opacities conversion is necessary or possible")
+        return
 
     # Prepare single strings delimited by ':' which are then put into Fortran routines
     cloud_species_modes = []
@@ -451,11 +460,18 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
     for cloud_species_mode in cloud_species_modes:
         tot_str_modes = tot_str_modes + cloud_species_mode + ':'
 
-    n_cloud_wavelength_bins = int(len(np.genfromtxt(
-        os.path.join(
-            path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+    reference_file = os.path.join(
+        path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
+    )
+
+    if not os.path.isfile(reference_file):
+        raise FileNotFoundError(
+            f"reference file for loading .dat cloud opacities ('{reference_file}') not found, "
+            f"it must be downloaded "
+            f"(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
         )
-    )[:, 0]))
+
+    n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
 
     # Load .dat files
     print("Loading dat files...")
@@ -600,7 +616,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 
         print("Done.")
 
-    print("Conversions successful.")
+    print("Successfully converted cloud opacities")
 
 
 def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
@@ -1130,7 +1146,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
             print("Done.")
 
-    print("Conversions successful.")
+    print("Successfully converted line opacities")
 
 
 def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
@@ -1139,10 +1155,18 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input
     """
     # Load the stellar parameters
     path = os.path.join(path_input_data, 'stellar_specs')
-    hdf5_file = os.path.join(path, "stellar_spectra.h5", "w")
+    hdf5_file = os.path.join(path, "stellar_spectra.h5")
 
     if os.path.isfile(hdf5_file) and not rewrite:
         __print_skipping_message(hdf5_file)
+        return
+
+    dat_file = os.path.join(path, 'stellar_params.dat')
+
+    if not os.path.isfile(dat_file):
+        __print_missing_data_file_message(
+            'stellar spectrum', 'stellar_params.dat', dat_file.rsplit(os.path.sep, 1)[0]
+        )
         return
 
     description = np.genfromtxt(os.path.join(path, 'stellar_params.dat'))
@@ -1198,7 +1222,7 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input
         )
         spectral_radiosity.attrs['units'] = 'erg/s/cm^2/Hz'
 
-    print("Conversion successful.")
+    print("Successfully converted stellar spectra")
 
 
 def convert_all(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
@@ -1219,4 +1243,4 @@ def convert_all(path_input_data=petitradtrans_config['Paths']['prt_input_data_pa
     print("Chemical tables...")
     chemical_table_dat2h5(path_input_data=path_input_data, rewrite=rewrite)
 
-    print("Successfully converted all files")
+    print("Successfully converted all .dat files into HDF5")
