@@ -19,10 +19,14 @@ from petitRADTRANS.fort_spec import fort_spec as fs
 
 
 class Radtrans:
-    __property_setting_warning_message = (
-        "setting a Radtrans property directly is not recommended\n"
-        "Create a new Radtrans instance (recommended) "
-        "or re-do all the setup steps necessary for the modification to be taken into account"
+    __dat_opacity_files_warning_message = (
+        "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
+        "memory usage\n\n"
+        "Converting petitRADTRANS .dat opacity files into HDF5 can be done by executing:\n"
+        ">>> from petitRADTRANS.__file_conversion import convert_all\n"
+        ">>> convert_all()\n\n"
+        "Alternatively, the petitRADTRANS HDF5 files can be downloaded "
+        "(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
     )
 
     __line_opacity_property_setting_warning_message = (
@@ -32,14 +36,10 @@ class Radtrans:
         "It is recommended to create a new Radtrans instance instead"
     )
 
-    __dat_opacity_files_warning_message = (
-        "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
-        "memory usage\n\n"
-        "Converting petitRADTRANS .dat opacity files into HDF5 can be done by executing:\n"
-        ">>> from petitRADTRANS.__file_conversion import convert_all\n"
-        ">>> convert_all()\n\n"
-        "Alternatively, the petitRADTRANS HDF5 files can be downloaded "
-        "(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
+    __property_setting_warning_message = (
+        "setting a Radtrans property directly is not recommended\n"
+        "Create a new Radtrans instance (recommended) "
+        "or re-do all the setup steps necessary for the modification to be taken into account"
     )
 
     def __init__(
@@ -213,6 +213,25 @@ class Radtrans:
     def __check_line_opacity_mode(mode):
         if mode not in ['c-k', 'lbl']:
             raise ValueError(f"opacity mode must be 'c-k'|'lbl', but was '{mode}'")
+
+    @staticmethod
+    def __check_input_data_file_existence(path):
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"no such file or directory: '{path}'\n"
+                f"This may be caused by an incorrect input_data path, outdated file formatting, or a missing file\n\n"
+                f"To set the input_data path, execute: \n"
+                f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
+                f">>> petitradtrans_config_parser.set_input_data_path('path/to/input_data')\n"
+                f"replacing 'path/to/' with the path to the input_data directory (setting "
+                f"pRT_input_data_path by an environment variable is no longer supported, "
+                f"this environment variable can be removed safely from your setup)\n\n"
+                f"To update the outdated .dat files to HDF5, execute:\n"
+                f">>> from petitRADTRANS.__file_conversion import convert_all\n"
+                f">>> convert_all()\n\n"
+                f"To download the missing file, "
+                f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"
+            )
 
     @staticmethod
     def __check_wavelengths_boundaries(boundaries):
@@ -585,6 +604,10 @@ class Radtrans:
                 # TODO make a code to convert Paul's k-tables into HDF5 (if it doesn't exists), and get rid of this
                 size_frequencies, _ = fi.load_frequencies_g_sizes(self._path_input_data, self._line_species[0])
 
+                g_file = os.path.join(opacities_dir, 'kappa_g_info.dat')
+
+                self.__check_input_data_file_existence(g_file)
+
                 # Read the frequency range of the opacity data
                 frequencies, frequencies_bin_edges = fi.load_frequencies(
                     self._path_input_data, self._line_species[0], size_frequencies
@@ -661,6 +684,8 @@ class Radtrans:
                     self._path_input_data, 'opacities', 'lines', 'line_by_line',
                     self._line_species[0] + '.otable.petitRADTRANS.h5'
                 )
+
+                self.__check_input_data_file_existence(opacities_file)
 
                 with h5py.File(opacities_file, 'r') as f:
                     wavelength_grid = 1 / f['wavenumbers'][:]  # cm-1 to cm
@@ -2511,8 +2536,7 @@ class Radtrans:
 
                 cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', collision)
 
-                if os.path.isdir(cia_directory) is False:
-                    raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
+                self.__check_input_data_file_existence(cia_directory)
 
                 # TODO what is the purpose of the *_dims variables?
                 cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
@@ -3426,11 +3450,13 @@ class Radtrans:
             for cloud_species_mode in cloud_species_mode:
                 tot_str_modes = tot_str_modes + cloud_species_mode + ':'
 
-            n_cloud_wavelength_bins = int(len(np.genfromtxt(
-                os.path.join(
+            reference_file = os.path.join(
                     path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
                 )
-            )[:, 0]))
+
+            self.__check_input_data_file_existence(reference_file)
+
+            n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
 
             # Actual loading of opacities
             rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
