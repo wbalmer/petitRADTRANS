@@ -2999,9 +2999,9 @@ class Radtrans:
         )
 
     @staticmethod
-    def compute_transit_radii(opacities, continuum_opacities_scattering, pressures, temperatures, weights_gauss,
-                              mean_molar_masses, surface_gravity, reference_pressure,
-                              planet_radius, variable_gravity, line_by_line):
+    def _compute_transit_radii(opacities, continuum_opacities_scattering, pressures, temperatures, weights_gauss,
+                               mean_molar_masses, surface_gravity, reference_pressure,
+                               planet_radius, variable_gravity, line_by_line):
         """Calculate the planetary transmission spectrum.
 
             Args:
