@@ -8,14 +8,14 @@ import h5py
 import numpy as np
 from scipy.interpolate import interp1d
 
-from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS import prt_molmass
-from petitRADTRANS import physical_constants as cst
 from petitRADTRANS import phoenix
-from petitRADTRANS.utils import LockedDict
+from petitRADTRANS import physical_constants as cst
+from petitRADTRANS import prt_molmass
+from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.fort_input import fort_input as fi
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.fort_spec import fort_spec as fs
+from petitRADTRANS.utils import LockedDict
 
 
 class Radtrans:
