@@ -10,7 +10,7 @@ import petitRADTRANS
 # Fortran extensions
 import petitRADTRANS.chem_fortran_util
 import petitRADTRANS.fort_rebin
-import petitRADTRANS.fort_input
+import petitRADTRANS.fortran_inputs
 import petitRADTRANS.fort_spec
 import petitRADTRANS.rebin_give_width
 

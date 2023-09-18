@@ -12,7 +12,7 @@ from petitRADTRANS import phoenix
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS import prt_molmass
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.fort_input import fort_input as fi
+from petitRADTRANS.fortran_inputs import fortran_inputs as fi
 from petitRADTRANS.fort_rebin import fort_rebin as fr
 from petitRADTRANS.fort_spec import fort_spec as fs
 from petitRADTRANS.utils import LockedDict
@@ -815,7 +815,7 @@ class Radtrans:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec].split('_')[0]]
 
         # Combine line opacities with continuum opacities
-        opacities = fi.mix_opas_ck(
+        opacities = fi.compute_total_opacities(
             line_species_mass_fractions,
             opacities,
             continuum_opacities
@@ -1521,7 +1521,7 @@ class Radtrans:
             # Get continuum scattering opacity, without clouds:
             continuum_opacities_scattering_emission -= hack_cloud_total_scattering_anisotropic
 
-            opacities = fi.mix_opas_ck(
+            opacities = fi.compute_total_opacities(
                 _mass_fractions_1,
                 opacities,
                 -hack_cloud_total_abs
@@ -1548,7 +1548,7 @@ class Radtrans:
             if not block1 and not block3 and not block4:
                 _mass_fractions_1 = np.ones((pressures.size, n_species))
 
-            mock_line_cloud_continuum_only = fi.mix_opas_ck(
+            mock_line_cloud_continuum_only = fi.compute_total_opacities(
                 _mass_fractions_1, mock_line_cloud_continuum_only, hack_cloud_total_abs
             )
 
@@ -1642,7 +1642,7 @@ class Radtrans:
                  + cloud_scaling_factor * hack_cloud_total_scattering_anisotropic)
 
             opacities = \
-                fi.mix_opas_ck(_mass_fractions_1, opacities, cloud_scaling_factor * hack_cloud_total_abs)
+                fi.compute_total_opacities(_mass_fractions_1, opacities, cloud_scaling_factor * hack_cloud_total_abs)
 
             # Calc. total optical depth, including clouds
             optical_depths[:, :, :1, :], photon_destruction_probabilities = \
@@ -1950,7 +1950,7 @@ class Radtrans:
                 if os.path.isfile(wavelengths_dat_file):
                     # Get dimensions of opacity arrays for a given P-T point
                     print(f"Loading file '{wavelengths_dat_file}'...")
-                    size_frequencies, start_index = fi.find_lbl_frequency_loading_boundaries(
+                    size_frequencies, start_index = fi.find_line_by_line_frequency_loading_boundaries(
                         self._wavelengths_boundaries[0] * 1e-4,  # um to cm
                         self._wavelengths_boundaries[1] * 1e-4,  # um to cm
                         wavelengths_dat_file
@@ -2013,7 +2013,9 @@ class Radtrans:
                 if self._lbl_opacity_sampling > 1:
                     size_frequencies += self._lbl_opacity_sampling - 1
 
-                frequencies = cst.c / fi.read_wlen(start_index, size_frequencies, wavelengths_dat_file)
+                frequencies = cst.c / fi.load_line_by_line_wavelengths(
+                    start_index, size_frequencies, wavelengths_dat_file
+                )
 
             # Down-sample frequency grid in lbl mode if requested
             if self._lbl_opacity_sampling > 1:
@@ -2099,7 +2101,7 @@ class Radtrans:
             )
 
             for i, species in enumerate(line_opacities_grid):
-                line_opacities[:, :, i, :] = fi.interpol_opa_ck(
+                line_opacities[:, :, i, :] = fi.interpolate_line_opacities(
                     pressures,
                     temperatures,
                     line_opacities_temperature_profile_grid[species],
@@ -2970,7 +2972,7 @@ class Radtrans:
 
                 # TODO what is the purpose of the *_dims variables?
                 cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
-                    cia_temp_dims, cia_lambda_dims = fi.cia_read(collision, path_input_data)
+                    cia_temp_dims, cia_lambda_dims = fi.load_cia_opacities(collision, path_input_data)
                 cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
                 cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
                 cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
@@ -3096,7 +3098,7 @@ class Radtrans:
             # Actual loading of opacities
             rho_cloud_particles, cloud_specs_abs_opa, cloud_specs_scat_opa, \
                 cloud_anisotropy, cloud_lambdas, cloud_rad_bins, cloud_radii \
-                = fi.read_in_cloud_opacities(
+                = fi.load_cloud_opacities(
                     path_input_data, tot_str_names, tot_str_modes, len(self._cloud_species), n_cloud_wavelength_bins
                 )
 
@@ -3144,7 +3146,7 @@ class Radtrans:
             local_g_len = g_size
             _frequencies = None
 
-        line_opacities_grid = fi.read_in_molecular_opacities(
+        line_opacities_grid = fi.load_line_opacity_grid(
             path_input_data,
             species + ':',
             local_freq_len_full,

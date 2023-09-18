@@ -1881,7 +1881,7 @@ module fort_spec
             integer :: i, interp_ind(output_len)
             double precision :: dx, dy, delta_x
 
-            call search_intp_ind(x, input_len, x_out, output_len, interp_ind)
+            call find_interpolate_indices(x, input_len, x_out, output_len, interp_ind)
 
             do i = 1, output_len
                 dy = y(interp_ind(i) + 1) - y(interp_ind(i))
@@ -2049,7 +2049,7 @@ module fort_spec
                         k_final(2:nsample+1) = sampled_opa_weights(:, 1, i_freq, i_struc)
                         k_final(nsample+2) = k_max(i_freq, i_struc)
 
-                        call search_intp_ind(g_final, nsample+2, g_gauss, g_len, intpint)
+                        call find_interpolate_indices(g_final, nsample+2, g_gauss, g_len, intpint)
 
                         do i_g = 1, g_len
                             line_struc_kappas_out(i_g, i_freq, i_struc) = &
@@ -2098,7 +2098,7 @@ module fort_spec
                         k_final_2(2:nsample_2+1) = sampled_opa_weights_2(:, 1)
                         k_final_2(nsample_2+2) = spec1(g_len) + spec2(g_len)
 
-                        call search_intp_ind(g_final_2, nsample_2+2, g_gauss, g_len, intpint)
+                        call find_interpolate_indices(g_final_2, nsample_2+2, g_gauss, g_len, intpint)
 
                         do i_g = 1, g_len
                             line_struc_kappas_out(i_g, i_freq, i_struc) = &
@@ -2221,7 +2221,7 @@ module fort_spec
         end subroutine combine_opas_ck
 
         ! Self-written? Too long ago... Check if not rather from numrep...
-        subroutine search_intp_ind(binbord,binbordlen,arr,arrlen,intpint)
+        subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
 
           implicit none
 
@@ -2262,7 +2262,7 @@ module fort_spec
 
           end do
 
-        end subroutine search_intp_ind
+        end subroutine find_interpolate_indices
 
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

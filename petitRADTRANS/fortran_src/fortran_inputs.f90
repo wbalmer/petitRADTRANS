@@ -1,7 +1,7 @@
 !!$*****************************************************************************
 !!$*****************************************************************************
 !!$*****************************************************************************
-!!$ fort_input.f90: utility functions to read, interpolate and mix opacities
+!!$ fortran_inputs.f90: utility functions to read, interpolate and mix opacities
 !!$                 for the petitRADTRANS radiative transfer package
 !!$
 !!$ Copyright 2016-2018, Paul Molliere
@@ -10,10 +10,13 @@
 !!$*****************************************************************************
 !!$*****************************************************************************
 !!$*****************************************************************************
-! TODO remove labels in fort_input
+! TODO remove labels in fortran_inputs
 
-module fort_input
+module fortran_inputs
     implicit none
+
+    integer, parameter :: path_string_max_length = 1024  ! Windows path length soft limit is 256
+    integer, parameter :: species_string_max_length = 64  ! longest molelcule formula ("tintin") is 30 characters long
 
     contains
         subroutine load_frequencies_g_sizes(path, spec_name, freq_len, g_len)
@@ -22,8 +25,8 @@ module fort_input
             ! """
             implicit none
 
-            character(len=2500), intent(in) :: path
-            character(len=100), intent(in)  :: spec_name
+            character(len=*), intent(in) :: path
+            character(len=*), intent(in)  :: spec_name
             integer, intent(out) :: freq_len, g_len
 
             integer :: file_unit
@@ -47,8 +50,8 @@ module fort_input
             ! """
             implicit none
             ! I/O
-            character(len=1500), intent(in) :: path
-            character(len=100), intent(in)  :: spec_name
+            character(len=*), intent(in) :: path
+            character(len=*), intent(in)  :: spec_name
             integer, intent(in) :: freq_len
             double precision, intent(out) :: freq(freq_len), &
                freq_use_ck(freq_len+1)
@@ -77,24 +80,24 @@ module fort_input
         end subroutine load_frequencies
         
 
-        subroutine read_in_molecular_opacities(path,species_names_tot,freq_len,g_len,species_len,opa_TP_grid_len, &
+        subroutine load_line_opacity_grid(path,species_names_tot,freq_len,g_len,species_len,opa_TP_grid_len, &
                                                opa_grid_kappas, mode, arr_min, custom_grid, custom_file_names)
             ! """
             ! Subroutine to read in the molecular opacities (c-k or line-by-line)
             ! """
             implicit none
 
-            character(len=1500), intent(in) :: path
-            character(len=50000), intent(in) :: species_names_tot  !# TODO character lenghts seems unreasonable
-            character(len=100000), intent(in) :: custom_file_names
+            character(len=*), intent(in) :: path
+            character(len=*), intent(in) :: species_names_tot  !# TODO character lenghts seems unreasonable
+            character(len=*), intent(in) :: custom_file_names
             integer, intent(in) :: freq_len,g_len,species_len, opa_TP_grid_len, arr_min
-            character(len=3), intent(in) :: mode
+            character(len=*), intent(in) :: mode
             double precision, intent(out) :: opa_grid_kappas(g_len,freq_len,species_len,opa_TP_grid_len)
             logical :: custom_grid
 
             character(len=2) :: species_id
-            character(len=1500) :: path_names(opa_TP_grid_len), filename
-            character(len=4000) :: path_read_stream
+            character(len=path_string_max_length) :: path_names(opa_TP_grid_len), filename
+            character(len=path_string_max_length) :: path_read_stream
             logical :: file_exists
             integer :: species_name_inds(2,species_len)
             integer :: opa_file_names_inds(2,opa_TP_grid_len)
@@ -105,7 +108,7 @@ module fort_input
             ! Get single species names
             curr_spec_ind = 1
             species_name_inds(1,curr_spec_ind) = 1
-            do i_str = 1, 5000
+            do i_str = 1, len(species_names_tot)
                 if (curr_spec_ind > species_len) then
                     exit
                 end if
@@ -124,7 +127,7 @@ module fort_input
             if (custom_grid) then
                 curr_file_ind = 1 !
                 opa_file_names_inds(1,curr_file_ind) = 1
-                do i_str = 1, 100000
+                do i_str = 1, len(custom_file_names)
                     if (curr_file_ind > opa_TP_grid_len) then
                         exit
                     end if
@@ -217,7 +220,7 @@ module fort_input
                                adjustl(trim(path_names(i_file)))
                         end if
                     
-                        call read_kappa(arr_min, freq_len, path_read_stream, opa_grid_kappas(1,:,i_spec,i_file))
+                        call load_line_by_line_opacity_grid(arr_min, freq_len, path_read_stream, opa_grid_kappas(1,:,i_spec,i_file))
                     end if
                     
                     ! ...for every frequency point.
@@ -237,10 +240,10 @@ module fort_input
             end do
             
             write(*, *) 'Done.'
-        end subroutine read_in_molecular_opacities
+        end subroutine load_line_opacity_grid
         
 
-        subroutine read_in_cloud_opacities(path,species_names_tot,species_modes_tot,N_cloud_spec, &
+        subroutine load_cloud_opacities(path,species_names_tot,species_modes_tot,N_cloud_spec, &
                                            N_cloud_lambda_bins,rho_cloud_particles,cloud_specs_abs_opa,&
                                            cloud_specs_scat_opa, cloud_aniso,cloud_lambdas,cloud_rad_bins,cloud_radii)
             ! """
@@ -250,8 +253,8 @@ module fort_input
 
             integer, parameter :: N_cloud_rad_bins = 130
             
-            character(len=1500), intent(in) :: path
-            character(len=50000), intent(in) :: species_names_tot,species_modes_tot
+            character(len=*), intent(in) :: path
+            character(len=*), intent(in) :: species_names_tot,species_modes_tot
             integer, intent(in) :: N_cloud_spec,N_cloud_lambda_bins
             double precision, intent(out) :: rho_cloud_particles(N_cloud_spec)
             double precision, intent(out) :: cloud_specs_abs_opa(N_cloud_rad_bins,N_cloud_lambda_bins,N_cloud_spec), &
@@ -261,14 +264,14 @@ module fort_input
             
             integer :: i_str, curr_spec_ind, i_cloud, i_cloud_read, i_cloud_lamb, i_size, i_lamb
             integer :: species_name_inds(2,N_cloud_spec), species_mode_inds(2,N_cloud_spec)
-            character(len=80)  :: cloud_opa_names(N_cloud_spec), cloud_name_buff, buff_line, path_add
+            character(len=species_string_max_length)  :: cloud_opa_names(N_cloud_spec), cloud_name_buff, buff_line, path_add
             double precision :: cloud_dens_buff, buffer
-            character(len=2) :: cloud_opa_mode(N_cloud_spec)
+            character(len=species_string_max_length) :: cloud_opa_mode(N_cloud_spec)
             
             ! Get single cloud species names
             curr_spec_ind = 1
             species_name_inds(1,curr_spec_ind) = 1
-            do i_str = 1, 5000
+            do i_str = 1, len(species_names_tot)
                 if (curr_spec_ind > N_cloud_spec) then
                     exit
                 end if
@@ -287,7 +290,7 @@ module fort_input
             curr_spec_ind = 1
             species_mode_inds(1,curr_spec_ind) = 1
             
-            do i_str = 1, 5000
+            do i_str = 1, len(species_names_tot)
                 if (curr_spec_ind > N_cloud_spec) then
                     exit
                 end if
@@ -441,10 +444,10 @@ module fort_input
             
             write(*,*) 'Done.'
             write(*,*)
-        end subroutine read_in_cloud_opacities
+        end subroutine load_cloud_opacities
 
 
-        subroutine interpol_opa_ck(pressures, temperatures, temperature_pressure_grid, custom_grid, &
+        subroutine interpolate_line_opacities(pressures, temperatures, temperature_pressure_grid, custom_grid, &
                                    n_temperatures, n_pressures, opacity_grid, &
                                    n_layers, n_tp_grid_columns, n_tp_grid_rows, n_frequencies, n_g, &
                                    interpolated_opacities)
@@ -452,6 +455,9 @@ module fort_input
             ! Subroutine to interpolate an opacity grid at a given temperature profile.
             ! """
             implicit none
+
+            double precision, parameter :: temperature_index_factor1 = 81.14113604736988d0
+            double precision, parameter :: temperature_index_factor2 = 12d0 / log10(2995d0 / temperature_index_factor1)
 
             integer, intent(in) :: n_g, n_layers, n_tp_grid_rows, n_tp_grid_columns ! n_tp_grid_columns = 2
             integer, intent(in) :: n_frequencies
@@ -495,11 +501,11 @@ module fort_input
                 if (custom_grid) then
                     ! Search the index in the grids that is the closest to the current layer's pressure and temperature
                     ! TODO is there truly an interest in searching for indices using a dichotomy instead of looping?
-                    call search_intp_ind(temperature_grid, n_temperatures, temperatures(i), 1, buffer_scalar_array)
+                    call find_interpolate_indices(temperature_grid, n_temperatures, temperatures(i), 1, buffer_scalar_array)
 
                     i_temperature = buffer_scalar_array(1)
 
-                    call search_intp_ind(pressure_grid, n_pressures, pressures(i), 1, buffer_scalar_array)
+                    call find_interpolate_indices(pressure_grid, n_pressures, pressures(i), 1, buffer_scalar_array)
 
                     i_pressure = buffer_scalar_array(1)
                     
@@ -510,8 +516,8 @@ module fort_input
                     j_t1_p1 = i_temperature * n_pressures + i_pressure + 1
                 else
                     ! Get the index in the grids that is the closest to the current layer's pressure and temperature
-                    i_temperature = max(min(int(log10(temperatures(i) / 81.14113604736988d0) &
-                        / log10(2995d0 / 81.14113604736988d0) * 12d0) + 1, 12), 1)
+                    i_temperature = max(min(int(log10(temperatures(i) / temperature_index_factor1) &
+                        * temperature_index_factor2) + 1, 12), 1)
                     i_pressure = max(min(int(log10(pressures(i) * 1d-6) + 6d0) + 1, 9), 1)
                     
                     ! Get indices in temperature-pressure grid around the current layer's pressure and temperature
@@ -579,12 +585,12 @@ module fort_input
                     interpolated_opacities(:, :, i) = y_t_low + dx * (y_t_high - y_t_low)
                 end if
             end do
-        end subroutine interpol_opa_ck
+        end subroutine interpolate_line_opacities
         
 
-        subroutine search_intp_ind(binbord,binbordlen,arr,arrlen,intpint)
+        subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
             ! """
-            ! TODO add docstring in search_intp_ind
+            ! TODO add docstring in find_interpolate_indices
             ! """
             implicit none
             
@@ -617,10 +623,10 @@ module fort_input
                     intpint(i_arr) = k0
                 end if
             end do
-        end subroutine search_intp_ind
+        end subroutine find_interpolate_indices
         
 
-        subroutine mix_opas_ck(abundances,opa_struc_kappas,continuum_opa, &
+        subroutine compute_total_opacities(abundances,opa_struc_kappas,continuum_opa, &
              N_species,freq_len,struc_len,g_len,opa_struc_kappas_out)
             ! """
             ! Subroutine to get the abundance weightes opas for ck, and for adding the continuum opas.
@@ -637,8 +643,8 @@ module fort_input
             
             do i_struc = 1, struc_len
                 do i_spec = 1, N_species
-                    opa_struc_kappas_out(:,:,i_spec,i_struc) = abundances(i_struc,i_spec)* &
-                    opa_struc_kappas(:,:,i_spec,i_struc)
+                    opa_struc_kappas_out(:,:,i_spec,i_struc) = abundances(i_struc,i_spec) &
+                        * opa_struc_kappas(:,:,i_spec,i_struc)
                 end do
             end do
             
@@ -649,21 +655,21 @@ module fort_input
                         + continuum_opa(i_freq,i_struc)
                 end do
             end do
-        end subroutine mix_opas_ck
+        end subroutine compute_total_opacities
 
 
-        subroutine cia_read(cpair,opacity_path_str,CIA_cpair_lambda, &
+        subroutine load_cia_opacities(cpair,opacity_path_str,CIA_cpair_lambda, &
                             CIA_cpair_temp,CIA_cpair_alpha_grid,temp, wlen)
             ! """
             ! Subroutine to read the CIA opacities.
             ! """
             implicit none
             
-            character(len=20), intent(in)              :: cpair
+            character(len=*), intent(in)              :: cpair
             double precision, intent(out)         :: CIA_cpair_alpha_grid(10000,50)
             double precision, intent(out)         :: CIA_cpair_lambda(10000)
             double precision, intent(out)         :: CIA_cpair_temp(50)
-            character(len=1500), intent(in)             :: opacity_path_str
+            character(len=*), intent(in)             :: opacity_path_str
             integer,intent(out)                   :: temp,wlen
             
             integer                               :: i,j,stat
@@ -735,10 +741,10 @@ module fort_input
             end do
 
             close(11)
-        end subroutine cia_read
+        end subroutine load_cia_opacities
 
 
-        subroutine find_lbl_frequency_loading_boundaries(wlen_min_read, wlen_max_read, &
+        subroutine find_line_by_line_frequency_loading_boundaries(wlen_min_read, wlen_max_read, &
                                                          file_path, arr_len, arr_min)
             ! """
             ! Subroutine to get the length of the opacity arrays in the high-res case.
@@ -746,7 +752,7 @@ module fort_input
             implicit none
 
             double precision, intent(in) :: wlen_min_read, wlen_max_read
-            character(len=4000), intent(in)    :: file_path
+            character(len=*), intent(in)    :: file_path
             integer, intent(out)         :: arr_len, arr_min
 
             double precision :: curr_wlen, last_wlen
@@ -807,10 +813,10 @@ module fort_input
             end if
 
             arr_len = arr_max - arr_min + 1
-        end subroutine find_lbl_frequency_loading_boundaries
+        end subroutine find_line_by_line_frequency_loading_boundaries
 
 
-        subroutine read_wlen(arr_min, arr_len, file_path, wlen)
+        subroutine load_line_by_line_wavelengths(arr_min, arr_len, file_path, wlen)
             ! """
             ! Subroutine to read the wavelength array in the high-res case.
             ! """
@@ -818,7 +824,7 @@ module fort_input
 
             integer, intent(in)           :: arr_min
             integer, intent(in)           :: arr_len
-            character(len=4000), intent(in)     :: file_path
+            character(len=*), intent(in)     :: file_path
             double precision, intent(out) :: wlen(arr_len)
 
             integer          :: i_lamb
@@ -833,10 +839,10 @@ module fort_input
             end do
 
             close(49)
-        end subroutine read_wlen
+        end subroutine load_line_by_line_wavelengths
 
 
-        subroutine read_kappa(arr_min, arr_len, file_path, kappa)
+        subroutine load_line_by_line_opacity_grid(arr_min, arr_len, file_path, kappa)
             ! """
             ! Subroutine to read the kappa array in the high-res case.
             ! """
@@ -844,7 +850,7 @@ module fort_input
 
             integer, intent(in)           :: arr_min
             integer, intent(in)           :: arr_len
-            character(len=4000), intent(in)     :: file_path
+            character(len=*), intent(in)     :: file_path
             double precision, intent(out) :: kappa(arr_len)
 
             integer          :: i_lamb
@@ -859,7 +865,7 @@ module fort_input
             end do
 
             close(49)
-        end subroutine read_kappa
+        end subroutine load_line_by_line_opacity_grid
 
 
         subroutine compute_file_size(file_path, arr_len)
@@ -897,7 +903,7 @@ module fort_input
         end subroutine compute_file_size
 
 
-        subroutine read_all_kappa(file_path, arr_len, kappa)
+        subroutine load_all_line_by_line_opacities(file_path, arr_len, kappa)
             ! """
             ! Subroutine to read all the kappa array in the high-res case.
             ! """
@@ -915,10 +921,10 @@ module fort_input
                 read(49) kappa(i)
 
                 if (mod(i, 500000) == 0) then
-                    write(*, *) i  ! check that we are reading the file and not stalling
+                    write(*, '(I0, " / ", I0)') i, arr_len  ! check that we are reading the file and not stalling
                 end if
             end do
 
             close(49)
-        end subroutine read_all_kappa
-end module fort_input
+        end subroutine load_all_line_by_line_opacities
+end module fortran_inputs

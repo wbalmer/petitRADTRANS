@@ -38,7 +38,7 @@ inc_np = include_directories(incdir_numpy, incdir_f2py)
 # Set extensions names
 extension_names = [
     'fort_spec',
-    'fort_input',
+    'fortran_inputs',
     'fort_rebin',
     'rebin_give_width',
     'chem_fortran_util'
