@@ -14,7 +14,7 @@ e = s_cst.e * np.sqrt(1e9 / (4 * s_cst.pi * s_cst.epsilon_0))
 # Measured constants
 G = s_cst.G * 1e3
 m_elec = s_cst.electron_mass * 1e3
-e_molar_mass = m_elec * s_cst.Avogadro  # g.mol-1, e- molar mass
+e_molar_mass = m_elec * s_cst.Avogadro  # (g.mol-1) e- molar mass
 
 # Derived exact constants
 sigma = s_cst.sigma * 1e3
@@ -38,5 +38,5 @@ m_jup = a_cst.M_jup.cgs.value
 m_earth = a_cst.M_earth.cgs.value
 l_sun = a_cst.L_sun.cgs.value
 
-r_jup_mean = 6.9911e9
-s_earth = 1.3654e6  # erg.s-1.cm-2, source: https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2010GL045777
+r_jup_mean = 6.9911e9  # (cm) Jupiter's mean radius
+s_earth = 1.3654e6  # (erg.s-1.cm-2) source: https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2010GL045777
