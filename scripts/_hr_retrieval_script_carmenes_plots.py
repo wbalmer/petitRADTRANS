@@ -1579,8 +1579,8 @@ def plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, sy
 def plot_contribution(sm, radtrans, figure_directory, image_format):
     plt.figure()
     plt.imshow(radtrans.transmission_contribution, aspect='auto', origin='upper',
-               extent=[np.min(sm.wavelengths) * 1e-6, np.max(sm.wavelengths) * 1e-6, np.log10(sm.pressures[-1]) + 5,
-                       np.log10(sm.pressures[0]) + 5])
+               extent=[np.min(sm.wavelengths) * 1e-6, np.max(sm.wavelengths) * 1e-6, np.log10(sm.table_pressures[-1]) + 5,
+                       np.log10(sm.table_pressures[0]) + 5])
     plt.colorbar(label='Contribution density')
     plt.xlabel('Wavelength (m)')
     plt.ylabel(r'$\log_{10}$(pressure) [Pa]')

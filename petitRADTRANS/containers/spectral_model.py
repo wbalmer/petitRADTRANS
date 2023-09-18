@@ -2071,7 +2071,7 @@ class SpectralModel(BaseSpectralModel):
                                                   line_species, included_line_species,
                                                   carbon_pressure_quench=None, imposed_mass_mixing_ratios=None):
         # Import is here because it is long to load TODO add a load_data function to the module instead?
-        from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm
+        from petitRADTRANS.chemistry import pre_calculated_chemistry as pm
 
         if imposed_mass_mixing_ratios is None:
             imposed_mass_mixing_ratios = {}
@@ -2088,12 +2088,12 @@ class SpectralModel(BaseSpectralModel):
 
         log10_metallicities = np.log10(log10_metallicities)
 
-        equilibrium_mass_mixing_ratios = pm.interpol_abundances(
-            COs_goal_in=co_ratios,
-            FEHs_goal_in=log10_metallicities,
-            temps_goal_in=temperatures,
-            pressures_goal_in=pressures,
-            Pquench_carbon=carbon_pressure_quench
+        equilibrium_mass_mixing_ratios = pm.interpolate_mass_fractions_chemical_table(
+            co_ratios=co_ratios,
+            log10_metallicities=log10_metallicities,
+            temperatures=temperatures,
+            pressures=pressures,
+            carbon_pressure_quench=carbon_pressure_quench
         )
 
         # Check imposed mass mixing ratios keys

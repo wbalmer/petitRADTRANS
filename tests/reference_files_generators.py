@@ -83,7 +83,7 @@ def __save_contribution_function(filename, frequencies, emission_contribution, t
 
     if plot_figure:
         plt.figure()
-        x, y = np.meshgrid(wavelength, atmosphere.pressures * 1e-6)
+        x, y = np.meshgrid(wavelength, atmosphere.table_pressures * 1e-6)
         plt.contourf(x, y, contribution, 30, cmap='bone_r')
 
         plt.yscale('log')
@@ -867,11 +867,11 @@ def create_radtrans_mass_fractions_atmosphere_ref(plot_figure=False):
     metallicities = radtrans_parameters['chemical_parameters']['metallicities'][1] \
         * np.ones_like(radtrans_parameters['pressures'])
 
-    mass_fractions = petitRADTRANS.poor_mans_nonequ_chem.interpol_abundances(
-        COs_goal_in=c_o_ratios,
-        FEHs_goal_in=metallicities,
-        temps_goal_in=temperature_guillot_2010,
-        pressures_goal_in=radtrans_parameters['pressures']
+    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
+        co_ratios=c_o_ratios,
+        log10_metallicities=metallicities,
+        temperatures=temperature_guillot_2010,
+        pressures=radtrans_parameters['pressures']
     )
 
     __save_mass_fractions(
@@ -892,12 +892,12 @@ def create_radtrans_mass_fractions_atmosphere_quench_ref(plot_figure=False):
     metallicities = radtrans_parameters['chemical_parameters']['metallicities'][1] \
         * np.ones_like(radtrans_parameters['pressures'])
 
-    mass_fractions = petitRADTRANS.poor_mans_nonequ_chem.interpol_abundances(
-        COs_goal_in=c_o_ratios,
-        FEHs_goal_in=metallicities,
-        temps_goal_in=temperature_guillot_2010,
-        pressures_goal_in=radtrans_parameters['pressures'],
-        Pquench_carbon=radtrans_parameters['chemical_parameters']['pressure_quench_carbon']
+    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
+        co_ratios=c_o_ratios,
+        log10_metallicities=metallicities,
+        temperatures=temperature_guillot_2010,
+        pressures=radtrans_parameters['pressures'],
+        carbon_pressure_quench=radtrans_parameters['chemical_parameters']['pressure_quench_carbon']
     )
 
     __save_mass_fractions(
@@ -918,11 +918,11 @@ def create_radtrans_mass_fractions_c_o_ratios_ref(plot_figure=False):
     pressures = radtrans_parameters['chemical_parameters']['pressure'] * np.ones_like(c_o_ratios)
     temperatures = radtrans_parameters['chemical_parameters']['temperature'] * np.ones_like(c_o_ratios)
 
-    mass_fractions = petitRADTRANS.poor_mans_nonequ_chem.interpol_abundances(
-        COs_goal_in=c_o_ratios,
-        FEHs_goal_in=metallicities,
-        temps_goal_in=temperatures,
-        pressures_goal_in=pressures
+    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
+        co_ratios=c_o_ratios,
+        log10_metallicities=metallicities,
+        temperatures=temperatures,
+        pressures=pressures
     )
 
     __save_mass_fractions(
@@ -943,11 +943,11 @@ def create_radtrans_mass_fractions_metallicities_ref(plot_figure=False):
     pressures = radtrans_parameters['chemical_parameters']['pressure'] * np.ones_like(metallicities)
     temperatures = radtrans_parameters['chemical_parameters']['temperature'] * np.ones_like(metallicities)
 
-    mass_fractions = petitRADTRANS.poor_mans_nonequ_chem.interpol_abundances(
-        COs_goal_in=c_o_ratios,
-        FEHs_goal_in=metallicities,
-        temps_goal_in=temperatures,
-        pressures_goal_in=pressures,
+    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
+        co_ratios=c_o_ratios,
+        log10_metallicities=metallicities,
+        temperatures=temperatures,
+        pressures=pressures,
     )
 
     __save_mass_fractions(

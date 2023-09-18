@@ -1,6 +1,6 @@
 import copy as cp
 import numpy as np
-from petitRADTRANS import poor_mans_nonequ_chem as pm
+from petitRADTRANS import chemistry as pm
 from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW
 
@@ -50,12 +50,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         if 'log_pquench' in parameters.keys():
             pquench_c = 10**parameters['log_pquench'].value
 
-        abundances_interp = pm.interpol_abundances(
+        abundances_interp = pm.interpolate_mass_fractions_chemical_table(
             parameters['C/O'].value * np.ones_like(pressures),
             parameters['Fe/H'].value * np.ones_like(pressures),
             temperatures,
             pressures,
-            Pquench_carbon=pquench_c
+            carbon_pressure_quench=pquench_c
         )
         mmw = abundances_interp['MMW']
 

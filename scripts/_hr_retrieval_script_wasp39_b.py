@@ -1180,7 +1180,7 @@ def main_hd2(sim_id=0):
 
         retrieval_parameters = {
             'retrieval_name': retrieval_name,
-            'pressures': model.pressures,
+            'pressures': model.table_pressures,
             'retrieved_species': model.line_species,
             'rayleigh_species': model.rayleigh_species,
             'continuum_species': model.gas_continuum_contributors,
@@ -1538,7 +1538,7 @@ def main_hd3(sim_id=0):
 
         retrieval_parameters = {
             'retrieval_name': retrieval_name,
-            'pressures': model.pressures,
+            'pressures': model.table_pressures,
             'retrieved_species': model.line_species,
             'rayleigh_species': model.rayleigh_species,
             'continuum_species': model.gas_continuum_contributors,

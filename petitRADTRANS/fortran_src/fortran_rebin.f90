@@ -3,11 +3,6 @@
 ! """
 module fortran_rebin
     implicit none
-    
-    private
-    
-    public :: rebin_spectrum
-    public :: rebin_spectrum_bin
 
     contains
         subroutine rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, &

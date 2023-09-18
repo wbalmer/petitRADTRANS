@@ -496,13 +496,13 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         for s in species:
             opacities_weights[s] = 1.
     elif mass_fractions == 'eq':
-        from .poor_mans_nonequ_chem import interpol_abundances
+        from .chemistry import interpolate_mass_fractions_chemical_table
 
-        mass_fractions = interpol_abundances(
-            COs_goal_in=co_ratio * np.ones_like(temperatures),
-            FEHs_goal_in=log10_metallicity * np.ones_like(temperatures),
-            temps_goal_in=temperatures,
-            pressures_goal_in=pressure_bar
+        mass_fractions = interpolate_mass_fractions_chemical_table(
+            co_ratios=co_ratio * np.ones_like(temperatures),
+            log10_metallicities=log10_metallicity * np.ones_like(temperatures),
+            temperatures=temperatures,
+            pressures=pressure_bar
         )
 
         for s in species:
@@ -628,7 +628,7 @@ def running_mean(x, n):
 
 def savez_compressed_record(file, numpy_record_array):
     """Apply numpy.savez_compressed on a record array."""
-    data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
+    data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.table_species}
     np.savez_compressed(file, **data_dict)
 
 

@@ -253,7 +253,7 @@ class SpectralModelLegacy:
     def _init_equilibrium_chemistry(pressures, temperatures, co_ratio, log10_metallicity,
                                     line_species, included_line_species,
                                     carbon_pressure_quench=None, mass_mixing_ratios=None):
-        from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm  # import is here because it is long to load
+        from petitRADTRANS.chemistry import pre_calculated_chemistry as pm  # import is here because it is long to load
 
         if np.size(co_ratio) == 1:
             co_ratios = np.ones_like(pressures) * co_ratio
@@ -265,12 +265,12 @@ class SpectralModelLegacy:
         else:
             log10_metallicities = log10_metallicity
 
-        abundances = pm.interpol_abundances(
-            COs_goal_in=co_ratios,
-            FEHs_goal_in=log10_metallicities,
-            temps_goal_in=temperatures,
-            pressures_goal_in=pressures,
-            Pquench_carbon=carbon_pressure_quench
+        abundances = pm.interpolate_mass_fractions_chemical_table(
+            co_ratios=co_ratios,
+            log10_metallicities=log10_metallicities,
+            temperatures=temperatures,
+            pressures=pressures,
+            carbon_pressure_quench=carbon_pressure_quench
         )
 
         # Check mass_mixing_ratios keys
@@ -954,7 +954,7 @@ class SpectralModelLegacy:
         return f'{path}/crires/star_spectrum_{star_effective_temperature}K.dat'
 
     def init_mass_fractions(self, atmosphere, temperature, include_species, mass_fractions=None):
-        from petitRADTRANS.poor_mans_nonequ_chem import poor_mans_nonequ_chem as pm  # import is here because it's long to load
+        from petitRADTRANS.chemistry import pre_calculated_chemistry as pm  # import is here because it's long to load
 
         if mass_fractions is None:
             mass_fractions = {}
@@ -962,7 +962,7 @@ class SpectralModelLegacy:
             raise ValueError(
                 f"mass fractions must be in a dict, but the input was of type '{type(mass_fractions)}'")
 
-        pressures = atmosphere.pressures * 1e-6  # cgs to bar
+        pressures = atmosphere.table_pressures * 1e-6  # cgs to bar
 
         if np.size(self.co_ratio) == 1:
             co_ratios = np.ones_like(pressures) * self.co_ratio
@@ -974,12 +974,12 @@ class SpectralModelLegacy:
         else:
             metallicity = self.metallicity
 
-        abundances = pm.interpol_abundances(
-            COs_goal_in=co_ratios,
-            FEHs_goal_in=metallicity,
-            temps_goal_in=temperature,
-            pressures_goal_in=pressures,
-            Pquench_carbon=self.p_quench_c
+        abundances = pm.interpolate_mass_fractions_chemical_table(
+            co_ratios=co_ratios,
+            log10_metallicities=metallicity,
+            temperatures=temperature,
+            pressures=pressures,
+            carbon_pressure_quench=self.p_quench_c
         )
 
         # Check mass_mixing_ratios keys

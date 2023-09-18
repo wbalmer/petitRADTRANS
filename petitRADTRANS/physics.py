@@ -297,7 +297,7 @@ def pt_ret_model(rad_trans_params):
     """
     import copy as cp
     from scipy.interpolate import interp1d, CubicSpline
-    import petitRADTRANS.poor_mans_nonequ_chem.poor_mans_nonequ_chem as pm
+    import petitRADTRANS.chemistry.pre_calculated_chemistry as pm
 
     t3, delta, alpha, tint, press, feh, co_ratio, conv = rad_trans_params
     # Go grom bar to cgs
@@ -309,10 +309,10 @@ def pt_ret_model(rad_trans_params):
     # This is the eddington temperature
     tedd = (3. / 4. * tint ** 4. * (2. / 3. + tau)) ** 0.25
 
-    ab = pm.interpol_abundances(co_ratio * np.ones_like(tedd),
-                                feh * np.ones_like(tedd),
-                                tedd,
-                                press)
+    ab = pm.interpolate_mass_fractions_chemical_table(co_ratio * np.ones_like(tedd),
+                                                      feh * np.ones_like(tedd),
+                                                      tedd,
+                                                      press)
 
     nabla_ad = ab['nabla_ad']
 
@@ -339,10 +339,10 @@ def pt_ret_model(rad_trans_params):
             else:
                 t_take = cp.copy(tfinal)  # TODO reference before assignment
 
-            ab = pm.interpol_abundances(co_ratio * np.ones_like(t_take),
-                                        feh * np.ones_like(t_take),
-                                        t_take,
-                                        press)
+            ab = pm.interpolate_mass_fractions_chemical_table(co_ratio * np.ones_like(t_take),
+                                                              feh * np.ones_like(t_take),
+                                                              t_take,
+                                                              press)
 
             nabla_ad = ab['nabla_ad']
 

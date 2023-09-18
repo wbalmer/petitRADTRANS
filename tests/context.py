@@ -23,7 +23,7 @@ import petitRADTRANS.containers.spectral_model
 import petitRADTRANS.phoenix
 import petitRADTRANS.physical_constants
 import petitRADTRANS.physics
-import petitRADTRANS.poor_mans_nonequ_chem
-import petitRADTRANS.poor_mans_nonequ_chem.poor_mans_nonequ_chem
+import petitRADTRANS.chemistry
+import petitRADTRANS.chemistry.pre_calculated_chemistry
 import petitRADTRANS.radtrans
 import petitRADTRANS.retrieval
