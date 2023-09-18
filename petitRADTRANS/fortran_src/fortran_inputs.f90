@@ -2,6 +2,7 @@
 ! Utility functions to read, interpolate and mix opacities for the petitRADTRANS radiative transfer package
 ! """
 
+
 module fortran_inputs
     implicit none
 
@@ -76,42 +77,76 @@ module fortran_inputs
         end subroutine compute_total_opacities
 
 
-        subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
+        subroutine find_line_by_line_frequency_loading_boundaries(wlen_min_read, wlen_max_read, &
+                                                                  file_path, arr_len, arr_min)
             ! """
-            ! TODO add docstring in find_interpolate_indices
+            ! Subroutine to get the length of the opacity arrays in the high-res case.
             ! """
             implicit none
 
-            integer            :: binbordlen, arrlen, intpint(arrlen)
-            double precision   :: binbord(binbordlen),arr(arrlen)
-            integer            :: i_arr
-            integer            :: pivot, k0, km
+            double precision, intent(in) :: wlen_min_read, wlen_max_read
+            character(len=*), intent(in)    :: file_path
+            integer, intent(out)         :: arr_len, arr_min
 
-            ! carry out a binary search for the interpolation bin borders
-            do i_arr = 1, arrlen
-                if (arr(i_arr) >= binbord(binbordlen)) then
-                    intpint(i_arr) = binbordlen - 1
-                else if (arr(i_arr) <= binbord(1)) then
-                    intpint(i_arr) = 1
-                else
-                    k0 = 1
-                    km = binbordlen
-                    pivot = (km + k0) / 2
+            double precision :: curr_wlen, last_wlen
+            integer          :: curr_int, arr_max
 
-                    do while(km - k0 > 1)
-                        if (arr(i_arr) >= binbord(pivot)) then
-                            k0 = pivot
-                            pivot = (km + k0) / 2
-                        else
-                            km = pivot
-                            pivot = (km + k0) / 2
-                        end if
-                    end do
+            ! open wavelength file
+            open(file=trim(adjustl(file_path)), unit=10, form = 'unformatted', &
+                ACCESS='stream')
 
-                    intpint(i_arr) = k0
+            ! to contain the current wavelength index
+            curr_int = 1
+
+            ! to contain the the minimum and the maximum wavelength index
+            ! to be used for reading in the opacities and wavelengths later.
+            arr_min = -1
+            arr_max = -1
+
+            ! to contain the wavelength of the previous line reading
+            last_wlen = 0d0
+
+            do while (1>0)
+                read(10,end=123) curr_wlen
+
+                if ((curr_int == 1) .AND. (curr_wlen > wlen_min_read)) then
+                    write(*,*) 'ERROR! Desired minimum wavelength is too small!'
+                    stop  ! TODO remove fortran stops and replace with error output
                 end if
+
+                ! look for minimum index, bracketing the desired range
+                if (arr_min == -1) then
+                    if ((curr_wlen > wlen_min_read) .AND. &
+                            (last_wlen < wlen_min_read)) then
+                        arr_min = curr_int - 1
+                    end if
+                end if
+
+                ! look for maximum index, bracketing the desired range
+                if (arr_min /= -1) then
+                    if ((curr_wlen > wlen_max_read) .AND. &
+                            (last_wlen < wlen_max_read)) then
+                        arr_max = curr_int
+                        exit
+                    end if
+                end if
+
+                last_wlen = curr_wlen
+                curr_int = curr_int + 1
             end do
-        end subroutine find_interpolate_indices
+
+            123 close(10)
+
+            if ((arr_min == -1) .OR. (arr_max == -1)) then
+                write(*,*) 'ERROR! Desired wavelength range is too large,'
+                write(*,*) 'or not contained within the tabulated opacity' &
+                // ' wavelength range.'
+                write(*,*) wlen_min_read, wlen_max_read, curr_wlen
+                stop  ! TODO remove fortran stops and replace with error output
+            end if
+
+            arr_len = arr_max - arr_min + 1
+        end subroutine find_line_by_line_frequency_loading_boundaries
 
 
         subroutine interpolate_line_opacities(pressures, temperatures, temperature_pressure_grid, custom_grid, &
@@ -252,6 +287,44 @@ module fortran_inputs
                     interpolated_opacities(:, :, i) = y_t_low + dx * (y_t_high - y_t_low)
                 end if
             end do
+
+            contains
+                subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
+                    ! """
+                    ! TODO add docstring in find_interpolate_indices
+                    ! """
+                    implicit none
+
+                    integer            :: binbordlen, arrlen, intpint(arrlen)
+                    double precision   :: binbord(binbordlen),arr(arrlen)
+                    integer            :: i_arr
+                    integer            :: pivot, k0, km
+
+                    ! carry out a binary search for the interpolation bin borders
+                    do i_arr = 1, arrlen
+                        if (arr(i_arr) >= binbord(binbordlen)) then
+                            intpint(i_arr) = binbordlen - 1
+                        else if (arr(i_arr) <= binbord(1)) then
+                            intpint(i_arr) = 1
+                        else
+                            k0 = 1
+                            km = binbordlen
+                            pivot = (km + k0) / 2
+
+                            do while(km - k0 > 1)
+                                if (arr(i_arr) >= binbord(pivot)) then
+                                    k0 = pivot
+                                    pivot = (km + k0) / 2
+                                else
+                                    km = pivot
+                                    pivot = (km + k0) / 2
+                                end if
+                            end do
+
+                            intpint(i_arr) = k0
+                        end if
+                    end do
+                end subroutine find_interpolate_indices
         end subroutine interpolate_line_opacities
 
 
@@ -630,104 +703,6 @@ module fortran_inputs
 
             freq_len = freq_len - 1
         end subroutine load_frequencies_g_sizes
-        
-
-        subroutine find_line_by_line_frequency_loading_boundaries(wlen_min_read, wlen_max_read, &
-                                                                  file_path, arr_len, arr_min)
-            ! """
-            ! Subroutine to get the length of the opacity arrays in the high-res case.
-            ! """
-            implicit none
-
-            double precision, intent(in) :: wlen_min_read, wlen_max_read
-            character(len=*), intent(in)    :: file_path
-            integer, intent(out)         :: arr_len, arr_min
-
-            double precision :: curr_wlen, last_wlen
-            integer          :: curr_int, arr_max
-
-            ! open wavelength file
-            open(file=trim(adjustl(file_path)), unit=10, form = 'unformatted', &
-                ACCESS='stream')
-
-            ! to contain the current wavelength index
-            curr_int = 1
-
-            ! to contain the the minimum and the maximum wavelength index
-            ! to be used for reading in the opacities and wavelengths later.
-            arr_min = -1
-            arr_max = -1
-
-            ! to contain the wavelength of the previous line reading
-            last_wlen = 0d0
-
-            do while (1>0)
-                read(10,end=123) curr_wlen
-
-                if ((curr_int == 1) .AND. (curr_wlen > wlen_min_read)) then
-                    write(*,*) 'ERROR! Desired minimum wavelength is too small!'
-                    stop  ! TODO remove fortran stops and replace with error output
-                end if
-
-                ! look for minimum index, bracketing the desired range
-                if (arr_min == -1) then
-                    if ((curr_wlen > wlen_min_read) .AND. &
-                            (last_wlen < wlen_min_read)) then
-                        arr_min = curr_int - 1
-                    end if
-                end if
-
-                ! look for maximum index, bracketing the desired range
-                if (arr_min /= -1) then
-                    if ((curr_wlen > wlen_max_read) .AND. &
-                            (last_wlen < wlen_max_read)) then
-                        arr_max = curr_int
-                        exit
-                    end if
-                end if
-
-                last_wlen = curr_wlen
-                curr_int = curr_int + 1
-            end do
-
-            123 close(10)
-
-            if ((arr_min == -1) .OR. (arr_max == -1)) then
-                write(*,*) 'ERROR! Desired wavelength range is too large,'
-                write(*,*) 'or not contained within the tabulated opacity' &
-                // ' wavelength range.'
-                write(*,*) wlen_min_read, wlen_max_read, curr_wlen
-                stop  ! TODO remove fortran stops and replace with error output
-            end if
-
-            arr_len = arr_max - arr_min + 1
-        end subroutine find_line_by_line_frequency_loading_boundaries
-
-
-        subroutine load_line_by_line_opacity_grid(arr_min, arr_len, file_path, kappa)
-            ! """
-            ! Subroutine to read the kappa array in the high-res case.
-            ! """
-            implicit none
-
-            integer, intent(in)           :: arr_min
-            integer, intent(in)           :: arr_len
-            character(len=*), intent(in)     :: file_path
-            double precision, intent(out) :: kappa(arr_len)
-
-            integer          :: i_lamb
-
-            open(unit=49, file=trim(adjustl(file_path)), &
-            form = 'unformatted', ACCESS='stream')
-
-            read(49, pos = (arr_min-1)*8+1) kappa(1)
-
-            do i_lamb = 2, arr_len
-                read(49) kappa(i_lamb)
-            end do
-
-            close(49)
-        end subroutine load_line_by_line_opacity_grid
 
 
         subroutine load_line_opacity_grid(path,species_names_tot,freq_len,g_len,species_len,opa_TP_grid_len, &
@@ -890,6 +865,32 @@ module fortran_inputs
             end do
 
             write(*, *) 'Done.'
+
+            contains
+                subroutine load_line_by_line_opacity_grid(arr_min, arr_len, file_path, kappa)
+                    ! """
+                    ! Subroutine to read the kappa array in the high-res case.
+                    ! """
+                    implicit none
+
+                    integer, intent(in)           :: arr_min
+                    integer, intent(in)           :: arr_len
+                    character(len=*), intent(in)     :: file_path
+                    double precision, intent(out) :: kappa(arr_len)
+
+                    integer          :: i_lamb
+
+                    open(unit=49, file=trim(adjustl(file_path)), &
+                    form = 'unformatted', ACCESS='stream')
+
+                    read(49, pos = (arr_min-1)*8+1) kappa(1)
+
+                    do i_lamb = 2, arr_len
+                        read(49) kappa(i_lamb)
+                    end do
+
+                    close(49)
+                end subroutine load_line_by_line_opacity_grid
         end subroutine load_line_opacity_grid
 
 

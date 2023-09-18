@@ -1,104 +1,19 @@
 ! """
 ! Utility function to rebin synthetic spectrum to data spectrum for the petitRADTRANS radiative transfer package.
 ! """
-module fortran_rebin
+
+
+module rebin_utils
+    ! """
+    ! Useful functions for rebinning.
+    ! """
     implicit none
 
     contains
-        subroutine rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, &
-                                  rebinned_spectrum, n_rebin, n_wavelengths)
-            implicit none
-
-            integer, intent(in) :: n_rebin, n_wavelengths
-            double precision, intent(in) :: rebinned_wavelengths(n_rebin)
-            double precision, intent(in) :: input_wavelengths(n_wavelengths), input_spectrum(n_wavelengths)
-            double precision, intent(out) :: rebinned_spectrum(n_rebin)
-
-            double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
-
-            rebinned_spectrum = 0d0
-
-            ! Check output array size
-            if (n_rebin < 2) then
-                call write_input_size_error(n_rebin, rebinned_spectrum)
-
-                return
-            end if
-
-            ! Get bin boundaries
-            rebin_bin_low(1) = rebinned_wavelengths(1) - (rebinned_wavelengths(2) - rebinned_wavelengths(1)) / 2d0
-            rebin_bin_low(2:n_rebin) = rebinned_wavelengths(2:n_rebin) &
-                - (rebinned_wavelengths(2:n_rebin) - rebinned_wavelengths(1:n_rebin-1)) / 2d0
-
-            rebin_bin_high(1:n_rebin-1) = rebin_bin_low(2:n_rebin)
-            rebin_bin_high(n_rebin) = rebinned_wavelengths(n_rebin) &
-                + (rebinned_wavelengths(n_rebin) - rebinned_wavelengths(n_rebin-1)) / 2d0
-
-            if ((input_wavelengths(1) >= rebin_bin_low(1)) &
-                    .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
-                call write_out_of_bounds_error(&
-                    input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
-                    rebinned_spectrum, n_rebin &
-                )
-
-                return
-            end if
-
-            call rebinning_interpolation(&
-                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
-                n_rebin, n_wavelengths &
-            )
-        end subroutine rebin_spectrum
-    
-        
-        subroutine rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths, &
-                                      rebinned_spectrum, n_rebin, n_wavelengths)
-            implicit none
-            ! I/O
-            integer, intent(in) :: n_rebin, n_wavelengths
-            double precision, intent(in) :: rebinned_wavelengths(n_rebin), bin_widths(n_rebin)
-            double precision, intent(in) :: input_wavelengths(n_wavelengths),input_spectrum(n_wavelengths)
-            double precision, intent(out) :: rebinned_spectrum(n_rebin)
-            ! internal
-            double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
-            
-            ! Check output array size
-            if (n_rebin < 2) then
-                call write_input_size_error(n_rebin, rebinned_spectrum)
-
-                return
-            end if
-    
-            rebinned_spectrum = 0d0
-
-            ! Get bin boundaries
-            rebin_bin_low = rebinned_wavelengths - bin_widths / 2d0
-            rebin_bin_high = rebinned_wavelengths + bin_widths / 2d0
-
-            if ((input_wavelengths(1) >= rebin_bin_low(1)) &
-                    .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
-
-                call write_out_of_bounds_error(&
-                    input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
-                    rebinned_spectrum, n_rebin &
-                )
-
-                return
-            end if
-    
-            call rebinning_interpolation(&
-                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
-                n_rebin, n_wavelengths &
-            )
-        end subroutine rebin_spectrum_bin
-
-
         subroutine rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, &
                                        rebinned_spectrum, n_rebin, n_wavelengths)
             implicit none
-            
+
             integer, intent(in) :: n_rebin, n_wavelengths
             double precision, intent(in) :: input_wavelengths(n_wavelengths), input_spectrum(n_wavelengths)
             double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
@@ -165,17 +80,17 @@ module fortran_rebin
                 rebinned_spectrum(i) = rebinned_spectrum(i) / del_nu
             end do
         end subroutine rebinning_interpolation
-    
-    
+
+
         subroutine write_input_size_error(n_rebin, rebinned_spectrum)
             implicit none
-            
+
             integer, intent(in) :: n_rebin
             double precision, intent(out) :: rebinned_spectrum(n_rebin)
-            
+
             write(*, *) "rebin.f90 Error: output wavelength array size must be >= 2, but is of size ", &
                 n_rebin
-            
+
             rebinned_spectrum = -1d0
         end subroutine write_input_size_error
 
@@ -199,4 +114,103 @@ module fortran_rebin
 
             rebinned_spectrum = -1d0
         end subroutine write_out_of_bounds_error
+end module rebin_utils
+
+
+module fortran_rebin
+    implicit none
+
+    contains
+        subroutine rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, &
+                                  rebinned_spectrum, n_rebin, n_wavelengths)
+            use rebin_utils, only: rebinning_interpolation, write_input_size_error, write_out_of_bounds_error
+
+            implicit none
+
+            integer, intent(in) :: n_rebin, n_wavelengths
+            double precision, intent(in) :: rebinned_wavelengths(n_rebin)
+            double precision, intent(in) :: input_wavelengths(n_wavelengths), input_spectrum(n_wavelengths)
+            double precision, intent(out) :: rebinned_spectrum(n_rebin)
+
+            double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
+
+            rebinned_spectrum = 0d0
+
+            ! Check output array size
+            if (n_rebin < 2) then
+                call write_input_size_error(n_rebin, rebinned_spectrum)
+
+                return
+            end if
+
+            ! Get bin boundaries
+            rebin_bin_low(1) = rebinned_wavelengths(1) - (rebinned_wavelengths(2) - rebinned_wavelengths(1)) / 2d0
+            rebin_bin_low(2:n_rebin) = rebinned_wavelengths(2:n_rebin) &
+                - (rebinned_wavelengths(2:n_rebin) - rebinned_wavelengths(1:n_rebin-1)) / 2d0
+
+            rebin_bin_high(1:n_rebin-1) = rebin_bin_low(2:n_rebin)
+            rebin_bin_high(n_rebin) = rebinned_wavelengths(n_rebin) &
+                + (rebinned_wavelengths(n_rebin) - rebinned_wavelengths(n_rebin-1)) / 2d0
+
+            if ((input_wavelengths(1) >= rebin_bin_low(1)) &
+                    .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
+                call write_out_of_bounds_error(&
+                    input_wavelengths(1), input_wavelengths(n_wavelengths), &
+                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
+                    rebinned_spectrum, n_rebin &
+                )
+
+                return
+            end if
+
+            call rebinning_interpolation(&
+                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
+                n_rebin, n_wavelengths &
+            )
+        end subroutine rebin_spectrum
+    
+        
+        subroutine rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths, &
+                                      rebinned_spectrum, n_rebin, n_wavelengths)
+            use rebin_utils, only: rebinning_interpolation, write_input_size_error, write_out_of_bounds_error
+
+            implicit none
+            ! I/O
+            integer, intent(in) :: n_rebin, n_wavelengths
+            double precision, intent(in) :: rebinned_wavelengths(n_rebin), bin_widths(n_rebin)
+            double precision, intent(in) :: input_wavelengths(n_wavelengths),input_spectrum(n_wavelengths)
+            double precision, intent(out) :: rebinned_spectrum(n_rebin)
+            ! internal
+            double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
+            
+            ! Check output array size
+            if (n_rebin < 2) then
+                call write_input_size_error(n_rebin, rebinned_spectrum)
+
+                return
+            end if
+    
+            rebinned_spectrum = 0d0
+
+            ! Get bin boundaries
+            rebin_bin_low = rebinned_wavelengths - bin_widths / 2d0
+            rebin_bin_high = rebinned_wavelengths + bin_widths / 2d0
+
+            if ((input_wavelengths(1) >= rebin_bin_low(1)) &
+                    .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
+
+                call write_out_of_bounds_error(&
+                    input_wavelengths(1), input_wavelengths(n_wavelengths), &
+                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
+                    rebinned_spectrum, n_rebin &
+                )
+
+                return
+            end if
+    
+            call rebinning_interpolation(&
+                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
+                n_rebin, n_wavelengths &
+            )
+        end subroutine rebin_spectrum_bin
 end module fortran_rebin
