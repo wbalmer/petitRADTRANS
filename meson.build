@@ -39,7 +39,7 @@ inc_np = include_directories(incdir_numpy, incdir_f2py)
 extension_names = [
     'fortran_radtrans_core',
     'fortran_inputs',
-    'fort_rebin',
+    'fortran_rebin',
     'rebin_give_width',
     'chem_fortran_util'
 ]

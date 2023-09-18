@@ -6,7 +6,7 @@ import os
 
 import numpy as np
 from matplotlib import colors
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
@@ -537,7 +537,7 @@ def init_mock_observations(planet, line_species_str, mode,
         if isinstance(telluric_transmittance, str):  # TODO using variable types is quite bad, change that in definitive version
             telluric_data = np.loadtxt(telluric_transmittance)
             telluric_wavelengths = telluric_data[:, 0] * 1e-3  # nm to um
-            telluric_transmittance = fr.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
+            telluric_transmittance = frebin.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
                                                        wavelengths_instrument)
     else:
         print('No telluric transmittance')
@@ -664,7 +664,7 @@ def init_mock_observations(planet, line_species_str, mode,
         else:
             raise ValueError(f"Mode must be 'eclipse' or 'transit', not '{mode}'")
 
-        star_radiosity = fr.rebin_spectrum(
+        star_radiosity = frebin.rebin_spectrum(
             star_data[:, 0],
             star_data[:, 1],
             true_wavelengths
@@ -871,7 +871,7 @@ def init_mock_observations(planet, line_species_str, mode,
                                         apply_throughput_removal=apply_throughput_removal,
                                         apply_telluric_lines_removal=apply_telluric_lines_removal,
                                         full=True)
-    fs, mr, _ = preparing_pipeline(
+    fcore, mr, _ = preparing_pipeline(
         spectrum=ts * true_parameters['deformation_matrix'].value + noise,
         uncertainties=true_parameters['data_uncertainties'].value,
         wavelengths=wavelengths_instrument,

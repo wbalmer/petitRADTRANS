@@ -967,7 +967,7 @@ def create_simple_spectrum(plot_figure=False):
     spectrum = np.sin(3 * wavelengths) + np.sin(10 * wavelengths)
     rebin_wavelengths = np.linspace(1, 2, 5)
 
-    rebin_spectrum = petitRADTRANS.fort_rebin.fort_rebin.rebin_spectrum(
+    rebin_spectrum = petitRADTRANS.fortran_rebin.fortran_rebin.rebin_spectrum(
             wavelengths, spectrum, rebin_wavelengths
     )
 

@@ -9,7 +9,7 @@ import petitRADTRANS
 
 # Fortran extensions
 import petitRADTRANS.chem_fortran_util
-import petitRADTRANS.fort_rebin
+import petitRADTRANS.fortran_rebin
 import petitRADTRANS.fortran_inputs
 import petitRADTRANS.fortran_radtrans_core
 import petitRADTRANS.rebin_give_width

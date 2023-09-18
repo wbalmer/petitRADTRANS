@@ -22,7 +22,7 @@ from scripts.mock_observation import add_telluric_lines, add_variable_throughput
 from scripts.model_containers import SpectralModelLegacy
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import guillot_global, doppler_shift
 from petitRADTRANS.radtrans import Radtrans
@@ -359,7 +359,7 @@ def init_parameters(planet, line_species_str, mode,
             os.path.join(module_dir, 'metis', 'skycalc', 'transmission_3060m_4750-4850nm_R150k_FWHM1.5_default.dat')
         )
         telluric_wavelengths = telluric_data[:, 0] * 1e-3  # nm to um
-        telluric_transmittance = fr.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1], wavelengths_instrument)
+        telluric_transmittance = frebin.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1], wavelengths_instrument)
     else:
         print('No TT')
         telluric_transmittance = None
@@ -476,7 +476,7 @@ def init_parameters(planet, line_species_str, mode,
         else:
             raise ValueError(f"Mode must be 'eclipse' or 'transit', not '{mode}'")
 
-        star_radiosity = fr.rebin_spectrum(
+        star_radiosity = frebin.rebin_spectrum(
             star_data[:, 0],
             star_data[:, 1],
             true_wavelengths
@@ -739,7 +739,7 @@ def init_parameters(planet, line_species_str, mode,
 
     fmtd, mr0td, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value, airmass=airmass, mean=median,
                                         uncertainties=true_parameters['data_noise'].value)
-    fs, mr, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass, mean=median,
+    fcore, mr, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass, mean=median,
                                    uncertainties=true_parameters['data_noise'].value)
 
     # print('!!! noiseless Mr !!!')
@@ -1704,7 +1704,7 @@ def simple_ccf(wavelength_data, spectral_data_earth_corrected, wavelength_model,
     for i in range(n_detectors):
         for k in range(np.size(radial_velocity_lag)):
             eclipse_depth_shift[i, k, :] = \
-                fr.rebin_spectrum(wavelength_shift[k, :], spectral_radiosity, wavelength_data[i, :])
+                frebin.rebin_spectrum(wavelength_shift[k, :], spectral_radiosity, wavelength_data[i, :])
 
     # this is faster than correlate, because we are looking only at the velocity interval we are interested into
     def xcorr(data, model, length):
@@ -1772,7 +1772,7 @@ def simple_co_added_ccf(
 
             for j in range(np.size(radial_velocity)):
                 out_rv = v_rest + rv_pl[j]
-                ccf_tot[i, ikp, :] += fr.rebin_spectrum(radial_velocity_lag, evaluation[i, j, :], out_rv)
+                ccf_tot[i, ikp, :] += frebin.rebin_spectrum(radial_velocity_lag, evaluation[i, j, :], out_rv)
 
     return ccf_tot, v_rest, kps
 
@@ -1976,7 +1976,7 @@ def transit_radius_model(prt_object, parameters):
 def true_model(prt_object, parameters):
     wlen_model, planet_radiosity = radiosity_model(prt_object, parameters)
 
-    star_radiosity = fr.rebin_spectrum(
+    star_radiosity = frebin.rebin_spectrum(
         parameters['star_wavelength'].value,
         parameters['star_spectral_radiosity'].value,
         wlen_model

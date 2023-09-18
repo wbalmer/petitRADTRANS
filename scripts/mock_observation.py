@@ -4,7 +4,7 @@ Useful functions to generate mock observations.
 import copy
 
 import numpy as np
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.ndimage.filters import gaussian_filter1d
 
 from petitRADTRANS.containers.planet import Planet
@@ -71,7 +71,7 @@ def convolve_rebin(input_wavelengths, input_flux,
         raise ValueError(f"instrument wavelength must be of size 2 or more, "
                          f"but is of size {np.size(instrument_wavelength_range)}: {instrument_wavelength_range}")
 
-    flux_rebin = fr.rebin_spectrum(input_wavelengths, flux_lsf, wavelengths_out)
+    flux_rebin = frebin.rebin_spectrum(input_wavelengths, flux_lsf, wavelengths_out)
 
     return flux_lsf, wavelengths_out, flux_rebin
 
@@ -118,7 +118,7 @@ def convolve_shift_rebin(input_wavelengths, input_flux,
 
     for i, planet_velocity in enumerate(planet_velocities):
         wavelength_shift = doppler_shift(input_wavelengths, planet_velocity)
-        flux_rebin[i, :] = fr.rebin_spectrum(wavelength_shift, flux_lsf, output_wavelengths)
+        flux_rebin[i, :] = frebin.rebin_spectrum(wavelength_shift, flux_lsf, output_wavelengths)
 
     return flux_rebin
 

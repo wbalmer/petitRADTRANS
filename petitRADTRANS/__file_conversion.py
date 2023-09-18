@@ -95,7 +95,7 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
 def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                          rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
-    from petitRADTRANS.fortran_inputs import fortran_inputs as fi
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     # Initialize infos
     molliere2019_doi = '10.1051/0004-6361/201935470'
@@ -174,7 +174,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
             raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
 
         cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
-            cia_temp_dims, cia_lambda_dims = fi.load_cia_opacities(key, path_input_data)
+            cia_temp_dims, cia_lambda_dims = finput.load_cia_opacities(key, path_input_data)
         cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
         cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
         cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
@@ -273,7 +273,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
 
 def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                       rewrite=False, output_directory=None):
-    from petitRADTRANS.fortran_inputs import fortran_inputs as fi
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     """Using ExoMol units for HDF5 files."""
     # Initialize infos
@@ -477,7 +477,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
     print("Loading dat files...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
         cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
-        = fi.load_cloud_opacities(
+        = finput.load_cloud_opacities(
             path_input_data, tot_str_names, tot_str_modes, len(doi_dict), n_cloud_wavelength_bins
         )
 
@@ -622,7 +622,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
 def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
                                   rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
-    from petitRADTRANS.fortran_inputs import fortran_inputs as fi
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     from petitRADTRANS.radtrans import Radtrans
 
     # Initialize infos
@@ -1038,8 +1038,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
             else:
                 raise FileNotFoundError(f"file '{molparam_file}' not found: unable to load isotopic ratio")
 
-            n_items = fi.compute_file_size(os.path.join(directory, 'wlen.dat'))
-            wavelengths = fi.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_items)
+            n_items = finput.compute_file_size(os.path.join(directory, 'wlen.dat'))
+            wavelengths = finput.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_items)
             wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 
             opacities = np.zeros((line_paths_.size, wavelengths.size))
@@ -1050,7 +1050,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
                 print(f" Loading file '{line_path}' ({i + 1}/{line_paths_.size})...")
 
-                opacities[i] = fi.load_all_line_by_line_opacities(line_path, n_items)
+                opacities[i] = finput.load_all_line_by_line_opacities(line_path, n_items)
 
             print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))

@@ -3,7 +3,7 @@ import os
 import pickle
 
 import numpy as np
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.containers.planet import Planet
@@ -802,7 +802,7 @@ class SpectralModelLegacy:
         print('Calculating eclipse depth...')
         # TODO fix stellar flux calculated multiple time if do_scat_emis is True
         wavelengths, planet_radiosity = self.calculate_emission_spectrum(atmosphere, planet)
-        star_radiosities = fr.rebin_spectrum(star_wavelength, star_radiosities, wavelengths)
+        star_radiosities = frebin.rebin_spectrum(star_wavelength, star_radiosities, wavelengths)
 
         eclipse_depth = (planet_radiosity * planet.radius ** 2) / (star_radiosities * planet.star_radius ** 2)
 
@@ -922,7 +922,7 @@ class SpectralModelLegacy:
 
         star_data[:, 0] *= 1e4  # cm to um
 
-        star_radiosities = fr.rebin_spectrum(
+        star_radiosities = frebin.rebin_spectrum(
             star_data[:, 0],
             star_data[:, 1],
             wavelengths

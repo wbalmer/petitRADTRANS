@@ -7,7 +7,7 @@ import os
 import pickle
 
 import numpy as np
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
@@ -637,7 +637,7 @@ def init_mock_observations(planet, line_species_str, mode,
             raise ValueError(f"Mode must be 'eclipse' or 'transit', not '{mode}'")
         print(model_wavelengths_border, np.min(true_wavelengths), np.max(true_wavelengths))
 
-        star_radiosity = fr.rebin_spectrum(
+        star_radiosity = frebin.rebin_spectrum(
             star_data[:, 0],
             star_data[:, 1],
             true_wavelengths
@@ -832,7 +832,7 @@ def init_mock_observations(planet, line_species_str, mode,
     #                                  data_uncertainties=true_parameters['data_uncertainties'].value,
     #                                  apply_throughput_removal=False,
     #                                  full=True)
-    # fs, mr, _ = simple_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
+    # fcore, mr, _ = simple_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
     #                             apply_throughput_removal=False,
     #                             data_uncertainties=true_parameters['data_uncertainties'].value, full=True)
     #

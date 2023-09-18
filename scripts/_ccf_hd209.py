@@ -5,7 +5,7 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.interpolate import interp1d
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import doppler_shift
@@ -1121,7 +1121,7 @@ def simple_ccf(wavelength_data, data, wavelength_model, model,
     for i in range(n_detectors):
         for k in range(np.size(radial_velocity_lag)):
             models_shift[i, k, :] = \
-                fr.rebin_spectrum(wavelength_shift[k, :], model, wavelengths_[i, :])
+                frebin.rebin_spectrum(wavelength_shift[k, :], model, wavelengths_[i, :])
 
     # Mask management
     if hasattr(data, 'mask'):

@@ -11,7 +11,7 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older result
 def test_rebin_spectrum():
     reference_data = np.load(reference_filenames['simple_spectrum'])
 
-    rebin_spectrum = petitRADTRANS.fort_rebin.fort_rebin.rebin_spectrum(
+    rebin_spectrum = petitRADTRANS.fortran_rebin.fortran_rebin.rebin_spectrum(
             reference_data['wavelengths'], reference_data['spectrum'], reference_data['rebin_wavelengths']
     )
 

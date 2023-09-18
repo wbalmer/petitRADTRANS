@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 from scipy.special import erf, erfinv, lambertw
 
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 
 class LockedDict(dict):
@@ -569,7 +569,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     Returns:
         The re-binned spectrum on the re-binned wavelengths
     """
-    rebinned_spectrum = fr.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
+    rebinned_spectrum = frebin.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
 
     if np.all(rebinned_spectrum == -1):
         raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")

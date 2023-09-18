@@ -5,7 +5,7 @@ import copy
 import os
 
 import numpy as np
-from petitRADTRANS.fort_rebin import fort_rebin as fr
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
@@ -525,7 +525,7 @@ def init_mock_observations(planet, line_species_str, mode,
 
             for i, detector_wavelengths in enumerate(wavelengths_instrument):
                 telluric_transmittance[i, :, :] = np.ones((data_shape[1], data_shape[2])) * \
-                                                  fr.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
+                                                  frebin.rebin_spectrum(telluric_wavelengths, telluric_data[:, 1],
                                                                     detector_wavelengths)
     else:
         print('No telluric transmittance')
@@ -674,7 +674,7 @@ def init_mock_observations(planet, line_species_str, mode,
         else:
             raise ValueError(f"Mode must be 'eclipse' or 'transit', not '{mode}'")
 
-        star_radiosity = fr.rebin_spectrum(
+        star_radiosity = frebin.rebin_spectrum(
             star_data[:, 0],
             star_data[:, 1],
             true_wavelengths
@@ -886,7 +886,7 @@ def init_mock_observations(planet, line_species_str, mode,
                                             apply_throughput_removal=True,
                                             apply_telluric_lines_removal=True,
                                             full=True)
-        fs, mr, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
+        fcore, mr, _ = preparing_pipeline(ts * true_parameters['deformation_matrix'].value + noise, airmass=airmass,
                                        apply_throughput_removal=True,
                                        apply_telluric_lines_removal=True,
                                        uncertainties=true_parameters['data_uncertainties'].value, full=True)
@@ -1438,7 +1438,7 @@ def plot_log_evidences(file, key='global_log_evidences', label_prefix='', reset_
                      label=label_prefix + label, **kwargs)
 
     plt.xlabel(r'Wavelength ($\mu$m)')
-    plt.ylabel(fr"$\Delta$ {key.replace('_', ' ')}")
+    plt.ylabel(frebin"$\Delta$ {key.replace('_', ' ')}")
     plt.title(f"{data['planet']}")
     plt.legend()
 
