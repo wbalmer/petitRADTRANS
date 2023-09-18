@@ -1,20 +1,12 @@
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$ fort_spec.f90: utility functions to calculate cloud opacities, optical
-!!$ depths, spectra, and spectral contribution functions for the petitRADTRANS
-!!$ radiative transfer package.
-!!$
-!!$ Copyright 2016-2018, Paul Molliere
-!!$ Maintained by Paul Molliere, molliere@strw.leidenunivl.nl
-!!$ Status: under development
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$*****************************************************************************
-
-!!$ Natural constants block
+! """
+! Utility functions to calculate cloud opacities, optical epths, spectra, and spectral contribution functions for the
+! petitRADTRANS radiative transfer package.
+! """
 
 module physical_constants
+    ! """
+    ! Physical constants defintion
+    ! """
     implicit none
     double precision, parameter :: cst_c = 2.99792458d10  ! (cm.s-1) speed of light in vacuum
     double precision, parameter :: cst_pi = 3.14159265359d0  ! TODO update 3.141592653589793d0
@@ -25,17 +17,14 @@ module physical_constants
 end module physical_constants
 
 
-!!$ #########################################################################
-!!$ #########################################################################
-!!$ #########################################################################
-!!$ #########################################################################
-
-!!$ Subroutine to calculate tau with 2nd order accuracy
 module fort_spec
     implicit none
 
     contains
         subroutine calc_tau_g_tot_ck(gravity,press,total_kappa,struc_len,freq_len,g_len,N_species,tau)
+            ! """
+            ! Calculate tau with 2nd order accuracy.
+            ! """
 
           use physical_constants
           implicit none
@@ -109,16 +98,12 @@ module fort_spec
 
         end subroutine calc_tau_g_tot_ck
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to calculate tau_scat with 2nd order accuracy
 
         subroutine calc_tau_g_tot_ck_scat(gravity,press,total_kappa_in,do_scat_emis, &
              continuum_opa_scat_emis,struc_len,freq_len,g_len,tau,photon_destruction_prob)
-
+            ! """
+            ! Calculate tau_scat with 2nd order accuracy.
+            ! """
           use physical_constants
           implicit none
 
@@ -210,10 +195,6 @@ module fort_spec
 
         end subroutine calc_tau_g_tot_ck_scat
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
 
         subroutine calc_kappa_rosseland(total_kappa, temp, w_gauss, border_freqs, &
              do_scat_emis, continuum_opa_scat_emis, &
@@ -249,10 +230,6 @@ module fort_spec
 
         end subroutine calc_kappa_rosseland
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
 
         subroutine calc_kappa_planck(total_kappa, temp, w_gauss, border_freqs, &
              do_scat_emis, continuum_opa_scat_emis, &
@@ -288,16 +265,12 @@ module fort_spec
 
         end subroutine calc_kappa_planck
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to do the radiative transport, using the mean transmission method
 
         subroutine flux_ck(freq,tau,temp,mu,w_gauss_mu, &
              w_gauss,contribution,freq_len,struc_len,N_mu,g_len,N_species,flux,contr_em)
-
+            ! """
+            ! Calculate the radiative transport, using the mean transmission method.
+            ! """
           use physical_constants
           implicit none
 
@@ -390,15 +363,11 @@ module fort_spec
 
         end subroutine flux_ck
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to calculate the Planck source function
 
         subroutine planck_f(struc_len,T,nu,B_nu)
-
+            ! """
+            ! Calculate the Planck source function.
+            ! """
           use physical_constants
           implicit none
           integer                         :: struc_len
@@ -413,16 +382,12 @@ module fort_spec
 
         end subroutine planck_f
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to calculate the transmission spectrum
 
         subroutine calc_transm_spec(total_kappa_in, temp, press, gravity, mmw, P0_bar, R_pl, &
              w_gauss, scat, continuum_opa_scat, var_grav, transm, radius, freq_len, struc_len, g_len, N_species)
-
+            ! """
+            ! Calculate the transmission spectrum
+            ! """
             use physical_constants
             implicit none
 
@@ -604,14 +569,11 @@ module fort_spec
             transm = sqrt(transm + radius(struc_len) ** 2d0)
         end subroutine calc_transm_spec
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to calculate the radius from the pressure grid
 
         subroutine calc_radius(struc_len, press, gravity, rho, P0_cgs, R_pl, var_grav, radius)
+            ! """
+            ! Calculate the radius from the pressure grid.
+            ! """
             implicit none
             ! I/O
             integer, intent(in)                         :: struc_len
@@ -705,14 +667,11 @@ module fort_spec
                 end function integ_parab
         end subroutine calc_radius
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-
-        !!$ Subroutine to add Rayleigh scattering
 
         subroutine add_rayleigh(spec,abund,lambda_angstroem,MMW,temp,press,rayleigh_kappa,struc_len,freq_len)
+            ! """
+            ! Add Rayleigh scattering.
+            ! """
             use physical_constants
             implicit none
 
@@ -1037,7 +996,7 @@ module fort_spec
         subroutine calc_transm_spec_contr(total_kappa,temp,press,gravity,mmw,P0_bar,R_pl, &
              w_gauss,transm_in,scat,continuum_opa_scat,var_grav,contr_tr,radius,freq_len,struc_len,g_len,N_species)
             ! """
-            ! Subroutine to calculate the contribution function of the transmission spectrum
+            ! Xalculate the contribution function of the transmission spectrum.
             ! """
             use physical_constants
             
@@ -1176,7 +1135,6 @@ module fort_spec
 
 
         function hansen_size_dndr(r,a,b,k)
-
            implicit none
            ! I/O
            double precision :: r, a, b, k
@@ -1186,12 +1144,14 @@ module fort_spec
                           exp(-1d0*r/(a*b)))/b) -((k*r**((1d0-(3d0*b))/(b))*exp(-1d0*r/(a*b)))/(a*b))
         end function hansen_size_dndr
 
-        !!$ Subroutine to calculate cloud opacities
+
         subroutine calc_cloud_opas(rho,rho_p,cloud_mass_fracs,r_g,sigma_n,cloud_rad_bins,cloud_radii, &
            cloud_specs_abs_opa,cloud_specs_scat_opa,cloud_aniso, &
            cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT, &
            struc_len,N_cloud_spec,N_cloud_rad_bins, N_cloud_lambda_bins)
-
+            ! """
+            ! Calculate cloud opacities.
+            ! """
           use physical_constants
           implicit none
 
@@ -1278,7 +1238,7 @@ module fort_spec
            cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT, &
            struc_len,N_cloud_spec,N_cloud_rad_bins, N_cloud_lambda_bins)
             ! """
-            ! Subroutine to calculate cloud opacities.
+            ! Calculate cloud opacities.
             ! """
             use physical_constants
             implicit none
@@ -1378,18 +1338,15 @@ module fort_spec
                     hansen_size_nr = log(r) * (1d0 - 3d0 * b) / b - 1d0 * r / (a * b)
                 end function hansen_size_nr
         end subroutine calc_hansen_opas
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
 
-        !!$ Interpolate cloud opacities to actual radiative transfer wavelength grid
 
         subroutine interp_integ_cloud_opas(cloud_abs_opa_TOT,cloud_scat_opa_TOT, &
              cloud_red_fac_aniso_TOT,cloud_lambdas,HIT_border_freqs,HIT_kappa_tot_g_approx, &
              HIT_kappa_tot_g_approx_scat,red_fac_aniso_final, HIT_kappa_tot_g_approx_scat_unred, &
              N_cloud_lambda_bins,struc_len,HIT_coarse_borders)
-
+            ! """
+            ! Interpolate cloud opacities to actual radiative transfer wavelength grid.
+            ! """
           use physical_constants
           implicit none
           ! I/O
@@ -1529,19 +1486,16 @@ module fort_spec
 
         end subroutine interp_integ_cloud_opas
 
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
-        !!$ #########################################################################
 
         subroutine integ_kaps(intp_ind,N_cloud_lambda_bins,struc_len,kappa,lambda,l_bord1,l_bord2,kappa_integ)
+            ! """
+            ! Calculate the integral of a linearly interpolated function kappa.
+            ! """
           implicit none
           integer, intent(in) :: intp_ind,N_cloud_lambda_bins,struc_len
           double precision, intent(in) :: lambda(N_cloud_lambda_bins), kappa(N_cloud_lambda_bins,struc_len)
           double precision, intent(in) :: l_bord1,l_bord2
           double precision, intent(out) :: kappa_integ(struc_len)
-
-          ! This subroutine calculates the integral of a linearly interpolated function kappa.
 
           kappa_integ = kappa_integ + kappa(intp_ind,:)*(l_bord2-l_bord1) + (kappa(intp_ind+1,:)-kappa(intp_ind,:))/ &
                (lambda(intp_ind+1)-lambda(intp_ind))* &
@@ -1549,15 +1503,9 @@ module fort_spec
 
         end subroutine integ_kaps
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine compute_cloud_particles_mean_radius(gravity, rho, rho_p, temp, MMW, frain, &
              sigma_n, Kzz, r_g, struc_len, N_cloud_spec)
-
           use physical_constants
           implicit none
           ! I/O
@@ -1617,6 +1565,7 @@ module fort_spec
           end do
 
         end subroutine compute_cloud_particles_mean_radius
+
 
         subroutine compute_cloud_particles_mean_radius_hansen(gravity,rho,rho_p,temp,MMW,frain, &
                 b_h,Kzz,a_h,struc_len,N_cloud_spec)
@@ -1743,8 +1692,8 @@ module fort_spec
             end do
         end subroutine compute_cloud_particles_mean_radius_hansen
 
-        subroutine turbulent_settling_speed(x,gravity,rho,rho_p,temp,MMW,turbulent_settling_speed_ret)
 
+        subroutine turbulent_settling_speed(x,gravity,rho,rho_p,temp,MMW,turbulent_settling_speed_ret)
           use physical_constants
           implicit none
           double precision    :: turbulent_settling_speed_ret
@@ -1773,16 +1722,11 @@ module fort_spec
 
         end subroutine turbulent_settling_speed
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        ! Function to find the particle radius, using a simple bisection method.
 
         function bisect_particle_rad(x1,x2,gravity,rho,rho_p,temp,MMW,w_star)
-
+            ! """
+            ! Find the particle radius, using a simple bisection method.
+            ! """
           implicit none
           integer, parameter :: ITMAX = 1000
           double precision :: gravity,rho,rho_p,temp,MMW,w_star
@@ -1839,17 +1783,11 @@ module fort_spec
 
         end function bisect_particle_rad
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        ! Subroutine to calculate slope and y-axis intercept of x,y data,
-        ! assuming zero error on data.
 
         subroutine fit_linear(x, y, ndata, a, b)
-
+            ! """
+            ! calculate slope and y-axis intercept of x,y data, assuming zero error on data.
+            ! """
           implicit none
           integer :: ndata
           double precision :: x(ndata), y(ndata)
@@ -1893,10 +1831,11 @@ module fort_spec
         end subroutine linear_interpolate
 
 
-        ! Subroutine to randomly correlate the opacities
         subroutine combine_opas_sample_ck(line_struc_kappas, g_gauss, weights, &
                 nsample, fast, g_len, freq_len, N_species, struc_len, line_struc_kappas_out)
-            ! DEPRECATED - use combine_opas_ck
+            ! """
+            ! Randomly correlate the opacities
+            ! """
             implicit none
 
             integer, intent(in)          :: nsample, g_len, freq_len, N_species, struc_len
@@ -2221,9 +2160,11 @@ module fort_spec
             endif
         end subroutine combine_opas_ck
 
-        ! Self-written? Too long ago... Check if not rather from numrep...
-        subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
 
+        subroutine find_interpolate_indices(binbord,binbordlen,arr,arrlen,intpint)
+            ! """
+            ! Self-written? Too long ago... Check if not rather from numrep...
+            ! """
           implicit none
 
           integer            :: binbordlen, arrlen, intpint(arrlen)
@@ -2265,12 +2206,7 @@ module fort_spec
 
         end subroutine find_interpolate_indices
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        
+
         subroutine corr_k_LBL_RT_tot_olson_kunasz(HIT_coarse_borders,HIT_border_freqs, &
                 tau_approx,struc_len,press,temp,flux,&
                 j_deep,N_mu,mu,w_gauss_mu,HIT_kappa_tot_g_approx, &
@@ -3316,12 +3252,6 @@ module fort_spec
         end subroutine feautrier_rad_trans
 
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
         subroutine NG_source_approx(source_n,source_n1,source_n2,source_n3,source, &
                 N_g,freq_len_p_1,struc_len)
             implicit none
@@ -3389,18 +3319,12 @@ module fort_spec
             source = source_buff
         end subroutine NG_source_approx
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        !**********************************************************
-        ! RANDOM SEED GENERATOR BELOW TAKEN FROM
-        ! http://gcc.gnu.org/onlinedocs/gfortran/RANDOM_005fSEED.html#RANDOM_005fSEED
-        !**********************************************************
 
         subroutine init_random_seed()
+            ! """
+            ! Random seed generator.
+            ! Source: http://gcc.gnu.org/onlinedocs/gfortran/RANDOM_005fSEED.html#RANDOM_005fSEED
+            ! """
           use iso_fortran_env, only: int64
           implicit none
           integer, allocatable :: seed(:)
@@ -3452,14 +3376,8 @@ module fort_spec
           end function lcg
         end subroutine init_random_seed
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine wrap_quicksort_swap(length, array)
-
           implicit none
           integer, intent(in) :: length
           double precision, intent(inout) :: array(length, 2)
@@ -3473,8 +3391,8 @@ module fort_spec
 
         end subroutine wrap_quicksort_swap
 
-        recursive subroutine quicksort_own_2d_swapped(length, array)
 
+        recursive subroutine quicksort_own_2d_swapped(length, array)
           implicit none
           integer, intent(in) :: length
           double precision, intent(inout) :: array(2,length)
@@ -3538,15 +3456,11 @@ module fort_spec
 
         end subroutine quicksort_own_2d_swapped
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        ! Tridag, own implementation, following the numerical recipes book.
 
         subroutine tridag_own(a, b, c, res, solution, length)
+            ! """
+            ! Tridag, own implementation, following the numerical recipes book.
+            ! """
             implicit none
 
             double precision, parameter :: sqrt_hugest = sqrt(huge(0d0)), tiniest = tiny(0d0)
@@ -3611,12 +3525,6 @@ module fort_spec
         end subroutine tridag_own
 
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
         subroutine planck_f_lr(PT_length, T, nul, nur, B_nu)
 
           use physical_constants
@@ -3648,11 +3556,6 @@ module fort_spec
 
         end subroutine planck_f_lr
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine calc_rosse_opa(HIT_kappa_tot_g_approx,HIT_border_freqs,temp,HIT_N_g,HIT_coarse_borders, &
              kappa_rosse, w_gauss)
@@ -3686,11 +3589,6 @@ module fort_spec
 
         end subroutine calc_rosse_opa
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine star_planck_div_T(freq_len,T,nu,B_nu_dT)
 
@@ -3712,11 +3610,6 @@ module fort_spec
 
         end subroutine star_planck_div_T
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine calc_planck_opa(HIT_kappa_tot_g_approx,HIT_border_freqs,temp,HIT_N_g,HIT_coarse_borders, &
              kappa_planck, w_gauss)
@@ -3747,11 +3640,6 @@ module fort_spec
 
         end subroutine calc_planck_opa
 
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         subroutine star_planck(freq_len,T,nu,B_nu)
 

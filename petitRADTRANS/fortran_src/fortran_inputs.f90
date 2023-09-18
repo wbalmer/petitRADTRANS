@@ -1,16 +1,6 @@
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$ fortran_inputs.f90: utility functions to read, interpolate and mix opacities
-!!$                 for the petitRADTRANS radiative transfer package
-!!$
-!!$ Copyright 2016-2018, Paul Molliere
-!!$ Maintained by Paul Molliere, molliere@strw.leidenunivl.nl
-!!$ Status: under development
-!!$*****************************************************************************
-!!$*****************************************************************************
-!!$*****************************************************************************
-! TODO remove labels in fortran_inputs
+! """
+! Utility functions to read, interpolate and mix opacities for the petitRADTRANS radiative transfer package
+! """
 
 module fortran_inputs
     implicit none
