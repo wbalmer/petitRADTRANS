@@ -25,7 +25,7 @@ def __print_skipping_message(hdf5_opacity_file):
 
 
 def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
-    from petitRADTRANS.chem_fortran_util import chem_fortran_util as cfu
+    from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
     # Read in parameters of chemistry grid
     path = os.path.join(path_input_data, "abundance_files")
     hdf5_file = os.path.join(path, 'mass_mixing_ratios.h5')
@@ -45,7 +45,7 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
     for i in range(len(species_name)):
         species_name[i] = species_name[i][:-1]
 
-    chemistry_table = cfu.read_data(
+    chemistry_table = fchem.read_dat_chemical_table(
         int(len(feh)), int(len(co_ratios)), int(len(temperature)), int(len(pressure)), int(len(species_name)),
         path_input_data + os.path.sep  # the complete path is defined in the function
     )

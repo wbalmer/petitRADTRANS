@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.chem_fortran_util import chem_fortran_util as cfu
+from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
 
 path = petitradtrans_config['Paths']['pRT_input_data_path']
 
@@ -78,7 +78,7 @@ def interpol_abundances(COs_goal_in, FEHs_goal_in, temps_goal_in, pressures_goal
 
     # Get the interpolated values from Fortran routine
     # TODO nabla ad and MMW are not abundances, they should be returned as extra parameters
-    abundances_arr = cfu.interpolate(
+    abundances_arr = fchem.interpolate_mass_fractions_table(
         co_ratios_goal, fehs_goal, temps_goal,
         pressures_goal, co_ratios_large_int,
         fehs_large_int, temps_large_int,

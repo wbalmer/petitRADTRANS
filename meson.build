@@ -40,7 +40,7 @@ extension_names = [
     'fortran_radtrans_core',
     'fortran_inputs',
     'fortran_rebin',
-    'chem_fortran_util'
+    'fortran_chemistry'
 ]
 
 # Set extension files
