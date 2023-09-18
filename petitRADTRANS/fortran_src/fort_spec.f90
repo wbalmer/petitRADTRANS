@@ -14,14 +14,15 @@
 
 !!$ Natural constants block
 
-module constants_block
-  implicit none
-  double precision,parameter      :: AU = 1.49597871d13, R_sun = 6.955d10, R_jup=6.9911d9
-  double precision,parameter      :: pi = 3.14159265359d0, sig=5.670372622593201d-5, c_l=2.99792458d10
-  double precision,parameter      :: G = 6.674d-8, M_jup = 1.89813d30, deg = Pi/1.8d2
-  double precision,parameter      :: kB=1.3806488d-16, hplanck=6.62606957d-27, amu = 1.66053892d-24
-  double precision,parameter      :: sneep_ubachs_n = 25.47d18, L0 = 2.68676d19
-end module constants_block
+module physical_constants
+    implicit none
+    double precision, parameter :: cst_c = 2.99792458d10  ! (cm.s-1) speed of light in vacuum
+    double precision, parameter :: cst_pi = 3.14159265359d0  ! TODO update 3.141592653589793d0
+    double precision, parameter :: cst_k = 1.3806488d-16  ! (g.cm2.s-2.K-1) Boltzmann constant TODO update 1.380649d-16
+    double precision, parameter :: cst_h = 6.62606957d-27  ! (g.cm2.s-1) Planck constant  ! TODO update 6.62607015d-27
+    double precision, parameter :: cst_amu = 1.66053892d-24  ! (g) atomic mass constant  ! TODO update 1.6605390666e-24
+    double precision, parameter :: cst_sneep_ubachs_n = 25.47d18  ! TODO what is this?
+end module physical_constants
 
 
 !!$ #########################################################################
@@ -36,7 +37,7 @@ module fort_spec
     contains
         subroutine calc_tau_g_tot_ck(gravity,press,total_kappa,struc_len,freq_len,g_len,N_species,tau)
 
-          use constants_block
+          use physical_constants
           implicit none
 
           ! I/O
@@ -118,7 +119,7 @@ module fort_spec
         subroutine calc_tau_g_tot_ck_scat(gravity,press,total_kappa_in,do_scat_emis, &
              continuum_opa_scat_emis,struc_len,freq_len,g_len,tau,photon_destruction_prob)
 
-          use constants_block
+          use physical_constants
           implicit none
 
           ! I/O
@@ -297,7 +298,7 @@ module fort_spec
         subroutine flux_ck(freq,tau,temp,mu,w_gauss_mu, &
              w_gauss,contribution,freq_len,struc_len,N_mu,g_len,N_species,flux,contr_em)
 
-          use constants_block
+          use physical_constants
           implicit none
 
           ! I/O
@@ -379,7 +380,7 @@ module fort_spec
 
           end do
           ! Normalization
-          flux = flux*4d0*pi
+          flux = flux*4d0*cst_pi
 
           if (contribution) then
              do i_freq = 1, freq_len
@@ -398,7 +399,7 @@ module fort_spec
 
         subroutine planck_f(struc_len,T,nu,B_nu)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer                         :: struc_len
           double precision                :: T(struc_len),B_nu(struc_len), nu
@@ -407,8 +408,8 @@ module fort_spec
           !~~~~~~~~~~~~~
 
           B_nu = 0d0
-          buffer = 2d0*hplanck*nu**3d0/c_l**2d0
-          B_nu = buffer / (exp(hplanck*nu/kB/T)-1d0)
+          buffer = 2d0*cst_h*nu**3d0/cst_c**2d0
+          B_nu = buffer / (exp(cst_h*nu/cst_k/T)-1d0)
 
         end subroutine planck_f
 
@@ -422,7 +423,7 @@ module fort_spec
         subroutine calc_transm_spec(total_kappa_in, temp, press, gravity, mmw, P0_bar, R_pl, &
              w_gauss, scat, continuum_opa_scat, var_grav, transm, radius, freq_len, struc_len, g_len, N_species)
 
-            use constants_block
+            use physical_constants
             implicit none
 
             ! I/O
@@ -483,7 +484,7 @@ module fort_spec
             P0_cgs = P0_bar * 1d6
 
             ! Calculate density
-            rho = mmw * amu * press / kB / temp
+            rho = mmw * cst_amu * press / cst_k / temp
 
             ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
             call calc_radius(struc_len, press, gravity, rho, P0_cgs, R_pl, var_grav, radius)
@@ -594,7 +595,7 @@ module fort_spec
             t_graze_wlen_int = t_graze_wlen_int_1 + t_graze_wlen_int_2
             t_graze_wlen_int_t = transpose(t_graze_wlen_int)
 
-            ! Caculate planets effectice area (leaving out pi, because we want the radius in the end)
+            ! Caculate planets effectice area (leaving out cst_pi, because we want the radius in the end)
             do i_freq = 1, freq_len
                 transm(i_freq) = sum(transm(i_freq) + t_graze_wlen_int_t(:, i_freq))
             end do
@@ -712,7 +713,7 @@ module fort_spec
         !!$ Subroutine to add Rayleigh scattering
 
         subroutine add_rayleigh(spec,abund,lambda_angstroem,MMW,temp,press,rayleigh_kappa,struc_len,freq_len)
-            use constants_block
+            use physical_constants
             implicit none
 
             integer, intent(in) :: freq_len, struc_len
@@ -748,13 +749,13 @@ module fort_spec
              a7 = -1.66626219d-2
              luv = 0.2292020d0
              lir = 5.432937d0
-             mass_h2o = 18d0*amu
+             mass_h2o = 18d0*cst_amu
 
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
 
              l = lambda_cm/1d-4/0.589d0
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
              T = temp/273.15d0
 
              do i_str = 1, struc_len
@@ -784,7 +785,7 @@ module fort_spec
                       nm1 = nm1 - 1d0
                       fk = 1.0
 
-                      retVal = 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(d(i_str)/18d0/amu)**2d0* &
+                      retVal = 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(d(i_str)/18d0/cst_amu)**2d0* &
                            (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_h2o * &
                            abund(i_str)
 
@@ -799,15 +800,15 @@ module fort_spec
             else if (trim(adjustl(spec)) == 'CO2') then
 
              ! CO2 Rayleigh scattering according to Sneep & Ubachs (2004)
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
 
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
-             mass_co2 = 44d0*amu
+             mass_co2 = 44d0*cst_amu
 
              do i_str = 1, struc_len
                 if (abund(i_str) > 1d-60) then
-                   scale = d(i_str)/44d0/amu/sneep_ubachs_n
+                   scale = d(i_str)/44d0/cst_amu/cst_sneep_ubachs_n
                    do i_freq = 1, freq_len
 
                       nm1 = 1d-3*1.1427d6*( 5799.25d0/max(20d0**2d0,128908.9d0**2d0-lamb_inv(i_freq)**2d0) + &
@@ -818,7 +819,7 @@ module fort_spec
                       nm1 = nm1 * scale
                       fk = 1.1364+25.3d-12*lamb_inv(i_freq)**2d0
                       rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                           + 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(scale*sneep_ubachs_n)**2d0* &
+                           + 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(scale*cst_sneep_ubachs_n)**2d0* &
                            (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_co2 * &
                            abund(i_str)
 
@@ -829,11 +830,11 @@ module fort_spec
 
              ! O2 Rayleigh scattering according to Thalman et al. (2014).
              ! Also see their erratum!
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
 
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
-             mass_o2 = 32d0*amu
+             mass_o2 = 32d0*cst_amu
 
              do i_str = 1, struc_len
                 if (abund(i_str) > 1d-60) then
@@ -854,7 +855,7 @@ module fort_spec
                       nm1 = nm1 !* scale
                       fk = 1.096d0+1.385d-11*lamb_inv(i_freq)**2d0+1.448d-20*lamb_inv(i_freq)**4d0
                       rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                           + 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(2.68678d19)**2d0* & !(d(i_str)/mass_o2)**2d0* &
+                           + 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(2.68678d19)**2d0* & !(d(i_str)/mass_o2)**2d0* &
                            (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_o2 * &
                            abund(i_str)
 
@@ -865,11 +866,11 @@ module fort_spec
 
              ! N2 Rayleigh scattering according to Thalman et al. (2014).
              ! Also see their erratum!
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
 
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
-             mass_n2 = 34d0*amu
+             mass_n2 = 34d0*cst_amu
 
              do i_str = 1, struc_len
                 if (abund(i_str) > 1d-60) then
@@ -893,7 +894,7 @@ module fort_spec
                          nm1 = nm1 !* scale
                          fk = 1.034d0+3.17d-12*lamb_inv(i_freq)**2d0
                          rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                              + 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(2.546899d19)**2d0* & !(d(i_str)/mass_n2)**2d0* &
+                              + 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(2.546899d19)**2d0* & !(d(i_str)/mass_n2)**2d0* &
                               (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_n2 * &
                               abund(i_str)
 
@@ -908,15 +909,15 @@ module fort_spec
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
 
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
 
              do i_str = 1, struc_len
 
                 if (abund(i_str) > 1d-60) then
 
-                   scale = d(i_str)/28d0/amu/sneep_ubachs_n
-                   nfr_co = d(i_str)/28d0/amu
-                   mass_co = 28d0*amu
+                   scale = d(i_str)/28d0/cst_amu/cst_sneep_ubachs_n
+                   nfr_co = d(i_str)/28d0/cst_amu
+                   mass_co = 28d0*cst_amu
 
                    do i_freq = 1, freq_len
 
@@ -929,7 +930,7 @@ module fort_spec
                       fk = 1.016d0
 
                       rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                           + 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(nfr_co)**2d0* &
+                           + 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(nfr_co)**2d0* &
                            (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_co * &
                            abund(i_str)
 
@@ -943,15 +944,15 @@ module fort_spec
              lambda_cm = lambda_angstroem*1d-8
              lamb_inv = 1d0/lambda_cm
 
-             d = MMW*amu*press/kB/temp*abund
+             d = MMW*cst_amu*press/cst_k/temp*abund
 
              do i_str = 1, struc_len
 
                 if (abund(i_str) > 1d-60) then
 
-                   scale = d(i_str)/16d0/amu/sneep_ubachs_n
-                   nfr_ch4 = d(i_str)/16d0/amu
-                   mass_ch4 = 16d0*amu
+                   scale = d(i_str)/16d0/cst_amu/cst_sneep_ubachs_n
+                   nfr_ch4 = d(i_str)/16d0/cst_amu
+                   mass_ch4 = 16d0*cst_amu
 
                    do i_freq = 1, freq_len
 
@@ -959,7 +960,7 @@ module fort_spec
                       nm1 = nm1 * scale
                       fk = 1.0
                       rayleigh_kappa(i_freq,i_str) = rayleigh_kappa(i_freq,i_str) &
-                           + 24d0*pi**3d0*lamb_inv(i_freq)**4d0/(nfr_ch4)**2d0* &
+                           + 24d0*cst_pi**3d0*lamb_inv(i_freq)**4d0/(nfr_ch4)**2d0* &
                            (((nm1+1d0)**2d0-1d0)/((nm1+1d0)**2d0+2d0))**2d0*fk / mass_ch4 * &
                            abund(i_str)
 
@@ -1017,7 +1018,7 @@ module fort_spec
                     end do
 
                     ! Use alpha_polarization to store abund multiplicative factor
-                    alpha_polarization = 128d0 * pi ** 5d0 / 3d0 / lambda_cm ** 4d0 &
+                    alpha_polarization = 128d0 * cst_pi ** 5d0 / 3d0 / lambda_cm ** 4d0 &
                         * (alpha_polarization * 1.482d-25) ** 2d0 / 4d0 / 1.66053892d-24
 
                     do i = 1, struc_len
@@ -1038,7 +1039,7 @@ module fort_spec
             ! """
             ! Subroutine to calculate the contribution function of the transmission spectrum
             ! """
-            use constants_block
+            use physical_constants
             
             implicit none
             
@@ -1065,7 +1066,7 @@ module fort_spec
             P0_cgs = P0_bar * 1d6
             
             ! Calculate density
-            rho = mmw * amu * press / kB / temp
+            rho = mmw * cst_amu * press / cst_k / temp
             
             ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
             call calc_radius(struc_len, press, gravity, rho, P0_cgs, R_pl, var_grav, radius)
@@ -1150,7 +1151,7 @@ module fort_spec
                 ! Get effective area fraction from transmission
                 t_graze_wlen_int = 1d0 - t_graze_wlen_int
                 
-                ! Caculate planets effectice area (leaving out pi, because we want the radius in the end)
+                ! Caculate planets effectice area (leaving out cst_pi, because we want the radius in the end)
                 do i_freq = 1, freq_len
                     do i_str = 2, struc_len
                         transm(i_freq) = &
@@ -1191,7 +1192,7 @@ module fort_spec
            cloud_abs_opa_TOT,cloud_scat_opa_TOT,cloud_red_fac_aniso_TOT, &
            struc_len,N_cloud_spec,N_cloud_rad_bins, N_cloud_lambda_bins)
 
-          use constants_block
+          use physical_constants
           implicit none
 
           ! I/O
@@ -1223,16 +1224,16 @@ module fort_spec
           do i_struc = 1, struc_len
              do i_spec = 1, N_cloud_spec
                    do i_lamb = 1, N_cloud_lambda_bins
-                      N = 3d0*cloud_mass_fracs(i_struc,i_spec)*rho(i_struc)/4d0/pi/rho_p(i_spec)/ &
+                      N = 3d0*cloud_mass_fracs(i_struc,i_spec)*rho(i_struc)/4d0/cst_pi/rho_p(i_spec)/ &
                           r_g(i_struc,i_spec)**3d0*exp(-9d0/2d0*log(sigma_n)**2d0)  ! TODO put outside of i_lamb loop
 
-                      dndr = N/(cloud_radii*sqrt(2d0*pi)*log(sigma_n))* &  ! TODO put outside of i_lamb loop
+                      dndr = N/(cloud_radii*sqrt(2d0*cst_pi)*log(sigma_n))* &  ! TODO put outside of i_lamb loop
                           exp(-log(cloud_radii/r_g(i_struc,i_spec))**2d0/(2d0*log(sigma_n)**2d0))
 
 
-                      integrand_abs = 4d0*pi/3d0*cloud_radii**3d0*rho_p(i_spec)*dndr* &
+                      integrand_abs = 4d0*cst_pi/3d0*cloud_radii**3d0*rho_p(i_spec)*dndr* &
                            cloud_specs_abs_opa(:,i_lamb,i_spec)
-                      integrand_scat = 4d0*pi/3d0*cloud_radii**3d0*rho_p(i_spec)*dndr* &
+                      integrand_scat = 4d0*cst_pi/3d0*cloud_radii**3d0*rho_p(i_spec)*dndr* &
                            cloud_specs_scat_opa(:,i_lamb,i_spec)
                       integrand_aniso = integrand_scat*(1d0-cloud_aniso(:,i_lamb,i_spec))
 
@@ -1279,7 +1280,7 @@ module fort_spec
             ! """
             ! Subroutine to calculate cloud opacities.
             ! """
-            use constants_block
+            use physical_constants
             implicit none
 
             integer, intent(in) :: struc_len, N_cloud_spec, N_cloud_rad_bins, N_cloud_lambda_bins
@@ -1306,7 +1307,7 @@ module fort_spec
             do i_struc = 1, struc_len
                 do i_spec = 1, N_cloud_spec
                     do i_lamb = 1, N_cloud_lambda_bins
-                        mass_to_vol = 0.75d0 * cloud_mass_fracs(i_struc, i_spec) * rho(i_struc) / pi / rho_p(i_spec)
+                        mass_to_vol = 0.75d0 * cloud_mass_fracs(i_struc, i_spec) * rho(i_struc) / cst_pi / rho_p(i_spec)
 
                         N = mass_to_vol / (&
                             a_h(i_struc, i_spec) ** 3d0 * (b_h(i_struc,i_spec) - 1d0) &
@@ -1327,9 +1328,9 @@ module fort_spec
 
                         dndr = exp(dndr)
 
-                        integrand_abs = 0.75d0 * pi * cloud_radii ** 3d0 * rho_p(i_spec) * dndr &
+                        integrand_abs = 0.75d0 * cst_pi * cloud_radii ** 3d0 * rho_p(i_spec) * dndr &
                             * cloud_specs_abs_opa(:,i_lamb,i_spec)
-                        integrand_scat = 0.75d0 * pi * cloud_radii ** 3d0 * rho_p(i_spec) * dndr &
+                        integrand_scat = 0.75d0 * cst_pi * cloud_radii ** 3d0 * rho_p(i_spec) * dndr &
                             * cloud_specs_scat_opa(:,i_lamb,i_spec)
                         integrand_aniso = integrand_scat * (1d0 - cloud_aniso(:, i_lamb, i_spec))
 
@@ -1389,7 +1390,7 @@ module fort_spec
              HIT_kappa_tot_g_approx_scat,red_fac_aniso_final, HIT_kappa_tot_g_approx_scat_unred, &
              N_cloud_lambda_bins,struc_len,HIT_coarse_borders)
 
-          use constants_block
+          use physical_constants
           implicit none
           ! I/O
           integer, intent(in)           :: N_cloud_lambda_bins,struc_len,HIT_coarse_borders
@@ -1415,7 +1416,7 @@ module fort_spec
           HIT_kappa_tot_g_approx_scat_unred = 0d0
 
 
-          HIT_border_lamb = c_l/HIT_border_freqs
+          HIT_border_lamb = cst_c/HIT_border_freqs
           red_fac_aniso_final = 0d0
 
           kappa_tot_integ = 0d0
@@ -1557,7 +1558,7 @@ module fort_spec
         subroutine compute_cloud_particles_mean_radius(gravity, rho, rho_p, temp, MMW, frain, &
              sigma_n, Kzz, r_g, struc_len, N_cloud_spec)
 
-          use constants_block
+          use physical_constants
           implicit none
           ! I/O
           integer, intent(in)  :: struc_len, N_cloud_spec
@@ -1573,7 +1574,7 @@ module fort_spec
           double precision :: rad(N_fit), vel(N_fit), f_fill(N_cloud_spec)
           double precision :: a, b
 
-          H = kB*temp/(MMW*amu*gravity)
+          H = cst_k*temp/(MMW*cst_amu*gravity)
           w_star = Kzz/H
 
           f_fill = 1d0
@@ -1619,7 +1620,7 @@ module fort_spec
 
         subroutine compute_cloud_particles_mean_radius_hansen(gravity,rho,rho_p,temp,MMW,frain, &
                 b_h,Kzz,a_h,struc_len,N_cloud_spec)
-            use constants_block
+            use physical_constants
             
             implicit none
 
@@ -1639,7 +1640,7 @@ module fort_spec
             double precision :: rad(N_fit), vel(N_fit)
             double precision :: a, b
     
-            H = kB * temp / (MMW * amu * gravity)
+            H = cst_k * temp / (MMW * cst_amu * gravity)
             w_star = Kzz / H
             x_gamma = 1d0 + 1d0 / b_h  ! argument of the gamma function
     
@@ -1744,17 +1745,17 @@ module fort_spec
 
         subroutine turbulent_settling_speed(x,gravity,rho,rho_p,temp,MMW,turbulent_settling_speed_ret)
 
-          use constants_block
+          use physical_constants
           implicit none
           double precision    :: turbulent_settling_speed_ret
           double precision    :: x,gravity,rho,rho_p,temp,MMW
-          double precision, parameter :: d = 2.827d-8, epsilon = 59.7*kB
+          double precision, parameter :: d = 2.827d-8, epsilon = 59.7*cst_k
           double precision    :: N_Knudsen, psi, eta, CdNreSq, Nre, Cd, v_settling_visc
 
 
-          N_Knudsen = MMW*amu/(pi*rho*d**2d0*x)
+          N_Knudsen = MMW*cst_amu/(cst_pi*rho*d**2d0*x)
           psi = 1d0 + N_Knudsen*(1.249d0+0.42d0*exp(-0.87d0*N_Knudsen))
-          eta = 15d0/16d0*sqrt(pi*2d0*amu*kB*temp)/(pi*d**2d0)*(kB*temp/epsilon)**0.16d0/1.22d0
+          eta = 15d0/16d0*sqrt(cst_pi*2d0*cst_amu*cst_k*temp)/(cst_pi*d**2d0)*(cst_k*temp/epsilon)**0.16d0/1.22d0
           CdNreSq = 32d0*rho*gravity*x**3d0*(rho_p-rho)/(3d0*eta**2d0)
           Nre = exp(-2.7905d0+0.9209d0*log(CdNreSq)-0.0135d0*log(CdNreSq)**2d0)
           if (Nre < 1d0) then
@@ -2277,7 +2278,7 @@ module fort_spec
                 abs_S,t_irr,HIT_N_g_eff,J_bol,H_bol,K_bol, &
                 w_gauss_ck,gravity,dayside_ave,planetary_ave,j_for_zbrent,jstar_for_zbrent, &
                 range_int,range_write,I_minus_out_Olson,bord_ind_1dm6,I_J_out_Feautrier)
-            use constants_block
+            use physical_constants
             
             implicit none
 
@@ -2562,7 +2563,7 @@ module fort_spec
                     j_deep(i) = J_bol_a(struc_len-1)
                 end if
 
-                flux(i) = H_bol_a(1) * 4d0 * pi
+                flux(i) = H_bol_a(1) * 4d0 * cst_pi
 
                 if (range_write_use == struc_len) then
                     J_bol(1:range_write_use) = J_bol(1:range_write_use) + &
@@ -2636,7 +2637,7 @@ module fort_spec
              )
             ! """Calculate the radiance from a planetary atmosphere, based on the method of Olson and Kunasz 1987.
             ! """
-            use constants_block
+            use physical_constants
 
             implicit none
 
@@ -2795,7 +2796,7 @@ module fort_spec
                     H_bol_a = H_bol_a + w_gauss_ck(l) * tmp_j
                 end do  ! g
 
-                flux(i) = H_bol_a * 4d0 * pi
+                flux(i) = H_bol_a * 4d0 * cst_pi
             end do  ! freq
 
             contains
@@ -2871,12 +2872,12 @@ module fort_spec
              N_mu, &
              N_g)
 
-            use constants_block
+            use physical_constants
 
             implicit none
 
             integer, parameter :: iter_scat = 1000
-            double precision, parameter :: tiniest = tiny(0d0), pi_4 = 4d0 * pi
+            double precision, parameter :: tiniest = tiny(0d0), pi_4 = 4d0 * cst_pi
 
             integer, intent(in)             :: freq_len_p_1, struc_len, N_mu, N_g
             double precision, intent(in)    :: mu_star
@@ -3618,7 +3619,7 @@ module fort_spec
 
         subroutine planck_f_lr(PT_length, T, nul, nur, B_nu)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer, intent(in)             :: PT_length
           double precision, intent(in)    :: T(PT_length)
@@ -3639,11 +3640,11 @@ module fort_spec
           diff_nu = nu2-nu1
 
           B_nu = B_nu + 1d0/90d0*( &
-               7d0* 2d0*hplanck*nu1**3d0/c_l**2d0/(exp(hplanck*nu1/kB/T)-1d0) + &
-               32d0*2d0*hplanck*nu2**3d0/c_l**2d0/(exp(hplanck*nu2/kB/T)-1d0) + &
-               12d0*2d0*hplanck*nu3**3d0/c_l**2d0/(exp(hplanck*nu3/kB/T)-1d0) + &
-               32d0*2d0*hplanck*nu4**3d0/c_l**2d0/(exp(hplanck*nu4/kB/T)-1d0) + &
-               7d0* 2d0*hplanck*nu5**3d0/c_l**2d0/(exp(hplanck*nu5/kB/T)-1d0))
+               7d0* 2d0*cst_h*nu1**3d0/cst_c**2d0/(exp(cst_h*nu1/cst_k/T)-1d0) + &
+               32d0*2d0*cst_h*nu2**3d0/cst_c**2d0/(exp(cst_h*nu2/cst_k/T)-1d0) + &
+               12d0*2d0*cst_h*nu3**3d0/cst_c**2d0/(exp(cst_h*nu3/cst_k/T)-1d0) + &
+               32d0*2d0*cst_h*nu4**3d0/cst_c**2d0/(exp(cst_h*nu4/cst_k/T)-1d0) + &
+               7d0* 2d0*cst_h*nu5**3d0/cst_c**2d0/(exp(cst_h*nu5/cst_k/T)-1d0))
 
         end subroutine planck_f_lr
 
@@ -3656,7 +3657,7 @@ module fort_spec
         subroutine calc_rosse_opa(HIT_kappa_tot_g_approx,HIT_border_freqs,temp,HIT_N_g,HIT_coarse_borders, &
              kappa_rosse, w_gauss)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer                         :: HIT_N_g,HIT_coarse_borders
           double precision                :: HIT_border_freqs(HIT_coarse_borders)
@@ -3693,7 +3694,7 @@ module fort_spec
 
         subroutine star_planck_div_T(freq_len,T,nu,B_nu_dT)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer                         :: freq_len
           double precision                :: T,B_nu_dT(freq_len-1),nu(freq_len)
@@ -3706,8 +3707,8 @@ module fort_spec
              nu_use(i) = (nu(i)+nu(i+1))/2d0
           end do
 
-          buffer = 2d0*hplanck**2d0*nu_use**4d0/c_l**2d0
-          B_nu_dT = buffer / ((exp(hplanck*nu_use/kB/T/2d0)-exp(-hplanck*nu_use/kB/T/2d0))**2d0)/kB/T**2d0
+          buffer = 2d0*cst_h**2d0*nu_use**4d0/cst_c**2d0
+          B_nu_dT = buffer / ((exp(cst_h*nu_use/cst_k/T/2d0)-exp(-cst_h*nu_use/cst_k/T/2d0))**2d0)/cst_k/T**2d0
 
         end subroutine star_planck_div_T
 
@@ -3720,7 +3721,7 @@ module fort_spec
         subroutine calc_planck_opa(HIT_kappa_tot_g_approx,HIT_border_freqs,temp,HIT_N_g,HIT_coarse_borders, &
              kappa_planck, w_gauss)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer                         :: HIT_N_g,HIT_coarse_borders
           double precision                :: HIT_border_freqs(HIT_coarse_borders)
@@ -3754,7 +3755,7 @@ module fort_spec
 
         subroutine star_planck(freq_len,T,nu,B_nu)
 
-          use constants_block
+          use physical_constants
           implicit none
           integer                         :: freq_len
           double precision                :: T,B_nu(freq_len-1), nu(freq_len)
@@ -3776,11 +3777,11 @@ module fort_spec
              nu5 = nu_large
              diff_nu = nu2-nu1
              B_nu(i) = B_nu(i) + 1d0/90d0*( &
-                     7d0* 2d0*hplanck*nu1**3d0/c_l**2d0/(exp(hplanck*nu1/kB/T)-1d0) + &
-                     32d0*2d0*hplanck*nu2**3d0/c_l**2d0/(exp(hplanck*nu2/kB/T)-1d0) + &
-                     12d0*2d0*hplanck*nu3**3d0/c_l**2d0/(exp(hplanck*nu3/kB/T)-1d0) + &
-                     32d0*2d0*hplanck*nu4**3d0/c_l**2d0/(exp(hplanck*nu4/kB/T)-1d0) + &
-                     7d0* 2d0*hplanck*nu5**3d0/c_l**2d0/(exp(hplanck*nu5/kB/T)-1d0))
+                     7d0* 2d0*cst_h*nu1**3d0/cst_c**2d0/(exp(cst_h*nu1/cst_k/T)-1d0) + &
+                     32d0*2d0*cst_h*nu2**3d0/cst_c**2d0/(exp(cst_h*nu2/cst_k/T)-1d0) + &
+                     12d0*2d0*cst_h*nu3**3d0/cst_c**2d0/(exp(cst_h*nu3/cst_k/T)-1d0) + &
+                     32d0*2d0*cst_h*nu4**3d0/cst_c**2d0/(exp(cst_h*nu4/cst_k/T)-1d0) + &
+                     7d0* 2d0*cst_h*nu5**3d0/cst_c**2d0/(exp(cst_h*nu5/cst_k/T)-1d0))
           end do
 
         end subroutine star_planck
