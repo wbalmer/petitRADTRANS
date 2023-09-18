@@ -1005,8 +1005,8 @@ class Radtrans:
             cloud_scattering_opacities,
             cloud_particles_asymmetry_parameters
     ):
-        r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90. For some reason it runs faster in python
-        than in fortran, so we'll use this from now on.
+        r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90.
+        For some reason it runs faster in python than in fortran, so we'll use this from now on.
         This function integrates the cloud opacity through the different layers of the atmosphere to get the total
         optical depth, scattering and anisotropic fraction.
         # TODO optical depth or opacity?
