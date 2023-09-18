@@ -11,7 +11,7 @@ import petitRADTRANS
 import petitRADTRANS.chem_fortran_util
 import petitRADTRANS.fort_rebin
 import petitRADTRANS.fortran_inputs
-import petitRADTRANS.fort_spec
+import petitRADTRANS.fortran_radtrans_core
 import petitRADTRANS.rebin_give_width
 
 # Python modules
