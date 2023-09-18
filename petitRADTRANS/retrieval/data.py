@@ -7,7 +7,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.rebin_give_width import rebin as rgw
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 
 class Data:
@@ -387,7 +387,7 @@ class Data:
                                                    self.data_resolution)
 
                 # Rebin to model observation
-                flux_rebinned = rgw.rebin_give_width(
+                flux_rebinned = frebin.rebin_spectrum_bin(
                     wlen_model,
                     spectrum_model,
                     self.wlen,

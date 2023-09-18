@@ -20,7 +20,7 @@ from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
 from petitRADTRANS.utils import running_mean
 from scipy.stats import binned_statistic
 
-from petitRADTRANS.rebin_give_width import rebin as rgw
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.retrieval.util import bin_species_exok
 
 
@@ -1558,15 +1558,19 @@ class Retrieval:
 
             if not dd.photometry:
                 if dd.external_pRT_reference is None:
-                    best_fit_binned = rgw(self.best_fit_specs[name][0],
-                                          self.best_fit_specs[name][1],
-                                          wlen,
-                                          wlen_bins)
+                    best_fit_binned = frebin.rebin_spectrum_bin(
+                        self.best_fit_specs[name][0],
+                        self.best_fit_specs[name][1],
+                        wlen,
+                        wlen_bins
+                    )
                 else:
-                    best_fit_binned = rgw(self.best_fit_specs[dd.external_pRT_reference][0],
-                                          self.best_fit_specs[dd.external_pRT_reference][1],
-                                          wlen,
-                                          wlen_bins)
+                    best_fit_binned = frebin.rebin_spectrum_bin(
+                        self.best_fit_specs[dd.external_pRT_reference][0],
+                        self.best_fit_specs[dd.external_pRT_reference][1],
+                        wlen,
+                        wlen_bins
+                    )
             else:
                 if dd.external_pRT_reference is None:
                     best_fit_binned = dd.photometric_transformation_function(self.best_fit_specs[name][0],

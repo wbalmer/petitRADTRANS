@@ -12,7 +12,7 @@ import petitRADTRANS.chem_fortran_util
 import petitRADTRANS.fortran_rebin
 import petitRADTRANS.fortran_inputs
 import petitRADTRANS.fortran_radtrans_core
-import petitRADTRANS.rebin_give_width
+import petitRADTRANS.fortran_rebin
 
 # Python modules
 import petitRADTRANS.ccf

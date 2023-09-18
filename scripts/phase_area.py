@@ -1,6 +1,6 @@
 import numpy as np
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.rebin_give_width import rebin as rgw
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 import time
 
 '''
@@ -65,7 +65,7 @@ class Rtfl:
         # Calculate noise-less mock observation of planet in
         # isolation
         flux_lsf_iso, freq_instrument, flux_rebin_iso = \
-            rgw.convolve_rebin(freq_use, self.flux * phase_reduction, instrument_res,
+            frebin.convolve_rebin(freq_use, self.flux * phase_reduction, instrument_res,
                                pixel_sampling, wlen_range)
 
         spectral_data = {
@@ -100,7 +100,7 @@ class Rtfl:
 
             # Convolve with LSF, rebin to instrument pixels
             buffer1, buffer2, observation = \
-                rgw.convolve_rebin(freq_use, observation, instrument_res,
+                frebin.convolve_rebin(freq_use, observation, instrument_res,
                                    pixel_sampling, wlen_range)
             observation[observation < 0.] = 0.
 
@@ -134,7 +134,7 @@ class Rtfl:
 
             # Convolve with LSF, rebin to instrument pixels
             buffer1, buffer2, transmission = \
-                rgw.convolve_rebin(freq_use, transmission, instrument_res, pixel_sampling, wlen_range)
+                frebin.convolve_rebin(freq_use, transmission, instrument_res, pixel_sampling, wlen_range)
             transmission[transmission < 0.] = 0.
 
             # Add errorbars
