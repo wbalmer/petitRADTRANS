@@ -34,7 +34,7 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
         __print_skipping_message(hdf5_file)
         return
 
-    feh = np.genfromtxt(os.path.join(path, "FEHs.dat"))
+    log10_metallicities = np.genfromtxt(os.path.join(path, "FEHs.dat"))
     co_ratios = np.genfromtxt(os.path.join(path, "COs.dat"))
     temperature = np.genfromtxt(os.path.join(path, "temps.dat"))
     pressure = np.genfromtxt(os.path.join(path, "pressures.dat"))
@@ -46,18 +46,19 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
         species_name[i] = species_name[i][:-1]
 
     chemistry_table = fchem.read_dat_chemical_table(
-        int(len(feh)), int(len(co_ratios)), int(len(temperature)), int(len(pressure)), int(len(species_name)),
+        int(len(log10_metallicities)), int(len(co_ratios)), int(len(temperature)), int(len(pressure)),
+        int(len(species_name)),
         path_input_data + os.path.sep  # the complete path is defined in the function
     )
 
     chemistry_table = np.array(chemistry_table, dtype='d', order='F')
 
     with h5py.File(hdf5_file, 'w') as f:
-        feh = f.create_dataset(
+        log10_metallicities = f.create_dataset(
             name='iron_to_hydrogen_ratios',
-            data=feh
+            data=log10_metallicities
         )
-        feh.attrs['units'] = 'dex'
+        log10_metallicities.attrs['units'] = 'dex'
 
         co = f.create_dataset(
             name='carbon_to_oxygen_ratios',
@@ -450,15 +451,15 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
         cloud_species_modes.append(cloud_species_[1])
         cloud_species.append(cloud_species_[0])
 
-    tot_str_names = ''
+    all_cloud_species = ''
 
     for cloud_species_ in cloud_species:
-        tot_str_names = tot_str_names + cloud_species_ + ':'
+        all_cloud_species = all_cloud_species + cloud_species_ + ':'
 
-    tot_str_modes = ''
+    all_cloud_species_mode = ''
 
     for cloud_species_mode in cloud_species_modes:
-        tot_str_modes = tot_str_modes + cloud_species_mode + ':'
+        all_cloud_species_mode = all_cloud_species_mode + cloud_species_mode + ':'
 
     reference_file = os.path.join(
         path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
@@ -478,7 +479,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
         cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-            path_input_data, tot_str_names, tot_str_modes, len(doi_dict), n_cloud_wavelength_bins
+            path_input_data, all_cloud_species, all_cloud_species_mode, len(doi_dict), n_cloud_wavelength_bins
         )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
@@ -1038,8 +1039,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
             else:
                 raise FileNotFoundError(f"file '{molparam_file}' not found: unable to load isotopic ratio")
 
-            n_items = finput.compute_file_size(os.path.join(directory, 'wlen.dat'))
-            wavelengths = finput.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_items)
+            n_lines = finput.count_file_line_number(os.path.join(directory, 'wlen.dat'))
+            wavelengths = finput.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_lines)
             wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 
             opacities = np.zeros((line_paths_.size, wavelengths.size))
@@ -1050,7 +1051,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
                 print(f" Loading file '{line_path}' ({i + 1}/{line_paths_.size})...")
 
-                opacities[i] = finput.load_all_line_by_line_opacities(line_path, n_items)
+                opacities[i] = finput.load_all_line_by_line_opacities(line_path, n_lines)
 
             print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))

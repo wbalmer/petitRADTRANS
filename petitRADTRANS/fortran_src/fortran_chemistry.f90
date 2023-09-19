@@ -36,17 +36,18 @@ module fortran_chemistry
         end subroutine read_dat_chemical_table
 
 
-        subroutine interpolate_mass_fractions_table(co_ratios, metallicities, temperatures, pressures, &
-             largest_co_ratios_indices, largest_metallicities_indices, &
-             largest_temperatures_indices, largest_pressures_indices, &
-             table_metallicities, table_co_ratios, table_temperatures, table_pressures, mass_fractions_table, &
-             n_layers, n_metallicities, n_co_ratios, n_pressures, &
-             n_temperatures, n_species, mass_fractions)
+        subroutine interpolate_mass_fractions_table(co_ratios, log10_metallicities, temperatures, pressures, &
+                                                    largest_co_ratios_indices, largest_metallicities_indices, &
+                                                    largest_temperatures_indices, largest_pressures_indices, &
+                                                    table_metallicities, table_co_ratios, table_pressures, &
+                                                    table_temperatures, mass_fractions_table, &
+                                                    n_layers, n_metallicities, n_co_ratios, n_pressures, &
+                                                    n_temperatures, n_species, mass_fractions)
 
             implicit none
             ! I/O
             integer, intent(in) :: n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species, n_layers
-            double precision, intent(in) :: co_ratios(n_layers), metallicities(n_layers), &
+            double precision, intent(in) :: co_ratios(n_layers), log10_metallicities(n_layers), &
                temperatures(n_layers), pressures(n_layers)
             integer, intent(in) :: largest_co_ratios_indices(n_layers), largest_metallicities_indices(n_layers), &
                largest_temperatures_indices(n_layers), largest_pressures_indices(n_layers)
@@ -92,7 +93,7 @@ module fortran_chemistry
                 ! Interpolate to correct FEH
                 intp_bound_m1(1:n_species, 1:2, 1:2, 1:2) = intp_bound(1:n_species, 1:2, 1:2, 1:2, 1) + &
                     (intp_bound(1:n_species, 1:2, 1:2, 1:2, 2) - intp_bound(1:n_species, 1:2, 1:2, 1:2, 1)) / &
-                    (intp_coords(4,2) - intp_coords(4,1)) * (metallicities(i_goal) - intp_coords(4,1))
+                    (intp_coords(4,2) - intp_coords(4,1)) * (log10_metallicities(i_goal) - intp_coords(4,1))
 
                 ! Interpolate to correct C/O
                 intp_bound_m2(1:n_species, 1:2, 1:2) = intp_bound_m1(1:n_species, 1:2, 1:2, 1) + &

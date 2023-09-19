@@ -81,8 +81,8 @@ def interpolate_mass_fractions_chemical_table(co_ratios, log10_metallicities, te
         co_ratios_goal, fehs_goal, temps_goal,
         pressures_goal, co_ratios_large_int,
         fehs_large_int, temps_large_int,
-        pressures_large_int, table_log10_metallicities, table_co_ratios, table_temperatures,
-        table_pressures, mass_fractions_chemical_table
+        pressures_large_int, table_log10_metallicities, table_co_ratios,
+        table_pressures, table_temperatures, mass_fractions_chemical_table
     )
 
     # Sort in output format of this function

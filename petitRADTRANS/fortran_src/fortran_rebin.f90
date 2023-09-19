@@ -11,7 +11,7 @@ module rebin_utils
 
     contains
         subroutine rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, &
-                                       rebinned_spectrum, n_rebin, n_wavelengths)
+                                           n_rebin, n_wavelengths, rebinned_spectrum)
             implicit none
 
             integer, intent(in) :: n_rebin, n_wavelengths
@@ -96,8 +96,8 @@ module rebin_utils
 
 
         subroutine write_out_of_bounds_error(input_wavelengths_min, input_wavelengths_max, &
-                                             rebin_bin_min, rebin_bin_max, &
-                                             rebinned_spectrum, n_rebin)
+                                             rebin_bin_min, rebin_bin_max, n_rebin, &
+                                             rebinned_spectrum)
             implicit none
 
             integer, intent(in) :: n_rebin
@@ -122,7 +122,7 @@ module fortran_rebin
 
     contains
         subroutine rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, &
-                                  rebinned_spectrum, n_rebin, n_wavelengths)
+                                  n_rebin, n_wavelengths, rebinned_spectrum)
             use rebin_utils, only: rebinning_interpolation, write_input_size_error, write_out_of_bounds_error
 
             implicit none
@@ -156,22 +156,22 @@ module fortran_rebin
                     .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
                 call write_out_of_bounds_error(&
                     input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
-                    rebinned_spectrum, n_rebin &
+                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), n_rebin, &
+                    rebinned_spectrum &
                 )
 
                 return
             end if
 
             call rebinning_interpolation(&
-                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
-                n_rebin, n_wavelengths &
+                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin, n_wavelengths, &
+                rebinned_spectrum &
             )
         end subroutine rebin_spectrum
     
         
         subroutine rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths, &
-                                      rebinned_spectrum, n_rebin, n_wavelengths)
+                                      n_rebin, n_wavelengths, rebinned_spectrum)
             use rebin_utils, only: rebinning_interpolation, write_input_size_error, write_out_of_bounds_error
 
             implicit none
@@ -201,16 +201,16 @@ module fortran_rebin
 
                 call write_out_of_bounds_error(&
                     input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), &
-                    rebinned_spectrum, n_rebin &
+                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), n_rebin, &
+                    rebinned_spectrum &
                 )
 
                 return
             end if
     
             call rebinning_interpolation(&
-                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, rebinned_spectrum, &
-                n_rebin, n_wavelengths &
+                input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin, n_wavelengths, &
+                rebinned_spectrum &
             )
         end subroutine rebin_spectrum_bin
 end module fortran_rebin

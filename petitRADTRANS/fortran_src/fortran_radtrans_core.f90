@@ -19,9 +19,9 @@ module math
             ! """
             implicit none
             
-            integer :: ndata
-            double precision :: x(ndata), y(ndata)
-            double precision :: a, b
+            integer, intent(in) :: ndata
+            double precision, intent(in) :: x(ndata), y(ndata)
+            double precision, intent(out) :: a, b
             
             b = (sum(x)*sum(y)/dble(ndata) - sum(x*y))/ &
                 (sum(x)**2d0/dble(ndata) - sum(x**2d0))
@@ -29,7 +29,7 @@ module math
         end subroutine  linear_fit
         
         
-        subroutine linear_interpolate(x,y,x_out,input_len,output_len,y_out)
+        subroutine linear_interpolate(x, y, x_out, input_len, output_len, y_out)
             ! """Implementation of linear interpolation function.
             !
             ! Takes arrays of points in x and y, together with an
@@ -174,7 +174,7 @@ module math
         end subroutine quicksort_2d_swapped
 
 
-        subroutine solve_tridiagonal_system(a, b, c, res, solution, length)
+        subroutine solve_tridiagonal_system(a, b, c, res, length, solution)
             ! """
             ! Solves tridiagonal systems of linear equations. Source: some numerical recipes book.
             ! """
@@ -256,14 +256,15 @@ module physics
     double precision, parameter :: cst_sneep_ubachs_n = 25.47d18  ! TODO what is this?
 
     contains
-        subroutine compute_planck_function(n_layers, temperatures, frequencies, planck_flux)
+        subroutine compute_planck_function(temperatures, frequencies, n_layers, planck_flux)
             ! """
             ! Calculate the Planck source function.
             ! """
             implicit none
-            integer                         :: n_layers
-            double precision                :: temperatures(n_layers),planck_flux(n_layers), frequencies
-            double precision                :: buffer
+            integer, intent(in) :: n_layers
+            double precision, intent(in) :: temperatures(n_layers), frequencies
+            double precision, intent(out) :: planck_flux(n_layers)
+            double precision :: buffer
 
             !~~~~~~~~~~~~~
 
@@ -273,14 +274,15 @@ module physics
         end subroutine compute_planck_function
 
 
-        subroutine compute_planck_function_temperature_derivative(n_frequencies,temperatures,frequencies,&
+        subroutine compute_planck_function_temperature_derivative(temperatures, frequencies, n_frequencies, &
                                                                   B_nu_dT)
             implicit none
 
-            integer                         :: n_frequencies
-            double precision                :: temperatures,B_nu_dT(n_frequencies-1),frequencies(n_frequencies)
-            double precision                :: buffer(n_frequencies-1),nu_use(n_frequencies-1)
-            integer                         :: i
+            integer, intent(in) :: n_frequencies
+            double precision, intent(in) :: temperatures, frequencies(n_frequencies)
+            double precision, intent(out) :: B_nu_dT(n_frequencies-1)
+            double precision :: buffer(n_frequencies-1), nu_use(n_frequencies-1)
+            integer :: i
 
             do i = 1, n_frequencies-1
              nu_use(i) = (frequencies(i)+frequencies(i+1))/2d0
@@ -293,9 +295,8 @@ module physics
         end subroutine compute_planck_function_temperature_derivative
 
 
-        subroutine compute_planck_function_integral(temperatures, n_layers, &
-                                                      frequencies, n_frequencies, &
-                                                      planck_flux)
+        subroutine compute_planck_function_integral(temperatures, frequencies, n_layers, n_frequencies, &
+                                                    planck_flux)
             ! """
             ! Compute mean using Boole's method
             ! """
@@ -349,20 +350,22 @@ module physics
         end subroutine compute_planck_function_integral
 
 
-        subroutine compute_rosseland_opacities_core(clouds_final_absorption_opacities,frequencies_bin_edges,temperatures,&
-                                                    HIT_N_g,n_frequencies_bins, &
-                                                    opacities_rosseland, weights_gauss)
+        subroutine compute_rosseland_opacities_core(clouds_final_absorption_opacities, frequencies_bin_edges, &
+                                                    temperature, weights_gauss, n_frequencies_bins, n_g, &
+                                                    opacities_rosseland)
             implicit none
 
-            integer                         :: HIT_N_g,n_frequencies_bins
-            double precision                :: frequencies_bin_edges(n_frequencies_bins)
-            double precision                :: clouds_final_absorption_opacities(HIT_N_g,n_frequencies_bins-1)
-            double precision                :: temperatures, opacities_rosseland, weights_gauss(HIT_N_g), &
-                B_nu_dT(n_frequencies_bins-1), numerator
-            integer                         :: i
+            integer, intent(in) :: n_g, n_frequencies_bins
+            double precision, intent(in) :: frequencies_bin_edges(n_frequencies_bins)
+            double precision, intent(in) :: clouds_final_absorption_opacities(n_g, n_frequencies_bins-1)
+            double precision, intent(in) :: temperature, weights_gauss(n_g)
+            double precision, intent(out) :: opacities_rosseland
+
+            integer :: i
+            double precision :: B_nu_dT(n_frequencies_bins-1), numerator
 
             call compute_planck_function_temperature_derivative(&
-                n_frequencies_bins,temperatures,frequencies_bin_edges,B_nu_dT &
+                temperature, frequencies_bin_edges, n_frequencies_bins, B_nu_dT &
             )
 
             opacities_rosseland = 0d0
@@ -392,7 +395,7 @@ module physics
             b_nu_tmp(:, :) = 0d0
 
             call compute_planck_function_integral(&
-                t_tmp, 1, frequencies, n_frequencies, b_nu_tmp &
+                t_tmp, frequencies, 1, n_frequencies, b_nu_tmp &
             )
 
             planck_flux(:) = b_nu_tmp(1, :)
@@ -408,51 +411,61 @@ module cloud_utils
     implicit none
     
     contains
-        subroutine compute_turbulent_settling_speed(x,surface_gravity,rho,clouds_particles_densities,&
-                                                      temperatures, mean_molar_masses, &
-                                                      turbulent_settling_speed_ret)
-          use math, only: cst_pi
-          use physics, only: cst_amu, cst_k
+        subroutine compute_turbulent_settling_speed(x, surface_gravity, rho, clouds_particles_densities,&
+                                                    temperatures, mean_molar_masses, &
+                                                    turbulent_settling_speed_ret)
+            use math, only: cst_pi
+            use physics, only: cst_amu, cst_k
 
-          implicit none
+            implicit none
 
-          double precision    :: turbulent_settling_speed_ret
-          double precision    :: x,surface_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses
-          double precision, parameter :: d = 2.827d-8, epsilon = 59.7*cst_k
-          double precision    :: N_Knudsen, psi, eta, CdNreSq, Nre, Cd, v_settling_visc
+            double precision, parameter :: d = 2.827d-8, epsilon = 59.7*cst_k
+
+            double precision, intent(in) :: &
+                x, surface_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses
+            double precision, intent(out) :: turbulent_settling_speed_ret
+
+            double precision    :: N_Knudsen, psi, eta, CdNreSq, Nre, Cd, v_settling_visc
 
 
-          N_Knudsen = mean_molar_masses*cst_amu/(cst_pi*rho*d**2d0*x)
-          psi = 1d0 + N_Knudsen*(1.249d0+0.42d0*exp(-0.87d0*N_Knudsen))
-          eta = 15d0/16d0*sqrt(cst_pi*2d0*cst_amu*cst_k*temperatures)/(cst_pi*d**2d0) &
+            N_Knudsen = mean_molar_masses*cst_amu/(cst_pi*rho*d**2d0*x)
+            psi = 1d0 + N_Knudsen*(1.249d0+0.42d0*exp(-0.87d0*N_Knudsen))
+            eta = 15d0/16d0*sqrt(cst_pi*2d0*cst_amu*cst_k*temperatures)/(cst_pi*d**2d0) &
             *(cst_k*temperatures/epsilon)**0.16d0/1.22d0
-          CdNreSq = 32d0*rho*surface_gravity*x**3d0*(clouds_particles_densities-rho)/(3d0*eta**2d0)
-          Nre = exp(-2.7905d0+0.9209d0*log(CdNreSq)-0.0135d0*log(CdNreSq)**2d0)
-          if (Nre < 1d0) then
-             Cd = 24d0
-          else if (Nre > 1d3) then
-             Cd = 0.45d0
-          else
-             Cd = CdNreSq/Nre**2d0
-          end if
-          v_settling_visc = 2d0*x**2d0*(clouds_particles_densities-rho)*psi*surface_gravity/(9d0*eta)
-          turbulent_settling_speed_ret = psi*sqrt(8d0*surface_gravity*x*(clouds_particles_densities-rho)/(3d0*Cd*rho))
-          if ((Nre < 1d0) .and. (v_settling_visc < turbulent_settling_speed_ret)) then
-             turbulent_settling_speed_ret = v_settling_visc
-          end if
+            CdNreSq = 32d0*rho*surface_gravity*x**3d0*(clouds_particles_densities-rho)/(3d0*eta**2d0)
+            Nre = exp(-2.7905d0+0.9209d0*log(CdNreSq)-0.0135d0*log(CdNreSq)**2d0)
 
+            if (Nre < 1d0) then
+                Cd = 24d0
+            else if (Nre > 1d3) then
+                Cd = 0.45d0
+            else
+                Cd = CdNreSq/Nre**2d0
+            end if
+
+            v_settling_visc = 2d0*x**2d0*(clouds_particles_densities-rho)*psi*surface_gravity/(9d0*eta)
+            turbulent_settling_speed_ret = psi*sqrt(8d0*surface_gravity*x*(clouds_particles_densities-rho)/(3d0*Cd*rho))
+
+            if ((Nre < 1d0) .and. (v_settling_visc < turbulent_settling_speed_ret)) then
+                turbulent_settling_speed_ret = v_settling_visc
+            end if
         end subroutine compute_turbulent_settling_speed
 
 
-        function particle_radius(x1,x2,surface_gravity,rho,clouds_particles_densities,temperatures,&
-                                 mean_molar_masses,w_star)
+        function particle_radius(x1, x2, surface_gravity, rho, clouds_particles_densities, temperatures, &
+                                 mean_molar_masses, w_star)
             ! """
             ! Find the particle radius, using a simple bisection method.
             ! """
           implicit none
+
           integer, parameter :: ITMAX = 1000
-          double precision :: surface_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,w_star
-          double precision :: particle_radius,x1,x2
+
+          double precision, intent(in) :: &
+              surface_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses, w_star
+          double precision, intent(in) :: x1, x2
+          double precision :: particle_radius
+
           integer :: iter
           double precision :: a,b,c,fa,fb,fc,del
 
@@ -691,7 +704,7 @@ module fortran_radtrans_core
              do i_freq = 1, n_frequencies
                 ! Get source function
                 r = 0
-                call compute_planck_function(n_layers,temperatures,frequencies(i_freq),r)
+                call compute_planck_function(temperatures, frequencies(i_freq), n_layers, r)
                 ! Spatial transmissions at given wavelength
                 transm_all_loc = transm_all(i_freq,:)
                 ! Calc Eq. 9 of manuscript (em_deriv.pdf)
@@ -732,10 +745,10 @@ module fortran_radtrans_core
                                                   clouds_particles_radii_bins, clouds_particles_radii, &
                                                   clouds_absorption_opacities, clouds_scattering_opacities, &
                                                   clouds_particles_asymmetry_parameters, &
+                                                  n_layers, n_clouds, n_particles_radii, n_cloud_wavelengths, &
                                                   clouds_total_absorption_opacities, &
                                                   clouds_total_scattering_opacities, &
-                                                  clouds_total_red_fac_aniso, &
-                                                  n_layers, n_clouds, n_particles_radii, n_cloud_wavelengths)
+                                                  clouds_total_red_fac_aniso)
             ! """
             ! Calculate cloud opacities.
             ! """
@@ -950,8 +963,8 @@ module fortran_radtrans_core
                                                        mean_molar_masses, f_seds, &
                                                        cloud_particle_radius_distribution_std, &
                                                        eddy_diffusion_coefficients, &
-                                                       clouds_particles_mean_radii, &
-                                                       n_layers, n_clouds)
+                                                       n_layers, n_clouds, &
+                                                       clouds_particles_mean_radii)
             use cloud_utils, only: compute_turbulent_settling_speed, particle_radius
             use math, only: linear_fit
             use physics, only: cst_amu, cst_k
@@ -1030,11 +1043,11 @@ module fortran_radtrans_core
         end subroutine compute_cloud_particles_mean_radius
 
 
-        subroutine compute_cloud_particles_mean_radius_hansen(surface_gravity,rho,clouds_particles_densities,&
+        subroutine compute_cloud_particles_mean_radius_hansen(surface_gravity, rho, clouds_particles_densities,&
                                                               temperatures,mean_molar_masses,&
                                                               f_seds, clouds_b_hansen, eddy_diffusion_coefficients, &
-                                                              clouds_a_hansen,&
-                                                              n_layers,n_clouds)
+                                                              n_layers, n_clouds, &
+                                                              clouds_a_hansen)
             use cloud_utils, only: compute_turbulent_settling_speed, particle_radius
             use math, only: linear_fit
             use physics, only: cst_amu, cst_k
@@ -1163,25 +1176,14 @@ module fortran_radtrans_core
         end subroutine compute_cloud_particles_mean_radius_hansen
 
 
-        subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, &
-             optical_depths, &
-             temperatures, &
-             emission_cos_angles, &
-             emission_cos_angles_weights, &
-             weights_gauss, &
-             photon_destruction_probabilities, &
-             contribution, &
-             reflectances, &
-             emissivities, &
-             stellar_intensity, &
-             emission_geometry, &
-             star_irradiation_cos_angle, &
-             flux, &
-             emission_contribution, &
-             n_frequencies_bin_edges, &
-             n_layers, &
-             n_angles, &
-             n_g)
+        subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, optical_depths, temperatures, &
+                                                        emission_cos_angles, emission_cos_angles_weights, &
+                                                        weights_gauss, photon_destruction_probabilities,contribution, &
+                                                        reflectances, emissivities, &
+                                                        stellar_intensity, emission_geometry, &
+                                                        star_irradiation_cos_angle, &
+                                                        n_frequencies_bin_edges, n_layers, n_angles, n_g, &
+                                                        flux, emission_contribution)
             use math, only: solve_tridiagonal_system, cst_pi
             use physics, only: compute_planck_function_integral
 
@@ -1192,7 +1194,8 @@ module fortran_radtrans_core
 
             integer, intent(in)             :: n_frequencies_bin_edges, n_layers, n_angles, n_g
             double precision, intent(in)    :: star_irradiation_cos_angle
-            double precision, intent(in)    :: reflectances(n_frequencies_bin_edges-1),emissivities(n_frequencies_bin_edges-1) !ELALEI
+            double precision, intent(in)    :: &
+                reflectances(n_frequencies_bin_edges-1), emissivities(n_frequencies_bin_edges-1) !ELALEI
             double precision, intent(in)    :: stellar_intensity(n_frequencies_bin_edges-1) !ELALEI
             double precision, intent(in)    :: frequencies_bin_edges(n_frequencies_bin_edges)
             double precision, intent(in)    :: optical_depths(n_g,n_frequencies_bin_edges-1,n_layers)
@@ -1390,7 +1393,7 @@ module fortran_radtrans_core
 !call cpu_time(t0)
 
                             call solve_tridiagonal_system(&
-                                a(:, j, l, i), b(:, j, l, i), c(:, j, l, i), r(:, i), I_J(:,j), n_layers &
+                                a(:, j, l, i), b(:, j, l, i), c(:, j, l, i), r(:, i), n_layers, I_J(:,j) &
                             )
 !call cpu_time(tf)
 !ttri = ttri + tf - t0
@@ -1448,7 +1451,7 @@ module fortran_radtrans_core
                 end do
 
                 call compute_planck_function_integral(&
-                    temperatures, n_layers, frequencies_bin_edges, n_frequencies_bin_edges, r &
+                    temperatures, frequencies_bin_edges, n_layers, n_frequencies_bin_edges, r &
                 )
 
                 do i = 1, n_frequencies_bin_edges-1
@@ -1547,7 +1550,7 @@ module fortran_radtrans_core
                     lambda_loc = 0d0
 
                     call compute_planck_function_integral(&
-                        temperatures, n_layers, frequencies_bin_edges, n_frequencies_bin_edges, planck &
+                        temperatures, frequencies_bin_edges, n_layers, n_frequencies_bin_edges, planck &
                     )
 
                     do i = 1, n_frequencies_bin_edges - 1
@@ -1717,102 +1720,104 @@ module fortran_radtrans_core
             ! """
             ! Calculate tau_scat with 2nd order accuracy.
             ! """
-          !use physics
-          implicit none
-
-          ! I/O
-          integer, parameter                           :: n_species = 1
-          integer, intent(in)                          :: n_layers, n_frequencies, n_g
-          double precision, intent(in)                 :: opacities(n_g,n_frequencies,n_species,n_layers)
-          double precision, intent(in)                 :: surface_gravity, pressures(n_layers)
-          logical, intent(in)                          :: scattering_in_emission
-          double precision, intent(in)                 :: continuum_opacities_scattering(n_frequencies,n_layers)
-          double precision, intent(out)                :: optical_depths(n_g,n_frequencies,n_species,n_layers), &
+            implicit none
+            
+            ! I/O
+            integer, parameter                           :: n_species = 1
+            integer, intent(in)                          :: n_layers, n_frequencies, n_g
+            double precision, intent(in)                 :: opacities(n_g,n_frequencies,n_species,n_layers)
+            double precision, intent(in)                 :: surface_gravity, pressures(n_layers)
+            logical, intent(in)                          :: scattering_in_emission
+            double precision, intent(in)                 :: continuum_opacities_scattering(n_frequencies,n_layers)
+            double precision, intent(out)                :: optical_depths(n_g,n_frequencies,n_species,n_layers), &
                photon_destruction_probabilities(n_g,n_frequencies,n_layers)
-          ! internal
-          integer                                      :: i_struc, i_freq, i_g, i_spec
-          double precision                             :: del_tau_lower_ord, &
+            ! internal
+            integer                                      :: i_struc, i_freq, i_g, i_spec
+            double precision                             :: del_tau_lower_ord, &
                gamma_second(n_g,n_frequencies,n_species), f_second, kappa_i(n_g,n_frequencies,n_species), &
                kappa_im(n_g,n_frequencies,n_species), kappa_ip(n_g,n_frequencies,n_species)
-          double precision                             :: opacities_(n_g,n_frequencies,n_species,n_layers)
-          logical                                      :: second_order
-          !~~~~~~~~~~~~~
-
-          optical_depths = 0d0
-          second_order = .FALSE.
-
-          opacities_ = opacities
-
-          if (scattering_in_emission) then
-             do i_g = 1, n_g
-                opacities_(i_g,:,1,:) = opacities_(i_g,:,1,:) + &
-                     continuum_opacities_scattering(:,:)
-                photon_destruction_probabilities(i_g,:,:) = continuum_opacities_scattering(:,:) / &
-                     opacities_(i_g,:,1,:)
-             end do
-             photon_destruction_probabilities = 1d0 - photon_destruction_probabilities
-          else
-             photon_destruction_probabilities = 1d0
-          end if
-
-          if (second_order) then
-             do i_struc = 2, n_layers
-                if (i_struc == n_layers) then
-                   optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
-                        (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
-                        /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
-                else
-                   f_second = (pressures(i_struc+1)-pressures(i_struc))/(pressures(i_struc)-pressures(i_struc-1))
-                   kappa_i = opacities_(:,:,:,i_struc)
-                   kappa_im = opacities_(:,:,:,i_struc-1)
-                   kappa_ip = opacities_(:,:,:,i_struc+1)
-                   gamma_second = (kappa_ip-(1d0+f_second)*kappa_i+f_second*kappa_im) / &
-                        (f_second*(1d0+f_second))
-                   optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
-                        ((kappa_i+kappa_im)/2d0-gamma_second/6d0) &
-                        /surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
-                   do i_spec = 1, n_species
-                      do i_freq = 1, n_frequencies
-                         do i_g = 1, n_g
-                            if (optical_depths(i_g,i_freq,i_spec,i_struc) &
-                                < optical_depths(i_g,i_freq,i_spec,i_struc-1)) then
-                               if (i_struc <= 2) then
-                                  optical_depths(i_g,i_freq,i_spec,i_struc) = &
-                                       optical_depths(i_g,i_freq,i_spec,i_struc-1)*1.01d0
-                               else
-                                  optical_depths(i_g,i_freq,i_spec,i_struc) = &
-                                       optical_depths(i_g,i_freq,i_spec,i_struc-1) + &
-                                       (optical_depths(i_g,i_freq,i_spec,i_struc-1)- &
-                                       optical_depths(i_g,i_freq,i_spec,i_struc-2))*0.01d0
-                               end if
-                            end if
-                            del_tau_lower_ord = (kappa_i(i_g,i_freq,i_spec)+ &
-                                 kappa_im(i_g,i_freq,i_spec))/2d0/surface_gravity* &
-                                 (pressures(i_struc)-pressures(i_struc-1))
-                            if ((optical_depths(i_g,i_freq,i_spec,i_struc) - &
-                                 optical_depths(i_g,i_freq,i_spec,i_struc-1)) > del_tau_lower_ord) then
-                               optical_depths(i_g,i_freq,i_spec,i_struc) = &
+            double precision                             :: opacities_(n_g,n_frequencies,n_species,n_layers)
+            logical                                      :: second_order
+            
+            optical_depths = 0d0
+            second_order = .FALSE.
+            
+            opacities_ = opacities
+            
+            if (scattering_in_emission) then
+                do i_g = 1, n_g
+                    opacities_(i_g,:,1,:) = opacities_(i_g,:,1,:) &
+                        + continuum_opacities_scattering(:,:)
+                    photon_destruction_probabilities(i_g,:,:) = &
+                        continuum_opacities_scattering(:,:) / opacities_(i_g,:,1,:)
+                end do
+                
+                photon_destruction_probabilities = 1d0 - photon_destruction_probabilities
+            else
+                photon_destruction_probabilities = 1d0
+            end if
+            
+            if (second_order) then
+                do i_struc = 2, n_layers
+                    if (i_struc == n_layers) then
+                        optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) &
+                            + (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
+                            /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                    else
+                        f_second = (pressures(i_struc+1)-pressures(i_struc))/(pressures(i_struc)-pressures(i_struc-1))
+                        kappa_i = opacities_(:,:,:,i_struc)
+                        kappa_im = opacities_(:,:,:,i_struc-1)
+                        kappa_ip = opacities_(:,:,:,i_struc+1)
+                        gamma_second = (kappa_ip-(1d0+f_second)*kappa_i+f_second*kappa_im) &
+                            / (f_second*(1d0+f_second))
+                        optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) &
+                            + ((kappa_i+kappa_im)/2d0-gamma_second/6d0) &
+                            /surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                        
+                        do i_spec = 1, n_species
+                            do i_freq = 1, n_frequencies
+                            do i_g = 1, n_g
+                                if (optical_depths(i_g,i_freq,i_spec,i_struc) &
+                                        < optical_depths(i_g,i_freq,i_spec,i_struc-1)) then
+                                    if (i_struc <= 2) then
+                                        optical_depths(i_g,i_freq,i_spec,i_struc) = &
+                                            optical_depths(i_g,i_freq,i_spec,i_struc-1)*1.01d0
+                                    else
+                                        optical_depths(i_g,i_freq,i_spec,i_struc) = &
+                                            optical_depths(i_g,i_freq,i_spec,i_struc-1) &
+                                            + (optical_depths(i_g,i_freq,i_spec,i_struc-1) &
+                                            - optical_depths(i_g,i_freq,i_spec,i_struc-2))*0.01d0
+                                    end if
+                                end if
+                                
+                                del_tau_lower_ord = (kappa_i(i_g,i_freq,i_spec)+ &
+                                kappa_im(i_g,i_freq,i_spec))/2d0/surface_gravity* &
+                                (pressures(i_struc)-pressures(i_struc-1))
+                                
+                                if ((optical_depths(i_g,i_freq,i_spec,i_struc) - &
+                                        optical_depths(i_g,i_freq,i_spec,i_struc-1)) > del_tau_lower_ord) then
+                                    optical_depths(i_g,i_freq,i_spec,i_struc) = &
                                     optical_depths(i_g,i_freq,i_spec,i_struc-1) + del_tau_lower_ord
-                            end if
-                         end do
-                      end do
-                   end do
-                end if
-             end do
-          else
-             do i_struc = 2, n_layers
-                optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
-                     (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
-                     /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
-             end do
-          end if
-
+                                end if
+                            end do
+                            end do
+                        end do
+                    end if
+                end do
+            else
+                do i_struc = 2, n_layers
+                    optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
+                         (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
+                         /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                end do
+            end if
         end subroutine compute_optical_depths
 
 
         subroutine compute_planck_opacities(opacities, temperatures, weights_gauss, frequencies_bin_edges, &
-             scattering_in_emission, continuum_opacities_scattering, &
-             n_g, n_frequencies, n_layers, n_frequencies_bin_edges, opacities_planck)
+                                            scattering_in_emission, continuum_opacities_scattering, &
+                                            n_g, n_frequencies, n_layers, n_frequencies_bin_edges, &
+                                            opacities_planck)
 
             implicit none
 
@@ -1850,16 +1855,16 @@ module fortran_radtrans_core
 
             contains
                 subroutine compute_planck_opacities_(clouds_final_absorption_opacities,frequencies_bin_edges,temperatures,&
-                                                     HIT_N_g,n_frequencies_bins, &
+                                                     n_g,n_frequencies_bins, &
                                                      opacities_planck, weights_gauss)
                     use physics, only: compute_star_planck_function_integral
 
                     implicit none
 
-                    integer                         :: HIT_N_g,n_frequencies_bins
+                    integer                         :: n_g,n_frequencies_bins
                     double precision                :: frequencies_bin_edges(n_frequencies_bins)
-                    double precision                :: clouds_final_absorption_opacities(HIT_N_g,n_frequencies_bins-1)
-                    double precision                :: temperatures, opacities_planck, weights_gauss(HIT_N_g), &
+                    double precision                :: clouds_final_absorption_opacities(n_g,n_frequencies_bins-1)
+                    double precision                :: temperatures, opacities_planck, weights_gauss(n_g), &
                     planck_flux(n_frequencies_bins-1), norm
 
                     integer                         :: i
@@ -1884,8 +1889,9 @@ module fortran_radtrans_core
         end subroutine compute_planck_opacities
 
 
-        subroutine compute_radius_hydrostatic_equilibrium(n_layers, pressures, surface_gravity, atmosphere_densities, &
+        subroutine compute_radius_hydrostatic_equilibrium(pressures, surface_gravity, atmosphere_densities, &
                                                           reference_pressure, planet_radius, variable_gravity, &
+                                                          n_layers, &
                                                           radius_hydrostatic_equilibrium)
             ! """
             ! Calculate the radius at hydrostatic equilibrium from the pressure grid.
@@ -1985,10 +1991,10 @@ module fortran_radtrans_core
         end subroutine compute_radius_hydrostatic_equilibrium
 
 
-        subroutine compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_angstroem,&
-                                                         mean_molar_masses, temperatures, pressures,&
-                                                         rayleigh_scattering_opacities, &
-                                                         n_layers, n_frequencies)
+        subroutine compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_angstroem, &
+                                                         mean_molar_masses, temperatures, pressures, &
+                                                         n_layers, n_frequencies, &
+                                                         rayleigh_scattering_opacities)
             ! """
             ! Add Rayleigh scattering.
             ! """
@@ -2338,8 +2344,9 @@ module fortran_radtrans_core
 
 
         subroutine compute_rosseland_opacities(opacities, temperatures, weights_gauss, frequencies_bin_edges, &
-             scattering_in_emission, continuum_opacities_scattering, &
-             n_g, n_frequencies, n_layers, n_frequencies_bin_edges, opacities_rosseland)
+                                               scattering_in_emission, continuum_opacities_scattering, &
+                                               n_g, n_frequencies, n_layers, n_frequencies_bin_edges, &
+                                               opacities_rosseland)
             use physics, only: compute_rosseland_opacities_core
 
             implicit none
@@ -2369,9 +2376,9 @@ module fortran_radtrans_core
                     total_kappa_use(:,:,i_struc), &
                     frequencies_bin_edges, &
                     temperatures(i_struc), &
-                    n_g, n_frequencies+1, &
-                    opacities_rosseland(i_struc), &
-                    weights_gauss &
+                    weights_gauss, &
+                    n_frequencies+1, n_g, &
+                    opacities_rosseland(i_struc) &
                 )
             end do
         end subroutine compute_rosseland_opacities
@@ -2380,8 +2387,8 @@ module fortran_radtrans_core
         subroutine compute_transit_radii(opacities, temperatures, pressures, surface_gravity, mean_molar_masses, &
                                          reference_pressure, planet_radius, weights_gauss, &
                                          scattering_in_transmission, continuum_opacities_scattering, variable_gravity, &
-                                         transit_radii, radius_hydrostatic_equilibrium, &
-                                         n_frequencies, n_layers, n_g, n_species)
+                                         n_frequencies, n_layers, n_g, n_species, &
+                                         transit_radii, radius_hydrostatic_equilibrium)
             ! """
             ! Calculate the transmission spectrum
             ! """
@@ -2454,7 +2461,7 @@ module fortran_radtrans_core
 
             ! Calculate planetary radius_hydrostatic_equilibrium (in cm), assuming hydrostatic equilibrium
             call compute_radius_hydrostatic_equilibrium(&
-                n_layers, pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, &
+                pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
                 radius_hydrostatic_equilibrium &
             )
 
@@ -2576,12 +2583,12 @@ module fortran_radtrans_core
 
         subroutine compute_transmission_spectrum_contribution(opacities, temperatures, pressures, surface_gravity,&
                                                               mean_molar_masses, reference_pressure, planet_radius, &
-                                                              weights_gauss, transit_radii2, &
+                                                              weights_gauss, transit_radii_squared, &
                                                               scattering_in_transmission, &
                                                               continuum_opacities_scattering, variable_gravity, &
+                                                              n_frequencies, n_layers, n_g, n_species, &
                                                               transmission_contribution, &
-                                                              radius_hydrostatic_equilibrium, &
-                                                              n_frequencies,n_layers,n_g,n_species)
+                                                              radius_hydrostatic_equilibrium)
             ! """
             ! Calculate the contribution function of the transmission spectrum.
             ! """
@@ -2599,7 +2606,7 @@ module fortran_radtrans_core
             double precision, intent(in)                :: surface_gravity
             double precision, intent(in)                :: weights_gauss(n_g), &
                 continuum_opacities_scattering(n_frequencies,n_layers)
-            double precision, intent(in)                :: transit_radii2(n_frequencies)
+            double precision, intent(in)                :: transit_radii_squared(n_frequencies)
             double precision, intent(out)               :: transmission_contribution(n_layers,n_frequencies), &
                 radius_hydrostatic_equilibrium(n_layers)
             
@@ -2619,7 +2626,7 @@ module fortran_radtrans_core
             
             ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
             call compute_radius_hydrostatic_equilibrium(&
-                n_layers, pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, &
+                pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
                 radius_hydrostatic_equilibrium &
             )
             
@@ -2721,7 +2728,7 @@ module fortran_radtrans_core
 
                 ! Get radius at hydrostatic equilibrium
                 transit_radii = transit_radii+radius_hydrostatic_equilibrium(n_layers) ** 2d0
-                transmission_contribution(i_leave_str, :) = transit_radii2 - transit_radii
+                transmission_contribution(i_leave_str, :) = transit_radii_squared - transit_radii
             end do
             
             do i_freq = 1, n_frequencies
@@ -2733,9 +2740,9 @@ module fortran_radtrans_core
 
         subroutine interpolate_cloud_opacities(clouds_total_absorption_opacities, clouds_total_scattering_opacities, &
                                                clouds_total_red_fac_aniso, cloud_wavelengths, frequencies_bin_edges, &
-                                               clouds_final_absorption_opacities, clouds_final_scattering_opacities, &
-                                               clouds_final_red_fac_aniso, cloud_abs_plus_scat_no_anisotropic, &
-                                               n_cloud_wavelengths, n_layers, n_frequencies_bins)
+                                               n_cloud_wavelengths, n_layers, n_frequencies_bins, &
+                                               clouds_final_absorption_opacities, cloud_abs_plus_scat_anisotropic, &
+                                               clouds_final_red_fac_aniso, cloud_abs_plus_scat_no_anisotropic)
             ! """
             ! Interpolate cloud opacities to actual radiative transfer wavelength grid.
             ! """
@@ -2749,7 +2756,7 @@ module fortran_radtrans_core
                clouds_total_red_fac_aniso(n_cloud_wavelengths,n_layers), cloud_wavelengths(n_cloud_wavelengths), &
                frequencies_bin_edges(n_frequencies_bins)
           double precision, intent(out) :: clouds_final_absorption_opacities(n_frequencies_bins-1,n_layers), &
-               clouds_final_scattering_opacities(n_frequencies_bins-1,n_layers), &
+               cloud_abs_plus_scat_anisotropic(n_frequencies_bins-1,n_layers), &
                clouds_final_red_fac_aniso(n_frequencies_bins-1,n_layers), &
                cloud_abs_plus_scat_no_anisotropic(n_frequencies_bins-1,n_layers)
 
@@ -2762,7 +2769,7 @@ module fortran_radtrans_core
                new_small_ind
 
           clouds_final_absorption_opacities = 0d0
-          clouds_final_scattering_opacities = 0d0
+          cloud_abs_plus_scat_anisotropic = 0d0
           cloud_abs_plus_scat_no_anisotropic = 0d0
 
 
@@ -2893,8 +2900,8 @@ module fortran_radtrans_core
 
              clouds_final_absorption_opacities(HIT_i_lamb,:) = clouds_final_absorption_opacities(HIT_i_lamb,:) + &
                   kappa_integ
-             clouds_final_scattering_opacities(HIT_i_lamb,:) = clouds_final_scattering_opacities(HIT_i_lamb,:) + &
-                  kappa_integ + kappa_scat_integ*red_fac_aniso_integ
+             cloud_abs_plus_scat_anisotropic(HIT_i_lamb,:) = cloud_abs_plus_scat_anisotropic(HIT_i_lamb,:) + &
+                  kappa_integ + kappa_scat_integ * red_fac_aniso_integ
              cloud_abs_plus_scat_no_anisotropic(HIT_i_lamb,:) = cloud_abs_plus_scat_no_anisotropic(HIT_i_lamb,:) + &
                   kappa_integ + kappa_scat_integ
 
@@ -3082,7 +3089,7 @@ module fortran_radtrans_core
                 r = 0
 
                 call compute_planck_function(&
-                    n_layers, temperatures, (frequencies_bin_edges(i) + frequencies_bin_edges(i + 1)) * 0.5d0, r &
+                    temperatures, (frequencies_bin_edges(i) + frequencies_bin_edges(i + 1)) * 0.5d0, n_layers, r &
                 )
 
                 do l = 1, HIT_N_g_eff
@@ -3274,11 +3281,10 @@ module fortran_radtrans_core
             if (range_int_use == n_layers) then
                 call compute_rosseland_opacities_core(&
                     clouds_final_absorption_opacities(:,:,n_layers), &
-                    frequencies_bin_edges,temperatures(n_layers), &
-                    HIT_N_g_eff, &
-                    n_frequencies_bins, &
-                    kappa_H(n_layers), &
-                    w_gauss_ck&
+                    frequencies_bin_edges, temperatures(n_layers), &
+                    w_gauss_ck, &
+                    n_frequencies_bins, HIT_N_g_eff, &
+                    kappa_H(n_layers) &
                 )
             end if
         end subroutine unused_compute_olson_kunasz_line_by_line_radiative_transfer
@@ -3355,7 +3361,7 @@ module fortran_radtrans_core
             photon_destruct = photon_destruct_in
 
             call compute_planck_function_integral(&
-                    temperatures, n_layers, frequencies_bin_edges, n_frequencies_bin_edges, planck &
+                    temperatures, frequencies_bin_edges, n_layers, n_frequencies_bin_edges, planck &
                 )
 
             do i = 1, n_frequencies_bin_edges-1

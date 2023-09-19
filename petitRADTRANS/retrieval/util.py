@@ -237,7 +237,7 @@ def rebin_ck_line_opacities(radtrans, resolution, path='', species=None, species
                 f.create_dataset('DOI', data=['--'])
 
             f.create_dataset('bin_centers', data=radtrans.frequencies[::-1] / cst.c)
-            f.create_dataset('bin_edges', data=radtrans.frequencies_bin_edges[::-1] / cst.c)
+            f.create_dataset('bin_edges', data=radtrans.frequency_bins_edges[::-1] / cst.c)
             opacity_grid = copy.copy(radtrans.lines_loaded_opacities['opacity_grid'][s])
 
             # Mass to go from opacities to cross-sections
@@ -275,10 +275,10 @@ def rebin_ck_line_opacities(radtrans, resolution, path='', species=None, species
             f.create_dataset('t', data=radtrans.lines_loaded_opacities['temperature_profile_grid'][s][
                                        ::radtrans.lines_loaded_opacities['pressure_grid_size'][s], 0])
             f.create_dataset('weights', data=radtrans.lines_loaded_opacities['weights_gauss'])
-            f.create_dataset('wlrange', data=[np.min(cst.c / radtrans.frequencies_bin_edges / 1e-4),
-                                              np.max(cst.c / radtrans.frequencies_bin_edges / 1e-4)])
-            f.create_dataset('wnrange', data=[np.min(radtrans.frequencies_bin_edges / cst.c),
-                                              np.max(radtrans.frequencies_bin_edges / cst.c)])
+            f.create_dataset('wlrange', data=[np.min(cst.c / radtrans.frequency_bins_edges / 1e-4),
+                                              np.max(cst.c / radtrans.frequency_bins_edges / 1e-4)])
+            f.create_dataset('wnrange', data=[np.min(radtrans.frequency_bins_edges / cst.c),
+                                              np.max(radtrans.frequency_bins_edges / cst.c)])
 
         # Use Exo-k to rebin to low-res, save to desired folder
         tab = exo_k.Ktable(filename='temp.h5')
