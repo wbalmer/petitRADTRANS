@@ -63,8 +63,8 @@ if case1:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                              eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
-                              contribution = False)
+                                                     eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
+                                                     return_contribution= False)
     plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
 

@@ -640,8 +640,8 @@ module fortran_radtrans_core
 
 
         subroutine compute_ck_flux(frequencies, optical_depths, temperatures, &
-                                   emission_cos_angles, emission_cos_angles_weights, weights_gauss, contribution, &
-                                   n_frequencies, n_layers, n_angles, n_g, n_species, &
+                                   emission_cos_angles, emission_cos_angles_weights, weights_gauss, &
+                                   return_contribution, n_frequencies, n_layers, n_angles, n_g, n_species, &
                                    flux, emission_contribution)
             ! """
             ! Calculate the radiative transport, using the mean transmission method.
@@ -660,7 +660,7 @@ module fortran_radtrans_core
           double precision, intent(in)                :: emission_cos_angles(n_angles)
           double precision, intent(in)                :: emission_cos_angles_weights(n_angles)
           double precision, intent(in)                :: weights_gauss(n_g)
-          logical, intent(in)                         :: contribution
+          logical, intent(in)                         :: return_contribution
           double precision, intent(out)               :: flux(n_frequencies)
           double precision, intent(out)               :: emission_contribution(n_layers,n_frequencies)
 
@@ -673,7 +673,7 @@ module fortran_radtrans_core
 
           flux = 0d0
 
-          if (contribution) then
+          if (return_contribution) then
              emission_contribution = 0d0
           end if
 
@@ -711,7 +711,7 @@ module fortran_radtrans_core
                 do i_str = 1, n_layers-1
                    flux_mu(i_freq) = flux_mu(i_freq)+ &
                         (r(i_str)+r(i_str+1))*(transm_all_loc(i_str)-transm_all_loc(i_str+1))/2d0
-                   if (contribution) then
+                   if (return_contribution) then
                       emission_contribution(i_str,i_freq) = emission_contribution(i_str,i_freq) &
                           + (r(i_str)+r(i_str+1)) * &
                            (transm_all_loc(i_str)-transm_all_loc(i_str+1)) &
@@ -719,7 +719,7 @@ module fortran_radtrans_core
                    end if
                 end do
                 flux_mu(i_freq) = flux_mu(i_freq) + r(n_layers)*transm_all_loc(n_layers)
-                if (contribution) then
+                if (return_contribution) then
                    emission_contribution(n_layers,i_freq) = emission_contribution(n_layers,i_freq) + 2d0*r(n_layers)* &
                         transm_all_loc(n_layers)*emission_cos_angles(i_mu)*emission_cos_angles_weights(i_mu)
                 end if
@@ -731,7 +731,7 @@ module fortran_radtrans_core
           ! Normalization
           flux = flux*4d0*cst_pi
 
-          if (contribution) then
+          if (return_contribution) then
              do i_freq = 1, n_frequencies
                 emission_contribution(:,i_freq) = emission_contribution(:,i_freq)/sum(emission_contribution(:,i_freq))
              end do
@@ -1178,8 +1178,8 @@ module fortran_radtrans_core
 
         subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, optical_depths, temperatures, &
                                                         emission_cos_angles, emission_cos_angles_weights, &
-                                                        weights_gauss, photon_destruction_probabilities,contribution, &
-                                                        reflectances, emissivities, &
+                                                        weights_gauss, photon_destruction_probabilities, &
+                                                        return_contribution, reflectances, emissivities, &
                                                         stellar_intensity, emission_geometry, &
                                                         star_irradiation_cos_angle, &
                                                         n_frequencies_bin_edges, n_layers, n_angles, n_g, &
@@ -1203,7 +1203,7 @@ module fortran_radtrans_core
             double precision, intent(in)    :: emission_cos_angles(n_angles)
             double precision, intent(in)    :: emission_cos_angles_weights(n_angles), weights_gauss(n_g)
             double precision, intent(in)    :: photon_destruction_probabilities(n_g,n_frequencies_bin_edges-1,n_layers)
-            logical, intent(in)             :: contribution
+            logical, intent(in)             :: return_contribution
             double precision, intent(out)   :: flux(n_frequencies_bin_edges-1)
             double precision, intent(out)   :: emission_contribution(n_layers,n_frequencies_bin_edges-1)
             character(len=20), intent(in)   :: emission_geometry
@@ -1305,7 +1305,9 @@ module fortran_radtrans_core
                         J_star_ini(:,i,:) = J_star_ini(:,i,:) &
                             +0.5d0*I_star_calc(:,i_mu,:,i)*emission_cos_angles_weights(i_mu)
                     else if (trim(adjustl(emission_geometry)) == 'non-isotropic') then
-                        J_star_ini(:,i,:) = abs(stellar_intensity(i)/4.*exp(-optical_depths(:,i,:)/star_irradiation_cos_angle))
+                        J_star_ini(:,i,:) = abs(&
+                            stellar_intensity(i)/4.*exp(-optical_depths(:,i,:)/star_irradiation_cos_angle)&
+                        )
                     else
                         write(*,*) 'Invalid geometry'
                     end if
@@ -1495,7 +1497,7 @@ module fortran_radtrans_core
 
             emission_contribution = 0d0
 
-            if (contribution) then
+            if (return_contribution) then
                 do i_mu = 1, n_angles
                     ! Transmissions for a given incidence angle
                     transm_mu = exp(-optical_depths/emission_cos_angles(i_mu))
@@ -1854,8 +1856,8 @@ module fortran_radtrans_core
             end do
 
             contains
-                subroutine compute_planck_opacities_(clouds_final_absorption_opacities,frequencies_bin_edges,temperatures,&
-                                                     n_g,n_frequencies_bins, &
+                subroutine compute_planck_opacities_(clouds_final_absorption_opacities, frequencies_bin_edges, &
+                                                     temperatures, n_g, n_frequencies_bins, &
                                                      opacities_planck, weights_gauss)
                     use physics, only: compute_star_planck_function_integral
 

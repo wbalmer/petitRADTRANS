@@ -479,7 +479,7 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_ref(p
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
             'Mg2SiO4(c)_cd'
         ]['sigma_log_normal'],
-        contribution=True
+        return_contribution=True
     )
 
     __save_emission_spectrum(
@@ -771,7 +771,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
             'Mg2SiO4(c)_cd'
         ]['sigma_log_normal'],
-        contribution=True
+        return_contribution=True
     )
 
     __save_transmission_spectrum(

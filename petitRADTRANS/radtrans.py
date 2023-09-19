@@ -494,7 +494,7 @@ class Radtrans:
                         cloud_f_sed,
                         hack_cloud_photospheric_optical_depths, hack_cloud_total_scattering_anisotropic,
                         hack_cloud_total_abs,
-                        contribution=False, return_rosseland_opacities=False):
+                        return_contribution=False, return_rosseland_opacities=False):
         """Calculate the flux.
         """
         optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor = (
@@ -532,7 +532,7 @@ class Radtrans:
                 self._emission_cos_angle_grid_weights,
                 self._lines_loaded_opacities['weights_gauss'],
                 photon_destruction_probabilities,
-                contribution,
+                return_contribution,
                 reflectances,
                 emissivities,
                 stellar_intensity,
@@ -571,7 +571,7 @@ class Radtrans:
                     self._emission_cos_angle_grid,
                     self._emission_cos_angle_grid_weights,
                     self._lines_loaded_opacities['weights_gauss'],
-                    contribution
+                    return_contribution
                 )
             else:
                 flux, emission_contribution = fcore.compute_ck_flux(
@@ -581,7 +581,7 @@ class Radtrans:
                     self._emission_cos_angle_grid,
                     self._emission_cos_angle_grid_weights,
                     self._lines_loaded_opacities['weights_gauss'],
-                    contribution
+                    return_contribution
                 )
 
         return flux, emission_contribution, opacities_rosseland, relative_cloud_scaling_factor
@@ -843,8 +843,8 @@ class Radtrans:
 
     def _calculate_transit_radii(self, temperatures, mean_molar_masses, surface_gravity,
                                  reference_pressure, planet_radius, variable_gravity,
-                                 opacities, continuum_opacities_scattering, contribution):
-        if contribution:
+                                 opacities, continuum_opacities_scattering, return_contribution):
+        if return_contribution:
             transmission_contribution = np.zeros(
                 (np.size(self._pressures), self._frequencies.size), dtype='d', order='F'
             )
@@ -869,7 +869,7 @@ class Radtrans:
             )
 
             # TODO: contribution function calculation with python-only implementation
-            if contribution:
+            if return_contribution:
                 transit_radii, radius_hydrostatic_equilibrium = fcore.compute_transit_radii(
                     opacities[:, :, :1, :],
                     temperatures,
@@ -916,7 +916,7 @@ class Radtrans:
             )
 
             # TODO: contribution function calculation with python-only implementation
-            if contribution:
+            if return_contribution:
                 transit_radii, radius_hydrostatic_equilibrium = fcore.compute_transit_radii(
                     opacities,
                     temperatures,
@@ -2233,7 +2233,7 @@ class Radtrans:
                        star_effective_temperature=None, star_radius=None, orbit_semi_major_axis=None,
                        star_irradiation_angle=0,
                        reflectances=None, emissivities=None,
-                       contribution=False,
+                       return_contribution=False,
                        add_cloud_scattering_as_absorption=False,
                        additional_absorption_opacities_function=None, additional_scattering_opacities_function=None,
                        planet_radius=None, return_photosphere_radius=False, return_rosseland_optical_depths=False,
@@ -2316,7 +2316,7 @@ class Radtrans:
                     # TODO
                 emissivities (Optional):
                     # TODO
-                contribution (Optional[bool]):
+                return_contribution (Optional[bool]):
                     If ``True`` the emission contribution function will be calculated. Default is ``False``.
                 add_cloud_scattering_as_absorption (Optional[bool]):
                     If ``True``, 20 % of the cloud scattering opacity will be added to the absorption opacity,
@@ -2450,7 +2450,7 @@ class Radtrans:
             stellar_intensity=stellar_intensity,
             reflectances=reflectances,
             emissivities=emissivities,
-            contribution=contribution,
+            return_contribution=return_contribution,
             cloud_f_sed=cloud_f_sed,
             hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth,
             hack_cloud_total_scattering_anisotropic=hack_cloud_total_scattering_anisotropic,
@@ -2481,7 +2481,7 @@ class Radtrans:
         if clouds_particles_mean_radii is not None:
             additional_outputs['clouds_particles_mean_radii'] = clouds_particles_mean_radii
 
-        if contribution:
+        if return_contribution:
             additional_outputs['emission_contribution'] = emission_contribution
 
         if return_photosphere_radius:
@@ -2696,7 +2696,7 @@ class Radtrans:
                                 cloud_f_sed=None, eddy_diffusion_coefficient=None,
                                 haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
                                 gray_opacity=None,
-                                contribution=False,
+                                return_contribution=False,
                                 additional_absorption_opacities_function=None,
                                 additional_scattering_opacities_function=None,
                                 return_cloud_contribution=False, return_radius_hydrostatic_equilibrium=False):
@@ -2772,7 +2772,7 @@ class Radtrans:
                 gray_opacity (Optional[float]):
                     Gray opacity value, to be added to the opacity at all
                     pressures and wavelengths (units :math:`\\rm cm^2/g`)
-                contribution (Optional[bool]):
+                return_contribution (Optional[bool]):
                     If ``True`` the transmission and emission
                     contribution function will be
                     calculated. Default is ``False``.
@@ -2844,7 +2844,7 @@ class Radtrans:
             variable_gravity=variable_gravity,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
-            contribution=contribution
+            return_contribution=return_contribution
         )
 
         additional_outputs = {}
@@ -2852,7 +2852,7 @@ class Radtrans:
         if clouds_particles_mean_radii is not None:
             additional_outputs['clouds_particles_mean_radii'] = clouds_particles_mean_radii
 
-        if contribution:
+        if return_contribution:
             additional_outputs['transmission_contribution'] = transmission_contribution
 
         if return_radius_hydrostatic_equilibrium:
@@ -3127,7 +3127,7 @@ class Radtrans:
             clouds_particles_densities, clouds_absorption_opacities, clouds_scattering_opacities, \
                 clouds_asymmetry_parameters, cloud_wavelengths, clouds_particles_radii_bins, clouds_particles_radii \
                 = finput.load_cloud_opacities(
-                    path_input_data, all_cloud_species, all_cloud_species_modes, 
+                    path_input_data, all_cloud_species, all_cloud_species_modes,
                     len(self._cloud_species), n_cloud_wavelength_bins
                 )
 

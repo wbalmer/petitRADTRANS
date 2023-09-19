@@ -157,7 +157,7 @@ def emission_model_diseq(prt_object,
         mass_fractions=abundances,
         surface_gravity=gravity,
         mean_molar_masses=MMW,
-        contribution=contribution,
+        return_contribution=contribution,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
@@ -295,7 +295,7 @@ def emission_model_diseq_patchy_clouds(prt_object,
         mass_fractions=abundances,
         surface_gravity=gravity,
         mean_molar_masses=MMW,
-        contribution=contribution,
+        return_contribution=contribution,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
@@ -317,7 +317,7 @@ def emission_model_diseq_patchy_clouds(prt_object,
         mass_fractions=abundances,
         surface_gravity=gravity,
         mean_molar_masses=MMW,
-        contribution=contribution,
+        return_contribution=contribution,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
@@ -434,7 +434,7 @@ def guillot_emission(prt_object,
         mass_fractions=abundances,
         surface_gravity=gravity,
         mean_molar_masses=MMW,
-        contribution=contribution,
+        return_contribution=contribution,
         cloud_f_sed=fseds,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
@@ -575,7 +575,7 @@ def guillot_transmission(prt_object,
             eddy_diffusion_coefficient=kzz,
             cloud_b_hansen=b_hans,
             distribution=distribution,
-            contribution=contribution
+            return_contribution=contribution
         )
     elif pcloud is not None:
         results = prt_object.calculate_transit_radii(
@@ -586,7 +586,7 @@ def guillot_transmission(prt_object,
             planet_radius=R_pl,
             reference_pressure=0.01,
             opaque_cloud_top_pressure=pcloud,
-            contribution=contribution
+            return_contribution=contribution
         )
     else:
         results = prt_object.calculate_transit_radii(
@@ -596,7 +596,7 @@ def guillot_transmission(prt_object,
             mean_molar_masses=MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            contribution=contribution
+            return_contribution=contribution
         )
 
     if not contribution:
@@ -727,7 +727,7 @@ def guillot_patchy_transmission(prt_object,
         eddy_diffusion_coefficient=kzz,
         clouds_particles_mean_radii=radii,
         distribution=distribution,
-        contribution=contribution
+        return_contribution=contribution
     )
 
     if not contribution:
@@ -750,7 +750,7 @@ def guillot_patchy_transmission(prt_object,
         reference_pressure=0.01,
         cloud_particle_radius_distribution_std=parameters['sigma_lnorm'].value,
         clouds_particles_mean_radii=radii,
-        contribution=contribution
+        return_contribution=contribution
     )
 
     if not contribution:
@@ -886,7 +886,7 @@ def isothermal_transmission(prt_object,
             cloud_f_sed=fseds,
             eddy_diffusion_coefficient=kzz,
             clouds_particles_mean_radii=radii,
-            contribution=contribution
+            return_contribution=contribution
         )
     else:
         results = prt_object.calculate_transit_radii(
@@ -896,7 +896,7 @@ def isothermal_transmission(prt_object,
             mean_molar_masses=MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            contribution=contribution
+            return_contribution=contribution
         )
 
     if not contribution:

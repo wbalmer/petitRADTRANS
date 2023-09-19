@@ -68,7 +68,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        contribution=True
+        return_contribution=True
     )
 
     # Comparison
@@ -269,7 +269,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        contribution=True
+        return_contribution=True
     )
 
     # Comparison
