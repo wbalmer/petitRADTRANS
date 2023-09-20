@@ -6,11 +6,11 @@ import h5py
 import numpy as np
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS.config import petitradtrans_config_parser
 
 
 def __load_stellar_spectra():
-    spec_file = os.path.join(spec_path, "stellar_spectra.h5")
+    spec_file = os.path.join(petitradtrans_config_parser.get_input_data_path(), 'stellar_specs', "stellar_spectra.h5")
 
     if not os.path.isfile(spec_file):
         raise FileNotFoundError(
@@ -35,8 +35,6 @@ def __load_stellar_spectra():
 
     return log_temp_grid, star_rad_grid, spec_dats, wavelength
 
-
-spec_path = os.path.join(petitradtrans_config['Paths']['pRT_input_data_path'], 'stellar_specs')
 
 logTempGrid, StarRadGrid, specDats, wavelength_stellar = __load_stellar_spectra()
 

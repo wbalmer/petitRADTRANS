@@ -1110,7 +1110,7 @@ class SpectralModelLegacy:
         # Check if model already exists
         if os.path.isfile(model.filename) and not rewrite:
             print(f"Model '{model.filename}' already exists, loading from file...")
-            return model.load(model.filename)
+            return model.power_load(model.filename)
         else:
             if os.path.isfile(model.filename) and rewrite:
                 print(f"Rewriting already existing model '{model.filename}'...")
@@ -1593,7 +1593,7 @@ def load_model_grid(models):
             i += 1
             print(f"Loading model {i}/{len(models) * len(models[model])} from '{models[model][species].filename}'...")
 
-            models[model][species] = models[model][species].load(models[model][species].filename)
+            models[model][species] = models[model][species].power_load(models[model][species].filename)
 
     return models
 

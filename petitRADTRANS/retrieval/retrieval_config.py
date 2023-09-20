@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-from petitRADTRANS.config.configuration import petitradtrans_config
+from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from .data import Data
 from .parameter import Parameter
 
@@ -160,7 +160,7 @@ class RetrievalConfig:
         List the currently installed opacity tables that are available for species that contribute to the line opacity.
         """
 
-        prt_path = petitradtrans_config['Paths']['pRT_input_data_path']
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/corr_k/")]
         files = set([f.split('_R_')[0] for f in files])
@@ -184,7 +184,7 @@ class RetrievalConfig:
         List the currently installed opacity tables that are available for cloud species.
         """
 
-        prt_path = petitradtrans_config['Paths']['pRT_input_data_path']
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/clouds/")]
         files = set(files)
@@ -200,7 +200,7 @@ class RetrievalConfig:
         List the currently installed opacity tables that are available for CIA species.
         """
 
-        prt_path = petitradtrans_config['Paths']['pRT_input_data_path']
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/cia/")]
         files = set(files)

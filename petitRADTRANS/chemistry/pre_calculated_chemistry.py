@@ -6,13 +6,11 @@ import os
 import h5py
 import numpy as np
 
-from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
 
-path = petitradtrans_config['Paths']['pRT_input_data_path']
 
-
-def __load_mass_fractions_chemical_table():
+def __load_mass_fractions_chemical_table(path=petitradtrans_config_parser.get_input_data_path()):
     chemical_table_file = f'{path}{os.path.sep}abundance_files{os.path.sep}mass_mixing_ratios.h5'
 
     print(f"Loading chemical equilibrium mass mixing ratio table from file '{chemical_table_file}'...")

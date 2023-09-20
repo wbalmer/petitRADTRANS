@@ -11,7 +11,7 @@ from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 from scipy.stats import binned_statistic
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.config.configuration import petitradtrans_config
+from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
@@ -123,7 +123,7 @@ class Retrieval:
 
         self.prt_plot_style = pRT_plot_style
         # Path to input opacities
-        self.path = petitradtrans_config['Paths']['pRT_input_data_path']
+        self.path = petitradtrans_config_parser.get_input_data_path()
 
         if not self.path.endswith("/"):
             self.path += "/"

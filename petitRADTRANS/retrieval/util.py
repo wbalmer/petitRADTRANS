@@ -306,9 +306,9 @@ def bin_species_exok(species, resolution):
             The desired spectral resolving power.
     """
     from petitRADTRANS.radtrans import Radtrans
-    from petitRADTRANS.config import petitradtrans_config
+    from petitRADTRANS.config import petitradtrans_config_parser
 
-    prt_path = petitradtrans_config['Paths']['prt_input_data_path']
+    prt_path = petitradtrans_config_parser.get_input_data_path()
     atmosphere = Radtrans(
         line_species=species,
         wavelengths_boundaries=[0.1, 251.]

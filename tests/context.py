@@ -17,6 +17,7 @@ import petitRADTRANS.fortran_rebin
 # Python modules
 import petitRADTRANS.ccf
 import petitRADTRANS.ccf.ccf
+import petitRADTRANS.config
 import petitRADTRANS.containers
 import petitRADTRANS.containers.planet
 import petitRADTRANS.containers.spectral_model

@@ -12,13 +12,13 @@ from astropy.table.table import Table
 from astropy.time import Time
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.math import calculate_uncertainty
 
 
 class Planet:
     default_planet_models_directory = os.path.abspath(
-        os.path.join(petitradtrans_config['Paths']['prt_input_data_path'], 'planet_data')
+        os.path.join(petitradtrans_config_parser.get_input_data_path(), 'planet_data')
     )
 
     def __init__(

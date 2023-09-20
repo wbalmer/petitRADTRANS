@@ -8,10 +8,9 @@ import h5py
 import numpy as np
 from scipy.interpolate import interp1d
 
-from petitRADTRANS import phoenix
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS import prt_molmass
-from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
@@ -57,7 +56,7 @@ class Radtrans:
             use_precise_correlated_k_opacities=False,
             anisotropic_cloud_scattering='auto',
             use_detailed_line_absorber_names=True,
-            path_input_data=petitradtrans_config['Paths']['prt_input_data_path']
+            path_input_data=petitradtrans_config_parser.get_input_data_path()
     ):
         r"""Object for calculating spectra using a given set of opacities.
 
@@ -103,6 +102,7 @@ class Radtrans:
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_wavelengths_boundaries(wavelengths_boundaries)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
+        self.__check_path_input_data(path_input_data)
 
         # Initialize properties
         if pressures is None:
@@ -334,6 +334,7 @@ class Radtrans:
     @path_input_data.setter
     def path_input_data(self, path: str):
         warnings.warn(self.__property_setting_warning_message)
+        self.__check_path_input_data(path)
         self._path_input_data = path
 
     @property
@@ -447,6 +448,22 @@ class Radtrans:
                 f">>> from petitRADTRANS.__file_conversion import convert_all\n"
                 f">>> convert_all()\n\n"
                 f"To download the missing file, "
+                f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"
+            )
+
+    @staticmethod
+    def __check_path_input_data(path):
+        if not os.path.isdir(path):
+            raise FileNotFoundError(
+                f"no such directory: '{path}'\n"
+                f"This may be caused by an incorrect input_data path, or a missing basic input_data directory\n\n"
+                f"To set the input_data path, execute: \n"
+                f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
+                f">>> petitradtrans_config_parser.set_input_data_path('path/to/input_data')\n"
+                f"replacing 'path/to/' with the path to the input_data directory (setting "
+                f"pRT_input_data_path by an environment variable is no longer supported, "
+                f"this environment variable can be removed safely from your setup)\n\n"
+                f"To download the basic input_data directory, "
                 f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"
             )
 
@@ -2945,6 +2962,8 @@ class Radtrans:
                     if specified, uses this radius in cm
                     to scale the flux, otherwise it uses PHOENIX radius.
         """
+        from petitRADTRANS import phoenix
+
         if star_radius is not None:
             spec, _ = phoenix.compute_phoenix_spectrum(star_effective_temperature)
             rad = star_radius

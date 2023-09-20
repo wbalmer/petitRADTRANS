@@ -12,7 +12,7 @@ import h5py
 import numpy as np
 
 import petitRADTRANS
-from petitRADTRANS.config import petitradtrans_config
+from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.prt_molmass import get_species_molar_mass
 
 
@@ -24,7 +24,7 @@ def __print_skipping_message(hdf5_opacity_file):
     print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
 
 
-def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
+def chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False):
     from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
     # Read in parameters of chemistry grid
     path = os.path.join(path_input_data, "abundance_files")
@@ -93,7 +93,7 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inp
     print("Successfully converted chemical tables")
 
 
-def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                          rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -272,7 +272,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
     print("Successfully converted CIA opacities")
 
 
-def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                       rewrite=False, output_directory=None):
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
@@ -624,7 +624,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
     print("Successfully converted cloud opacities")
 
 
-def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'],
+def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -1155,7 +1155,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
     print("Successfully converted line opacities")
 
 
-def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
+def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False):
     """
     Convert a PHOENIX stellar spectrum in .dat format to HDF5 format.
     """
@@ -1231,7 +1231,7 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_input
     print("Successfully converted stellar spectra")
 
 
-def convert_all(path_input_data=petitradtrans_config['Paths']['prt_input_data_path'], rewrite=False):
+def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False):
     print("Starting all conversions...")
 
     print("Stellar spectra...")

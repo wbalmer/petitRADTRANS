@@ -27,16 +27,16 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         Returns:
             The configuration directory.
         """
-        print('Generating configuration file...')
+        print(f"Generating configuration file '{cls._config_file}'...")
 
-        config = cls.get_default_config()
+        config = cls.init_default()
+
+        if not os.path.isdir(cls._directory):
+            print(f"Creating directory '{cls._directory}'...")
+            os.makedirs(cls._directory)
 
         with open(cls._config_file, 'w') as configfile:
             config.write(configfile)
-
-    @property
-    def directory(self):
-        return self._config_directory
 
     @property
     def config_file(self):
@@ -48,6 +48,17 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         """
         return self._config_file
 
+    @property
+    def default_config(self):
+        return self._default_config
+
+    @property
+    def directory(self):
+        return self._directory
+
+    def get_input_data_path(self):
+        return self['Paths']['prt_input_data_path']
+
     @classmethod
     def init_default(cls):
         config = cls()
@@ -55,21 +66,29 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         return config
 
-    @classmethod
-    def load(cls):
+    def load(self):
+        """
+        Load the petitRADTRANS configuration file.
+        """
+        self.read(PetitradtransConfigParser._config_file)
+
+    def power_load(self):
         """
         Load the petitRADTRANS configuration file. Generate it if necessary.
-
-        Returns:
-           The petitRADTRANS configuration.
         """
-        if not os.path.isfile(cls._config_file):
-            cls._make()  # TODO find a better, safer way to do generate the configuration file?
+        if not os.path.isfile(PetitradtransConfigParser._config_file):
+            PetitradtransConfigParser._make()  # TODO find a better, safer way to do generate the configuration file?
 
-        config = cls()
-        config.read(cls._config_file)
+        self.read(PetitradtransConfigParser._config_file)
 
-        return config
+    def power_update(self, new_config):
+        self.power_load()
+        self.update(new_config)
+
+        with open(self._config_file, 'w') as configfile:
+            self.write(configfile)
+
+        print("Configuration updated")
 
     def set_input_data_path(self, path: str):
         """
@@ -83,14 +102,14 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         if path_tail != 'input_data':
             path = os.path.join(path, 'input_data')
 
-        config = self.load()
-        config.set('Paths', 'pRT_input_data_path', os.path.abspath(path))
+        self.load()
+        self.set('Paths', 'pRT_input_data_path', os.path.abspath(path))
 
-        with open(self._config_file, 'w') as configfile:
-            config.write(configfile)
+        with open(PetitradtransConfigParser._config_file, 'w') as configfile:
+            self.write(configfile)
 
-        print(f"Input data path updated ('{path}'), restart environment for the change to take effect")
+        print(f"Input data path changed to '{path}'")
 
 
 petitradtrans_config_parser = PetitradtransConfigParser()
-petitradtrans_config = petitradtrans_config_parser.load()
+petitradtrans_config_parser.power_load()
