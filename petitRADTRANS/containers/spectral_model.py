@@ -2762,7 +2762,7 @@ class SpectralModel(BaseSpectralModel):
                 surface_gravity=planet_surface_gravity,
                 intrinsic_temperature=intrinsic_temperature,
                 equilibrium_temperature=temperature,
-                kappa_ir_z0=guillot_temperature_profile_kappa_ir_z0,
+                infrared_mean_opacity_solar_matallicity=guillot_temperature_profile_kappa_ir_z0,
                 metallicity=metallicity
             )
         else:

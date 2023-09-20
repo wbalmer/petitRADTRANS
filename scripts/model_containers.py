@@ -649,12 +649,12 @@ class SpectralModelLegacy:
             kappa_ir = kappa_ir_z0
 
         temperatures = temperature_profile_function_guillot_global(
-            pressure=pressures,
-            kappa_ir=kappa_ir,
+            pressures=pressures,
+            infrared_mean_opacity=kappa_ir,
             gamma=gamma,
-            grav=surface_gravity,
-            t_int=intrinsic_temperature,
-            t_equ=equilibrium_temperature
+            gravities=surface_gravity,
+            intrinsic_temperature=intrinsic_temperature,
+            equilibrium_temperature=equilibrium_temperature
         )
 
         return temperatures

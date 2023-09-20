@@ -251,12 +251,12 @@ def init_model(planet, w_bords, line_species_str, p0=1e-2):
 
     pressures = np.logspace(-6, 2, 100)
     temperature = temperature_profile_function_guillot_global(
-        pressure=pressures,
-        kappa_ir=0.01,
+        pressures=pressures,
+        infrared_mean_opacity=0.01,
         gamma=0.4,
-        grav=planet.surface_gravity,
-        t_int=200,
-        t_equ=planet.equilibrium_temperature
+        gravities=planet.surface_gravity,
+        intrinsic_temperature=200,
+        equilibrium_temperature=planet.equilibrium_temperature
     )
     gravity = planet.surface_gravity
     radius = planet.radius
@@ -1005,12 +1005,12 @@ def init_retrieval_model(prt_object, parameters):
     # Make the P-T profile
     pressures = prt_object.pressures * 1e-6  # bar to cgs
     temperatures = temperature_profile_function_guillot_global(
-        pressure=pressures,
-        kappa_ir=0.01,
+        pressures=pressures,
+        infrared_mean_opacity=0.01,
         gamma=0.4,
-        grav=10 ** parameters['log_g'].value,
-        t_int=200,
-        t_equ=parameters['Temperature'].value
+        gravities=10 ** parameters['log_g'].value,
+        intrinsic_temperature=200,
+        equilibrium_temperature=parameters['Temperature'].value
     )
 
     # Make the abundance profiles

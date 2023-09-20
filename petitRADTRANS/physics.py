@@ -33,7 +33,131 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return dist
 
 
-def temperature_profile_function_guillot(pressure, infrared_mean_opacity, gamma, gravity, intrinsic_temperature,
+def doppler_shift(wavelength_0, velocity):
+    """Calculate the Doppler-shifted wavelength for electromagnetic waves.
+
+    A negative velocity means that the source is going toward the observer. A positive velocity means the source is
+    going away from the observer.
+
+    Args:
+        wavelength_0: (cm) wavelength of the wave in the referential of the source
+        velocity: (cm.s-1) velocity of the source relative to the observer
+
+    Returns:
+        (cm) the wavelength of the source as measured by the observer
+    """
+    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
+
+
+def flux_cm2flux_hz(flux_cm, wavelength):
+    """
+    Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
+    Flux units can be, e.g., erg.s-1.cm-2.
+
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
+        flux_hz = flux_cm * d[cm]/d[Hz]
+        => flux_hz = flux_cm * wavelength**2 / c
+
+    Args:
+        flux_cm: ([flux units]/cm)
+        wavelength: (cm)
+
+    Returns:
+        ([flux units]/Hz) the radiosity in converted units
+    """
+    return flux_cm * wavelength ** 2 / cst.c
+
+
+def flux_hz2flux_cm(flux_hz, frequency):
+    """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
+    Flux units can be, e.g., erg.s-1.cm-2.
+
+    Steps:
+        [cm] = c[cm.s-1] / [Hz]
+        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
+        => d[cm]/d[Hz] = c / [Hz]**2
+        => d[Hz]/d[cm] = [Hz]**2 / c
+        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
+        flux_cm = flux_hz * d[Hz]/d[cm]
+        => flux_cm = flux_hz * frequency**2 / c
+
+    Args:
+        flux_hz: (erg.s-1.cm-2.sr-1/Hz)
+        frequency: (Hz)
+
+    Returns:
+        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+    """
+    return flux_hz * frequency ** 2 / cst.c
+
+
+def flux2irradiance(flux, source_radius, target_distance):
+    """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
+
+    Args:
+        flux: (M.L-1.T-3) flux of the source
+        source_radius: (L) radius of the spherical source
+        target_distance: (L) distance from the source to the target
+
+    Returns:
+        The irradiance of the source on the target (M.L-1.T-3).
+    """
+    return flux * (source_radius / target_distance) ** 2
+
+
+def hz2um(frequency):
+    """Convert frequencies into wavelengths
+
+    Args:
+        frequency: (Hz) the frequency to convert
+
+    Returns:
+        (um) the corresponding wavelengths
+    """
+    return cst.c / frequency * 1e4  # cm to um
+
+
+def planck_function(temperature, nu):
+    """Returns the Planck function :math:`B_{\\nu}(T)` in units of
+    :math:`\\rm erg/s/cm^2/Hz/steradian`.
+
+    Args:
+        temperature (float):
+            Temperature in K.
+        nu:
+            Array containing the frequency in Hz.
+    """
+
+    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
+
+    return _planck_function
+
+
+def planck_function_temperature_derivative(temperature, nu):
+    """Returns the derivative of the Planck function with respect to the temperature in units of
+    :math:`\\rm erg/s/cm^2/Hz/steradian`.
+    # TODO unused?
+
+    Args:
+        temperature:
+            Temperature in K.
+        nu:
+            Array containing the frequency in Hz.
+    Returns:
+
+    """
+    _planck_function = planck_function(temperature, nu)
+    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
+    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
+
+    return _planck_function
+
+
+def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma, gravities, intrinsic_temperature,
                                          equilibrium_temperature, redistribution_coefficient=0.25):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
@@ -43,13 +167,13 @@ def temperature_profile_function_guillot(pressure, infrared_mean_opacity, gamma,
     Source: https://doi.org/10.1051/0004-6361/200913396
 
     Args:
-        pressure:
+        pressures:
             numpy array of floats, containing the input pressure in bars.
         infrared_mean_opacity:
             The infrared mean opacity in units of :math:`\\rm cm^2/s`.
         gamma:
             The ratio between the visual and infrared mean opacities.
-        gravity:
+        gravities:
             The planetary gravity at the given pressures in units of :math:`\\rm cm/s^2`.
         intrinsic_temperature:
             The planetary intrinsic temperature (in units of K).
@@ -60,7 +184,7 @@ def temperature_profile_function_guillot(pressure, infrared_mean_opacity, gamma,
             the day-side average and 1/4 for the global average.
     """
     # Estimate tau from eq. 24: m is the column mass, dm = rho * dz, dP / dz = -g * rho, so m = P / g
-    tau = infrared_mean_opacity * pressure * 1e6 / gravity
+    tau = infrared_mean_opacity * pressures * 1e6 / gravities
     t_irr = equilibrium_temperature * 2.0 ** 0.5  # from eqs. 1 and 2
 
     temperature = (
@@ -76,78 +200,81 @@ def temperature_profile_function_guillot(pressure, infrared_mean_opacity, gamma,
     return temperature
 
 
-def temperature_profile_function_guillot_dayside(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def temperature_profile_function_guillot_dayside(pressures, infrared_mean_opacity, gamma, gravities,
+                                                 intrinsic_temperature, equilibrium_temperature):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
     is used (his Equation 29), in the case of averaging the flux over the day side of the planet.
 
     Args:
-        pressure:
+        pressures:
             numpy array of floats, containing the input pressure in bars.
-        kappa_ir (float):
+        infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
             The ratio between the visual and infrated opacity.
-        grav (float):
+        gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-        t_int (float):
+        intrinsic_temperature (float):
             The planetary internal temperature (in units of K).
-        t_equ (float):
+        equilibrium_temperature (float):
             The planetary equilibrium temperature (in units of K).
     """
     return temperature_profile_function_guillot(
-        pressure=pressure,
-        infrared_mean_opacity=kappa_ir,
+        pressures=pressures,
+        infrared_mean_opacity=infrared_mean_opacity,
         gamma=gamma,
-        gravity=grav,
-        intrinsic_temperature=t_int,
-        equilibrium_temperature=t_equ,
+        gravities=gravities,
+        intrinsic_temperature=intrinsic_temperature,
+        equilibrium_temperature=equilibrium_temperature,
         redistribution_coefficient=0.5
     )
 
 
-def temperature_profile_function_guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def temperature_profile_function_guillot_global(pressures, infrared_mean_opacity, gamma, gravities,
+                                                intrinsic_temperature, equilibrium_temperature):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
     is used (his Equation 29), in the case of averaging the flux over the whole planetary surface.
 
     Args:
-        pressure:
+        pressures:
             numpy array of floats, containing the input pressure in bars.
-        kappa_ir (float):
+        infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
             The ratio between the visual and infrated opacity.
-        grav (float):
+        gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
-        t_int (float):
+        intrinsic_temperature (float):
             The planetary internal temperature (in units of K).
-        t_equ (float):
+        equilibrium_temperature (float):
             The planetary equilibrium temperature (in units of K).
     """
     return temperature_profile_function_guillot(
-        pressure=pressure,
-        infrared_mean_opacity=kappa_ir,
+        pressures=pressures,
+        infrared_mean_opacity=infrared_mean_opacity,
         gamma=gamma,
-        gravity=grav,
-        intrinsic_temperature=t_int,
-        equilibrium_temperature=t_equ,
+        gravities=gravities,
+        intrinsic_temperature=intrinsic_temperature,
+        equilibrium_temperature=equilibrium_temperature,
         redistribution_coefficient=0.25
     )
 
 
-def temperature_profile_function_guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
+def temperature_profile_function_guillot_global_ret(pressures, delta, gamma,
+                                                    intrinsic_temperature, equilibrium_temperature):
     """Global Guillot P-T formula with kappa/gravity replaced by delta."""
     # TODO what is delta?
     delta = np.abs(delta)
     gamma = np.abs(gamma)
-    t_int = np.abs(t_int)
-    t_equ = np.abs(t_equ)
-    tau = pressure * 1e6 * delta
-    t_irr = t_equ * np.sqrt(2.)
-    temperature = (0.75 * t_int ** 4. * (2. / 3. + tau)
+    intrinsic_temperature = np.abs(intrinsic_temperature)
+    equilibrium_temperature = np.abs(equilibrium_temperature)
+    tau = pressures * 1e6 * delta
+    t_irr = equilibrium_temperature * np.sqrt(2.)
+    temperature = (0.75 * intrinsic_temperature ** 4. * (2. / 3. + tau)
                    + 0.75 * t_irr ** 4. / 4.
                    * (2. / 3. + 1. / gamma / 3. ** 0.5
                       + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma)
@@ -156,8 +283,8 @@ def temperature_profile_function_guillot_global_ret(pressure, delta, gamma, t_in
 
 
 def temperature_profile_function_guillot_metallic(pressures, gamma, surface_gravity,
-                                                  intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
-                                                  metallicity=None):
+                                                  intrinsic_temperature, equilibrium_temperature,
+                                                  infrared_mean_opacity_solar_matallicity, metallicity=None):
     """Get a Guillot temperature profile depending on metallicity.
 
     Args:
@@ -166,38 +293,40 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, surface_grav
         surface_gravity: (cm.s-2) surface gravity
         intrinsic_temperature: (K) intrinsic temperature
         equilibrium_temperature: (K) equilibrium temperature
-        kappa_ir_z0: (cm2.s-1) infrared opacity
+        infrared_mean_opacity_solar_matallicity:
+            (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere
         metallicity: ratio of heavy elements abundance over H abundance with respect to the solar ratio
 
     Returns:
         temperatures: (K) the temperature at each pressures of the atmosphere
     """
     if metallicity is not None:
-        kappa_ir = kappa_ir_z0 * metallicity
+        kappa_ir = infrared_mean_opacity_solar_matallicity * metallicity
     else:
-        kappa_ir = kappa_ir_z0
+        kappa_ir = infrared_mean_opacity_solar_matallicity
 
     temperatures = temperature_profile_function_guillot_global(
-        pressure=pressures,
-        kappa_ir=kappa_ir,
+        pressures=pressures,
+        infrared_mean_opacity=kappa_ir,
         gamma=gamma,
-        grav=surface_gravity,
-        t_int=intrinsic_temperature,
-        t_equ=equilibrium_temperature
+        gravities=surface_gravity,
+        intrinsic_temperature=intrinsic_temperature,
+        equilibrium_temperature=equilibrium_temperature
     )
 
     return temperatures
 
 
-def temperature_profile_function_guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
+def temperature_profile_function_guillot_modif(pressures, delta, gamma,
+                                               intrinsic_temperature, equilibrium_temperature, ptrans, alpha):
     """Modified Guillot P-T formula"""
     # TODO how is it modified? Why for?
     return temperature_profile_function_guillot_global_ret(
-        pressure,
+        pressures,
         np.abs(delta),
         np.abs(gamma),
-        np.abs(t_int), np.abs(t_equ)
-    ) * (1. - alpha * (1. / (1. + pressure / ptrans)))
+        np.abs(intrinsic_temperature), np.abs(equilibrium_temperature)
+    ) * (1. - alpha * (1. / (1. + pressures / ptrans)))
 
 
 def temperature_profile_function_isothermal(pressures, temperature):
@@ -389,127 +518,3 @@ def temperature_profile_function_ret_model(rad_trans_params):
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
-
-
-def doppler_shift(wavelength_0, velocity):
-    """Calculate the Doppler-shifted wavelength for electromagnetic waves.
-
-    A negative velocity means that the source is going toward the observer. A positive velocity means the source is
-    going away from the observer.
-
-    Args:
-        wavelength_0: (cm) wavelength of the wave in the referential of the source
-        velocity: (cm.s-1) velocity of the source relative to the observer
-
-    Returns:
-        (cm) the wavelength of the source as measured by the observer
-    """
-    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
-
-
-def flux_cm2flux_hz(flux_cm, wavelength):
-    """
-    Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
-    Flux units can be, e.g., erg.s-1.cm-2.
-
-    Steps:
-        [cm] = c[cm.s-1] / [Hz]
-        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
-        => d[cm]/d[Hz] = c / [Hz]**2
-        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
-        flux_hz = flux_cm * d[cm]/d[Hz]
-        => flux_hz = flux_cm * wavelength**2 / c
-
-    Args:
-        flux_cm: ([flux units]/cm)
-        wavelength: (cm)
-
-    Returns:
-        ([flux units]/Hz) the radiosity in converted units
-    """
-    return flux_cm * wavelength ** 2 / cst.c
-
-
-def flux_hz2flux_cm(flux_hz, frequency):
-    """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
-    Flux units can be, e.g., erg.s-1.cm-2.
-
-    Steps:
-        [cm] = c[cm.s-1] / [Hz]
-        => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
-        => d[cm]/d[Hz] = c / [Hz]**2
-        => d[Hz]/d[cm] = [Hz]**2 / c
-        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
-        flux_cm = flux_hz * d[Hz]/d[cm]
-        => flux_cm = flux_hz * frequency**2 / c
-
-    Args:
-        flux_hz: (erg.s-1.cm-2.sr-1/Hz)
-        frequency: (Hz)
-
-    Returns:
-        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
-    """
-    return flux_hz * frequency ** 2 / cst.c
-
-
-def flux2irradiance(flux, source_radius, target_distance):
-    """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
-
-    Args:
-        flux: (M.L-1.T-3) flux of the source
-        source_radius: (L) radius of the spherical source
-        target_distance: (L) distance from the source to the target
-
-    Returns:
-        The irradiance of the source on the target (M.L-1.T-3).
-    """
-    return flux * (source_radius / target_distance) ** 2
-
-
-def hz2um(frequency):
-    """Convert frequencies into wavelengths
-
-    Args:
-        frequency: (Hz) the frequency to convert
-
-    Returns:
-        (um) the corresponding wavelengths
-    """
-    return cst.c / frequency * 1e4  # cm to um
-
-
-def planck_function(temperature, nu):
-    """Returns the Planck function :math:`B_{\\nu}(T)` in units of
-    :math:`\\rm erg/s/cm^2/Hz/steradian`.
-
-    Args:
-        temperature (float):
-            Temperature in K.
-        nu:
-            Array containing the frequency in Hz.
-    """
-
-    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
-
-    return _planck_function
-
-
-def planck_function_temperature_derivative(temperature, nu):
-    """Returns the derivative of the Planck function with respect to the temperature in units of
-    :math:`\\rm erg/s/cm^2/Hz/steradian`.
-    # TODO unused?
-
-    Args:
-        temperature:
-            Temperature in K.
-        nu:
-            Array containing the frequency in Hz.
-    Returns:
-
-    """
-    _planck_function = planck_function(temperature, nu)
-    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
-    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
-
-    return _planck_function

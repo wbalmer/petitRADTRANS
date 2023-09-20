@@ -317,12 +317,12 @@ def compare_from_reference_file(reference_file, comparison_dict, relative_tolera
 # Initializations
 def init_guillot_2010_temperature_profile():
     temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
-        pressure=radtrans_parameters['pressures'],
-        kappa_ir=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
+        pressures=radtrans_parameters['pressures'],
+        infrared_mean_opacity=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
-        grav=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        t_int=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
-        t_equ=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
+        gravities=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        intrinsic_temperature=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
+        equilibrium_temperature=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
     )
 
     return temperature_guillot
