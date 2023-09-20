@@ -13,7 +13,7 @@ import numpy as np
 
 import petitRADTRANS
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.prt_molmass import getMM
+from petitRADTRANS.prt_molmass import get_species_molar_mass
 
 
 def __print_missing_data_file_message(object, object_name, directory):
@@ -184,7 +184,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
         weight = 1
 
         for species in colliding_species:
-            weight = weight * getMM(species)
+            weight = weight * get_species_molar_mass(species)
 
         cia_dict = {
             'id': key,
@@ -242,7 +242,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config['Paths']['prt_inpu
 
             dataset = fh5.create_dataset(
                 name='mol_mass',
-                data=np.array([getMM(species) for species in cia_dict['molecules']])
+                data=np.array([get_species_molar_mass(species) for species in cia_dict['molecules']])
             )
             dataset.attrs['long_name'] = 'Masses of the colliding species'
             dataset.attrs['units'] = 'AMU'
@@ -368,34 +368,38 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config['Path
         description_dict[key] = particle_mode_description
 
     molmass_dict = {
-        'Al2O3(c)_cm': getMM('Al2O3'),
-        'Al2O3(c)_cd': getMM('Al2O3'),
-        'Fe(c)_am': getMM('Fe'),
-        'Fe(c)_ad': getMM('Fe'),
-        'Fe(c)_cm': getMM('Fe'),
-        'Fe(c)_cd': getMM('Fe'),
-        'H2O(c)_cm': getMM('H2O'),
-        'H2O(c)_cd': getMM('H2O'),
-        'KCL(c)_cm': getMM('H2O'),
-        'KCL(c)_cd': getMM('H2O'),
-        'Mg05Fe05SiO3(c)_am': 0.5 * getMM('Mg') + 0.5 * getMM('Fe') + getMM('SiO3'),
-        'Mg05Fe05SiO3(c)_ad': 0.5 * getMM('Mg') + 0.5 * getMM('Fe') + getMM('SiO3'),
-        'Mg2SiO4(c)_am': getMM('Mg2SiO4'),
-        'Mg2SiO4(c)_ad': getMM('Mg2SiO4'),
-        'Mg2SiO4(c)_cm': getMM('Mg2SiO4'),
-        'Mg2SiO4(c)_cd': getMM('Mg2SiO4'),
-        'MgAl2O4(c)_cm': getMM('MgAl2O4'),
-        'MgAl2O4(c)_cd': getMM('MgAl2O4'),
-        'MgFeSiO4(c)_am': getMM('MgFeSiO4'),
-        'MgFeSiO4(c)_ad': getMM('MgFeSiO4'),
-        'MgSiO3(c)_am': getMM('MgSiO3'),
-        'MgSiO3(c)_ad': getMM('MgSiO3'),
-        'MgSiO3(c)_cm': getMM('MgSiO3'),
-        'MgSiO3(c)_cd': getMM('MgSiO3'),
-        'Na2S(c)_cm': getMM('Na2S'),
-        'Na2S(c)_cd': getMM('Na2S'),
-        'SiC(c)_cm': getMM('SiC'),
-        'SiC(c)_cd': getMM('SiC')
+        'Al2O3(c)_cm': get_species_molar_mass('Al2O3'),
+        'Al2O3(c)_cd': get_species_molar_mass('Al2O3'),
+        'Fe(c)_am': get_species_molar_mass('Fe'),
+        'Fe(c)_ad': get_species_molar_mass('Fe'),
+        'Fe(c)_cm': get_species_molar_mass('Fe'),
+        'Fe(c)_cd': get_species_molar_mass('Fe'),
+        'H2O(c)_cm': get_species_molar_mass('H2O'),
+        'H2O(c)_cd': get_species_molar_mass('H2O'),
+        'KCL(c)_cm': get_species_molar_mass('H2O'),
+        'KCL(c)_cd': get_species_molar_mass('H2O'),
+        'Mg05Fe05SiO3(c)_am': (
+            0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
+        ),
+        'Mg05Fe05SiO3(c)_ad': (
+            0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
+        ),
+        'Mg2SiO4(c)_am': get_species_molar_mass('Mg2SiO4'),
+        'Mg2SiO4(c)_ad': get_species_molar_mass('Mg2SiO4'),
+        'Mg2SiO4(c)_cm': get_species_molar_mass('Mg2SiO4'),
+        'Mg2SiO4(c)_cd': get_species_molar_mass('Mg2SiO4'),
+        'MgAl2O4(c)_cm': get_species_molar_mass('MgAl2O4'),
+        'MgAl2O4(c)_cd': get_species_molar_mass('MgAl2O4'),
+        'MgFeSiO4(c)_am': get_species_molar_mass('MgFeSiO4'),
+        'MgFeSiO4(c)_ad': get_species_molar_mass('MgFeSiO4'),
+        'MgSiO3(c)_am': get_species_molar_mass('MgSiO3'),
+        'MgSiO3(c)_ad': get_species_molar_mass('MgSiO3'),
+        'MgSiO3(c)_cm': get_species_molar_mass('MgSiO3'),
+        'MgSiO3(c)_cd': get_species_molar_mass('MgSiO3'),
+        'Na2S(c)_cm': get_species_molar_mass('Na2S'),
+        'Na2S(c)_cd': get_species_molar_mass('Na2S'),
+        'SiC(c)_cm': get_species_molar_mass('SiC'),
+        'SiC(c)_cd': get_species_molar_mass('SiC')
     }
 
     # Get only existing directories
@@ -849,74 +853,74 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
         'Y': kurucz_description
     }
     molmass_dict = {
-        'Al': getMM('Al'),
-        'B': getMM('B'),
-        'Be': getMM('Be'),
-        'C2H2_main_iso': getMM('C2H2'),
-        'Ca': getMM('Ca'),
-        'Ca+': getMM('Ca') - getMM('e-'),
-        'CaH': getMM('CaH'),
-        'CH4_212': getMM('CH3D'),
-        'CH4_hargreaves_main_iso': getMM('CH4'),
-        'CH4_Hargreaves_main_iso': getMM('CH4'),
-        'CH4_main_iso': getMM('CH4'),
-        'CO2_main_iso': getMM('CO2'),
-        'CO_27': getMM('12C') + getMM('17O'),
-        'CO_28': getMM('12C') + getMM('18O'),
-        'CO_36': getMM('13C') + getMM('16O'),
-        'CO_37': getMM('13C') + getMM('17O'),
-        'CO_38': getMM('13C') + getMM('18O'),
-        'CO_all_iso': getMM('CO_all_iso'),
-        'CO_main_iso': getMM('CO'),
-        'Cr': getMM('Cr'),
-        'Fe': getMM('Fe'),
-        'Fe+': getMM('Fe') - getMM('e-'),
-        'FeH_main_iso': getMM('FeH'),
-        'H2_12': getMM('HD'),
-        'H2_main_iso': getMM('H2'),
-        'H2O_162': getMM('1H') + getMM('16O') + getMM('2H'),
-        'H2O_171': getMM('1H') + getMM('17O') + getMM('1H'),
-        'H2O_172': getMM('1H') + getMM('17O') + getMM('2H'),
-        'H2O_181': getMM('1H') + getMM('18O') + getMM('1H'),
-        'H2O_182': getMM('1H') + getMM('18O') + getMM('2H'),
-        'H2O_main_iso': getMM('1H') + getMM('16O') + getMM('2H'),
-        'H2O_pokazatel_main_iso': getMM('H2O'),
-        'H2S_main_iso': getMM('H2S'),
-        'HCN_main_iso': getMM('HCN'),
-        'K': getMM('K'),
-        'K_allard_cold': getMM('K'),
-        'Li': getMM('Li'),
-        'Mg': getMM('Mg'),
-        'Mg+': getMM('Mg') - getMM('e-'),
-        'N': getMM('N'),
-        'Na_allard': getMM('Na'),
-        'Na_allard_new': getMM('Na'),
-        'NH3_main_iso': getMM('NH3'),
-        'O3_main_iso': getMM('O3'),
-        'OH_main_iso': getMM('OH'),
-        'PH3_main_iso': getMM('PH3'),
-        'Si': getMM('Si'),
-        'SiO_main_iso': getMM('SiO'),
-        'SiO_main_iso_new_incl_UV': getMM('SiO'),
-        'Ti': getMM('Ti'),
-        'TiO_46_Exomol_McKemmish': getMM('46Ti') + getMM('16O'),
-        'TiO_46_Plez': getMM('46Ti') + getMM('16O'),
-        'TiO_47_Exomol_McKemmish': getMM('47Ti') + getMM('16O'),
-        'TiO_47_Plez': getMM('47Ti') + getMM('16O'),
-        'TiO_48_Exomol_McKemmish': getMM('48Ti') + getMM('16O'),
-        'TiO_48_Plez': getMM('48Ti') + getMM('16O'),
-        'TiO_49_Exomol_McKemmish': getMM('49Ti') + getMM('16O'),
-        'TiO_49_Plez': getMM('49Ti') + getMM('16O'),
-        'TiO_50_Exomol_McKemmish': getMM('50Ti') + getMM('16O'),
-        'TiO_50_Plez': getMM('50Ti') + getMM('16O'),
-        'TiO_all_iso_Plez': getMM('TiO_all_iso'),
-        'TiO_all_iso_exo': getMM('TiO_all_iso'),
-        'V': getMM('V'),
-        'V+': getMM('V') - getMM('e-'),
-        'VO': getMM('VO'),
-        'VO_ExoMol_McKemmish': getMM('VO'),
-        'VO_ExoMol_Specific_Transitions': getMM('VO'),
-        'Y': getMM('Y')
+        'Al': get_species_molar_mass('Al'),
+        'B': get_species_molar_mass('B'),
+        'Be': get_species_molar_mass('Be'),
+        'C2H2_main_iso': get_species_molar_mass('C2H2'),
+        'Ca': get_species_molar_mass('Ca'),
+        'Ca+': get_species_molar_mass('Ca') - get_species_molar_mass('e-'),
+        'CaH': get_species_molar_mass('CaH'),
+        'CH4_212': get_species_molar_mass('CH3D'),
+        'CH4_hargreaves_main_iso': get_species_molar_mass('CH4'),
+        'CH4_Hargreaves_main_iso': get_species_molar_mass('CH4'),
+        'CH4_main_iso': get_species_molar_mass('CH4'),
+        'CO2_main_iso': get_species_molar_mass('CO2'),
+        'CO_27': get_species_molar_mass('12C') + get_species_molar_mass('17O'),
+        'CO_28': get_species_molar_mass('12C') + get_species_molar_mass('18O'),
+        'CO_36': get_species_molar_mass('13C') + get_species_molar_mass('16O'),
+        'CO_37': get_species_molar_mass('13C') + get_species_molar_mass('17O'),
+        'CO_38': get_species_molar_mass('13C') + get_species_molar_mass('18O'),
+        'CO_all_iso': get_species_molar_mass('CO_all_iso'),
+        'CO_main_iso': get_species_molar_mass('CO'),
+        'Cr': get_species_molar_mass('Cr'),
+        'Fe': get_species_molar_mass('Fe'),
+        'Fe+': get_species_molar_mass('Fe') - get_species_molar_mass('e-'),
+        'FeH_main_iso': get_species_molar_mass('FeH'),
+        'H2_12': get_species_molar_mass('HD'),
+        'H2_main_iso': get_species_molar_mass('H2'),
+        'H2O_162': get_species_molar_mass('1H') + get_species_molar_mass('16O') + get_species_molar_mass('2H'),
+        'H2O_171': get_species_molar_mass('1H') + get_species_molar_mass('17O') + get_species_molar_mass('1H'),
+        'H2O_172': get_species_molar_mass('1H') + get_species_molar_mass('17O') + get_species_molar_mass('2H'),
+        'H2O_181': get_species_molar_mass('1H') + get_species_molar_mass('18O') + get_species_molar_mass('1H'),
+        'H2O_182': get_species_molar_mass('1H') + get_species_molar_mass('18O') + get_species_molar_mass('2H'),
+        'H2O_main_iso': get_species_molar_mass('1H') + get_species_molar_mass('16O') + get_species_molar_mass('2H'),
+        'H2O_pokazatel_main_iso': get_species_molar_mass('H2O'),
+        'H2S_main_iso': get_species_molar_mass('H2S'),
+        'HCN_main_iso': get_species_molar_mass('HCN'),
+        'K': get_species_molar_mass('K'),
+        'K_allard_cold': get_species_molar_mass('K'),
+        'Li': get_species_molar_mass('Li'),
+        'Mg': get_species_molar_mass('Mg'),
+        'Mg+': get_species_molar_mass('Mg') - get_species_molar_mass('e-'),
+        'N': get_species_molar_mass('N'),
+        'Na_allard': get_species_molar_mass('Na'),
+        'Na_allard_new': get_species_molar_mass('Na'),
+        'NH3_main_iso': get_species_molar_mass('NH3'),
+        'O3_main_iso': get_species_molar_mass('O3'),
+        'OH_main_iso': get_species_molar_mass('OH'),
+        'PH3_main_iso': get_species_molar_mass('PH3'),
+        'Si': get_species_molar_mass('Si'),
+        'SiO_main_iso': get_species_molar_mass('SiO'),
+        'SiO_main_iso_new_incl_UV': get_species_molar_mass('SiO'),
+        'Ti': get_species_molar_mass('Ti'),
+        'TiO_46_Exomol_McKemmish': get_species_molar_mass('46Ti') + get_species_molar_mass('16O'),
+        'TiO_46_Plez': get_species_molar_mass('46Ti') + get_species_molar_mass('16O'),
+        'TiO_47_Exomol_McKemmish': get_species_molar_mass('47Ti') + get_species_molar_mass('16O'),
+        'TiO_47_Plez': get_species_molar_mass('47Ti') + get_species_molar_mass('16O'),
+        'TiO_48_Exomol_McKemmish': get_species_molar_mass('48Ti') + get_species_molar_mass('16O'),
+        'TiO_48_Plez': get_species_molar_mass('48Ti') + get_species_molar_mass('16O'),
+        'TiO_49_Exomol_McKemmish': get_species_molar_mass('49Ti') + get_species_molar_mass('16O'),
+        'TiO_49_Plez': get_species_molar_mass('49Ti') + get_species_molar_mass('16O'),
+        'TiO_50_Exomol_McKemmish': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
+        'TiO_50_Plez': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
+        'TiO_all_iso_Plez': get_species_molar_mass('TiO_all_iso'),
+        'TiO_all_iso_exo': get_species_molar_mass('TiO_all_iso'),
+        'V': get_species_molar_mass('V'),
+        'V+': get_species_molar_mass('V') - get_species_molar_mass('e-'),
+        'VO': get_species_molar_mass('VO'),
+        'VO_ExoMol_McKemmish': get_species_molar_mass('VO'),
+        'VO_ExoMol_Specific_Transitions': get_species_molar_mass('VO'),
+        'Y': get_species_molar_mass('Y')
     }
 
     # Loading
@@ -1055,7 +1059,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config['Paths'][
 
             print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))
-            opacities = np.moveaxis(opacities, 0, 1)  # Exo-Mol axis order (pressures, temperatures, wavenumbers)
+            # Exo-Mol axis order (pressures, temperatures, wavenumbers)
+            opacities = np.moveaxis(opacities, 0, 1)
             opacities = opacities[:, :, ::-1]  # match the wavenumber order
 
             print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
