@@ -5,60 +5,9 @@ import numpy as np
 import petitRADTRANS.physical_constants as cst
 
 
-def planck_function(temperature, nu):
-    """Returns the Planck function :math:`B_{\\nu}(T)` in units of
-    :math:`\\rm erg/s/cm^2/Hz/steradian`.
-
-    Args:
-        temperature (float):
-            Temperature in K.
-        nu:
-            Array containing the frequency in Hz.
-    """
-
-    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
-
-    return _planck_function
-
-
-def planck_function_temperature_derivative(temperature, nu):
-    """Returns the derivative of the Planck function with respect to the temperature in units of
-    :math:`\\rm erg/s/cm^2/Hz/steradian`.
-    # TODO unused?
-
-    Args:
-        temperature:
-            Temperature in K.
-        nu:
-            Array containing the frequency in Hz.
-    Returns:
-
-    """
-    _planck_function = planck_function(temperature, nu)
-    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
-    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
-
-    return _planck_function
-
-
-def doppler_shift(wavelength_0, velocity):
-    """Calculate the Doppler-shifted wavelength for electromagnetic waves.
-
-    A negative velocity means that the source is going toward the observer. A positive velocity means the source is
-    going away from the observer.
-
-    Args:
-        wavelength_0: (cm) wavelength of the wave in the referential of the source
-        velocity: (cm.s-1) velocity of the source relative to the observer
-
-    Returns:
-        (cm) the wavelength of the source as measured by the observer
-    """
-    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
-
-
-def get_dist(t_irr, dist, t_star, r_star, mode, mode_what):
+def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
     # TODO rework/replace this function
+    # TODO find better name
     mu_star = 0.
     angle_use = False
 
@@ -442,6 +391,22 @@ def compute_temperature_profile_ret_model(rad_trans_params):
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 
+def doppler_shift(wavelength_0, velocity):
+    """Calculate the Doppler-shifted wavelength for electromagnetic waves.
+
+    A negative velocity means that the source is going toward the observer. A positive velocity means the source is
+    going away from the observer.
+
+    Args:
+        wavelength_0: (cm) wavelength of the wave in the referential of the source
+        velocity: (cm.s-1) velocity of the source relative to the observer
+
+    Returns:
+        (cm) the wavelength of the source as measured by the observer
+    """
+    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
+
+
 def flux_cm2flux_hz(flux_cm, wavelength):
     """
     Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
@@ -512,3 +477,39 @@ def hz2um(frequency):
         (um) the corresponding wavelengths
     """
     return cst.c / frequency * 1e4  # cm to um
+
+
+def planck_function(temperature, nu):
+    """Returns the Planck function :math:`B_{\\nu}(T)` in units of
+    :math:`\\rm erg/s/cm^2/Hz/steradian`.
+
+    Args:
+        temperature (float):
+            Temperature in K.
+        nu:
+            Array containing the frequency in Hz.
+    """
+
+    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
+
+    return _planck_function
+
+
+def planck_function_temperature_derivative(temperature, nu):
+    """Returns the derivative of the Planck function with respect to the temperature in units of
+    :math:`\\rm erg/s/cm^2/Hz/steradian`.
+    # TODO unused?
+
+    Args:
+        temperature:
+            Temperature in K.
+        nu:
+            Array containing the frequency in Hz.
+    Returns:
+
+    """
+    _planck_function = planck_function(temperature, nu)
+    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
+    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
+
+    return _planck_function
