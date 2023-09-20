@@ -205,7 +205,7 @@ def contour_corner(sampledict,
     if prt_plot_style:
         import matplotlib as mpl
 
-        mpl.rcParams.power_update(mpl.rcParamsDefault)
+        mpl.rcParams.update(mpl.rcParamsDefault)
         font = {'family': 'serif'}
         xtick = {'top': True,
                  'bottom': True,
