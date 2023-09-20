@@ -127,8 +127,8 @@ def calculate_esm(wavelength_boundaries, planet_radius, planet_equilibrium_tempe
     planet_dayside_temperature = planet_equilibrium_temperature * 1.1  # from Kempton et al. 2018
 
     nu_75 = cst.c / 7.5e-4  # (cgs) frequency at 7.5 um, following Kempton et al. 2018
-    planck_75_planet = physics.planck_function(planet_dayside_temperature, nu_75)
-    planck_75_star = physics.planck_function(star_effective_temperature, nu_75)
+    planck_75_planet = physics.planck_function_hz(planet_dayside_temperature, nu_75)
+    planck_75_star = physics.planck_function_hz(star_effective_temperature, nu_75)
 
     return scale_factor \
         * planck_75_planet / planck_75_star * (planet_radius / star_radius) ** 2 * 10 ** (-star_apparent_magnitude / 5)

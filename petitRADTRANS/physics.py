@@ -121,23 +121,23 @@ def hz2um(frequency):
     return cst.c / frequency * 1e4  # cm to um
 
 
-def planck_function(temperature, nu):
+def planck_function_hz(temperature, frequency):
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
 
     Args:
         temperature (float):
             Temperature in K.
-        nu:
+        frequency:
             Array containing the frequency in Hz.
     """
 
-    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
+    _planck_function = 2. * cst.h * frequency ** 3. / cst.c ** 2. / (np.exp(cst.h * frequency / cst.kB / temperature) - 1.)
 
     return _planck_function
 
 
-def planck_function_temperature_derivative(temperature, nu):
+def planck_function_hz_temperature_derivative(temperature, frequency):
     """Returns the derivative of the Planck function with respect to the temperature in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
     # TODO unused?
@@ -145,14 +145,14 @@ def planck_function_temperature_derivative(temperature, nu):
     Args:
         temperature:
             Temperature in K.
-        nu:
+        frequency:
             Array containing the frequency in Hz.
     Returns:
 
     """
-    _planck_function = planck_function(temperature, nu)
-    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
-    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
+    _planck_function = planck_function_hz(temperature, frequency)
+    _planck_function /= np.exp(cst.h * frequency / cst.kB / temperature) - 1.
+    _planck_function *= np.exp(cst.h * frequency / cst.kB / temperature) * cst.h * frequency / cst.kB / temperature ** 2.
 
     return _planck_function
 
