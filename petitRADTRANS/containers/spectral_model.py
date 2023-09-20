@@ -15,7 +15,7 @@ from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.prt_molmass import getMM
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import doppler_shift, compute_temperature_profile_guillot_metallic, hz2um, \
+from petitRADTRANS.physics import doppler_shift, temperature_profile_function_guillot_metallic, hz2um, \
     flux_hz2flux_cm, flux2irradiance
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
@@ -2756,7 +2756,7 @@ class SpectralModel(BaseSpectralModel):
                                  f"possible inputs are float, int, "
                                  f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)})")
         elif temperature_profile_mode == 'guillot':
-            temperatures = compute_temperature_profile_guillot_metallic(
+            temperatures = temperature_profile_function_guillot_metallic(
                 pressures=pressures,
                 gamma=guillot_temperature_profile_gamma,
                 surface_gravity=planet_surface_gravity,

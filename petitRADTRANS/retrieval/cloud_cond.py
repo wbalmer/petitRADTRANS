@@ -787,7 +787,7 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
 
 
 def plot_all():
-    from petitRADTRANS.physics import compute_temperature_profile_guillot_global
+    from petitRADTRANS.physics import temperature_profile_function_guillot_global
 
     # FeHs = np.linspace(-0.5, 2., 5)
     # COs = np.linspace(0.3, 1.2, 5)
@@ -827,19 +827,19 @@ def plot_all():
 
     pressures = np.logspace(-6, 2, 100)
 
-    temperature = compute_temperature_profile_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
+    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
 
     simple_cdf_fe(pressures, temperature, 0., 0.55)
     simple_cdf_mgsio3(pressures, temperature, 0., 0.55)
 
     t_int = 200.
     t_equ = 800.
-    temperature = compute_temperature_profile_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
+    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
     simple_cdf_na2s(pressures, temperature, 0., 0.55)
 
     t_int = 150.
     t_equ = 650.
-    temperature = compute_temperature_profile_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
+    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
     simple_cdf_kcl(pressures, temperature, 0., 0.55)
 
 

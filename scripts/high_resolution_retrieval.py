@@ -16,7 +16,7 @@ from petitRADTRANS.retrieval.preparing import preparing_pipeline, bias_pipeline_
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import doppler_shift, compute_temperature_profile_guillot_global
+from petitRADTRANS.physics import doppler_shift, temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior
@@ -34,7 +34,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
-    temperature = compute_temperature_profile_guillot_global(
+    temperature = temperature_profile_function_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,
@@ -95,7 +95,7 @@ def _init_model_old(planet, w_bords, line_species_str, p0=1e-2):
     #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
-    temperature = compute_temperature_profile_guillot_global(
+    temperature = temperature_profile_function_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,
@@ -164,7 +164,7 @@ def _init_retrieval_model(prt_object, parameters):
 
     # Make the P-T profile
     pressures = prt_object.pressures * 1e-6  # bar to cgs
-    temperatures = compute_temperature_profile_guillot_global(
+    temperatures = temperature_profile_function_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,
@@ -204,7 +204,7 @@ def _init_retrieval_model_old(prt_object, parameters):
 
     # Make the P-T profile
     pressures = prt_object.pressures * 1e-6  # bar to cgs
-    temperatures = compute_temperature_profile_guillot_global(
+    temperatures = temperature_profile_function_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,

@@ -8,7 +8,7 @@ from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import compute_temperature_profile_guillot_global
+from petitRADTRANS.physics import temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
     delta_prior
@@ -648,7 +648,7 @@ class SpectralModelLegacy:
         else:
             kappa_ir = kappa_ir_z0
 
-        temperatures = compute_temperature_profile_guillot_global(
+        temperatures = temperature_profile_function_guillot_global(
             pressure=pressures,
             kappa_ir=kappa_ir,
             gamma=gamma,

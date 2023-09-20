@@ -412,7 +412,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
 
 
 def create_guillot_2010_temperature_profile_ref(plot_figure=False):
-    temperature_guillot = petitRADTRANS.physics.compute_temperature_profile_guillot_global(
+    temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
         pressure=radtrans_parameters['pressures'],
         kappa_ir=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],

@@ -33,8 +33,8 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return dist
 
 
-def compute_temperature_profile_guillot(pressure, infrared_mean_opacity, gamma, gravity, intrinsic_temperature,
-                                        equilibrium_temperature, redistribution_coefficient=0.25):
+def temperature_profile_function_guillot(pressure, infrared_mean_opacity, gamma, gravity, intrinsic_temperature,
+                                         equilibrium_temperature, redistribution_coefficient=0.25):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar).
@@ -76,7 +76,7 @@ def compute_temperature_profile_guillot(pressure, infrared_mean_opacity, gamma, 
     return temperature
 
 
-def compute_temperature_profile_guillot_dayside(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def temperature_profile_function_guillot_dayside(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -96,7 +96,7 @@ def compute_temperature_profile_guillot_dayside(pressure, kappa_ir, gamma, grav,
         t_equ (float):
             The planetary equilibrium temperature (in units of K).
     """
-    return compute_temperature_profile_guillot(
+    return temperature_profile_function_guillot(
         pressure=pressure,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
@@ -107,7 +107,7 @@ def compute_temperature_profile_guillot_dayside(pressure, kappa_ir, gamma, grav,
     )
 
 
-def compute_temperature_profile_guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def temperature_profile_function_guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -127,7 +127,7 @@ def compute_temperature_profile_guillot_global(pressure, kappa_ir, gamma, grav, 
         t_equ (float):
             The planetary equilibrium temperature (in units of K).
     """
-    return compute_temperature_profile_guillot(
+    return temperature_profile_function_guillot(
         pressure=pressure,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
@@ -138,7 +138,7 @@ def compute_temperature_profile_guillot_global(pressure, kappa_ir, gamma, grav, 
     )
 
 
-def compute_temperature_profile_guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
+def temperature_profile_function_guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
     """Global Guillot P-T formula with kappa/gravity replaced by delta."""
     # TODO what is delta?
     delta = np.abs(delta)
@@ -155,9 +155,9 @@ def compute_temperature_profile_guillot_global_ret(pressure, delta, gamma, t_int
     return temperature
 
 
-def compute_temperature_profile_guillot_metallic(pressures, gamma, surface_gravity,
-                                                 intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
-                                                 metallicity=None):
+def temperature_profile_function_guillot_metallic(pressures, gamma, surface_gravity,
+                                                  intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
+                                                  metallicity=None):
     """Get a Guillot temperature profile depending on metallicity.
 
     Args:
@@ -177,7 +177,7 @@ def compute_temperature_profile_guillot_metallic(pressures, gamma, surface_gravi
     else:
         kappa_ir = kappa_ir_z0
 
-    temperatures = compute_temperature_profile_guillot_global(
+    temperatures = temperature_profile_function_guillot_global(
         pressure=pressures,
         kappa_ir=kappa_ir,
         gamma=gamma,
@@ -189,10 +189,10 @@ def compute_temperature_profile_guillot_metallic(pressures, gamma, surface_gravi
     return temperatures
 
 
-def compute_temperature_profile_guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
+def temperature_profile_function_guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
     """Modified Guillot P-T formula"""
     # TODO how is it modified? Why for?
-    return compute_temperature_profile_guillot_global_ret(
+    return temperature_profile_function_guillot_global_ret(
         pressure,
         np.abs(delta),
         np.abs(gamma),
@@ -200,12 +200,12 @@ def compute_temperature_profile_guillot_modif(pressure, delta, gamma, t_int, t_e
     ) * (1. - alpha * (1. / (1. + pressure / ptrans)))
 
 
-def compute_temperature_profile_isothermal(pressures, temperature):
+def temperature_profile_function_isothermal(pressures, temperature):
     # TODO only to temporarily fix methods, change name later
     return np.ones(pressures.size) * temperature
 
 
-def compute_temperature_profile_ret_model(rad_trans_params):
+def temperature_profile_function_ret_model(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
     # TODO fix docstring
