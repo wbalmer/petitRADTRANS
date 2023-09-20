@@ -5,7 +5,7 @@ import numpy as np
 import petitRADTRANS.physical_constants as cst
 
 
-def b(temperature, nu):
+def planck_function(temperature, nu):
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
 
@@ -16,14 +16,15 @@ def b(temperature, nu):
             Array containing the frequency in Hz.
     """
 
-    planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
+    _planck_function = 2. * cst.h * nu ** 3. / cst.c ** 2. / (np.exp(cst.h * nu / cst.kB / temperature) - 1.)
 
-    return planck_function
+    return _planck_function
 
 
-def d_b_d_temperature(temperature, nu):
+def planck_function_temperature_derivative(temperature, nu):
     """Returns the derivative of the Planck function with respect to the temperature in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
+    # TODO unused?
 
     Args:
         temperature:
@@ -33,11 +34,11 @@ def d_b_d_temperature(temperature, nu):
     Returns:
 
     """
-    planck_function = b(temperature, nu)
-    planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
-    planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
+    _planck_function = planck_function(temperature, nu)
+    _planck_function /= np.exp(cst.h * nu / cst.kB / temperature) - 1.
+    _planck_function *= np.exp(cst.h * nu / cst.kB / temperature) * cst.h * nu / cst.kB / temperature ** 2.
 
-    return planck_function
+    return _planck_function
 
 
 def doppler_shift(wavelength_0, velocity):
@@ -83,8 +84,8 @@ def get_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return dist
 
 
-def get_guillot_2010_temperature_profile(pressure, infrared_mean_opacity, gamma, gravity, intrinsic_temperature,
-                                         equilibrium_temperature, redistribution_coefficient=0.25):
+def compute_temperature_profile_guillot(pressure, infrared_mean_opacity, gamma, gravity, intrinsic_temperature,
+                                        equilibrium_temperature, redistribution_coefficient=0.25):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar).
@@ -126,8 +127,7 @@ def get_guillot_2010_temperature_profile(pressure, infrared_mean_opacity, gamma,
     return temperature
 
 
-# TODO remove deprecated functions
-def guillot_day(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def compute_temperature_profile_guillot_dayside(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -147,7 +147,7 @@ def guillot_day(pressure, kappa_ir, gamma, grav, t_int, t_equ):
         t_equ (float):
             The planetary equilibrium temperature (in units of K).
     """
-    return get_guillot_2010_temperature_profile(
+    return compute_temperature_profile_guillot(
         pressure=pressure,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
@@ -158,7 +158,7 @@ def guillot_day(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     )
 
 
-def guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
+def compute_temperature_profile_guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -178,7 +178,7 @@ def guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
         t_equ (float):
             The planetary equilibrium temperature (in units of K).
     """
-    return get_guillot_2010_temperature_profile(
+    return compute_temperature_profile_guillot(
         pressure=pressure,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
@@ -189,8 +189,9 @@ def guillot_global(pressure, kappa_ir, gamma, grav, t_int, t_equ):
     )
 
 
-def guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
+def compute_temperature_profile_guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
     """Global Guillot P-T formula with kappa/gravity replaced by delta."""
+    # TODO what is delta?
     delta = np.abs(delta)
     gamma = np.abs(gamma)
     t_int = np.abs(t_int)
@@ -205,9 +206,9 @@ def guillot_global_ret(pressure, delta, gamma, t_int, t_equ):
     return temperature
 
 
-def guillot_metallic_temperature_profile(pressures, gamma, surface_gravity,
-                                         intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
-                                         metallicity=None):
+def compute_temperature_profile_guillot_metallic(pressures, gamma, surface_gravity,
+                                                 intrinsic_temperature, equilibrium_temperature, kappa_ir_z0,
+                                                 metallicity=None):
     """Get a Guillot temperature profile depending on metallicity.
 
     Args:
@@ -227,7 +228,7 @@ def guillot_metallic_temperature_profile(pressures, gamma, surface_gravity,
     else:
         kappa_ir = kappa_ir_z0
 
-    temperatures = guillot_global(
+    temperatures = compute_temperature_profile_guillot_global(
         pressure=pressures,
         kappa_ir=kappa_ir,
         gamma=gamma,
@@ -239,9 +240,10 @@ def guillot_metallic_temperature_profile(pressures, gamma, surface_gravity,
     return temperatures
 
 
-def guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
+def compute_temperature_profile_guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
     """Modified Guillot P-T formula"""
-    return guillot_global_ret(
+    # TODO how is it modified? Why for?
+    return compute_temperature_profile_guillot_global_ret(
         pressure,
         np.abs(delta),
         np.abs(gamma),
@@ -249,27 +251,16 @@ def guillot_modif(pressure, delta, gamma, t_int, t_equ, ptrans, alpha):
     ) * (1. - alpha * (1. / (1. + pressure / ptrans)))
 
 
-def hz2um(frequency):
-    """Convert frequencies into wavelengths
-
-    Args:
-        frequency: (Hz) the frequency to convert
-
-    Returns:
-        (um) the corresponding wavelengths
-    """
-    return cst.c / frequency * 1e4  # cm to um
-
-
-def isothermal(pressures, temperature):
+def compute_temperature_profile_isothermal(pressures, temperature):
     # TODO only to temporarily fix methods, change name later
     return np.ones(pressures.size) * temperature
 
 
-def pt_ret_model(rad_trans_params):
+def compute_temperature_profile_ret_model(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
     # TODO fix docstring
+    # TODO find better name
     Args:
         T3 : np.array([t1, t2, t3])
             temperature points to be added on top
@@ -451,59 +442,73 @@ def pt_ret_model(rad_trans_params):
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 
-def radiosity_erg_cm2radiosity_erg_hz(radiosity_erg_cm, wavelength):
+def flux_cm2flux_hz(flux_cm, wavelength):
     """
-    Convert a radiosity from erg.s-1.cm-2.sr-1/cm to erg.s-1.cm-2.sr-1/Hz at a given wavelength.
+    Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
+    Flux units can be, e.g., erg.s-1.cm-2.
+
     Steps:
         [cm] = c[cm.s-1] / [Hz]
         => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
         => d[cm]/d[Hz] = c / [Hz]**2
-        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
-        radiosity_erg_hz = radiosity_erg_cm * d[cm]/d[Hz]
-        => radiosity_erg_hz = radiosity_erg_cm * wavelength**2 / c
+        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
+        flux_hz = flux_cm * d[cm]/d[Hz]
+        => flux_hz = flux_cm * wavelength**2 / c
 
     Args:
-        radiosity_erg_cm: (erg.s-1.cm-2.sr-1/cm)
+        flux_cm: ([flux units]/cm)
         wavelength: (cm)
 
     Returns:
-        (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
+        ([flux units]/Hz) the radiosity in converted units
     """
-    return radiosity_erg_cm * wavelength ** 2 / cst.c
+    return flux_cm * wavelength ** 2 / cst.c
 
 
-def radiosity_erg_hz2radiosity_erg_cm(radiosity_erg_hz, frequency):
-    """Convert a radiosity from erg.s-1.cm-2.sr-1/Hz to erg.s-1.cm-2.sr-1/cm at a given frequency.
+def flux_hz2flux_cm(flux_hz, frequency):
+    """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
+    Flux units can be, e.g., erg.s-1.cm-2.
 
     Steps:
         [cm] = c[cm.s-1] / [Hz]
         => d[cm]/d[Hz] = d(c / [Hz])/d[Hz]
         => d[cm]/d[Hz] = c / [Hz]**2
         => d[Hz]/d[cm] = [Hz]**2 / c
-        integral of flux must be conserved: radiosity_erg_cm * d[cm] = radiosity_erg_hz * d[Hz]
-        radiosity_erg_cm = radiosity_erg_hz * d[Hz]/d[cm]
-        => radiosity_erg_cm = radiosity_erg_hz * frequency**2 / c
+        integral of flux must be conserved: flux_cm * d[cm] = flux_hz * d[Hz]
+        flux_cm = flux_hz * d[Hz]/d[cm]
+        => flux_cm = flux_hz * frequency**2 / c
 
     Args:
-        radiosity_erg_hz: (erg.s-1.cm-2.sr-1/Hz)
+        flux_hz: (erg.s-1.cm-2.sr-1/Hz)
         frequency: (Hz)
 
     Returns:
         (erg.s-1.cm-2.sr-1/cm) the radiosity in converted units
     """
-    # TODO move to physics
-    return radiosity_erg_hz * frequency ** 2 / cst.c
+    return flux_hz * frequency ** 2 / cst.c
 
 
-def radiosity2irradiance(spectral_radiosity, source_radius, target_distance):
-    """Calculate the spectral irradiance of a spherical source on a target from its spectral radiosity.
+def flux2irradiance(flux, source_radius, target_distance):
+    """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
 
     Args:
-        spectral_radiosity: (M.L-1.T-3) spectral radiosity of the source
+        flux: (M.L-1.T-3) flux of the source
         source_radius: (L) radius of the spherical source
         target_distance: (L) distance from the source to the target
 
     Returns:
         The irradiance of the source on the target (M.L-1.T-3).
     """
-    return spectral_radiosity * (source_radius / target_distance) ** 2
+    return flux * (source_radius / target_distance) ** 2
+
+
+def hz2um(frequency):
+    """Convert frequencies into wavelengths
+
+    Args:
+        frequency: (Hz) the frequency to convert
+
+    Returns:
+        (um) the corresponding wavelengths
+    """
+    return cst.c / frequency * 1e4  # cm to um

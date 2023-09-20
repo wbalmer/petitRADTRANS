@@ -24,7 +24,7 @@ from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import guillot_global, doppler_shift
+from petitRADTRANS.physics import compute_temperature_profile_guillot_global, doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval
 from petitRADTRANS.retrieval.data import Data
@@ -250,7 +250,7 @@ def init_model(planet, w_bords, line_species_str, p0=1e-2):
     #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
-    temperature = guillot_global(
+    temperature = compute_temperature_profile_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,
@@ -1004,7 +1004,7 @@ def init_parameters(planet, line_species_str, mode,
 def init_retrieval_model(prt_object, parameters):
     # Make the P-T profile
     pressures = prt_object.pressures * 1e-6  # bar to cgs
-    temperatures = guillot_global(
+    temperatures = compute_temperature_profile_guillot_global(
         pressure=pressures,
         kappa_ir=0.01,
         gamma=0.4,

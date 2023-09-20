@@ -10,6 +10,7 @@ from scipy.interpolate import interp1d
 
 from petitRADTRANS import phoenix
 from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.physics import flux_hz2flux_cm
 from petitRADTRANS import prt_molmass
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -2237,10 +2238,9 @@ class Radtrans:
                        add_cloud_scattering_as_absorption=False,
                        additional_absorption_opacities_function=None, additional_scattering_opacities_function=None,
                        planet_radius=None, return_photosphere_radius=False, return_rosseland_optical_depths=False,
-                       return_cloud_contribution=False
+                       return_cloud_contribution=False, frequencies_to_wavelengths=True
                        ):
-        """ Method to calculate the atmosphere's emitted flux
-        (emission spectrum).
+        """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
             Args:
                 temperatures:
@@ -2348,6 +2348,9 @@ class Radtrans:
                     if True, the Rosseland opacities and optical depths are calculated and returned
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated
+                frequencies_to_wavelengths (Optional[bool]):
+                    if True, convert the frequencies (Hz) output to wavelengths (cm),
+                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-2.cm-2/cm)
         """
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
@@ -2497,7 +2500,17 @@ class Radtrans:
         if relative_cloud_scaling_factor is not None:
             additional_outputs['relative_cloud_scaling_factor'] = relative_cloud_scaling_factor
 
-        return self._frequencies, flux, additional_outputs
+        if frequencies_to_wavelengths:
+            return (
+                self._frequencies / cst.c,
+                flux_hz2flux_cm(
+                    flux_hz=flux,
+                    frequency=self._frequencies
+                ),
+                additional_outputs
+            )
+        else:
+            return self._frequencies, flux, additional_outputs
 
     def calculate_photosphere_radius(self, planet_radius, temperatures, mean_molar_masses, surface_gravity,
                                      opacities, continuum_opacities_scattering, cloud_f_sed,

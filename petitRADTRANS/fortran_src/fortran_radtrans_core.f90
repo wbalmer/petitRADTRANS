@@ -6,7 +6,7 @@
 
 module math
     ! """
-    ! Useful mathematicl functions.
+    ! Useful mathematical functions.
     ! """
     implicit none
 
@@ -2933,13 +2933,13 @@ module fortran_radtrans_core
 
 
 
-        subroutine unused_compute_olson_kunasz_line_by_line_radiative_transfer(n_frequencies_bins,frequencies_bin_edges, &
-                tau_approx,n_layers,pressures,temperatures,flux,&
-                j_deep,n_angles,emission_cos_angles,emission_cos_angles_weights,clouds_final_absorption_opacities, &
-                kappa_H,kappa_J,eddington_F,eddington_Psi,H_star,mu_star,H_star_0, &
-                abs_S,t_irr,HIT_N_g_eff,J_bol,H_bol,K_bol, &
-                w_gauss_ck,surface_gravity,dayside_ave,planetary_ave,j_for_zbrent,jstar_for_zbrent, &
-                range_int,range_write,I_minus_out_Olson,bord_ind_1dm6,I_J_out_Feautrier)
+        subroutine unused_compute_olson_kunasz_line_by_line_radiative_transfer(n_frequencies_bins, &
+                frequencies_bin_edges, tau_approx, n_layers, pressures, temperatures, flux, &
+                j_deep, n_angles, emission_cos_angles, emission_cos_angles_weights, clouds_final_absorption_opacities, &
+                kappa_H, kappa_J, eddington_F, eddington_Psi, H_star, mu_star, H_star_0, &
+                abs_S, t_irr, HIT_N_g_eff, J_bol, H_bol, K_bol, &
+                w_gauss_ck, surface_gravity, dayside_ave, planetary_ave, j_for_zbrent, jstar_for_zbrent, &
+                range_int, range_write, I_minus_out_Olson, bord_ind_1dm6, I_J_out_Feautrier)
             ! TODO never used, keeping just in case
             use math, only: cst_pi
             use physics, only: compute_planck_function, compute_rosseland_opacities_core

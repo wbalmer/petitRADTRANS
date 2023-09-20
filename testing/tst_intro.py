@@ -40,7 +40,7 @@ abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 MMW = 2.33 * np.ones_like(temperature)
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.physics import guillot_global
+from petitRADTRANS.physics import compute_temperature_profile_guillot_global
 R_pl = 1.838*cst.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
@@ -73,7 +73,7 @@ gamma = 0.4
 T_int = 200.
 T_equ = 1500.
 
-temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
+temperature = compute_temperature_profile_guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
 
 plt.plot(temperature, pressures)
 plt.yscale('log')

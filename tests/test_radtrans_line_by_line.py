@@ -199,8 +199,8 @@ def test_line_by_line_spectral_model_emission():
         reference_file=reference_filenames['line_by_line_emission'],
         comparison_dict={
             'wavelength': wavelengths,
-            'spectral_radiosity': petitRADTRANS.physics.radiosity_erg_cm2radiosity_erg_hz(
-                radiosity_erg_cm=spectral_radiosities * 1e7,  # W to erg
+            'spectral_radiosity': petitRADTRANS.physics.flux_cm2flux_hz(
+                flux_cm=spectral_radiosities * 1e7,  # W to erg
                 wavelength=wavelengths * 1e-4  # um to cm
             )
         },

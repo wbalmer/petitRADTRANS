@@ -8,7 +8,7 @@ import numpy as np
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.physics import radiosity_erg_hz2radiosity_erg_cm
+from petitRADTRANS.physics import flux_hz2flux_cm
 from scripts.mock_observation import add_telluric_lines, add_variable_throughput, \
     generate_mock_observations, get_mock_transit_spectra, get_orbital_phases
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
@@ -603,7 +603,7 @@ def init_mock_observations(planet, line_species_str, mode,
         ]
 
     star_data = compute_phoenix_spectrum(planet.star_effective_temperature)
-    star_data[:, 1] = radiosity_erg_hz2radiosity_erg_cm(
+    star_data[:, 1] = flux_hz2flux_cm(
         star_data[:, 1], cst.c / star_data[:, 0]
     )
 

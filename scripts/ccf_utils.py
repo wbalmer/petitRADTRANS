@@ -33,7 +33,7 @@ def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, sta
     ))
     wavelength_stellar = wavelength_stellar[wh]
 
-    stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
+    stellar_spectral_radiance = physics.flux_hz2flux_cm(
         stellar_spectral_radiance[wh, 1],
         cst.c / wavelength_stellar  # in Hz
     )
@@ -51,7 +51,7 @@ def calculate_star_snr(wavelengths, star_effective_temperature, star_radius, sta
 def calculate_star_radiosity(wavelength_boundaries, star_effective_temperature, star_radius, star_distance):
     stellar_spectral_radiance = phoenix.compute_phoenix_spectrum(star_effective_temperature)
     wavelength_stellar = stellar_spectral_radiance[:, 0]  # in cm
-    stellar_spectral_radiance = physics.radiosity_erg_hz2radiosity_erg_cm(
+    stellar_spectral_radiance = physics.flux_hz2flux_cm(
         stellar_spectral_radiance[:, 1],
         cst.c / wavelength_stellar
     )
@@ -127,8 +127,8 @@ def calculate_esm(wavelength_boundaries, planet_radius, planet_equilibrium_tempe
     planet_dayside_temperature = planet_equilibrium_temperature * 1.1  # from Kempton et al. 2018
 
     nu_75 = cst.c / 7.5e-4  # (cgs) frequency at 7.5 um, following Kempton et al. 2018
-    planck_75_planet = physics.b(planet_dayside_temperature, nu_75)
-    planck_75_star = physics.b(star_effective_temperature, nu_75)
+    planck_75_planet = physics.planck_function(planet_dayside_temperature, nu_75)
+    planck_75_star = physics.planck_function(star_effective_temperature, nu_75)
 
     return scale_factor \
         * planck_75_planet / planck_75_star * (planet_radius / star_radius) ** 2 * 10 ** (-star_apparent_magnitude / 5)

@@ -4,7 +4,10 @@ import numpy as np
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.retrieval import cloud_cond as fc
 
-from petitRADTRANS.physics import pt_ret_model, guillot_global, isothermal
+from petitRADTRANS.physics import (
+    compute_temperature_profile_ret_model, compute_temperature_profile_guillot_global,
+    compute_temperature_profile_isothermal
+)
 from .chemistry import get_abundances
 from .util import surf_to_meas, compute_gravity, spectrum_cgs_to_si
 
@@ -111,7 +114,7 @@ def emission_model_diseq(prt_object,
     # Make the P-T profile
     temp_arr = np.array([T1, T2, T3])
 
-    temperatures = pt_ret_model(  # TODO weird way of calling the function
+    temperatures = compute_temperature_profile_ret_model(  # TODO weird way of calling the function
         (
             temp_arr,
             delta,
@@ -254,7 +257,7 @@ def emission_model_diseq_patchy_clouds(prt_object,
     delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = pt_ret_model(
+    temperatures = compute_temperature_profile_ret_model(
         (  # TODO weird way of calling the function
             temp_arr,
             delta,
@@ -398,7 +401,7 @@ def guillot_emission(prt_object,
         contribution = parameters["contribution"].value
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(
+    temperatures = compute_temperature_profile_guillot_global(
         p_use,
         10 ** parameters['log_kappa_IR'].value,
         parameters['gamma'].value,
@@ -524,7 +527,7 @@ def guillot_transmission(prt_object,
     # Calculate the spectrum
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(
+    temperatures = compute_temperature_profile_guillot_global(
         p_use,
         10 ** parameters['log_kappa_IR'].value,
         parameters['gamma'].value,
@@ -679,7 +682,7 @@ def guillot_patchy_transmission(prt_object,
     # Calculate the spectrum
     gravity, R_pl = compute_gravity(parameters)
 
-    temperatures = guillot_global(
+    temperatures = compute_temperature_profile_guillot_global(
         p_use,
         10 ** parameters['log_kappa_IR'].value,
         parameters['gamma'].value,
@@ -825,7 +828,7 @@ def isothermal_transmission(prt_object,
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, AMR)
 
     # Make the P-T profile
-    temperatures = isothermal(p_use, parameters["Temp"].value)
+    temperatures = compute_temperature_profile_isothermal(p_use, parameters["Temp"].value)
     gravity, R_pl = compute_gravity(parameters)
 
     contribution = False

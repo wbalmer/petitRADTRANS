@@ -4,7 +4,7 @@ import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 from petitRADTRANS import Radtrans
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.physics import guillot_global
+from petitRADTRANS.physics import compute_temperature_profile_guillot_global
 
 case1 = False
 case2 = False
@@ -35,7 +35,7 @@ if case1:
     gamma = 0.4
     T_int = 1200.
     T_equ = 0.
-    temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
+    temperature = compute_temperature_profile_guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
 
     # Cloud parameters
     Kzz = np.ones_like(temperature)*1e1**6.5
@@ -94,7 +94,7 @@ if case2:
     gamma = 0.4
     T_int = 200.
     T_equ = 1500.
-    temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
+    temperature = compute_temperature_profile_guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
 
     # Cloud parameters
     Kzz = np.ones_like(temperature) * 1e1 ** 6.5
@@ -159,7 +159,7 @@ if case3:
     gamma = 0.01
     T_int = 250.
     T_equ = 220.
-    temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
+    temperature = compute_temperature_profile_guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
 
     Kzz = np.ones_like(temperature) * 1e1 ** 6.5
     fsed = 2.

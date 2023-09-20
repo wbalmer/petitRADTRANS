@@ -16,7 +16,7 @@ module rebin_utils
 
             integer, intent(in) :: n_rebin, n_wavelengths
             double precision, intent(in) :: input_wavelengths(n_wavelengths), input_spectrum(n_wavelengths)
-            double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
+            double precision, intent(in) :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
             double precision, intent(out) :: rebinned_spectrum(n_rebin)
 
             integer :: i, i_input

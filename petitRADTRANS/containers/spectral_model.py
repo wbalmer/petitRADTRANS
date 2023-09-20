@@ -15,8 +15,8 @@ from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.prt_molmass import getMM
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import doppler_shift, guillot_metallic_temperature_profile, hz2um, \
-    radiosity_erg_hz2radiosity_erg_cm, radiosity2irradiance
+from petitRADTRANS.physics import doppler_shift, compute_temperature_profile_guillot_metallic, hz2um, \
+    flux_hz2flux_cm, flux2irradiance
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, \
@@ -866,7 +866,7 @@ class BaseSpectralModel:
 
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
-        spectral_radiosity = radiosity_erg_hz2radiosity_erg_cm(spectral_radiosity, wavelengths) \
+        spectral_radiosity = flux_hz2flux_cm(spectral_radiosity, wavelengths) \
             * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
         wavelengths = hz2um(wavelengths)
 
@@ -885,8 +885,8 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_planet_star_spectral_radiances(star_spectral_radiosities, star_radius, orbit_semi_major_axis,
                                                  star_spectrum_wavelengths=None, wavelengths=None, **kwargs):
-        planet_star_spectral_irradiances = radiosity2irradiance(
-            spectral_radiosity=star_spectral_radiosities,
+        planet_star_spectral_irradiances = flux2irradiance(
+            flux=star_spectral_radiosities,
             source_radius=star_radius,
             target_distance=orbit_semi_major_axis
         )  # ingoing radiosity of the star on the planet
@@ -1610,14 +1610,14 @@ class BaseSpectralModel:
             if star_spectrum is not None:
                 spectrum = spectrum + star_spectrum
 
-                star_observed_spectrum = radiosity2irradiance(
-                    spectral_radiosity=star_spectrum,
+                star_observed_spectrum = flux2irradiance(
+                    flux=star_spectrum,
                     source_radius=star_radius,
                     target_distance=system_distance
                 )
 
-            spectrum = radiosity2irradiance(
-                spectral_radiosity=spectrum,
+            spectrum = flux2irradiance(
+                flux=spectrum,
                 source_radius=star_radius,
                 target_distance=system_distance
             )
@@ -2756,7 +2756,7 @@ class SpectralModel(BaseSpectralModel):
                                  f"possible inputs are float, int, "
                                  f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)})")
         elif temperature_profile_mode == 'guillot':
-            temperatures = guillot_metallic_temperature_profile(
+            temperatures = compute_temperature_profile_guillot_metallic(
                 pressures=pressures,
                 gamma=guillot_temperature_profile_gamma,
                 surface_gravity=planet_surface_gravity,

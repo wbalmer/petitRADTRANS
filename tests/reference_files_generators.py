@@ -261,7 +261,7 @@ def npz2dat(file, new_resolving_power=60.0, relative_error=0.05, mode='transmiss
     wavelength = npz_data['wavelength']
 
     if mode == 'emission':
-        flux = petitRADTRANS.physics.radiosity_erg_hz2radiosity_erg_cm(
+        flux = petitRADTRANS.physics.flux_hz2flux_cm(
             npz_data['spectral_radiosity'],
             petitRADTRANS.physical_constants.c * 1e4 / wavelength  # um to Hz
         )
@@ -412,7 +412,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
 
 
 def create_guillot_2010_temperature_profile_ref(plot_figure=False):
-    temperature_guillot = petitRADTRANS.physics.guillot_global(
+    temperature_guillot = petitRADTRANS.physics.compute_temperature_profile_guillot_global(
         pressure=radtrans_parameters['pressures'],
         kappa_ir=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],

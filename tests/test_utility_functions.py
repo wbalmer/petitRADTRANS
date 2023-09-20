@@ -38,7 +38,7 @@ def test_planck_function():
         10
     )
 
-    planck = petitRADTRANS.physics.b(
+    planck = petitRADTRANS.physics.planck_function(
         radtrans_parameters['stellar_parameters']['effective_temperature'],
         frequencies
     )
