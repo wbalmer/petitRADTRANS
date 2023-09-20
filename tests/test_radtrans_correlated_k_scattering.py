@@ -52,7 +52,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
-        add_cloud_scattering_as_absorption=True
+        add_cloud_scattering_as_absorption=True,
+        frequencies_to_wavelengths=False
     )
 
     # Comparison
@@ -84,7 +85,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
+        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
+        frequencies_to_wavelengths=False
     )
 
     # Comparison
@@ -118,7 +120,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
+        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
+        frequencies_to_wavelengths=False
     )
 
     # Comparison
@@ -151,7 +154,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle']
+        star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle'],
+        frequencies_to_wavelengths=False
     )
 
     # Comparison
@@ -181,7 +185,8 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal']
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        frequencies_to_wavelengths=False
     )
 
     # Comparison

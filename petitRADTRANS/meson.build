@@ -7,6 +7,7 @@ subdir('cli')
 subdir('ccf')
 
 py.install_sources([
+    'math.py',
     'phoenix.py',
     'physical_constants.py',
     'physics.py',

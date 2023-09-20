@@ -13,7 +13,7 @@ from astropy.time import Time
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config
-from petitRADTRANS.utils import calculate_uncertainty
+from petitRADTRANS.math import calculate_uncertainty
 
 
 class Planet:

@@ -1,13 +1,13 @@
 import sys
+
 import numpy as np
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.retrieval import cloud_cond as fc
-
 from petitRADTRANS.physics import (
     temperature_profile_function_ret_model, temperature_profile_function_guillot_global,
     temperature_profile_function_isothermal
 )
+from petitRADTRANS.retrieval import cloud_cond as fc
 from .chemistry import get_abundances
 from .util import surf_to_meas, compute_gravity, spectrum_cgs_to_si
 
@@ -166,7 +166,8 @@ def emission_model_diseq(prt_object,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
         clouds_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
+        cloud_particles_radius_distribution=distribution,
+        frequencies_to_wavelengths=False
     )
 
     if not contribution:
@@ -304,7 +305,8 @@ def emission_model_diseq_patchy_clouds(prt_object,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
         clouds_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
+        cloud_particles_radius_distribution=distribution,
+        frequencies_to_wavelengths=False
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model_cloudy = surf_to_meas(f_lambda,
@@ -325,7 +327,8 @@ def emission_model_diseq_patchy_clouds(prt_object,
         eddy_diffusion_coefficient=kzz,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
-        cloud_particles_radius_distribution=distribution
+        cloud_particles_radius_distribution=distribution,
+        frequencies_to_wavelengths=False
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
     spectrum_model_clear = surf_to_meas(f_lambda,
@@ -443,7 +446,8 @@ def guillot_emission(prt_object,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_b_hansen=b_hans,
         clouds_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
+        cloud_particles_radius_distribution=distribution,
+        frequencies_to_wavelengths=False
     )
 
     if not contribution:
@@ -578,7 +582,8 @@ def guillot_transmission(prt_object,
             eddy_diffusion_coefficient=kzz,
             cloud_b_hansen=b_hans,
             distribution=distribution,
-            return_contribution=contribution
+            return_contribution=contribution,
+            frequencies_to_wavelengths=False
         )
     elif pcloud is not None:
         results = prt_object.calculate_transit_radii(
@@ -589,7 +594,8 @@ def guillot_transmission(prt_object,
             planet_radius=R_pl,
             reference_pressure=0.01,
             opaque_cloud_top_pressure=pcloud,
-            return_contribution=contribution
+            return_contribution=contribution,
+            frequencies_to_wavelengths=False
         )
     else:
         results = prt_object.calculate_transit_radii(
@@ -599,7 +605,8 @@ def guillot_transmission(prt_object,
             mean_molar_masses=MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            return_contribution=contribution
+            return_contribution=contribution,
+            frequencies_to_wavelengths=False
         )
 
     if not contribution:
@@ -730,7 +737,8 @@ def guillot_patchy_transmission(prt_object,
         eddy_diffusion_coefficient=kzz,
         clouds_particles_mean_radii=radii,
         distribution=distribution,
-        return_contribution=contribution
+        return_contribution=contribution,
+        frequencies_to_wavelengths=False
     )
 
     if not contribution:
@@ -753,7 +761,8 @@ def guillot_patchy_transmission(prt_object,
         reference_pressure=0.01,
         cloud_particle_radius_distribution_std=parameters['sigma_lnorm'].value,
         clouds_particles_mean_radii=radii,
-        return_contribution=contribution
+        return_contribution=contribution,
+        frequencies_to_wavelengths=False
     )
 
     if not contribution:
@@ -872,7 +881,8 @@ def isothermal_transmission(prt_object,
             mean_molar_masses=MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            opaque_cloud_top_pressure=pcloud
+            opaque_cloud_top_pressure=pcloud,
+            frequencies_to_wavelengths=False
         )
     elif len(prt_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
@@ -889,7 +899,8 @@ def isothermal_transmission(prt_object,
             cloud_f_sed=fseds,
             eddy_diffusion_coefficient=kzz,
             clouds_particles_mean_radii=radii,
-            return_contribution=contribution
+            return_contribution=contribution,
+            frequencies_to_wavelengths=False
         )
     else:
         results = prt_object.calculate_transit_radii(
@@ -899,7 +910,8 @@ def isothermal_transmission(prt_object,
             mean_molar_masses=MMW,
             planet_radius=R_pl,
             reference_pressure=0.01,
-            return_contribution=contribution
+            return_contribution=contribution,
+            frequencies_to_wavelengths=False
         )
 
     if not contribution:

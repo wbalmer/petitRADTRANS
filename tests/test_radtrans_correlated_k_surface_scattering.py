@@ -53,7 +53,8 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
         star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle'],
-        reflectances=radtrans_parameters['planetary_parameters']['surface_reflectance']
+        reflectances=radtrans_parameters['planetary_parameters']['surface_reflectance'],
+        frequencies_to_wavelengths=False
     )
 
     # Comparison

@@ -194,21 +194,22 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     mmw = calc_MMW(abundances)
 
     # Calculate the spectrum
-    frequencies, transit_radii, _ = prt_object.calculate_transit_radii(
+    wavelengths, transit_radii, _ = prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
         surface_gravity=10 ** parameters['log_g'].value,
         mean_molar_masses=mmw,
         planet_radius=parameters['R_pl'].value,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        opaque_cloud_top_pressure=10 ** parameters['log_Pcloud'].value
+        opaque_cloud_top_pressure=10 ** parameters['log_Pcloud'].value,
+        frequencies_to_wavelengths=True  # True by default
     )
 
     # Transform the outputs into the units of our data.
-    wlen_model = petitRADTRANS.physical_constants.c / frequencies * 1e4  # wlen in micron
+    wavelengths *= 1e4  # cm to um
     spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
 
-    return wlen_model, spectrum_model
+    return wavelengths, spectrum_model
 
 
 run_definition = init_run()

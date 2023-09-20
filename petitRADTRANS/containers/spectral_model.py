@@ -1,8 +1,8 @@
 """SpectralModel object and related."""
 
 import copy
-import os
 import inspect
+import os
 import sys
 import warnings
 
@@ -11,17 +11,19 @@ import numpy as np
 import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.prt_molmass import getMM
+from petitRADTRANS.math import gaussian_weights_running
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
-from petitRADTRANS.physics import doppler_shift, temperature_profile_function_guillot_metallic, hz2um, \
-    flux_hz2flux_cm, flux2irradiance
+from petitRADTRANS.physics import (
+    doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, rebin_spectrum
+)
+from petitRADTRANS.prt_molmass import get_species_molar_mass
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.retrieval.util import calc_MMW, log_prior, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, gaussian_weights_running, rebin_spectrum, remove_mask
+from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
 
 # TODO c-k binned directly to user-provided wavelength grid
@@ -860,15 +862,15 @@ class BaseSpectralModel:
             stellar_intensity=planet_star_spectral_radiances,
             additional_absorption_opacities_function=absorption_opacity_function,
             additional_scattering_opacities_function=scattering_opacity_function,
+            frequencies_to_wavelengths=True
             # **kwargs  # TODO add kwargs once arguments names are made unambiguous
             # TODO add the other arguments
         )
 
         # TODO unit change as an option?
         # Transform the outputs into the units of our data
-        spectral_radiosity = flux_hz2flux_cm(spectral_radiosity, wavelengths) \
-            * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-        wavelengths = hz2um(wavelengths)
+        spectral_radiosity *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+        wavelengths *= 1e4  # cm to um
 
         return wavelengths, spectral_radiosity
 
@@ -960,7 +962,7 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        frequencies, transit_radii, _ = radtrans.calculate_transit_radii(
+        wavelengths, planet_transit_radius, _ = radtrans.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             surface_gravity=planet_surface_gravity,
@@ -982,13 +984,13 @@ class BaseSpectralModel:
             cloud_b_hansen=cloud_hansen_b,
             cloud_a_hansen=cloud_hansen_a,
             additional_absorption_opacities_function=absorption_opacity_function,
-            additional_scattering_opacities_function=scattering_opacity_function
+            additional_scattering_opacities_function=scattering_opacity_function,
+            frequencies_to_wavelengths=True
         )
 
         # Convert into more useful units
-        planet_transit_radius = copy.copy(transit_radii)
-        wavelengths = hz2um(frequencies)
-        # TODO convert into radiosities by adding a star spectrum, so that it is consistent with emission?
+        wavelengths *= 1e4  # cm to um
+        # TODO add an option to convert into stellar flux during transit by adding a star spectrum?
 
         return wavelengths, planet_transit_radius
 
@@ -1399,7 +1401,9 @@ class BaseSpectralModel:
 
         for species_, mass_mixing_ratio in self.mass_mixing_ratios.items():
             species = species_.split('(', 1)[0]
-            volume_mixing_ratios[species_] = self.mean_molar_masses / getMM(species) * mass_mixing_ratio
+            volume_mixing_ratios[species_] = (
+                self.mean_molar_masses / get_species_molar_mass(species) * mass_mixing_ratio
+            )
 
         return volume_mixing_ratios
 

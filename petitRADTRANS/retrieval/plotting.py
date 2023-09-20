@@ -8,6 +8,7 @@ import seaborn as sns  # TODO is seaborn really that useful?
 from matplotlib.lines import Line2D
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import binned_statistic
+
 import petitRADTRANS.physical_constants as cst
 
 
@@ -377,274 +378,6 @@ def contour_corner(sampledict,
     return fig
 
 
-def contour_corner_large(sampledict,
-                         parameter_names,
-                         output_file=None,
-                         parameter_ranges=None,
-                         parameter_plot_indices=None,
-                         true_values=None,
-                         short_name=None,
-                         legend=False,
-                         prt_plot_style=True,
-                         plot_best_fit=False,
-                         use_labels_as_titles=True,
-                         **kwargs):
-    """
-    Use the corner package to plot the posterior distributions produced by pymultinest.
-
-    Args:
-        sampledict : dict
-            A dictionary of samples, each sample has shape (N_Samples,N_params). The keys of the
-            dictionary correspond to the names of each retrieval, and are the prefixes to the
-            post_equal_weights.dat files. These are passed as arguments to retrieve.py.
-            By default, this is only the current retrieval, and plots the posteriors for a single
-            retrieval. If multiple names are passed, they are overplotted on the same figure.
-        parameter_names : dict
-            A dictionary with keys for each retrieval name, as in sampledict. Each value of the
-            dictionary is the names of the parameters to beplotted, as set in the
-            run_definition file.
-        output_file : str
-            Output file name
-        parameter_ranges : dict
-            A dictionary with keys for each retrieval name as in sampledict. Each value
-            contains the ranges of parameters that have a range set with corner_range in the
-            parameter class. Otherwise the range is +/- 4 sigma
-        parameter_plot_indices : dict
-            A dictionary with keys for each retrieval name as in sampledict. Each value
-            contains the indices of the sample to plot, as set by the plot_in_corner
-            parameter of the parameter class
-        true_values : dict
-            A dictionary with keys for each retrieval name as in sampledict. Each value
-            contains the known values of the parameters.
-        short_name : dict
-            A dictionary with keys for each retrieval name as in sampledict. Each value
-            contains the names to be plotted in the corner plot legend. If non, uses the
-            retrieval names used as keys for sampledict
-        legend : bool
-            Turn the legend on or off
-        prt_plot_style : bool
-            Use the prt plot style, changes the colour scheme and fonts to match the rest of
-            the prt plots.
-        kwargs : dict
-            Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
-            the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
-            kwarg must be a dictionary with the arguments as keys and values as the values.
-    """
-    if parameter_ranges is None:
-        parameter_ranges = {}
-
-    if parameter_plot_indices is None:
-        parameter_plot_indices = {}
-
-    if prt_plot_style:
-        import matplotlib as mpl
-
-        mpl.rcParams.update(mpl.rcParamsDefault)
-        font = {'family': 'serif'}
-        xtick = {'top': True,
-                 'bottom': True,
-                 'direction': 'in'}
-
-        ytick = {'left': True,
-                 'right': True,
-                 'direction': 'in'}
-        xmin = {'visible': True}
-        ymin = {'visible': True}
-        mpl.rc('xtick', **xtick)
-        mpl.rc('xtick.minor', **xmin)
-        mpl.rc('ytick', **ytick)
-        mpl.rc('ytick.minor', **ymin)
-        mpl.rc('font', **font)
-
-        color_list = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
-                      "#B429FF"]
-    else:
-        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
-
-        # from .plot_style import prt_colours
-    # color_list = prt_colours
-
-    range_list = []
-    handles = []
-    count = 0
-    fig = None
-
-    for key, samples in sampledict.items():
-        if prt_plot_style and count > len(color_list):
-            print("Not enough colors to continue plotting. Please add to the list.")
-            print("Outputting first " + str(count) + " retrievals.")
-            break
-
-        n_samples = len(samples)
-        s = n_samples
-
-        if key not in parameter_plot_indices:
-            parameter_plot_indices[key] = range(len(parameter_names[key]))
-        elif parameter_plot_indices[key] is None:  # same as in the case the key doesn't exists
-            parameter_plot_indices[key] = range(len(parameter_names[key]))
-
-        if key not in parameter_ranges:
-            parameter_ranges[key] = [None] * (max(parameter_plot_indices[key]) + 1)
-
-        data_list = []
-        labels_list = []
-
-        if use_labels_as_titles:
-            titles_list = None  # if titles is None, labels are automatically used
-        else:
-            titles_list = []
-
-        best_fit = None
-
-        if plot_best_fit:
-            best_fit = []
-            best_fit_ind = np.argmax(samples[:, -1])
-            for i in parameter_plot_indices[key]:
-                best_fit.append(samples[best_fit_ind][i])
-
-        range_list = []
-
-        for range_i, i in enumerate(parameter_plot_indices[key]):
-            data_list.append(samples[len(samples) - s:, i])
-            labels_list.append(parameter_names[key][i])
-
-            if not use_labels_as_titles:
-                titles_list.append(rf"p$_{i}$")  # there is no way to make titles disappear, so use a minimal one
-
-            if parameter_ranges[key][i] is None:
-                range_mean = np.mean(samples[len(samples) - s:, i])
-                range_std = np.std(samples[len(samples) - s:, i])
-                low = range_mean - 4 * range_std
-                high = range_mean + 4 * range_std
-
-                if count > 0:
-                    if low > range_list[range_i][0]:
-                        low = range_list[range_i][0]
-                    if high < range_list[range_i][1]:
-                        high = range_list[range_i][1]
-                    range_take = (low, high)
-                    range_list[range_i] = range_take
-                else:
-                    range_list.append((low, high))
-            else:
-                range_take = (parameter_ranges[key][i][0], parameter_ranges[key][i][1])
-                range_list.append(range_take)
-
-        if parameter_plot_indices is not None and true_values is not None:
-            truths_list = []
-
-            if plot_best_fit:
-                best_fit_ind = np.argmax(samples[:, -1])
-
-                for i in parameter_plot_indices[key]:
-                    truths_list.append(samples[best_fit_ind][i])
-            else:
-                for i in parameter_plot_indices[key]:
-                    truths_list.append(true_values[key][i])
-        else:
-            truths_list = None
-
-        # fig = plt.figure(figsize = (60,60),dpi=80)
-        label_kwargs = None
-        title_kwargs = None
-        hist_kwargs = None
-        hist2d_kwargs = {}
-        contour_kwargs = None
-        if "label_kwargs" in kwargs.keys():
-            label_kwargs = kwargs["label_kwargs"]
-        if "title_kwargs" in kwargs.keys():
-            title_kwargs = kwargs["title_kwargs"]
-        if "hist_kwargs" in kwargs.keys():
-            hist_kwargs = kwargs["hist_kwargs"]
-        if "hist2d_kwargs" in kwargs.keys():
-            hist2d_kwargs = kwargs["hist2d_kwargs"]
-        if "contour_kwargs" in kwargs.keys():
-            contour_kwargs = kwargs["contour_kwargs"]
-
-        if count == 0:
-            fig = corner.corner(data=np.array(data_list).T,
-                                bins=20,
-                                range=range_list,
-                                weights=None,
-                                color=color_list[count],
-                                hist_bin_factor=1,
-                                smooth=True,
-                                smooth1d=None,
-                                labels=labels_list,
-                                label_kwargs=label_kwargs,
-                                titles=titles_list,
-                                show_titles=True,
-                                title_fmt=".2f",
-                                title_kwargs=title_kwargs,
-                                truths=truths_list,
-                                truth_color='r',
-                                scale_hist=False,
-                                quantiles=[0.16, 0.5, 0.84],
-                                verbose=False,
-                                fig=None,
-                                max_n_ticks=5,
-                                top_ticks=False,
-                                use_math_text=False,
-                                reverse=False,
-                                labelpad=0.0,
-                                plot_contours=True,
-                                contour_kwargs=contour_kwargs,
-                                hist_kwargs=hist_kwargs,
-                                levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
-                                **hist2d_kwargs,
-                                )
-            count += 1
-        else:
-            corner.corner(data=np.array(data_list).T,
-                          bins=20,
-                          range=range_list,
-                          weights=None,
-                          color=color_list[count],
-                          hist_bin_factor=1,
-                          smooth=True,
-                          smooth1d=None,
-                          labels=labels_list,
-                          label_kwargs=label_kwargs,
-                          titles=titles_list,
-                          show_titles=True,
-                          title_fmt=".2f",
-                          title_kwargs=title_kwargs,
-                          truths=truths_list,
-                          truth_color='r',
-                          scale_hist=False,
-                          quantiles=[0.16, 0.5, 0.84],
-                          verbose=False,
-                          fig=None,
-                          max_n_ticks=5,
-                          top_ticks=False,
-                          use_math_text=False,
-                          reverse=False,
-                          labelpad=0.0,
-                          plot_contours=True,
-                          contour_kwargs=contour_kwargs,
-                          hist_kwargs=hist_kwargs,
-                          levels=[1 - np.exp(-0.5), 1 - np.exp(-1.5), 1 - np.exp(-2.5)],
-                          **hist2d_kwargs,
-                          )
-            count += 1
-
-        if short_name is None:
-            label = key
-        else:
-            label = short_name[key]
-
-        handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
-
-    if legend:
-        fig.get_axes()[2].legend(handles=handles,
-                                 loc='upper right')
-
-    if output_file is not None:
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
-
-    return fig
-
-
 def nice_corner(samples,
                 parameter_names,
                 output_file,
@@ -827,3 +560,105 @@ def nice_corner(samples,
     plt.savefig(output_file)
     # plt.show()
     # plt.clf()
+
+
+def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_fractions=None, co_ratio=0.55,
+                            log10_metallicity=0., return_opacities=False, **kwargs):
+    import matplotlib.pyplot as plt
+
+    def __compute_opacities(_pressures, _temperatures):
+        """ Method to calculate and return the line opacities (assuming an abundance
+        of 100% for the individual species) of the Radtrans object. This method
+        updates the line_struc_kappas attribute within the Radtrans class. For the
+        low resolution (`c-k`) mode, the wavelength-mean within every frequency bin
+        is returned.
+
+            Args:
+                _temperatures:
+                    the atmospheric temperature in K, at each atmospheric layer
+                    (1-d numpy array, same length as pressure array).
+
+            Returns:
+                * wavelength in cm (1-d numpy array)
+                * dictionary of opacities, keys are the names of the line_species
+                  dictionary, entries are 2-d numpy arrays, with the shape
+                  being (number of frequencies, number of atmospheric layers).
+                  Units are cm^2/g, assuming an absorber abundance of 100 % for all
+                  respective species.
+
+        """
+
+        # Function to calc flux, called from outside
+        _opacities = radtrans._interpolate_species_opacities(
+            pressures=_pressures,
+            temperatures=_temperatures,
+            n_g=radtrans.lines_loaded_opacities['g_gauss'].size,
+            n_frequencies=radtrans.frequencies.size,
+            line_opacities_grid=radtrans.lines_loaded_opacities['opacity_grid'],
+            line_opacities_temperature_profile_grid=radtrans.lines_loaded_opacities['temperature_profile_grid'],
+            has_custom_line_opacities_tp_grid=radtrans.lines_loaded_opacities['has_custom_tp_grid'],
+            line_opacities_temperature_grid_size=radtrans.lines_loaded_opacities['temperature_grid_size'],
+            line_opacities_pressure_grid_size=radtrans.lines_loaded_opacities['pressure_grid_size']
+        )
+
+        _opacities_dict = {}
+
+        weights_gauss = radtrans.lines_loaded_opacities['weights_gauss'].reshape(
+            (len(radtrans.lines_loaded_opacities['weights_gauss']), 1, 1)
+        )
+
+        for i, s in enumerate(radtrans.line_species):
+            _opacities_dict[s] = np.sum(_opacities[:, :, i, :] * weights_gauss, axis=0)
+
+        return cst.c / radtrans.frequencies, _opacities_dict
+
+    temperatures = np.array(temperature)
+    pressure_bar = np.array(pressure_bar)
+
+    temperatures = temperatures.reshape(1)
+    pressure_bar = pressure_bar.reshape(1)
+
+    pressures = pressure_bar * 1e6
+
+    wavelengths, opacities = __compute_opacities(pressures, temperatures)
+    wavelengths *= 1e4  # cm to um
+
+    opacities_weights = {}
+
+    if mass_fractions is None:
+        for s in species:
+            opacities_weights[s] = 1.
+    elif mass_fractions == 'eq':
+        from .chemistry import interpolate_mass_fractions_chemical_table
+
+        mass_fractions = interpolate_mass_fractions_chemical_table(
+            co_ratios=co_ratio * np.ones_like(temperatures),
+            log10_metallicities=log10_metallicity * np.ones_like(temperatures),
+            temperatures=temperatures,
+            pressures=pressure_bar
+        )
+
+        for s in species:
+            opacities_weights[s] = mass_fractions[s.split('_')[0]]
+    else:
+        for s in species:
+            opacities_weights[s] = mass_fractions[s]
+
+    if return_opacities:
+        opacities_dict = {}
+
+        for s in species:
+            opacities_dict[s] = [
+                wavelengths,
+                opacities_weights[s] * opacities[s]
+            ]
+
+        return opacities_dict
+    else:
+        for s in species:
+            plt.plot(
+                wavelengths,
+                opacities_weights[s] * opacities[s],
+                label=s,
+                **kwargs
+            )

@@ -10,12 +10,12 @@ from scipy.interpolate import interp1d
 
 from petitRADTRANS import phoenix
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.physics import flux_hz2flux_cm
 from petitRADTRANS import prt_molmass
 from petitRADTRANS.config import petitradtrans_config
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
+from petitRADTRANS.physics import flux_hz2flux_cm
 from petitRADTRANS.utils import LockedDict
 
 
@@ -2223,7 +2223,7 @@ class Radtrans:
 
         return np.array(bin_edges)
 
-    def calculate_flux(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity,
+    def calculate_flux(self, temperatures, mass_fractions, mean_molar_masses, surface_gravity, planet_radius=None,
                        opaque_cloud_top_pressure=None,
                        clouds_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
                        cloud_particles_radius_distribution="lognormal", cloud_a_hansen=None, cloud_b_hansen=None,
@@ -2234,11 +2234,12 @@ class Radtrans:
                        star_effective_temperature=None, star_radius=None, orbit_semi_major_axis=None,
                        star_irradiation_angle=0,
                        reflectances=None, emissivities=None,
-                       return_contribution=False,
                        add_cloud_scattering_as_absorption=False,
                        additional_absorption_opacities_function=None, additional_scattering_opacities_function=None,
-                       planet_radius=None, return_photosphere_radius=False, return_rosseland_optical_depths=False,
-                       return_cloud_contribution=False, frequencies_to_wavelengths=True
+                       frequencies_to_wavelengths=True,
+                       return_contribution=False,
+                       return_photosphere_radius=False, return_rosseland_optical_depths=False,
+                       return_cloud_contribution=False
                        ):
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -2254,6 +2255,8 @@ class Radtrans:
                     (1-d numpy array, same length as pressure array).
                 surface_gravity (float):
                     Surface gravity in cgs. Vertically constant for emission spectra.
+                planet_radius: planet radius at maximum pressure in cm. Only used to calculate the planet's changing
+                    photospheric radius as function of wavelength, if return_photosphere_radius is True.
                 opaque_cloud_top_pressure (Optional[float]):
                     Pressure, in bar, where opaque cloud deck is added to the absorption opacity.
                 clouds_particles_mean_radii (Optional):
@@ -2316,8 +2319,6 @@ class Radtrans:
                     # TODO
                 emissivities (Optional):
                     # TODO
-                return_contribution (Optional[bool]):
-                    If ``True`` the emission contribution function will be calculated. Default is ``False``.
                 add_cloud_scattering_as_absorption (Optional[bool]):
                     If ``True``, 20 % of the cloud scattering opacity will be added to the absorption opacity,
                     introduced to test for the effect of neglecting scattering.  # TODO is it worth keeping?
@@ -2339,18 +2340,17 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
-                planet_radius: planet radius at maximum pressure in cm. If specified, the planet's changing
-                    photospheric radius as function of wavelength will be calculated and saved in the self.phot_radius
-                    attribute (in cm).
+                frequencies_to_wavelengths (Optional[bool]):
+                    if True, convert the frequencies (Hz) output to wavelengths (cm),
+                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-2.cm-2/cm)
+                return_contribution (Optional[bool]):
+                    If ``True`` the emission contribution function will be calculated. Default is ``False``.
                 return_photosphere_radius (Optional[bool]):
                     if True, the photosphere radius is calculated and returned
                 return_rosseland_optical_depths (Optional[bool]):
                     if True, the Rosseland opacities and optical depths are calculated and returned
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated
-                frequencies_to_wavelengths (Optional[bool]):
-                    if True, convert the frequencies (Hz) output to wavelengths (cm),
-                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-2.cm-2/cm)
         """
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
@@ -2502,7 +2502,7 @@ class Radtrans:
 
         if frequencies_to_wavelengths:
             return (
-                self._frequencies / cst.c,
+                cst.c / self._frequencies,
                 flux_hz2flux_cm(
                     flux_hz=flux,
                     frequency=self._frequencies
@@ -2709,9 +2709,10 @@ class Radtrans:
                                 cloud_f_sed=None, eddy_diffusion_coefficient=None,
                                 haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
                                 gray_opacity=None,
-                                return_contribution=False,
                                 additional_absorption_opacities_function=None,
                                 additional_scattering_opacities_function=None,
+                                frequencies_to_wavelengths=True,
+                                return_contribution=False,
                                 return_cloud_contribution=False, return_radius_hydrostatic_equilibrium=False):
         """ Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -2785,10 +2786,6 @@ class Radtrans:
                 gray_opacity (Optional[float]):
                     Gray opacity value, to be added to the opacity at all
                     pressures and wavelengths (units :math:`\\rm cm^2/g`)
-                return_contribution (Optional[bool]):
-                    If ``True`` the transmission and emission
-                    contribution function will be
-                    calculated. Default is ``False``.
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
@@ -2807,6 +2804,12 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
+                frequencies_to_wavelengths (Optional[bool]):
+                    if True, convert the frequencies (Hz) output to wavelengths (cm)
+                return_contribution (Optional[bool]):
+                    If ``True`` the transmission and emission
+                    contribution function will be
+                    calculated. Default is ``False``.
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated and returned
                 return_radius_hydrostatic_equilibrium (Optional[bool]):
@@ -2871,7 +2874,14 @@ class Radtrans:
         if return_radius_hydrostatic_equilibrium:
             additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium
 
-        return self._frequencies, transit_radii, additional_outputs
+        if frequencies_to_wavelengths:
+            return (
+                cst.c / self._frequencies,
+                transit_radii,
+                additional_outputs
+            )
+        else:
+            return self._frequencies, transit_radii, additional_outputs
 
     @staticmethod
     def compute_pressure_hydrostatic_equilibrium(
@@ -3017,7 +3027,7 @@ class Radtrans:
                 colliding_species = collision.split('-')
 
                 for collision_dict in colliding_species:
-                    weight = weight * prt_molmass.getMM(collision_dict)
+                    weight = weight * prt_molmass.get_species_molar_mass(collision_dict)
 
                 # Update keys one-by-one to keep the LockedDict
                 self._cias_loaded_opacities[collision]['molecules'] = colliding_species

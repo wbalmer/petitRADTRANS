@@ -2,7 +2,26 @@
 """
 import numpy as np
 
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 import petitRADTRANS.physical_constants as cst
+
+
+# TODO are these actually used outside of calc_met?
+def _get_log_gs():
+    return np.array([12., 10.93])
+
+
+def _get_log_mets():
+    return np.array([1.05, 1.38, 2.7, 8.43, 7.83, 8.69, 4.56, 7.93, 6.24, 7.6, 6.45, 7.51, 5.41,
+                     7.12, 5.5, 6.4, 5.03, 6.34, 3.15, 4.95, 3.93, 5.64, 5.43, 7.5,
+                     4.99, 6.22, 4.19, 4.56, 3.04, 3.65, 3.25, 2.52, 2.87, 2.21, 2.58,
+                     1.46, 1.88])
+
+
+def calc_met(f):
+    # TODO unused?
+    return np.log10((f / (np.sum(1e1 ** _get_log_gs()) + f * np.sum(1e1 ** _get_log_mets())))
+                    / (1. / (np.sum(1e1 ** _get_log_gs()) + np.sum(1e1 ** _get_log_mets()))))
 
 
 def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
@@ -132,7 +151,9 @@ def planck_function_hz(temperature, frequency):
             Array containing the frequency in Hz.
     """
 
-    _planck_function = 2. * cst.h * frequency ** 3. / cst.c ** 2. / (np.exp(cst.h * frequency / cst.kB / temperature) - 1.)
+    _planck_function = (
+        2. * cst.h * frequency ** 3. / cst.c ** 2. / (np.exp(cst.h * frequency / cst.kB / temperature) - 1.)
+    )
 
     return _planck_function
 
@@ -152,9 +173,35 @@ def planck_function_hz_temperature_derivative(temperature, frequency):
     """
     _planck_function = planck_function_hz(temperature, frequency)
     _planck_function /= np.exp(cst.h * frequency / cst.kB / temperature) - 1.
-    _planck_function *= np.exp(cst.h * frequency / cst.kB / temperature) * cst.h * frequency / cst.kB / temperature ** 2.
+    _planck_function *= (
+        np.exp(cst.h * frequency / cst.kB / temperature) * cst.h * frequency / cst.kB / temperature ** 2.
+    )
 
     return _planck_function
+
+
+def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
+    """Re-bin the spectrum using the Fortran rebin_spectrum function, and catch errors occurring there.
+    The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
+
+    Args:
+        input_wavelengths: wavelengths of the input spectrum
+        input_spectrum: spectrum to re-bin
+        rebinned_wavelengths: wavelengths to re-bin the spectrum to. Must be contained within input_wavelengths
+
+    Returns:
+        The re-binned spectrum on the re-binned wavelengths
+    """
+    rebinned_spectrum = frebin.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
+
+    if np.all(rebinned_spectrum == -1):
+        raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
+    elif np.any(rebinned_spectrum < 0):
+        raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs "
+                         f"(min input spectrum value: {np.min(input_spectrum)}, "
+                         f"min re-binned spectrum value: {np.min(rebinned_spectrum)})")
+
+    return rebinned_spectrum
 
 
 def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma, gravities, intrinsic_temperature,

@@ -10,8 +10,7 @@ import numpy as np
 
 from petitRADTRANS.ccf.ccf_core import cross_correlate_matrices, co_add_cross_correlation
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.physics import doppler_shift
-from petitRADTRANS.utils import rebin_spectrum
+from petitRADTRANS.physics import doppler_shift, rebin_spectrum
 
 
 def _check_spectrum_wavelengths_rules(wavelengths, spectrum, wavelength_name='wavelengths', spectra_name='spectra'):
