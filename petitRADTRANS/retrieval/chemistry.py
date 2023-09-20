@@ -1,5 +1,7 @@
 import copy as cp
+
 import numpy as np
+
 from petitRADTRANS import chemistry as pm
 from petitRADTRANS.retrieval import cloud_cond as fc
 from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW

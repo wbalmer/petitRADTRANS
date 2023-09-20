@@ -3,8 +3,8 @@ import os
 import sys
 
 import numpy as np
-from petitRADTRANS.config.configuration import petitradtrans_config
 
+from petitRADTRANS.config.configuration import petitradtrans_config
 from .data import Data
 from .parameter import Parameter
 

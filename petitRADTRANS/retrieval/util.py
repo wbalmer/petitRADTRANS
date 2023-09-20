@@ -9,9 +9,10 @@ import sys
 from typing import Tuple
 
 import numpy as np
-from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.prt_molmass import getMM
 from scipy.special import erfcinv
+
+from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.prt_molmass import get_species_molar_mass
 
 SQRT2 = np.sqrt(2)
 
@@ -117,7 +118,7 @@ def calc_MMW(abundances):
     for key in abundances.keys():
         # exo_k resolution
         spec = key.split("_R_")[0]
-        mmw += abundances[key] / getMM(spec)
+        mmw += abundances[key] / get_species_molar_mass(spec)
 
     return 1.0 / mmw
 
@@ -142,7 +143,7 @@ def get_MMW_from_nfrac(n_frac):
     mass = 0.0
     for key, value in n_frac.items():
         spec = key.split("_R_")[0]
-        mass += value * getMM(spec)
+        mass += value * get_species_molar_mass(spec)
     return mass
 
 
@@ -160,7 +161,7 @@ def mass_to_number(m_frac):
 
     for key, value in m_frac.items():
         spec = key.split("_R_")[0]
-        n_frac[key] = value / getMM(spec) * mmw
+        n_frac[key] = value / get_species_molar_mass(spec) * mmw
     return n_frac
 
 
@@ -178,7 +179,7 @@ def number_to_mass(n_fracs):
 
     for key, value in n_fracs.items():
         spec = key.split("_R_")[0]
-        m_frac[key] = value * getMM(spec) / mmw
+        m_frac[key] = value * get_species_molar_mass(spec) / mmw
     return m_frac
 
 
@@ -320,7 +321,7 @@ def bin_species_exok(species, resolution):
     masses = {}
 
     for spec in species:
-        masses[spec.split('_')[0]] = getMM(spec)
+        masses[spec.split('_')[0]] = get_species_molar_mass(spec)
 
     rebin_ck_line_opacities(
         radtrans=atmosphere,

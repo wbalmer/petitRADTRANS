@@ -1,4 +1,3 @@
-# Input / output, general run definitions
 import copy as cp
 import json
 import logging
@@ -6,21 +5,18 @@ import os
 import sys
 import warnings
 
-import numpy as np
-
-# Plotting
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
+from scipy.stats import binned_statistic
+
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config.configuration import petitradtrans_config
-# Read own packages
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
+from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
-from petitRADTRANS.utils import running_mean
-from scipy.stats import binned_statistic
-
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.retrieval.util import bin_species_exok
 
 

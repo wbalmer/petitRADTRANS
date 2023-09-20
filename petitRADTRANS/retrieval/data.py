@@ -2,8 +2,8 @@ import logging
 import os
 import sys
 
-from astropy.io import fits
 import numpy as np
+from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 import petitRADTRANS.physical_constants as cst
