@@ -239,5 +239,5 @@ def remove_mask(data, data_uncertainties):
 
 def savez_compressed_record(file, numpy_record_array):
     """Apply numpy.savez_compressed on a record array."""
-    data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.table_species}
+    data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
     np.savez_compressed(file, **data_dict)
