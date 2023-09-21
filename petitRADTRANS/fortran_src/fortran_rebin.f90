@@ -88,7 +88,7 @@ module rebin_utils
             integer, intent(in) :: n_rebin
             double precision, intent(out) :: rebinned_spectrum(n_rebin)
 
-            write(*, *) "rebin.f90 Error: output wavelength array size must be >= 2, but is of size ", &
+            write(*, *) "fortran_rebin Error: output wavelength array size must be >= 2, but is of size ", &
                 n_rebin
 
             rebinned_spectrum = -1d0
@@ -107,7 +107,7 @@ module rebin_utils
             double precision, intent(in) :: rebin_bin_max
             double precision, intent(out) :: rebinned_spectrum(n_rebin)
 
-            write(*, *) "rebin.f90 Error: input wavelength array needs to extend at least half" // &
+            write(*, *) "fortran_rebin Error: input wavelength array needs to extend at least half" // &
                  " a bin width further than output wavelength array on both sides:"
             write(*, *) "    input interval: ", input_wavelengths_min, "--", input_wavelengths_max
             write(*, *) " required interval: ", rebin_bin_min, "--", rebin_bin_max
@@ -156,7 +156,7 @@ module fortran_rebin
                     .or. (input_wavelengths(n_wavelengths) <= rebin_bin_high(n_rebin))) then
                 call write_out_of_bounds_error(&
                     input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), n_rebin, &
+                    rebin_bin_low(1), rebin_bin_high(n_rebin), n_rebin, &
                     rebinned_spectrum &
                 )
 
@@ -201,7 +201,7 @@ module fortran_rebin
 
                 call write_out_of_bounds_error(&
                     input_wavelengths(1), input_wavelengths(n_wavelengths), &
-                    rebin_bin_low(1), rebin_bin_high(n_wavelengths), n_rebin, &
+                    rebin_bin_low(1), rebin_bin_high(n_rebin), n_rebin, &
                     rebinned_spectrum &
                 )
 
