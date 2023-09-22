@@ -35,6 +35,7 @@ dependencies = [
     "scipy",
     "astropy",
     "corner",
+    "exo_k",
     "h5py",
     "matplotlib",
     "molmass",

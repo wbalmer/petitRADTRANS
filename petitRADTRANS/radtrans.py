@@ -3239,9 +3239,7 @@ class Radtrans:
             # Initialize an empty array that has the same spectral entries as
             # pRT object has nominally. Only fill those values where the k-tables
             # have entries.
-            ret_val = np.zeros(
-                g_size * frequencies.size * size_temperature_profile
-            ).reshape((g_size, frequencies.size, 1, size_temperature_profile))
+            ret_val = np.zeros((g_size, frequencies.size, 1, size_temperature_profile))
 
             # Indices in retVal to be filled with read-in opacities
             index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
@@ -3250,8 +3248,7 @@ class Radtrans:
             index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
                         (_frequencies >= frequencies[-1] * (1. - 1e-10))
 
-            ret_val[:, index_fill, 0, :] = \
-                line_opacities_grid[:, index_use, 0, :]
+            ret_val[:, index_fill, 0, :] = line_opacities_grid[:, index_use, 0, :]
             line_opacities_grid = ret_val
 
         # Down-sample opacities in lbl mode if requested
@@ -3293,7 +3290,7 @@ class Radtrans:
             ret_val[ret_val < 0.] = 0.
 
             # Divide by mass to convert cross-sections to opacities
-            mol_mass = float(f['mol_mass'][0])
+            mol_mass = f['mol_mass'][()]
             line_opacities_grid = ret_val / mol_mass / cst.amu
 
         return line_opacities_grid
@@ -3402,8 +3399,7 @@ class Radtrans:
                         file_path_hdf5 = None
                 else:
                     print("HDF5 opacity file not found, loading from .dat...")
-                    if self._line_opacity_mode != 'c-k':
-                        warnings.warn(self.__dat_opacity_files_warning_message)
+                    warnings.warn(self.__dat_opacity_files_warning_message)
 
                 self._lines_loaded_opacities['temperature_pressure_grid'][species], \
                     custom_line_paths[species], \

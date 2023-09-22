@@ -624,6 +624,570 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
     print("Successfully converted cloud opacities")
 
 
+def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                                  rewrite=False, output_directory=None):
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+    import petitRADTRANS.physical_constants as cst
+    from petitRADTRANS.radtrans import Radtrans
+
+    # Initialize infos
+    kurucz_website = 'http://kurucz.harvard.edu/'
+    molliere2019_doi = '10.1051/0004-6361/201935470'
+    burrows2003_doi = '10.1086/345412'
+    mckemmish2019_doi = '10.1093/mnras/stz1818'
+
+    molaverdikhani_email = 'karan.molaverdikhani@colorado.edu'
+
+    kurucz_description = 'gamma_nat + V dW, sigma_therm'
+    k_chubb_email = 'klc20@st-andrews.ac.uk'
+
+    # None is used for already referenced HDF5 files
+    doi_dict = {
+        'Al': kurucz_website,
+        'Al+': kurucz_website,
+        'AlH': None,
+        'AlO': None,
+        'C2H2': None,
+        'C2H4': None,
+        'Ca': kurucz_website,
+        'Ca+': kurucz_website,
+        'CaH': None,
+        'CH4': None,
+        'CO_12_HITEMP': molliere2019_doi,
+        'CO_13_HITEMP': molliere2019_doi,
+        'CO_13_Chubb': None,
+        'CO_all_iso_Chubb': None,
+        'CO_all_iso_HITEMP': molliere2019_doi,
+        'CO2': None,
+        'CrH': None,
+        'Fe': kurucz_website,
+        'Fe+': kurucz_website,
+        'FeH': None,
+        'H2O_Exomol': None,
+        'H2O_HITEMP': molliere2019_doi,
+        'H2S': None,
+        'HCN': None,
+        'K_allard': molliere2019_doi,
+        'K_burrows': burrows2003_doi,
+        'K_lor_cut': molliere2019_doi,
+        'Li': kurucz_website,
+        'Mg': kurucz_website,
+        'Mg+': kurucz_website,
+        'MgH': None,
+        'MgO': None,
+        'Na_allard': molliere2019_doi,
+        'Na_burrows': burrows2003_doi,
+        'Na_lor_cut': molliere2019_doi,
+        'NaH': None,
+        'NH3': None,
+        'O': kurucz_website,
+        'O+': kurucz_website,  # TODO not in the docs
+        'O2': None,
+        'O3': molliere2019_doi,
+        'OH': None,
+        'PH3': None,
+        'SH': None,
+        'Si': kurucz_website,
+        'Si+': kurucz_website,
+        'SiO': None,
+        'SiO2': None,
+        'Ti': kurucz_website,
+        'Ti+': kurucz_website,
+        'TiO_48_Exomol': mckemmish2019_doi,
+        'TiO_48_Plez': molliere2019_doi,
+        'TiO_all_Exomol': mckemmish2019_doi,
+        'TiO_all_Plez': molliere2019_doi,
+        'V': kurucz_website,
+        'V+': kurucz_website,
+        'VO': None,
+        'VO_Plez': molliere2019_doi
+    }
+    contributor_dict = {
+        'Al': kurucz_description,
+        'Al+': kurucz_description,
+        'AlH': k_chubb_email,
+        'AlO': k_chubb_email,
+        'C2H2': k_chubb_email,
+        'C2H4': k_chubb_email,
+        'Ca': molaverdikhani_email,
+        'Ca+': molaverdikhani_email,
+        'CaH': k_chubb_email,
+        'CH4': k_chubb_email,
+        'CO_12_HITEMP': 'None',
+        'CO_13_HITEMP': 'None',
+        'CO_13_Chubb': k_chubb_email,
+        'CO_all_iso_Chubb': k_chubb_email,
+        'CO_all_iso_HITEMP': 'None',
+        'CO2': k_chubb_email,
+        'CrH': k_chubb_email,
+        'Fe': molaverdikhani_email,
+        'Fe+': molaverdikhani_email,
+        'FeH': k_chubb_email,
+        'H2O_Exomol': k_chubb_email,
+        'H2O_HITEMP': 'None',
+        'H2S': k_chubb_email,
+        'HCN': k_chubb_email,
+        'K_allard': 'None',
+        'K_burrows': 'None',
+        'K_lor_cut': 'None',
+        'Li': molaverdikhani_email,
+        'Mg': molaverdikhani_email,
+        'Mg+': molaverdikhani_email,
+        'MgH': k_chubb_email,
+        'MgO': k_chubb_email,
+        'Na_allard': 'None',
+        'Na_burrows': 'None',
+        'Na_lor_cut': 'None',
+        'NaH': k_chubb_email,
+        'NH3': k_chubb_email,
+        'O': molaverdikhani_email,
+        'O+': molaverdikhani_email,  # TODO not in the docs
+        'O2': k_chubb_email,
+        'O3': 'None',
+        'OH': k_chubb_email,
+        'PH3': k_chubb_email,
+        'SH': k_chubb_email,
+        'Si': molaverdikhani_email,
+        'Si+': molaverdikhani_email,
+        'SiO': k_chubb_email,
+        'SiO2': k_chubb_email,
+        'Ti': molaverdikhani_email,
+        'Ti+': molaverdikhani_email,
+        'TiO_48_Exomol': k_chubb_email,
+        'TiO_48_Plez': 'None',
+        'TiO_all_Exomol': k_chubb_email,
+        'TiO_all_Plez': 'None',
+        'V': molaverdikhani_email,
+        'V+': molaverdikhani_email,
+        'VO': k_chubb_email,
+        'VO_Plez': 'None'
+    }
+    description_dict = {
+        'Al': kurucz_description,
+        'Al+': kurucz_description,
+        'AlH': 'None',
+        'AlO': 'None',
+        'C2H2': 'None',
+        'C2H4': 'None',
+        'Ca': kurucz_description,
+        'Ca+': kurucz_description,
+        'CaH': 'None',
+        'CH4': 'None',
+        'CO_12_HITEMP': 'None',
+        'CO_13_HITEMP': 'None',
+        'CO_13_Chubb': 'None',
+        'CO_all_iso_Chubb': 'None',
+        'CO_all_iso_HITEMP': 'None',
+        'CO2': 'None',
+        'CrH': 'None',
+        'Fe': kurucz_description,
+        'Fe+': kurucz_description,
+        'FeH': 'None',
+        'H2O_Exomol': 'None',
+        'H2O_HITEMP': 'None',
+        'H2S': 'None',
+        'HCN': 'None',
+        'K_allard': 'Allard wings',
+        'K_burrows': 'Burrows wings',
+        'K_lor_cut': 'Lorentzian wings',
+        'Li': kurucz_description,
+        'Mg': kurucz_description,
+        'Mg+': kurucz_description,
+        'MgH': 'None',
+        'MgO': 'None',
+        'Na_allard': 'new Allard wings',  # TODO difference with "old" Allard wings?
+        'Na_burrows': 'Burrows wings',
+        'Na_lor_cut': 'Lorentzian wings',
+        'NaH': 'None',
+        'NH3': 'None',
+        'O': kurucz_description,
+        'O+': kurucz_description,  # TODO not in the docs
+        'O2': 'None',
+        'O3': 'None',
+        'OH': 'None',
+        'PH3': 'None',
+        'SH': 'None',
+        'Si': kurucz_description,
+        'Si+': kurucz_description,
+        'SiO': 'None',
+        'SiO2': 'None',
+        'Ti': kurucz_description,
+        'Ti+': kurucz_description,
+        'TiO_48_Exomol': 'None',
+        'TiO_48_Plez': 'None',
+        'TiO_all_Exomol': 'None',
+        'TiO_all_Plez': 'None',
+        'V': kurucz_description,
+        'V+': kurucz_description,
+        'VO': 'None',
+        'VO_Plez': 'None'
+    }
+    molmass_dict = {
+        'Al': get_species_molar_mass('Al'),
+        'Al+': get_species_molar_mass('Al') - get_species_molar_mass('e-'),
+        'AlH': get_species_molar_mass('AlH'),
+        'AlO': get_species_molar_mass('AlO'),
+        'C2H2': get_species_molar_mass('C2H2'),
+        'C2H4': get_species_molar_mass('C2H4'),
+        'Ca': get_species_molar_mass('Ca'),
+        'Ca+': get_species_molar_mass('Ca') - get_species_molar_mass('e-'),
+        'CaH': get_species_molar_mass('CaH'),
+        'CH4': get_species_molar_mass('CH4'),
+        'CO_12_HITEMP': get_species_molar_mass('12CO'),
+        'CO_13_HITEMP': get_species_molar_mass('13CO'),
+        'CO_13_Chubb': get_species_molar_mass('13CO'),
+        'CO_all_iso_Chubb': get_species_molar_mass('CO'),
+        'CO_all_iso_HITEMP': get_species_molar_mass('CO'),
+        'CO2': get_species_molar_mass('CO2'),
+        'CrH': get_species_molar_mass('CrH'),
+        'Fe': get_species_molar_mass('Fe'),
+        'Fe+': get_species_molar_mass('Fe+'),
+        'FeH': get_species_molar_mass('FeH'),
+        'H2O_Exomol': get_species_molar_mass('H2O'),
+        'H2O_HITEMP': get_species_molar_mass('H2O'),
+        'H2S': get_species_molar_mass('H2S'),
+        'HCN': get_species_molar_mass('HCN'),
+        'K_allard': get_species_molar_mass('K'),
+        'K_burrows': get_species_molar_mass('K'),
+        'K_lor_cut': get_species_molar_mass('K'),
+        'Li': get_species_molar_mass('Li'),
+        'Mg': get_species_molar_mass('Mg'),
+        'Mg+': get_species_molar_mass('Mg') - get_species_molar_mass('e-'),
+        'MgH':  get_species_molar_mass('MgH'),
+        'MgO':  get_species_molar_mass('MgO'),
+        'Na_allard':  get_species_molar_mass('Na'),
+        'Na_burrows': get_species_molar_mass('Na'),
+        'Na_lor_cut': get_species_molar_mass('Na'),
+        'NaH': get_species_molar_mass('NaH'),
+        'NH3': get_species_molar_mass('NH3'),
+        'O': get_species_molar_mass('O'),
+        'O+': get_species_molar_mass('O') - get_species_molar_mass('e-'),  # TODO not in the docs
+        'O2': get_species_molar_mass('O2'),
+        'O3': get_species_molar_mass('O3'),
+        'OH': get_species_molar_mass('OH'),
+        'PH3': get_species_molar_mass('PH3'),
+        'SH': get_species_molar_mass('SH'),
+        'Si': get_species_molar_mass('Si'),
+        'Si+': get_species_molar_mass('Si') - get_species_molar_mass('e-'),
+        'SiO': get_species_molar_mass('SiO'),
+        'SiO2': get_species_molar_mass('SiO2'),
+        'Ti': get_species_molar_mass('Ti'),
+        'Ti+': get_species_molar_mass('Ti') - get_species_molar_mass('e-'),
+        'TiO_48_Exomol': get_species_molar_mass('48TiO'),
+        'TiO_48_Plez': get_species_molar_mass('48TiO'),
+        'TiO_all_Exomol': get_species_molar_mass('TiO'),
+        'TiO_all_Plez': get_species_molar_mass('TiO'),
+        'V': get_species_molar_mass('V'),
+        'V+': get_species_molar_mass('V') - get_species_molar_mass('e-'),
+        'VO': get_species_molar_mass('VO'),
+        'VO_Plez': get_species_molar_mass('VO')
+    }
+
+    # Loading
+    print("Loading default files names...")
+    line_paths = np.loadtxt(os.path.join(path_input_data, 'opa_input_files', 'opa_filenames.txt'), dtype=str)
+
+    print("Loading default PT grid...")
+
+    opacities_temperature_profile_grid = np.genfromtxt(
+        os.path.join(path_input_data, 'opa_input_files', 'opa_PT_grid.dat')
+    )
+
+    opacities_temperature_profile_grid = np.flip(opacities_temperature_profile_grid, axis=1)
+
+    opacities_temperatures = np.unique(opacities_temperature_profile_grid[:, 0])
+    opacities_pressures = np.unique(opacities_temperature_profile_grid[:, 1])  # grid is already in bar
+
+    print("Loading correlated-k g grid...")
+    buffer = np.genfromtxt(
+        os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
+    )
+    g_gauss = np.array(buffer[:, 0], dtype='d', order='F')
+    weights_gauss = np.array(buffer[:, 1], dtype='d', order='F')
+
+    input_directory = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k')
+
+    if output_directory is None:
+        output_directory_ref = input_directory
+    else:
+        output_directory_ref = copy.deepcopy(output_directory)
+
+    for f in os.scandir(input_directory):
+        if f.is_dir():
+            directory = f.path
+
+            species = directory.rsplit(os.path.sep, 1)[1]
+            not_in_dict = False
+
+            # Check information availability
+            if species not in doi_dict:
+                warnings.warn(f"species '{species}' was not in DOI dict; "
+                              f"add key '{species}' to the script doi_ict to run this conversion")
+                not_in_dict = True
+
+            if species not in contributor_dict:
+                warnings.warn(f"species '{species}' was not in contributor dict; "
+                              f"add key '{species}' to the script contributor_dict to run this conversion")
+                not_in_dict = True
+
+            if species not in description_dict:
+                warnings.warn(f"species '{species}' was not in contributor dict; "
+                              f"add key '{species}' to the script contributor_dict to run this conversion")
+                not_in_dict = True
+
+            if species not in molmass_dict:
+                warnings.warn(f"species '{species}' was not in molar mass dict; "
+                              f"add key '{species}' to the script molmass_dict to run this conversion")
+                not_in_dict = True
+
+            if not_in_dict:
+                print(f" Skipping species '{species}' due to missing species in supplementary info dict...")
+                continue
+
+            if doi_dict[species] is None:
+                print(f"Skipping species '{species}' due species already in HDF5...")
+                continue
+
+            # Check output directory
+            output_directory = os.path.join(output_directory_ref, species)
+
+            if not os.path.isdir(output_directory):
+                os.makedirs(output_directory)
+
+            # Check HDF5 file existence
+            hdf5_opacity_file = os.path.join(output_directory, species + '.ktable.petitRADTRANS.h5')
+
+            if os.path.isfile(hdf5_opacity_file) and not rewrite:
+                __print_skipping_message(hdf5_opacity_file)
+                continue
+
+            # Read dat file
+            print(f"Converting opacities in '{directory}'...")
+
+            custom_pt_grid_file = os.path.join(directory, 'PTpaths.ls')
+            has_custom_grid = False
+            opacities_temperature_profile_grid_ = None
+
+            if os.path.isfile(custom_pt_grid_file):
+                print(" Found custom PT grid")
+                has_custom_grid = True
+
+                # _sort_opa_pt_grid converts bar into cgs
+                custom_grid_data = Radtrans._sort_pressure_temperature_grid(custom_pt_grid_file)
+
+                opacities_temperature_profile_grid_ = custom_grid_data[0]
+                opacities_temperatures_ = np.unique(opacities_temperature_profile_grid_[:, 0])
+                opacities_pressures_ = np.unique(opacities_temperature_profile_grid_[:, 1])
+                opacities_pressures_ *= 1e-6  # cgs to bar
+                line_paths_ = custom_grid_data[1]
+
+                for i, line_path in enumerate(line_paths_):
+                    line_paths_[i] = line_path
+
+                line_paths_ = np.array(line_paths_)
+            else:
+                print(" Using default PT grid")
+
+                opacities_temperatures_ = copy.deepcopy(opacities_temperatures)
+                opacities_pressures_ = copy.deepcopy(opacities_pressures)
+
+                line_paths_ = []
+
+                for f_ in os.scandir(directory):
+                    if f_.is_file():
+                        line_paths_.append(f_.path)
+
+                f_ = []
+
+                for ref_path in line_paths:
+                    for i, line_path in enumerate(line_paths_):
+                        if ref_path in line_path:
+                            f_.append(line_paths_.pop(i))
+
+                            break
+
+                line_paths_ = np.array(f_)
+
+                if line_paths_.size != line_paths.size:
+                    warnings.warn(f"number of opacity files founds in '{directory}' ({line_paths_.size}) "
+                                  f"does not match the expected number of files ({line_paths.size})")
+
+            custom_file_names = ''
+
+            if has_custom_grid:
+                size_tp_grid = opacities_temperature_profile_grid_.shape[0]
+
+                for i_TP in range(size_tp_grid):
+                    custom_file_names = custom_file_names + line_paths_[i_TP] + ':'
+            else:
+                size_tp_grid = opacities_pressures_.size * opacities_temperatures_.size
+
+            molparam_file = os.path.join(directory, 'molparam_id.txt')
+
+            # Convert units and shape
+            if os.path.isfile(molparam_file):
+                print(" Loading isotopic ratio...")
+                with open(molparam_file, 'r') as f2:
+                    isotopic_ratio = float(f2.readlines()[-1])
+            else:
+                raise FileNotFoundError(f"file '{molparam_file}' not found: unable to load isotopic ratio")
+
+            _n_frequencies, _n_g = finput.load_frequencies_g_sizes(path_input_data, species)
+            _frequencies, frequency_bins_edges = finput.load_frequencies(path_input_data, species, _n_frequencies)
+            wavenumbers = _frequencies[::-1] / cst.c  # Hz to cm-1
+            wavenumbers_bins_edges = frequency_bins_edges[::-1] / cst.c  # Hz to cm-1
+            wavelengths = 1 / wavenumbers
+
+            opacities = finput.load_line_opacity_grid(
+                path_input_data,
+                species + ':',
+                _n_frequencies,
+                _n_g,
+                1,
+                size_tp_grid,
+                'c-k',
+                1,  # lbl start index, unused in this case
+                has_custom_grid,
+                custom_file_names
+            )
+            # Opacities are divided by isotopic ratio in loading function
+            cross_sections = opacities * molmass_dict[species] * cst.amu  # opacities to cross-sections
+
+            print(" Reshaping...")
+            # Exo-Mol axis order (pressures, temperatures, wavenumbers, g)
+            cross_sections = cross_sections[:, :, 0, :]  # get rid of useless dimension
+            cross_sections = cross_sections.reshape(
+                (_n_g, _n_frequencies, opacities_temperatures_.size, opacities_pressures_.size)
+            )
+            cross_sections = np.swapaxes(cross_sections, 0, -1)
+            cross_sections = np.swapaxes(cross_sections, 1, -2)
+            cross_sections = cross_sections[:, :, ::-1, :]  # match the wavenumber order
+
+            # Write converted file
+            print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
+
+            with h5py.File(hdf5_opacity_file, "w") as fh5:
+                dataset = fh5.create_dataset(
+                    name='DOI',
+                    data=doi_dict[species]
+                )
+                dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+                dataset.attrs['contributor'] = contributor_dict[species]
+                dataset.attrs['additional_description'] = description_dict[species]
+
+                dataset = fh5.create_dataset(
+                    name='Date_ID',
+                    data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+                )
+                dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                             'at which the table has been created, ' \
+                                             'along with the version of petitRADTRANS'
+
+                dataset = fh5.create_dataset(
+                    name='bin_centers',
+                    data=wavenumbers
+                )
+                dataset.attrs['long_name'] = 'Centers of the wavenumber bins'
+                dataset.attrs['units'] = 'cm^-1'
+
+                dataset = fh5.create_dataset(
+                    name='bin_edges',
+                    data=wavenumbers_bins_edges
+                )
+                dataset.attrs['long_name'] = 'Separations between the wavenumber bins'
+                dataset.attrs['units'] = 'cm^-1'
+
+                dataset = fh5.create_dataset(
+                    name='kcoeff',
+                    data=cross_sections
+                )
+                dataset.attrs['long_name'] = ('Table of the k-coefficients with axes '
+                                              '(pressure, temperature, wavenumber, g space)')
+                dataset.attrs['units'] = 'cm^2/molecule'
+
+                dataset = fh5.create_dataset(
+                    name='method',
+                    data='petit_samples'
+                )
+                dataset.attrs['long_name'] = 'Name of the method used to sample g-space'
+
+                dataset = fh5.create_dataset(
+                    name='mol_mass',
+                    data=molmass_dict[species]
+                )
+                dataset.attrs['long_name'] = 'Mass of the species'
+                dataset.attrs['units'] = 'AMU'
+
+                dataset = fh5.create_dataset(
+                    name='mol_name',
+                    data=species
+                )
+                dataset.attrs['long_name'] = 'Name of the species described'
+
+                dataset = fh5.create_dataset(
+                    name='isotopic_ratio',
+                    data=isotopic_ratio
+                )
+                dataset.attrs['long_name'] = 'Isotopologue occurence rate on Earth'
+
+                dataset = fh5.create_dataset(
+                    name='ngauss',
+                    data=_n_g
+                )
+                dataset.attrs['long_name'] = 'Number of points used to sample the g-space'
+
+                dataset = fh5.create_dataset(
+                    name='p',
+                    data=opacities_pressures_
+                )
+                dataset.attrs['long_name'] = 'Pressure grid'
+                dataset.attrs['units'] = 'bar'
+
+                dataset = fh5.create_dataset(
+                    name='samples',
+                    data=g_gauss
+                )
+                dataset.attrs['long_name'] = 'Abscissas used to sample the k-coefficients in g-space'
+
+                dataset = fh5.create_dataset(
+                    name='t',
+                    data=opacities_temperatures_
+                )
+                dataset.attrs['long_name'] = 'Temperature grid'
+                dataset.attrs['units'] = 'K'
+
+                dataset = fh5.create_dataset(
+                    name='temperature_grid_type',
+                    data='regular'
+                )
+                dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
+                                             '(same temperatures for all pressures) or "pressure-dependent"'
+
+                dataset = fh5.create_dataset(
+                    name='weights',
+                    data=weights_gauss
+                )
+                dataset.attrs['long_name'] = 'Weights used in the g-space quadrature'
+
+                dataset = fh5.create_dataset(
+                    name='wlrange',
+                    data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+                )
+                dataset.attrs['long_name'] = 'Wavelength range covered'
+                dataset.attrs['units'] = 'µm'
+
+                dataset = fh5.create_dataset(
+                    name='wnrange',
+                    data=np.array([wavenumbers.min(), wavenumbers.max()])
+                )
+                dataset.attrs['long_name'] = 'Wavenumber range covered'
+                dataset.attrs['units'] = 'cm^-1'
+
+            print("Done.")
+
+    print("Successfully converted correlated-k line opacities")
+
+
 def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   rewrite=False, output_directory=None):
     """Using ExoMol units for HDF5 files."""
@@ -938,6 +1502,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
     print("Loading default files names...")
     line_paths = np.loadtxt(os.path.join(path_input_data, 'opa_input_files', 'opa_filenames.txt'), dtype=str)
 
+    # Conversion
     input_directory = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line')
 
     if output_directory is None:
@@ -952,6 +1517,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
             species = directory.rsplit(os.path.sep, 1)[1]
             not_in_dict = False
 
+            # Check information availability
             if species not in doi_dict:
                 warnings.warn(f"species '{species}' was not in DOI dict; "
                               f"add key '{species}' to the script doi_ict to run this conversion")
@@ -973,20 +1539,23 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
                 not_in_dict = True
 
             if not_in_dict:
-                print(" Skipping due to missing species in supplementary info dict...")
+                print(f" Skipping species '{species}' due to missing species in supplementary info dict...")
                 continue
 
+            # Check output directory
             output_directory = os.path.join(output_directory_ref)
 
             if not os.path.isdir(output_directory):
                 os.makedirs(output_directory)
 
+            # Check HDF5 file existence
             hdf5_opacity_file = os.path.join(output_directory, species + '.otable.petitRADTRANS.h5')
 
             if os.path.isfile(hdf5_opacity_file) and not rewrite:
                 __print_skipping_message(hdf5_opacity_file)
                 continue
 
+            # Read dat file
             print(f"Converting opacities in '{directory}'...")
 
             custom_pt_grid_file = os.path.join(directory, 'PTpaths.ls')
@@ -1036,6 +1605,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
 
             molparam_file = os.path.join(directory, 'molparam_id.txt')
 
+            # Convert units and shape
             if os.path.isfile(molparam_file):
                 print(" Loading isotopic ratio...")
                 with open(molparam_file, 'r') as f2:
@@ -1059,10 +1629,11 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
 
             print(" Reshaping...")
             opacities = opacities.reshape((opacities_temperatures_.size, opacities_pressures_.size, wavelengths.size))
-            # Exo-Mol axis order (pressures, temperatures, wavenumbers)
+            # Exo-Mol axis order (pressures, temperatures, wavenumbers, g)
             opacities = np.moveaxis(opacities, 0, 1)
             opacities = opacities[:, :, ::-1]  # match the wavenumber order
 
+            # Write converted file
             print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
 
             with h5py.File(hdf5_opacity_file, "w") as fh5:
@@ -1152,7 +1723,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
 
             print("Done.")
 
-    print("Successfully converted line opacities")
+    print("Successfully converted line-by-line line opacities")
 
 
 def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False):
