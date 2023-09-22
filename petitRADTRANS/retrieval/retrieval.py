@@ -557,7 +557,7 @@ class Retrieval:
                     line_opacity_mode=dd.line_opacity_mode,
                     wavelengths_boundaries=dd.wlen_range_pRT,
                     scattering_in_emission=self.rd.scattering,
-                    lbl_opacity_sampling=lbl_samp
+                    line_by_line_opacity_sampling=lbl_samp
                 )
 
                 dd.pRT_object = rt_object

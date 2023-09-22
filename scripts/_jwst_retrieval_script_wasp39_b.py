@@ -194,7 +194,7 @@ def main(sim_id=0):
                         wavelengths_boundaries=init_dict['wlen_bords_micron'],
                         line_opacity_mode=init_dict['mode'],
                         scattering_in_emission=init_dict['do_scat_emis'],
-                        lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
+                        line_by_line_opacity_sampling=init_dict['lbl_opacity_sampling']
                     )
                     retrieval_parameters[key][-1].setup_opa_structure(init_dict['press'] * 1e-6)
 

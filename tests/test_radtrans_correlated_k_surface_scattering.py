@@ -46,7 +46,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     frequencies, flux, _ = atmosphere.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         emission_geometry='non-isotropic',
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],

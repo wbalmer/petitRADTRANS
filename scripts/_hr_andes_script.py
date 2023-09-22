@@ -456,7 +456,7 @@ def init_and_run_retrieval(comm, rank, planet, line_species_str, mode, retrieval
                     wavelengths_boundaries=init_dict['wlen_bords_micron'],
                     line_opacity_mode=init_dict['mode'],
                     scattering_in_emission=init_dict['do_scat_emis'],
-                    lbl_opacity_sampling=init_dict['lbl_opacity_sampling']
+                    line_by_line_opacity_sampling=init_dict['lbl_opacity_sampling']
                 )
                 retrieval_parameters[key].setup_opa_structure(init_dict['press'] * 1e-6)
 

@@ -595,7 +595,7 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
             n_g=radtrans.lines_loaded_opacities['g_gauss'].size,
             n_frequencies=radtrans.frequencies.size,
             line_opacities_grid=radtrans.lines_loaded_opacities['opacity_grid'],
-            line_opacities_temperature_profile_grid=radtrans.lines_loaded_opacities['temperature_profile_grid'],
+            line_opacities_temperature_pressure_grid=radtrans.lines_loaded_opacities['temperature_pressure_grid'],
             has_custom_line_opacities_tp_grid=radtrans.lines_loaded_opacities['has_custom_tp_grid'],
             line_opacities_temperature_grid_size=radtrans.lines_loaded_opacities['temperature_grid_size'],
             line_opacities_pressure_grid_size=radtrans.lines_loaded_opacities['pressure_grid_size']

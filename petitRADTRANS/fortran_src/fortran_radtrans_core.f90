@@ -411,7 +411,7 @@ module cloud_utils
     implicit none
     
     contains
-        subroutine compute_turbulent_settling_speed(x, surface_gravity, rho, clouds_particles_densities,&
+        subroutine compute_turbulent_settling_speed(x, reference_gravity, rho, clouds_particles_densities,&
                                                     temperatures, mean_molar_masses, &
                                                     turbulent_settling_speed_ret)
             use math, only: cst_pi
@@ -422,7 +422,7 @@ module cloud_utils
             double precision, parameter :: d = 2.827d-8, epsilon = 59.7*cst_k
 
             double precision, intent(in) :: &
-                x, surface_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses
+                x, reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses
             double precision, intent(out) :: turbulent_settling_speed_ret
 
             double precision    :: N_Knudsen, psi, eta, CdNreSq, Nre, Cd, v_settling_visc
@@ -432,7 +432,7 @@ module cloud_utils
             psi = 1d0 + N_Knudsen*(1.249d0+0.42d0*exp(-0.87d0*N_Knudsen))
             eta = 15d0/16d0*sqrt(cst_pi*2d0*cst_amu*cst_k*temperatures)/(cst_pi*d**2d0) &
             *(cst_k*temperatures/epsilon)**0.16d0/1.22d0
-            CdNreSq = 32d0*rho*surface_gravity*x**3d0*(clouds_particles_densities-rho)/(3d0*eta**2d0)
+            CdNreSq = 32d0*rho*reference_gravity*x**3d0*(clouds_particles_densities-rho)/(3d0*eta**2d0)
             Nre = exp(-2.7905d0+0.9209d0*log(CdNreSq)-0.0135d0*log(CdNreSq)**2d0)
 
             if (Nre < 1d0) then
@@ -443,8 +443,8 @@ module cloud_utils
                 Cd = CdNreSq/Nre**2d0
             end if
 
-            v_settling_visc = 2d0*x**2d0*(clouds_particles_densities-rho)*psi*surface_gravity/(9d0*eta)
-            turbulent_settling_speed_ret = psi*sqrt(8d0*surface_gravity*x*(clouds_particles_densities-rho)/(3d0*Cd*rho))
+            v_settling_visc = 2d0*x**2d0*(clouds_particles_densities-rho)*psi*reference_gravity/(9d0*eta)
+            turbulent_settling_speed_ret = psi*sqrt(8d0*reference_gravity*x*(clouds_particles_densities-rho)/(3d0*Cd*rho))
 
             if ((Nre < 1d0) .and. (v_settling_visc < turbulent_settling_speed_ret)) then
                 turbulent_settling_speed_ret = v_settling_visc
@@ -452,7 +452,7 @@ module cloud_utils
         end subroutine compute_turbulent_settling_speed
 
 
-        function particle_radius(x1, x2, surface_gravity, rho, clouds_particles_densities, temperatures, &
+        function particle_radius(x1, x2, reference_gravity, rho, clouds_particles_densities, temperatures, &
                                  mean_molar_masses, w_star)
             ! """
             ! Find the particle radius, using a simple bisection method.
@@ -462,7 +462,7 @@ module cloud_utils
           integer, parameter :: ITMAX = 1000
 
           double precision, intent(in) :: &
-              surface_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses, w_star
+              reference_gravity, rho, clouds_particles_densities, temperatures, mean_molar_masses, w_star
           double precision, intent(in) :: x1, x2
           double precision :: particle_radius
 
@@ -472,11 +472,11 @@ module cloud_utils
           a=x1
           b=x2
           call compute_turbulent_settling_speed(&
-              a,surface_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fa&
+              a,reference_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fa&
           )
           fa = fa - w_star
           call compute_turbulent_settling_speed(&
-              b,surface_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fb&
+              b,reference_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fb&
           )
           fb = fb - w_star
 
@@ -495,7 +495,7 @@ module cloud_utils
              end if
 
              call compute_turbulent_settling_speed(&
-                 c,surface_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fc&
+                 c,reference_gravity,rho,clouds_particles_densities,temperatures,mean_molar_masses,fc&
              )
              fc = fc - w_star
 
@@ -746,9 +746,8 @@ module fortran_radtrans_core
                                                   clouds_absorption_opacities, clouds_scattering_opacities, &
                                                   clouds_particles_asymmetry_parameters, &
                                                   n_layers, n_clouds, n_particles_radii, n_cloud_wavelengths, &
-                                                  clouds_total_absorption_opacities, &
-                                                  clouds_total_scattering_opacities, &
-                                                  clouds_total_red_fac_aniso)
+                                                  cloud_absorption_opacities, cloud_scattering_opacities, &
+                                                  cloud_scattering_reduction_factor)
             ! """
             ! Calculate cloud opacities.
             ! """
@@ -766,18 +765,18 @@ module fortran_radtrans_core
                 n_cloud_wavelengths,n_clouds), &
                 clouds_scattering_opacities(n_particles_radii,n_cloud_wavelengths,n_clouds), &
                 clouds_particles_asymmetry_parameters(n_particles_radii,n_cloud_wavelengths,n_clouds)
-            double precision, intent(out) :: clouds_total_absorption_opacities(n_cloud_wavelengths,n_layers), &
-                clouds_total_scattering_opacities(n_cloud_wavelengths,n_layers), &
-                clouds_total_red_fac_aniso(n_cloud_wavelengths,n_layers)
+            double precision, intent(out) :: cloud_absorption_opacities(n_cloud_wavelengths,n_layers), &
+                cloud_scattering_opacities(n_cloud_wavelengths,n_layers), &
+                cloud_scattering_reduction_factor(n_cloud_wavelengths,n_layers)
 
             integer :: i_struc, i_spec, i_lamb, i_cloud
             double precision :: N, dndr(n_particles_radii), integrand_abs(n_particles_radii), mass_to_vol, &
                 integrand_scat(n_particles_radii), add_abs, add_scat, integrand_aniso(n_particles_radii), add_aniso, &
                 dndr_scale
 
-            clouds_total_absorption_opacities = 0d0
-            clouds_total_scattering_opacities = 0d0
-            clouds_total_red_fac_aniso = 0d0
+            cloud_absorption_opacities = 0d0
+            cloud_scattering_opacities = 0d0
+            cloud_scattering_reduction_factor = 0d0
 
             do i_struc = 1, n_layers
                 do i_spec = 1, n_clouds
@@ -826,8 +825,8 @@ module fortran_radtrans_core
                                 - clouds_particles_radii_bins(1:n_particles_radii)&
                             ) &
                         )
-                        clouds_total_absorption_opacities(i_lamb,i_struc) = &
-                            clouds_total_absorption_opacities(i_lamb, i_struc) + add_abs
+                        cloud_absorption_opacities(i_lamb,i_struc) = &
+                            cloud_absorption_opacities(i_lamb, i_struc) + add_abs
 
                         add_scat = sum(&
                             integrand_scat &
@@ -836,33 +835,33 @@ module fortran_radtrans_core
                             - clouds_particles_radii_bins(1:n_particles_radii) &
                             ) &
                         )
-                        clouds_total_scattering_opacities(i_lamb, i_struc) = &
-                            clouds_total_scattering_opacities(i_lamb, i_struc) + add_scat
+                        cloud_scattering_opacities(i_lamb, i_struc) = &
+                            cloud_scattering_opacities(i_lamb, i_struc) + add_scat
 
                         add_aniso = sum(&
                             integrand_aniso &
                             * (clouds_particles_radii_bins(2:n_particles_radii+1) &
                                - clouds_particles_radii_bins(1:n_particles_radii)) &
                         )
-                        clouds_total_red_fac_aniso(i_lamb, i_struc) = &
-                            clouds_total_red_fac_aniso(i_lamb, i_struc) + add_aniso
+                        cloud_scattering_reduction_factor(i_lamb, i_struc) = &
+                            cloud_scattering_reduction_factor(i_lamb, i_struc) + add_aniso
                     end do
                 end do
 
                 do i_lamb = 1, n_cloud_wavelengths
-                    if (clouds_total_scattering_opacities(i_lamb,i_struc) > 1d-200) then
-                        clouds_total_red_fac_aniso(i_lamb, i_struc) = &
-                            clouds_total_red_fac_aniso(i_lamb, i_struc) &
-                            / clouds_total_scattering_opacities(i_lamb, i_struc)
+                    if (cloud_scattering_opacities(i_lamb,i_struc) > 1d-200) then
+                        cloud_scattering_reduction_factor(i_lamb, i_struc) = &
+                            cloud_scattering_reduction_factor(i_lamb, i_struc) &
+                            / cloud_scattering_opacities(i_lamb, i_struc)
                     else
-                        clouds_total_red_fac_aniso(i_lamb, i_struc) = 0d0
+                        cloud_scattering_reduction_factor(i_lamb, i_struc) = 0d0
                     end if
                 end do
 
-                clouds_total_absorption_opacities(:, i_struc) = &
-                    clouds_total_absorption_opacities(:, i_struc) / atmospheric_densities(i_struc)
-                clouds_total_scattering_opacities(:, i_struc) = &
-                    clouds_total_scattering_opacities(:, i_struc) / atmospheric_densities(i_struc)
+                cloud_absorption_opacities(:, i_struc) = &
+                    cloud_absorption_opacities(:, i_struc) / atmospheric_densities(i_struc)
+                cloud_scattering_opacities(:, i_struc) = &
+                    cloud_scattering_opacities(:, i_struc) / atmospheric_densities(i_struc)
             end do
 
             contains
@@ -877,7 +876,7 @@ module fortran_radtrans_core
         end subroutine compute_cloud_hansen_opacities
 
 
-        subroutine compute_cloud_optical_depths(surface_gravity, pressures, opacities, &
+        subroutine compute_cloud_optical_depths(reference_gravity, pressures, opacities, &
                                                 n_layers, n_frequencies, n_g, n_species, &
                                                 optical_depths)
             ! """
@@ -890,7 +889,7 @@ module fortran_radtrans_core
           ! I/O
           integer, intent(in)                          :: n_layers, n_frequencies, n_g, n_species
           double precision, intent(in)                 :: opacities(n_g,n_frequencies,n_species,n_layers)
-          double precision, intent(in)                 :: surface_gravity, pressures(n_layers)
+          double precision, intent(in)                 :: reference_gravity, pressures(n_layers)
           double precision, intent(out)                :: optical_depths(n_g,n_frequencies,n_species,n_layers)
           ! internal
           integer                                      :: i_struc, i_freq, i_g, i_spec
@@ -908,7 +907,7 @@ module fortran_radtrans_core
                 if (i_struc == n_layers) then
                    optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
                         (opacities(:,:,:,i_struc)+opacities(:,:,:,i_struc-1)) &
-                        /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                        /2d0/reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
                 else
                    f_second = (pressures(i_struc+1)-pressures(i_struc))/(pressures(i_struc)-pressures(i_struc-1))
                    kappa_i = opacities(:,:,:,i_struc)
@@ -918,7 +917,7 @@ module fortran_radtrans_core
                         (f_second*(1d0+f_second))
                    optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
                         ((kappa_i+kappa_im)/2d0-gamma_second/6d0) &
-                        /surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                        /reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
                    do i_spec = 1, n_species
                       do i_freq = 1, n_frequencies
                          do i_g = 1, n_g
@@ -935,7 +934,7 @@ module fortran_radtrans_core
                                end if
                             end if
                             del_tau_lower_ord = (kappa_i(i_g,i_freq,i_spec)+ &
-                                 kappa_im(i_g,i_freq,i_spec))/2d0/surface_gravity* &
+                                 kappa_im(i_g,i_freq,i_spec))/2d0/reference_gravity* &
                                  (pressures(i_struc)-pressures(i_struc-1))
                             if ((optical_depths(i_g,i_freq,i_spec,i_struc) - &
                                  optical_depths(i_g,i_freq,i_spec,i_struc-1)) > del_tau_lower_ord) then
@@ -951,14 +950,14 @@ module fortran_radtrans_core
              do i_struc = 2, n_layers
                 optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
                      (opacities(:,:,:,i_struc)+opacities(:,:,:,i_struc-1)) &
-                     /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                     /2d0/reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
              end do
           end if
 
         end subroutine compute_cloud_optical_depths
 
 
-        subroutine compute_cloud_particles_mean_radius(surface_gravity, atmospheric_densities, &
+        subroutine compute_cloud_particles_mean_radius(reference_gravity, atmospheric_densities, &
                                                        clouds_particles_densities, temperatures, &
                                                        mean_molar_masses, f_seds, &
                                                        cloud_particle_radius_distribution_std, &
@@ -972,7 +971,7 @@ module fortran_radtrans_core
             implicit none
           ! I/O
           integer, intent(in)  :: n_layers, n_clouds
-          double precision, intent(in) :: surface_gravity, atmospheric_densities(n_layers), &
+          double precision, intent(in) :: reference_gravity, atmospheric_densities(n_layers), &
                 clouds_particles_densities(n_clouds), &
                 temperatures(n_layers), &
                 mean_molar_masses(n_layers), f_seds(n_clouds), &
@@ -986,7 +985,7 @@ module fortran_radtrans_core
           double precision :: rad(N_fit), vel(N_fit), f_fill(n_clouds)
           double precision :: a, b
 
-          H = cst_k*temperatures/(mean_molar_masses*cst_amu*surface_gravity)
+          H = cst_k*temperatures/(mean_molar_masses*cst_amu*reference_gravity)
           w_star = eddy_diffusion_coefficients/H
 
           f_fill = 1d0
@@ -994,7 +993,7 @@ module fortran_radtrans_core
           do i_str = 1, n_layers
              do i_spec = 1, n_clouds
                 r_w(i_str,i_spec) = particle_radius(&
-                    1d-16,1d2,surface_gravity,atmospheric_densities(i_str), &
+                    1d-16,1d2,reference_gravity,atmospheric_densities(i_str), &
                     clouds_particles_densities(i_spec),temperatures(i_str),mean_molar_masses(i_str),w_star(i_str))
                 if (r_w(i_str,i_spec) > 1d-16) then
                    if (f_seds(i_spec) > 1d0) then
@@ -1004,7 +1003,7 @@ module fortran_radtrans_core
                             - r_w(i_str,i_spec)/max(cloud_particle_radius_distribution_std,1.0001d0))&
                             * dble(i_rad-1)/dble(N_fit-1)
                          call compute_turbulent_settling_speed(&
-                             rad(i_rad),surface_gravity,atmospheric_densities(i_str),&
+                             rad(i_rad),reference_gravity,atmospheric_densities(i_str),&
                              clouds_particles_densities(i_spec),&
                              temperatures(i_str), &
                             mean_molar_masses(i_str),vel(i_rad) &
@@ -1017,7 +1016,7 @@ module fortran_radtrans_core
                              - r_w(i_str,i_spec)) &
                              * dble(i_rad-1)/dble(N_fit-1)
                          call compute_turbulent_settling_speed(&
-                            rad(i_rad),surface_gravity,atmospheric_densities(i_str),&
+                            rad(i_rad),reference_gravity,atmospheric_densities(i_str),&
                              clouds_particles_densities(i_spec),&
                              temperatures(i_str), &
                             mean_molar_masses(i_str),vel(i_rad) &
@@ -1043,7 +1042,7 @@ module fortran_radtrans_core
         end subroutine compute_cloud_particles_mean_radius
 
 
-        subroutine compute_cloud_particles_mean_radius_hansen(surface_gravity, rho, clouds_particles_densities,&
+        subroutine compute_cloud_particles_mean_radius_hansen(reference_gravity, rho, clouds_particles_densities,&
                                                               temperatures,mean_molar_masses,&
                                                               f_seds, clouds_b_hansen, eddy_diffusion_coefficients, &
                                                               n_layers, n_clouds, &
@@ -1055,7 +1054,7 @@ module fortran_radtrans_core
             implicit none
 
             integer, intent(in)  :: n_layers, n_clouds
-            double precision, intent(in) :: surface_gravity, rho(n_layers), clouds_particles_densities(n_clouds), &
+            double precision, intent(in) :: reference_gravity, rho(n_layers), clouds_particles_densities(n_clouds), &
                 temperatures(n_layers), mean_molar_masses(n_layers), f_seds(n_clouds), &
                 clouds_b_hansen(n_layers,n_clouds), eddy_diffusion_coefficients(n_layers)
             double precision, intent(out) :: clouds_a_hansen(n_layers,n_clouds)
@@ -1070,7 +1069,7 @@ module fortran_radtrans_core
             double precision :: rad(N_fit), vel(N_fit)
             double precision :: a, b
 
-            H = cst_k * temperatures / (mean_molar_masses * cst_amu * surface_gravity)
+            H = cst_k * temperatures / (mean_molar_masses * cst_amu * reference_gravity)
             w_star = eddy_diffusion_coefficients / H
             x_gamma = 1d0 + 1d0 / clouds_b_hansen  ! argument of the gamma function
 
@@ -1079,7 +1078,7 @@ module fortran_radtrans_core
                     r_w(i_str,i_spec) = particle_radius(&
                         1d-16,&
                         1d2, &
-                        surface_gravity, &
+                        reference_gravity, &
                         rho(i_str), &
                         clouds_particles_densities(i_spec), &
                         temperatures(i_str), &
@@ -1097,7 +1096,7 @@ module fortran_radtrans_core
 
                                 call compute_turbulent_settling_speed(&
                                     rad(i_rad), &
-                                    surface_gravity, &
+                                    reference_gravity, &
                                     rho(i_str), &
                                     clouds_particles_densities(i_spec), &
                                     temperatures(i_str), &
@@ -1114,7 +1113,7 @@ module fortran_radtrans_core
 
                                 call compute_turbulent_settling_speed(&
                                     rad(i_rad), &
-                                    surface_gravity, &
+                                    reference_gravity, &
                                     rho(i_str), &
                                     clouds_particles_densities(i_spec), &
                                     temperatures(i_str), &
@@ -1716,7 +1715,7 @@ module fortran_radtrans_core
         end subroutine compute_feautrier_radiative_transfer
 
 
-        subroutine compute_optical_depths(surface_gravity, pressures, opacities, scattering_in_emission, &
+        subroutine compute_optical_depths(reference_gravity, pressures, opacities, scattering_in_emission, &
                                           continuum_opacities_scattering, n_layers, n_frequencies, n_g, &
                                           optical_depths, photon_destruction_probabilities)
             ! """
@@ -1728,7 +1727,7 @@ module fortran_radtrans_core
             integer, parameter                           :: n_species = 1
             integer, intent(in)                          :: n_layers, n_frequencies, n_g
             double precision, intent(in)                 :: opacities(n_g,n_frequencies,n_species,n_layers)
-            double precision, intent(in)                 :: surface_gravity, pressures(n_layers)
+            double precision, intent(in)                 :: reference_gravity, pressures(n_layers)
             logical, intent(in)                          :: scattering_in_emission
             double precision, intent(in)                 :: continuum_opacities_scattering(n_frequencies,n_layers)
             double precision, intent(out)                :: optical_depths(n_g,n_frequencies,n_species,n_layers), &
@@ -1764,7 +1763,7 @@ module fortran_radtrans_core
                     if (i_struc == n_layers) then
                         optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) &
                             + (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
-                            /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                            /2d0/reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
                     else
                         f_second = (pressures(i_struc+1)-pressures(i_struc))/(pressures(i_struc)-pressures(i_struc-1))
                         kappa_i = opacities_(:,:,:,i_struc)
@@ -1774,7 +1773,7 @@ module fortran_radtrans_core
                             / (f_second*(1d0+f_second))
                         optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) &
                             + ((kappa_i+kappa_im)/2d0-gamma_second/6d0) &
-                            /surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                            /reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
                         
                         do i_spec = 1, n_species
                             do i_freq = 1, n_frequencies
@@ -1793,7 +1792,7 @@ module fortran_radtrans_core
                                 end if
                                 
                                 del_tau_lower_ord = (kappa_i(i_g,i_freq,i_spec)+ &
-                                kappa_im(i_g,i_freq,i_spec))/2d0/surface_gravity* &
+                                kappa_im(i_g,i_freq,i_spec))/2d0/reference_gravity* &
                                 (pressures(i_struc)-pressures(i_struc-1))
                                 
                                 if ((optical_depths(i_g,i_freq,i_spec,i_struc) - &
@@ -1810,7 +1809,7 @@ module fortran_radtrans_core
                 do i_struc = 2, n_layers
                     optical_depths(:,:,:,i_struc) = optical_depths(:,:,:,i_struc-1) + &
                          (opacities_(:,:,:,i_struc)+opacities_(:,:,:,i_struc-1)) &
-                         /2d0/surface_gravity*(pressures(i_struc)-pressures(i_struc-1))
+                         /2d0/reference_gravity*(pressures(i_struc)-pressures(i_struc-1))
                 end do
             end if
         end subroutine compute_optical_depths
@@ -1891,7 +1890,7 @@ module fortran_radtrans_core
         end subroutine compute_planck_opacities
 
 
-        subroutine compute_radius_hydrostatic_equilibrium(pressures, surface_gravity, atmosphere_densities, &
+        subroutine compute_radius_hydrostatic_equilibrium(pressures, reference_gravity, atmosphere_densities, &
                                                           reference_pressure, planet_radius, variable_gravity, &
                                                           n_layers, &
                                                           radius_hydrostatic_equilibrium)
@@ -1903,7 +1902,7 @@ module fortran_radtrans_core
             integer, intent(in)                         :: n_layers
             double precision, intent(in)                :: reference_pressure
             double precision, intent(in)                :: pressures(n_layers), atmosphere_densities(n_layers)
-            double precision, intent(in)                :: surface_gravity, planet_radius
+            double precision, intent(in)                :: reference_gravity, planet_radius
             logical, intent(in)                         :: variable_gravity
             double precision, intent(out)               :: radius_hydrostatic_equilibrium(n_layers)
 
@@ -1917,9 +1916,9 @@ module fortran_radtrans_core
             R0 = 0d0
 
             if (variable_gravity) then
-                coefficient = 1d0 / surface_gravity / planet_radius ** 2d0
+                coefficient = 1d0 / reference_gravity / planet_radius ** 2d0
             else
-                coefficient = -1d0 / surface_gravity
+                coefficient = -1d0 / reference_gravity
             end if
 
             ! Calculate radius with vertically varying gravity, set up such that at P=P0, i.e. R=planet_radius
@@ -2386,7 +2385,7 @@ module fortran_radtrans_core
         end subroutine compute_rosseland_opacities
 
 
-        subroutine compute_transit_radii(opacities, temperatures, pressures, surface_gravity, mean_molar_masses, &
+        subroutine compute_transit_radii(opacities, temperatures, pressures, reference_gravity, mean_molar_masses, &
                                          reference_pressure, planet_radius, weights_gauss, &
                                          scattering_in_transmission, continuum_opacities_scattering, variable_gravity, &
                                          n_frequencies, n_layers, n_g, n_species, &
@@ -2405,7 +2404,7 @@ module fortran_radtrans_core
                 mean_molar_masses(n_layers)
             double precision, intent(in)                :: opacities(n_g,n_frequencies,n_species,n_layers)
 
-            double precision, intent(in)                :: surface_gravity
+            double precision, intent(in)                :: reference_gravity
             double precision, intent(in)                :: weights_gauss(n_g), &
                 continuum_opacities_scattering(n_frequencies,n_layers)
             logical, intent(in)                         :: scattering_in_transmission
@@ -2463,7 +2462,7 @@ module fortran_radtrans_core
 
             ! Calculate planetary radius_hydrostatic_equilibrium (in cm), assuming hydrostatic equilibrium
             call compute_radius_hydrostatic_equilibrium(&
-                pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
+                pressures, reference_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
                 radius_hydrostatic_equilibrium &
             )
 
@@ -2583,7 +2582,7 @@ module fortran_radtrans_core
         end subroutine compute_transit_radii
 
 
-        subroutine compute_transmission_spectrum_contribution(opacities, temperatures, pressures, surface_gravity,&
+        subroutine compute_transmission_spectrum_contribution(opacities, temperatures, pressures, reference_gravity,&
                                                               mean_molar_masses, reference_pressure, planet_radius, &
                                                               weights_gauss, transit_radii_squared, &
                                                               scattering_in_transmission, &
@@ -2605,7 +2604,7 @@ module fortran_radtrans_core
             double precision, intent(in)                :: temperatures(n_layers), pressures(n_layers), &
                 mean_molar_masses(n_layers)
             double precision, intent(in)                :: opacities(n_g,n_frequencies,n_species,n_layers)
-            double precision, intent(in)                :: surface_gravity
+            double precision, intent(in)                :: reference_gravity
             double precision, intent(in)                :: weights_gauss(n_g), &
                 continuum_opacities_scattering(n_frequencies,n_layers)
             double precision, intent(in)                :: transit_radii_squared(n_frequencies)
@@ -2628,7 +2627,7 @@ module fortran_radtrans_core
             
             ! Calculate planetary radius (in cm), assuming hydrostatic equilibrium
             call compute_radius_hydrostatic_equilibrium(&
-                pressures, surface_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
+                pressures, reference_gravity, rho, P0_cgs, planet_radius, variable_gravity, n_layers, &
                 radius_hydrostatic_equilibrium &
             )
             
@@ -2740,11 +2739,12 @@ module fortran_radtrans_core
         end subroutine compute_transmission_spectrum_contribution
 
 
-        subroutine interpolate_cloud_opacities(clouds_total_absorption_opacities, clouds_total_scattering_opacities, &
-                                               clouds_total_red_fac_aniso, cloud_wavelengths, frequencies_bin_edges, &
+        subroutine interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opacities, &
+                                               cloud_scattering_reduction_factor, cloud_wavelengths, &
+                                               frequencies_bin_edges, &
                                                n_cloud_wavelengths, n_layers, n_frequencies_bins, &
-                                               clouds_final_absorption_opacities, cloud_abs_plus_scat_anisotropic, &
-                                               clouds_final_red_fac_aniso, cloud_abs_plus_scat_no_anisotropic)
+                                               clouds_final_absorption_opacities, cloud_anisotropic_extinctions, &
+                                               cloud_scattering_reduction_factor_out, cloud_isotropic_extinctions)
             ! """
             ! Interpolate cloud opacities to actual radiative transfer wavelength grid.
             ! """
@@ -2753,14 +2753,14 @@ module fortran_radtrans_core
           implicit none
           ! I/O
           integer, intent(in)           :: n_cloud_wavelengths,n_layers,n_frequencies_bins
-          double precision, intent(in)  :: clouds_total_absorption_opacities(n_cloud_wavelengths,n_layers), &
-               clouds_total_scattering_opacities(n_cloud_wavelengths,n_layers), &
-               clouds_total_red_fac_aniso(n_cloud_wavelengths,n_layers), cloud_wavelengths(n_cloud_wavelengths), &
+          double precision, intent(in)  :: cloud_absorption_opacities(n_cloud_wavelengths,n_layers), &
+               cloud_scattering_opacities(n_cloud_wavelengths,n_layers), &
+               cloud_scattering_reduction_factor(n_cloud_wavelengths,n_layers), cloud_wavelengths(n_cloud_wavelengths), &
                frequencies_bin_edges(n_frequencies_bins)
           double precision, intent(out) :: clouds_final_absorption_opacities(n_frequencies_bins-1,n_layers), &
-               cloud_abs_plus_scat_anisotropic(n_frequencies_bins-1,n_layers), &
-               clouds_final_red_fac_aniso(n_frequencies_bins-1,n_layers), &
-               cloud_abs_plus_scat_no_anisotropic(n_frequencies_bins-1,n_layers)
+               cloud_anisotropic_extinctions(n_frequencies_bins-1,n_layers), &
+               cloud_scattering_reduction_factor_out(n_frequencies_bins-1,n_layers), &
+               cloud_isotropic_extinctions(n_frequencies_bins-1,n_layers)
 
           ! internal
           double precision :: kappa_integ(n_layers), kappa_scat_integ(n_layers), red_fac_aniso_integ(n_layers), &
@@ -2771,12 +2771,12 @@ module fortran_radtrans_core
                new_small_ind
 
           clouds_final_absorption_opacities = 0d0
-          cloud_abs_plus_scat_anisotropic = 0d0
-          cloud_abs_plus_scat_no_anisotropic = 0d0
+          cloud_anisotropic_extinctions = 0d0
+          cloud_isotropic_extinctions = 0d0
 
 
           HIT_border_lamb = cst_c/frequencies_bin_edges
-          clouds_final_red_fac_aniso = 0d0
+          cloud_scattering_reduction_factor_out = 0d0
 
           kappa_tot_integ = 0d0
           kappa_tot_scat_integ = 0d0
@@ -2798,60 +2798,60 @@ module fortran_radtrans_core
              if ((intp_index_small_max-intp_index_small_min) == 0) then
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_absorption_opacities, &
+                    cloud_absorption_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),HIT_border_lamb(HIT_i_lamb+1),kappa_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_scattering_opacities, &
+                    cloud_scattering_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),HIT_border_lamb(HIT_i_lamb+1),kappa_scat_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_red_fac_aniso, &
+                    cloud_scattering_reduction_factor, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),HIT_border_lamb(HIT_i_lamb+1),red_fac_aniso_integ)
 
              else if ((intp_index_small_max-intp_index_small_min) == 1) then
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_absorption_opacities, &
+                    cloud_absorption_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),kappa_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_scattering_opacities, &
+                    cloud_scattering_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),&
                     kappa_scat_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_red_fac_aniso, &
+                    cloud_scattering_reduction_factor, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),&
                     red_fac_aniso_integ)
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_absorption_opacities, &
+                    cloud_absorption_opacities, &
                     cloud_wavelengths,cloud_wavelengths(intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),kappa_integ)
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_scattering_opacities, &
+                    cloud_scattering_opacities, &
                     cloud_wavelengths,cloud_wavelengths(intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),&
                     kappa_scat_integ)
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_red_fac_aniso, &
+                    cloud_scattering_reduction_factor, &
                     cloud_wavelengths,cloud_wavelengths(intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),&
                     red_fac_aniso_integ)
 
              else
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_absorption_opacities, &
+                    cloud_absorption_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),kappa_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_scattering_opacities, &
+                    cloud_scattering_opacities, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),&
                     kappa_scat_integ)
 
                 call intergrate_opacities_(intp_index_small_min,n_cloud_wavelengths,n_layers,&
-                    clouds_total_red_fac_aniso, &
+                    cloud_scattering_reduction_factor, &
                     cloud_wavelengths,HIT_border_lamb(HIT_i_lamb),cloud_wavelengths(intp_index_small_min+1),&
                     red_fac_aniso_integ)
 
@@ -2859,17 +2859,17 @@ module fortran_radtrans_core
                 do while (intp_index_small_max-new_small_ind /= 0)
 
                    call intergrate_opacities_(new_small_ind,n_cloud_wavelengths,n_layers,&
-                        clouds_total_absorption_opacities, &
+                        cloud_absorption_opacities, &
                         cloud_wavelengths,cloud_wavelengths(new_small_ind),cloud_wavelengths(new_small_ind+1),&
                         kappa_integ)
 
                    call intergrate_opacities_(new_small_ind,n_cloud_wavelengths,n_layers,&
-                        clouds_total_scattering_opacities, &
+                        cloud_scattering_opacities, &
                         cloud_wavelengths,cloud_wavelengths(new_small_ind),cloud_wavelengths(new_small_ind+1),&
                         kappa_scat_integ)
 
                    call intergrate_opacities_(new_small_ind,n_cloud_wavelengths,n_layers,&
-                        clouds_total_red_fac_aniso, &
+                        cloud_scattering_reduction_factor, &
                         cloud_wavelengths,cloud_wavelengths(new_small_ind),cloud_wavelengths(new_small_ind+1),&
                         red_fac_aniso_integ)
 
@@ -2878,16 +2878,16 @@ module fortran_radtrans_core
                 end do
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_absorption_opacities, &
+                    cloud_absorption_opacities, &
                     cloud_wavelengths,cloud_wavelengths(intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),kappa_integ)
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_scattering_opacities, &
+                    cloud_scattering_opacities, &
                     cloud_wavelengths,cloud_wavelengths(&
                         intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),kappa_scat_integ)
 
                 call intergrate_opacities_(intp_index_small_max,n_cloud_wavelengths,n_layers,&
-                    clouds_total_red_fac_aniso, &
+                    cloud_scattering_reduction_factor, &
                     cloud_wavelengths,cloud_wavelengths(intp_index_small_max),HIT_border_lamb(HIT_i_lamb+1),&
                     red_fac_aniso_integ)
 
@@ -2902,12 +2902,13 @@ module fortran_radtrans_core
 
              clouds_final_absorption_opacities(HIT_i_lamb,:) = clouds_final_absorption_opacities(HIT_i_lamb,:) + &
                   kappa_integ
-             cloud_abs_plus_scat_anisotropic(HIT_i_lamb,:) = cloud_abs_plus_scat_anisotropic(HIT_i_lamb,:) + &
+             cloud_anisotropic_extinctions(HIT_i_lamb,:) = cloud_anisotropic_extinctions(HIT_i_lamb,:) + &
                   kappa_integ + kappa_scat_integ * red_fac_aniso_integ
-             cloud_abs_plus_scat_no_anisotropic(HIT_i_lamb,:) = cloud_abs_plus_scat_no_anisotropic(HIT_i_lamb,:) + &
+             cloud_isotropic_extinctions(HIT_i_lamb,:) = cloud_isotropic_extinctions(HIT_i_lamb,:) + &
                   kappa_integ + kappa_scat_integ
 
-             clouds_final_red_fac_aniso(HIT_i_lamb,:) = clouds_final_red_fac_aniso(HIT_i_lamb,:) + red_fac_aniso_integ
+             cloud_scattering_reduction_factor_out(HIT_i_lamb,:) = cloud_scattering_reduction_factor_out(HIT_i_lamb,:) &
+                 + red_fac_aniso_integ
 
           end do
 
@@ -2938,7 +2939,7 @@ module fortran_radtrans_core
                 j_deep, n_angles, emission_cos_angles, emission_cos_angles_weights, clouds_final_absorption_opacities, &
                 kappa_H, kappa_J, eddington_F, eddington_Psi, H_star, mu_star, H_star_0, &
                 abs_S, t_irr, HIT_N_g_eff, J_bol, H_bol, K_bol, &
-                w_gauss_ck, surface_gravity, dayside_ave, planetary_ave, j_for_zbrent, jstar_for_zbrent, &
+                w_gauss_ck, reference_gravity, dayside_ave, planetary_ave, j_for_zbrent, jstar_for_zbrent, &
                 range_int, range_write, I_minus_out_Olson, bord_ind_1dm6, I_J_out_Feautrier)
             ! TODO never used, keeping just in case
             use math, only: cst_pi
@@ -2949,7 +2950,7 @@ module fortran_radtrans_core
             logical, intent(in)             :: dayside_ave, planetary_ave
             integer, intent(in)             :: n_frequencies_bins, n_layers, HIT_N_g_eff, bord_ind_1dm6
             integer, intent(in)             :: n_angles, range_int, range_write
-            double precision, intent(in)    :: frequencies_bin_edges(n_frequencies_bins), surface_gravity, &
+            double precision, intent(in)    :: frequencies_bin_edges(n_frequencies_bins), reference_gravity, &
                 clouds_final_absorption_opacities(HIT_N_g_eff,n_frequencies_bins-1,n_layers)
             double precision, intent(in)    :: pressures(n_layers), temperatures(n_layers)
             double precision, intent(in)    :: tau_approx(HIT_N_g_eff,n_frequencies_bins-1,n_layers)
@@ -3147,7 +3148,7 @@ module fortran_radtrans_core
                                 Q_max = 0.5d0 * (r(k - 1) * clouds_final_absorption_opacities(l, i, k - 1) &
                                     + r(k) * clouds_final_absorption_opacities(l, i, k)) &
                                     * (pressures(k) - pressures(k - 1)) &
-                                    / surface_gravity / emission_cos_angles(j)  ! use MP/RT for rho?
+                                    / reference_gravity / emission_cos_angles(j)  ! use MP/RT for rho?
                                 Q = max(min(Q, Q_max), 0d0)
                                 I_plus(k, j) = I_plus(k - 1, j)*atten_factors(k - 1) + Q
                             else
@@ -3182,7 +3183,7 @@ module fortran_radtrans_core
                                     *clouds_final_absorption_opacities(l,i,range_int_use-k+2)+ &
                                     r(range_int_use-k+1)*clouds_final_absorption_opacities(l,i,range_int_use-k+1))* &
                                     (pressures(range_int_use-k+2)-pressures(range_int_use-k+1)) &
-                                    /surface_gravity/emission_cos_angles(j)
+                                    /reference_gravity/emission_cos_angles(j)
                                 Q = max(min(Q,Q_max),0d0)
                                 I_minus(range_int_use-k+1,j) = I_minus(range_int_use-k+2,j)&
                                     * atten_factors(range_int_use-k+1) + Q

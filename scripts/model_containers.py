@@ -670,7 +670,7 @@ class SpectralModelLegacy:
         atmosphere.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            surface_gravity=10 ** parameters['log10_surface_gravity'].value,
+            reference_gravity=10 ** parameters['log10_surface_gravity'].value,
             mean_molar_masses=mean_molar_mass,
             star_effective_temperature=parameters['star_effective_temperature'].value,
             star_radius=parameters['star_radius'].value,
@@ -696,7 +696,7 @@ class SpectralModelLegacy:
         atmosphere.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            surface_gravity=10 ** parameters['log10_surface_gravity'].value,
+            reference_gravity=10 ** parameters['log10_surface_gravity'].value,
             mean_molar_masses=mean_molar_mass,
             reference_pressure=parameters['reference_pressure'].value,
             planet_radius=parameters['planet_radius'].value
@@ -1239,7 +1239,7 @@ class SpectralModelLegacy:
             )
         else:
             model.atmosphere_file = SpectralModelLegacy._get_hires_atmosphere_filename(
-                pressures, model.wavelengths_boundaries, model.lbl_opacity_sampling, model_suffix
+                pressures, model.wavelengths_boundaries, model.line_by_line_opacity_sampling, model_suffix
             )
 
         # A Planet needs to be generated and saved first
@@ -1348,7 +1348,7 @@ class SpectralModelLegacy:
             wavelengths_boundaries=wlen_bords_micron,
             line_opacity_mode=mode,
             scattering_in_emission=do_scat_emis,
-            lbl_opacity_sampling=lbl_opacity_sampling
+            line_by_line_opacity_sampling=lbl_opacity_sampling
         )
 
         atmosphere.setup_opa_structure(pressures)

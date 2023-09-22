@@ -44,7 +44,7 @@ MMW = 2.33 * np.ones_like(temperature)
 atmosphere.calculate_transit_radii(
     temperatures=temperature,
     mass_fractions=mass_fractions,
-    surface_gravity=gravity,
+    reference_gravity=gravity,
     mean_molar_masses=MMW,
     planet_radius=R_pl,
     reference_pressure=P0

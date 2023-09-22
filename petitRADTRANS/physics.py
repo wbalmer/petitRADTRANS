@@ -6,24 +6,6 @@ from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 import petitRADTRANS.physical_constants as cst
 
 
-# TODO are these actually used outside of calc_met?
-def _get_log_gs():
-    return np.array([12., 10.93])
-
-
-def _get_log_mets():
-    return np.array([1.05, 1.38, 2.7, 8.43, 7.83, 8.69, 4.56, 7.93, 6.24, 7.6, 6.45, 7.51, 5.41,
-                     7.12, 5.5, 6.4, 5.03, 6.34, 3.15, 4.95, 3.93, 5.64, 5.43, 7.5,
-                     4.99, 6.22, 4.19, 4.56, 3.04, 3.65, 3.25, 2.52, 2.87, 2.21, 2.58,
-                     1.46, 1.88])
-
-
-def calc_met(f):
-    # TODO unused?
-    return np.log10((f / (np.sum(1e1 ** _get_log_gs()) + f * np.sum(1e1 ** _get_log_mets())))
-                    / (1. / (np.sum(1e1 ** _get_log_gs()) + np.sum(1e1 ** _get_log_mets()))))
-
-
 def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
     # TODO rework/replace this function
     # TODO find better name

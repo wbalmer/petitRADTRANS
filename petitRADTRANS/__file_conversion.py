@@ -1231,6 +1231,90 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_da
     print("Successfully converted stellar spectra")
 
 
+def rebin_ck_line_opacities(radtrans, resolution, path='', species=None, species_molar_masses=None):
+    import exo_k
+    import petitRADTRANS.physical_constants as cst
+
+    if species is None:
+        species = []
+
+    # Define own wavenumber grid, make sure that log spacing is constant everywhere
+    n_spectral_points = int(
+        resolution * np.log(radtrans.wavelengths_boundaries[1] / radtrans.wavelengths_boundaries[0]) + 1
+    )
+    wavenumber_grid = np.logspace(np.log10(1 / radtrans.wavelengths_boundaries[1] / 1e-4),
+                                  np.log10(1. / radtrans.wavelengths_boundaries[0] / 1e-4),
+                                  n_spectral_points)
+    string_type = h5py.string_dtype(encoding='utf-8')
+
+    # Do the rebinning, loop through species
+    for s in species:
+        print(f"Rebinning species {s}...")
+
+        # Create hdf5 file that Exo-k can read...
+        with h5py.File('temp.h5', 'w') as f:
+            try:
+                f.create_dataset('DOI', (1,), data="--", dtype=string_type)
+            except ValueError:  # TODO check if ValueError is expected here (and why this try is needed at all)
+                f.create_dataset('DOI', data=['--'])
+
+            f.create_dataset('bin_centers', data=radtrans.frequencies[::-1] / cst.c)
+            f.create_dataset('bin_edges', data=radtrans.frequency_bins_edges[::-1] / cst.c)
+            opacity_grid = copy.copy(radtrans.lines_loaded_opacities['opacity_grid'][s])
+
+            # Mass to go from opacities to cross-sections
+            opacity_grid = opacity_grid * cst.amu * species_molar_masses[s.split('_')[0]]
+
+            # Do the opposite of what I do when loading in Katy's ExoMol tables
+            # To get opacities into the right format
+            opacity_grid = opacity_grid[:, ::-1, :]
+            opacity_grid = np.swapaxes(opacity_grid, 2, 0)
+            opacity_grid = opacity_grid.reshape((
+                radtrans.lines_loaded_opacities['temperature_grid_size'][s],
+                radtrans.lines_loaded_opacities['pressure_grid_size'][s],
+                radtrans.frequencies.size,
+                len(radtrans.lines_loaded_opacities['weights_gauss'])
+            ))
+            opacity_grid = np.swapaxes(opacity_grid, 1, 0)
+            opacity_grid[opacity_grid < 1e-60] = 1e-60
+
+            f.create_dataset('kcoeff', data=opacity_grid)
+            f['kcoeff'].attrs.create('units', 'cm^2/molecule')
+
+            # Add the other required information
+            try:
+                f.create_dataset('method', (1,), data="petit_samples", dtype=string_type)
+            except ValueError:  # TODO check if ValueError is expected here (and why this try is needed at all)
+                f.create_dataset('method', data=['petit_samples'])
+
+            f.create_dataset('mol_name', data=s.split('_')[0], dtype=string_type)
+            f.create_dataset('mol_mass', data=[species_molar_masses[s.split('_')[0]]])
+            f.create_dataset('ngauss', data=len(radtrans.lines_loaded_opacities['weights_gauss']))
+            f.create_dataset('p', data=radtrans.lines_loaded_opacities['temperature_pressure_grid'][s][
+                                       :radtrans.lines_loaded_opacities['pressure_grid_size'][s], 1] / 1e6)
+            f['p'].attrs.create('units', 'bar')
+            f.create_dataset('samples', data=radtrans.lines_loaded_opacities['g_gauss'])
+            f.create_dataset('t', data=radtrans.lines_loaded_opacities['temperature_pressure_grid'][s][
+                                       ::radtrans.lines_loaded_opacities['pressure_grid_size'][s], 0])
+            f.create_dataset('weights', data=radtrans.lines_loaded_opacities['weights_gauss'])
+            f.create_dataset('wlrange', data=[np.min(cst.c / radtrans.frequency_bins_edges / 1e-4),
+                                              np.max(cst.c / radtrans.frequency_bins_edges / 1e-4)])
+            f.create_dataset('wnrange', data=[np.min(radtrans.frequency_bins_edges / cst.c),
+                                              np.max(radtrans.frequency_bins_edges / cst.c)])
+
+        # Use Exo-k to rebin to low-res, save to desired folder
+        tab = exo_k.Ktable(filename='temp.h5')
+        tab.bin_down(wavenumber_grid)
+
+        if path[-1] == '/':
+            path = path[:-1]
+
+        os.makedirs(path + '/' + s + '_R_' + str(int(resolution)), exist_ok=True)
+        tab.write_hdf5(path + '/' + s + '_R_' + str(int(resolution)) + '/' + s + '_R_' + str(
+            int(resolution)) + '.h5')
+        os.system('rm temp.h5')
+
+
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False):
     print("Starting all conversions...")
 

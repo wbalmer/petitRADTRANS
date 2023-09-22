@@ -10,7 +10,7 @@ module fortran_inputs
     integer, parameter :: species_string_max_length = 64  ! longest molelcule formula ("tintin") is 30 characters long
 
     contains
-        subroutine compute_total_opacities(line_species_mass_fractions, opacitites, continuum_opacitites, &
+        subroutine combine_opacities(line_species_mass_fractions, opacitites, continuum_opacitites, &
                                            n_species, n_frequencies, n_layers, n_g, &
                                            opacitites_out)
             ! """
@@ -35,12 +35,11 @@ module fortran_inputs
 
             do i_struc = 1, n_layers
                 do i_freq = 1, n_frequencies
-                    opacitites_out(:,i_freq,1,i_struc) = &
-                        opacitites_out(:,i_freq,1,i_struc) &
+                    opacitites_out(:,i_freq,1,i_struc) = opacitites_out(:,i_freq,1,i_struc) &
                         + continuum_opacitites(i_freq,i_struc)
                 end do
             end do
-        end subroutine compute_total_opacities
+        end subroutine combine_opacities
         
         
         subroutine count_file_line_number(file, n_lines)

@@ -197,7 +197,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     wavelengths, transit_radii, _ = prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
-        surface_gravity=10 ** parameters['log_g'].value,
+        reference_gravity=10 ** parameters['log_g'].value,
         mean_molar_masses=mmw,
         planet_radius=parameters['R_pl'].value,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],

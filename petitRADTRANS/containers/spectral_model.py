@@ -837,7 +837,7 @@ class BaseSpectralModel:
         wavelengths, spectral_radiosity, _ = radtrans.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            surface_gravity=planet_surface_gravity,
+            reference_gravity=planet_surface_gravity,
             mean_molar_masses=mean_molar_mass,
             planet_radius=planet_radius,
             cloud_particle_radius_distribution_std=cloud_sigma,
@@ -849,7 +849,6 @@ class BaseSpectralModel:
             opaque_cloud_top_pressure=cloud_pressure,
             power_law_opacity_350nm=scattering_opacity_350nm,
             power_law_opacity_coefficient=scattering_opacity_coefficient,
-            add_cloud_scattering_as_absorption=add_cloud_scattering_as_absorption,
             star_effective_temperature=star_effective_temperature,
             star_radius=star_radius,
             orbit_semi_major_axis=orbit_semi_major_axis,
@@ -877,7 +876,7 @@ class BaseSpectralModel:
     @staticmethod
     def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
         # The PHOENIX data are loaded only when the module is imported
-        star_data = compute_phoenix_spectrum(star_effective_temperature)
+        star_data, _ = compute_phoenix_spectrum(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
         star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um
@@ -965,7 +964,7 @@ class BaseSpectralModel:
         wavelengths, planet_transit_radius, _ = radtrans.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
-            surface_gravity=planet_surface_gravity,
+            reference_gravity=planet_surface_gravity,
             mean_molar_masses=mean_molar_masses,
             reference_pressure=reference_pressure,
             planet_radius=planet_radius,
@@ -1421,7 +1420,7 @@ class BaseSpectralModel:
             wavelengths_boundaries=wavelengths_boundaries,
             line_opacity_mode=opacity_mode,
             scattering_in_emission=do_scat_emis,
-            lbl_opacity_sampling=lbl_opacity_sampling,
+            line_by_line_opacity_sampling=lbl_opacity_sampling,
             pressures=pressures
         )
 

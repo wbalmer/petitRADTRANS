@@ -17,7 +17,7 @@ def init_radtrans_downsampled_line_by_line():
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
-        lbl_opacity_sampling=radtrans_parameters['spectrum_parameters']['line_by_line_opacity_sampling'],
+        line_by_line_opacity_sampling=radtrans_parameters['spectrum_parameters']['line_by_line_opacity_sampling'],
         line_opacity_mode='lbl'
     )
 
@@ -32,7 +32,7 @@ def test_line_by_line_downsampled_emission_spectrum():
     frequencies, flux, _ = atmosphere_lbl_downsampled.calculate_flux(
         temperatures=temperature_guillot_2010,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         frequencies_to_wavelengths=False
     )
@@ -53,7 +53,7 @@ def test_line_by_line_downsampled_transmission_spectrum():
     frequencies, transit_radii, _ =atmosphere_lbl_downsampled.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
-        surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],

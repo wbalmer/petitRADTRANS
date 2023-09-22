@@ -117,7 +117,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
         wavelengths_boundaries=w_bords,
         line_opacity_mode='lbl',
         scattering_in_emission=True,
-        lbl_opacity_sampling=4
+        line_by_line_opacity_sampling=4
     )
     atmosphere.setup_opa_structure(pressures)
 
@@ -395,7 +395,7 @@ def _transit_radius_model(prt_object, parameters):
     prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
-        surface_gravity=surface_gravity,
+        reference_gravity=surface_gravity,
         mean_molar_masses=mmw,
         reference_pressure=parameters['reference_pressure'].value,
         planet_radius=pr
