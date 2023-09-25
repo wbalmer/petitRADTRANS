@@ -13,6 +13,9 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         'Paths': {
             'pRT_input_data_path': os.path.join(str(Path.home()), 'petitRADTRANS', 'input_data'),
             'pRT_outputs_path': os.path.join(str(Path.home()), 'petitRADTRANS', 'outputs')
+        },
+        'URLs': {
+            'pRT_input_data_url': 'https://keeper.mpdl.mpg.de/d/f48c13424cd34d2d9b47/?p='
         }
     }
 
@@ -35,8 +38,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             print(f"Creating directory '{cls._directory}'...")
             os.makedirs(cls._directory)
 
-        with open(cls._config_file, 'w') as configfile:
-            config.write(configfile)
+        config.save()
 
     @property
     def config_file(self):
@@ -80,15 +82,26 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             PetitradtransConfigParser._make()  # TODO find a better, safer way to do generate the configuration file?
 
         self.read(PetitradtransConfigParser._config_file)
+        self.repair()
 
-    def power_update(self, new_config):
-        self.power_load()
+    def power_set(self, section, option, value):
+        self.set(section, option, value)
+        self.repair()
+        self.save()
+
+    def power_update(self, new_config, repair_update=True):
         self.update(new_config)
 
-        with open(self._config_file, 'w') as configfile:
-            self.write(configfile)
+        if repair_update:
+            self.repair()
+
+        self.save()
 
         print("Configuration updated")
+
+    def save(self):
+        with open(self._config_file, 'w') as configfile:
+            self.write(configfile)
 
     def set_input_data_path(self, path: str):
         """
@@ -102,13 +115,31 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         if path_tail != 'input_data':
             path = os.path.join(path, 'input_data')
 
-        self.load()
-        self.set('Paths', 'pRT_input_data_path', os.path.abspath(path))
-
-        with open(PetitradtransConfigParser._config_file, 'w') as configfile:
-            self.write(configfile)
+        self.power_set('Paths', 'pRT_input_data_path', os.path.abspath(path))
 
         print(f"Input data path changed to '{path}'")
+
+    def repair(self):
+        repaired = False
+
+        for section in self._default_config:
+            if not self.has_section(section):
+                print(f"Adding missing section '{section}'...")
+                repaired = True
+                self.add_section(section)
+
+                for option, value in self._default_config[section].items():
+                    self.set(section, option, value)
+            else:
+                for option, value in self._default_config[section].items():
+                    if option not in self[section]:
+                        print(f"Adding missing option '{option}' in section '{section}'...")
+                        repaired = True
+                        self.set(section, option, value)
+
+        if repaired:
+            print(f"Repairing configuration file ('{self._config_file}')...")
+            self.save()
 
 
 petitradtrans_config_parser = PetitradtransConfigParser()
