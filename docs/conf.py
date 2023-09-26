@@ -16,6 +16,7 @@ import os
 import sys
 
 import petitRADTRANS
+nbsphinx_allow_errors = True
 
 sys.path.insert(0, os.path.abspath('../'))
 autodoc_mock_imports = ['petitRADTRANS', 'numpy', 'scipy', 'glob',

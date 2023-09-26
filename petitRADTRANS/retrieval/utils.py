@@ -8,9 +8,10 @@ import sys
 from typing import Tuple
 
 import numpy as np
-from scipy.special import erfcinv
+from scipy.special import erfcinv, gamma
 
 from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.physics import linear_spline_profile, cubic_spline_profile
 from petitRADTRANS.prt_molmass import get_species_molar_mass
 
 SQRT2 = np.sqrt(2)
@@ -61,6 +62,8 @@ def log_gaussian_prior(cube, mu, sigma):
 def delta_prior(cube, x1, x2):
     return x1
 
+def inverse_gamma_prior(cube, a, b):
+    return ((b**a)/gamma(a)) * (1/cube)**(a+1) * np.exp(-b/cube)
 
 # Sanity checks on parameter ranges
 def b_range(x, b):
@@ -92,7 +95,7 @@ def calc_MMW(abundances):
             dictionary of abundance arrays, each array must have the shape of the pressure array used in pRT,
             and contain the abundance at each layer in the atmosphere.
     """
-    mmw = sys.float_info.min  # prevent division by 0
+    mmw = sys.float_info.min * np.ones_like(abundances[list(abundances.keys())[0]]) # prevent division by 0
 
     for key in abundances.keys():
         # exo_k resolution
@@ -119,7 +122,7 @@ def get_MMW_from_nfrac(n_frac):
             A dictionary of number fractions
     """
 
-    mass = 0.0
+    mass = np.zeros_like(n_frac[list(n_frac.keys())[0]])
     for key, value in n_frac.items():
         spec = key.split("_R_")[0]
         mass += value * get_species_molar_mass(spec)

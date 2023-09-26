@@ -23,12 +23,12 @@ lines = {'markeredgecolor': 'k',
 xtick = {'top': True,
          'bottom': True,
          'direction': 'in',
-         'labelsize': 19}
+         'labelsize': 20}
 
 ytick = {'left': True,
          'right': True,
          'direction': 'in',
-         'labelsize': 19}
+         'labelsize': 20}
 xmin = {'size': 5,
         'visible': True}
 ymin = {'size': 5,
@@ -44,7 +44,7 @@ figure = {'titlesize': 32,
           'dpi': 300,
           'autolayout': True}
 legend = {'fancybox': True,
-          'fontsize': 20}
+          'fontsize': 24}
 scatter = {'marker': 'o',
            'edgecolors': 'k'}
 
