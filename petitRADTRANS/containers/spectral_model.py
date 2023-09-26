@@ -21,7 +21,7 @@ from petitRADTRANS.prt_molmass import get_species_molar_mass
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
-from petitRADTRANS.retrieval.util import calc_MMW, log_prior, \
+from petitRADTRANS.retrieval.utils import calc_MMW, log_prior, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
@@ -696,7 +696,7 @@ class BaseSpectralModel:
     def calculate_planet_radial_velocities(orbital_longitudes, planet_radial_velocity_amplitude,
                                            planet_orbital_inclination=90.0, **kwargs):
         return Planet.calculate_planet_radial_velocity(
-                planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+                planet_radial_velocity_semi_amplitude=planet_radial_velocity_amplitude,
                 planet_orbital_inclination=planet_orbital_inclination,
                 orbital_longitude=orbital_longitudes
             )
@@ -2900,7 +2900,7 @@ class SpectralModel(BaseSpectralModel):
         elif planet_radius <= 0:
             raise ValueError("cannot calculate surface gravity from planet mass with a radius <= 0")
 
-        return Planet.mass2surface_gravity(
+        return Planet.mass2reference_gravity(
             mass=planet_mass,
             radius=planet_radius
         )[0]
@@ -2973,8 +2973,8 @@ class SpectralModel(BaseSpectralModel):
         elif planet_radius <= 0:
             raise ValueError("cannot calculate planet mass from surface gravity with a radius <= 0")
 
-        return Planet.surface_gravity2mass(
-            surface_gravity=planet_surface_gravity,
+        return Planet.reference_gravity2mass(
+            reference_gravity=planet_surface_gravity,
             radius=planet_radius
         )[0]
 

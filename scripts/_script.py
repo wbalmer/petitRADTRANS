@@ -2837,7 +2837,7 @@ def main_teff():
         atmosphere = None
 
         for planet in planets:
-            planet_key = f"T_eq {planet.equilibrium_temperature}, logg {np.log10(planet.surface_gravity)}"
+            planet_key = f"T_eq {planet.equilibrium_temperature}, logg {np.log10(planet.reference_gravity)}"
 
             if planet_key not in models:
                 models[planet_key] = {}

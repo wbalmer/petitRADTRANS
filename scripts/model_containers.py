@@ -10,7 +10,7 @@ from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval.util import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
+from petitRADTRANS.retrieval.utils import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
     delta_prior
 
 # from petitRADTRANS.config import petitradtrans_config
@@ -156,7 +156,7 @@ class SimplePlanet(Planet):
             name=name,
             mass=mass,
             radius=radius,
-            surface_gravity=surface_gravity,
+            reference_gravity=surface_gravity,
             orbit_semi_major_axis=orbit_semi_major_axis,
             reference_pressure=reference_pressure,
             equilibrium_temperature=equilibrium_temperature,
@@ -171,12 +171,12 @@ class SimplePlanet(Planet):
             self.equilibrium_temperature = equilibrium_temperature
 
         if mass is None:
-            self.mass = self.surface_gravity2mass(self.surface_gravity, self.radius)
+            self.mass = self.reference_gravity2mass(self.reference_gravity, self.radius)
         else:
             self.mass = mass
 
     @staticmethod
-    def surface_gravity2mass(surface_gravity, radius, **kwargs):
+    def reference_gravity2mass(surface_gravity, radius, **kwargs):
         return surface_gravity * radius ** 2 / cst.G
 
 
@@ -814,7 +814,7 @@ class SpectralModelLegacy:
         atmosphere.calculate_flux(
             self.temperature,
             self.mass_fractions,
-            planet.surface_gravity,
+            planet.reference_gravity,
             self.mass_fractions['MMW'],
             star_effective_temperature=planet.star_effective_temperature,
             star_radius=planet.star_radius,
@@ -834,7 +834,7 @@ class SpectralModelLegacy:
         atmosphere.calculate_transit_radii(
             self.temperature,
             self.mass_fractions,
-            planet.surface_gravity,
+            planet.reference_gravity,
             self.mass_fractions['MMW'],
             planet_radius=planet.radius,
             reference_pressure=planet.reference_pressure,
@@ -877,7 +877,7 @@ class SpectralModelLegacy:
         )
 
         return self._get_parameters_dict(
-            surface_gravity=planet.surface_gravity,
+            surface_gravity=planet.reference_gravity,
             planet_radius=planet.radius,
             reference_pressure=planet.reference_pressure,
             temperature=self.temperature,
@@ -1032,7 +1032,7 @@ class SpectralModelLegacy:
         temperatures = self._init_temperature_profile_guillot(
             pressures=pressures,
             gamma=self.gamma,
-            surface_gravity=planet.surface_gravity,
+            surface_gravity=planet.reference_gravity,
             intrinsic_temperature=self.t_int,
             equilibrium_temperature=planet.equilibrium_temperature,
             kappa_ir_z0=self.kappa_ir_z0,

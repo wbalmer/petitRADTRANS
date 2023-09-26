@@ -667,7 +667,7 @@ def get_co_added_ccf_velocity_space(planet_radial_velocity_amplitude, velocities
     # Calculate the planet relative velocities in the Kp space
     planet_observer_radial_velocities = system_observer_radial_velocities + np.array([
         planet_radial_velocity_function(
-            planet_radial_velocity_amplitude=kp,
+            planet_radial_velocity_semi_amplitude=kp,
             planet_orbital_inclination=planet_orbital_inclination,
             orbital_longitude=orbital_longitudes,  # phase to longitude (deg)
             **kwargs

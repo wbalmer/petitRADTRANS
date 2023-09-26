@@ -160,7 +160,7 @@ def download_input_data(destination, source=None, rewrite=False,
             eta="0:00:00"
         )
     else:
-        warnings.warn(f"not all data has been downloaded")
+        warnings.warn("not all data has been downloaded")
 
     sys.stdout.write("\n")
 

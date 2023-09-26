@@ -19,7 +19,7 @@ from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
-from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval.utils import calc_MMW, uniform_prior
 
 all_species = [
     'CO_main_iso',
@@ -48,11 +48,11 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     if not isinstance(planet.mass, float) or planet.mass == 0:
         print("Warning: planet mass undefined, using a made-up one")
         planet.mass = planet.radius ** 3 * 1.5
-        planet.surface_gravity = Planet.mass2surface_gravity(planet.mass, planet.radius)[0]
+        planet.reference_gravity = Planet.mass2reference_gravity(planet.mass, planet.radius)[0]
 
     pressures = np.logspace(-10, 2, 100)
     temperature = np.ones(pressures.shape) * planet.equilibrium_temperature
-    gravity = planet.surface_gravity
+    gravity = planet.reference_gravity
     radius = planet.radius
     star_radius = planet.star_radius
     star_effective_temperature = planet.star_effective_temperature

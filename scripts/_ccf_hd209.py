@@ -466,7 +466,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         fill_atmosphere=True,
         # Transmission spectrum parameters (radtrans.calc_transm)
         planet_radius=planet.radius,  # cm
-        planet_surface_gravity=planet.surface_gravity,  # cm.s-2
+        planet_surface_gravity=planet.reference_gravity,  # cm.s-2
         reference_pressure=1e-2,  # bar
         cloud_pressure=1e2,
         # haze_factor=1,

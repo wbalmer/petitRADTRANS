@@ -57,9 +57,9 @@ class Planet:
             density=0.,
             density_error_upper=0.,
             density_error_lower=0.,
-            surface_gravity=0.,
-            surface_gravity_error_upper=0.,
-            surface_gravity_error_lower=0.,
+            reference_gravity=0.,
+            reference_gravity_error_upper=0.,
+            reference_gravity_error_lower=0.,
             equilibrium_temperature=0.,
             equilibrium_temperature_error_upper=0.,
             equilibrium_temperature_error_lower=0.,
@@ -84,9 +84,9 @@ class Planet:
             true_obliquity=0.,
             true_obliquity_error_upper=0.,
             true_obliquity_error_lower=0.,
-            radial_velocity_amplitude=0.,
-            radial_velocity_amplitude_error_upper=0.,
-            radial_velocity_amplitude_error_lower=0.,
+            radial_velocity_semi_amplitude=0.,
+            radial_velocity_semi_amplitude_error_upper=0.,
+            radial_velocity_semi_amplitude_error_lower=0.,
             planet_stellar_radius_ratio=0.,
             planet_stellar_radius_ratio_error_upper=0.,
             planet_stellar_radius_ratio_error_lower=0.,
@@ -130,9 +130,9 @@ class Planet:
             star_density=0.,
             star_density_error_upper=0.,
             star_density_error_lower=0.,
-            star_surface_gravity=0.,
-            star_surface_gravity_error_upper=0.,
-            star_surface_gravity_error_lower=0.,
+            star_reference_gravity=0.,
+            star_reference_gravity_error_upper=0.,
+            star_reference_gravity_error_lower=0.,
             star_reference='',
             system_star_number=0,
             system_planet_number=0,
@@ -194,9 +194,9 @@ class Planet:
         self.density = density
         self.density_error_upper = density_error_upper
         self.density_error_lower = density_error_lower
-        self.surface_gravity = surface_gravity
-        self.surface_gravity_error_upper = surface_gravity_error_upper
-        self.surface_gravity_error_lower = surface_gravity_error_lower
+        self.reference_gravity = reference_gravity
+        self.reference_gravity_error_upper = reference_gravity_error_upper
+        self.reference_gravity_error_lower = reference_gravity_error_lower
         self.equilibrium_temperature = equilibrium_temperature
         self.equilibrium_temperature_error_upper = equilibrium_temperature_error_upper
         self.equilibrium_temperature_error_lower = equilibrium_temperature_error_lower
@@ -221,9 +221,9 @@ class Planet:
         self.true_obliquity = true_obliquity
         self.true_obliquity_error_upper = true_obliquity_error_upper
         self.true_obliquity_error_lower = true_obliquity_error_lower
-        self.radial_velocity_amplitude = radial_velocity_amplitude
-        self.radial_velocity_amplitude_error_upper = radial_velocity_amplitude_error_upper
-        self.radial_velocity_amplitude_error_lower = radial_velocity_amplitude_error_lower
+        self.radial_velocity_semi_amplitude = radial_velocity_semi_amplitude
+        self.radial_velocity_semi_amplitude_error_upper = radial_velocity_semi_amplitude_error_upper
+        self.radial_velocity_semi_amplitude_error_lower = radial_velocity_semi_amplitude_error_lower
         self.planet_stellar_radius_ratio = planet_stellar_radius_ratio
         self.planet_stellar_radius_ratio_error_upper = planet_stellar_radius_ratio_error_upper
         self.planet_stellar_radius_ratio_error_lower = planet_stellar_radius_ratio_error_lower
@@ -267,9 +267,9 @@ class Planet:
         self.star_density = star_density
         self.star_density_error_upper = star_density_error_upper
         self.star_density_error_lower = star_density_error_lower
-        self.star_surface_gravity = star_surface_gravity
-        self.star_surface_gravity_error_upper = star_surface_gravity_error_upper
-        self.star_surface_gravity_error_lower = star_surface_gravity_error_lower
+        self.star_reference_gravity = star_reference_gravity
+        self.star_reference_gravity_error_upper = star_reference_gravity_error_upper
+        self.star_reference_gravity_error_lower = star_reference_gravity_error_lower
         self.star_reference = star_reference
         self.system_star_number = system_star_number
         self.system_planet_number = system_planet_number
@@ -332,9 +332,9 @@ class Planet:
                 'density': 'g/cm^3',
                 'density_error_upper': 'g/cm^3',
                 'density_error_lower': 'g/cm^3',
-                'surface_gravity': 'cm/s^2',
-                'surface_gravity_error_upper': 'cm/s^2',
-                'surface_gravity_error_lower': 'cm/s^2',
+                'reference_gravity': 'cm/s^2',
+                'reference_gravity_error_upper': 'cm/s^2',
+                'reference_gravity_error_lower': 'cm/s^2',
                 'equilibrium_temperature': 'K',
                 'equilibrium_temperature_error_upper': 'K',
                 'equilibrium_temperature_error_lower': 'K',
@@ -359,9 +359,9 @@ class Planet:
                 'true_obliquity': 'deg',
                 'true_obliquity_error_upper': 'deg',
                 'true_obliquity_error_lower': 'deg',
-                'radial_velocity_amplitude': 'cm/s',
-                'radial_velocity_amplitude_error_upper': 'cm/s',
-                'radial_velocity_amplitude_error_lower': 'cm/s',
+                'radial_velocity_semi_amplitude': 'cm/s',
+                'radial_velocity_semi_amplitude_error_upper': 'cm/s',
+                'radial_velocity_semi_amplitude_error_lower': 'cm/s',
                 'planet_stellar_radius_ratio': 'None',
                 'planet_stellar_radius_ratio_error_upper': 'None',
                 'planet_stellar_radius_ratio_error_lower': 'None',
@@ -405,9 +405,9 @@ class Planet:
                 'star_density': 'g/cm^3',
                 'star_density_error_upper': 'g/cm^3',
                 'star_density_error_lower': 'g/cm^3',
-                'star_surface_gravity': 'cm/s^2',
-                'star_surface_gravity_error_upper': 'cm/s^2',
-                'star_surface_gravity_error_lower': 'cm/s^2',
+                'star_reference_gravity': 'cm/s^2',
+                'star_reference_gravity_error_upper': 'cm/s^2',
+                'star_reference_gravity_error_lower': 'cm/s^2',
                 'star_reference': 'N/A',
                 'system_star_number': 'None',
                 'system_planet_number': 'None',
@@ -566,14 +566,14 @@ class Planet:
 
                 # Try to calculate the star radius if missing
                 if new_planet.star_radius == 0 and new_planet.star_mass > 0:
-                    if new_planet.star_surface_gravity > 0:
+                    if new_planet.star_reference_gravity > 0:
                         new_planet.star_radius, \
                             new_planet.star_radius_error_upper, new_planet.star_radius_error_lower = \
-                            new_planet.surface_gravity2radius(
-                                new_planet.star_surface_gravity,
+                            new_planet.reference_gravity2radius(
+                                new_planet.star_reference_gravity,
                                 new_planet.star_mass,
-                                surface_gravity_error_upper=new_planet.star_surface_gravity_error_upper,
-                                surface_gravity_error_lower=new_planet.star_surface_gravity_error_lower,
+                                reference_gravity_error_upper=new_planet.star_reference_gravity_error_upper,
+                                reference_gravity_error_lower=new_planet.star_reference_gravity_error_lower,
                                 mass_error_upper=new_planet.star_mass_error_upper,
                                 mass_error_lower=new_planet.star_mass_error_lower
                             )
@@ -593,10 +593,10 @@ class Planet:
                         new_planet.star_radius_error_lower, new_planet.star_radius_error_upper = \
                             calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
 
-                if 'surface_gravity' not in keys and new_planet.radius > 0 and new_planet.mass > 0:
-                    new_planet.surface_gravity, \
-                        new_planet.surface_gravity_error_upper, new_planet.surface_gravity_error_lower = \
-                        new_planet.mass2surface_gravity(
+                if 'reference_gravity' not in keys and new_planet.radius > 0 and new_planet.mass > 0:
+                    new_planet.reference_gravity, \
+                        new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
+                        new_planet.mass2reference_gravity(
                             new_planet.mass,
                             new_planet.radius,
                             mass_error_upper=new_planet.mass_error_upper,
@@ -634,10 +634,10 @@ class Planet:
             if key in new_planet.__dict__:
                 new_planet.__dict__[key] = parameter_dict[key]
 
-        if 'surface_gravity' not in parameter_dict and new_planet.radius > 0:
-            new_planet.surface_gravity, \
-                new_planet.surface_gravity_error_upper, new_planet.surface_gravity_error_lower = \
-                new_planet.mass2surface_gravity(
+        if 'reference_gravity' not in parameter_dict and new_planet.radius > 0:
+            new_planet.reference_gravity, \
+                new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
+                new_planet.mass2reference_gravity(
                     new_planet.mass,
                     new_planet.radius,
                     mass_error_upper=new_planet.mass_error_upper,
@@ -714,7 +714,7 @@ class Planet:
                             raise ValueError(f"units of key '{key}' must be '{new_planet.units[key]}', "
                                              f"but is '{f[key].attrs['units']}'")
                     else:
-                        new_planet.units[key] = f[key].attrs['units'][()]
+                        new_planet.units[key] = f[key].attrs['units']
                 else:
                     new_planet.units[key] = 'N/A'
 
@@ -802,7 +802,7 @@ class Planet:
         elif '_projobliq' in key:
             key = key.replace('_projobliq', '_projected_obliquity')
         elif '_rvamp' in key:
-            key = key.replace('_rvamp', '_radial_velocity_amplitude')
+            key = key.replace('_rvamp', '_radial_velocity_semi_amplitude')
 
             if not skip_unit_conversion:
                 value *= 1e2
@@ -856,7 +856,7 @@ class Planet:
             if not skip_unit_conversion:
                 value = 10 ** value * cst.l_sun
         elif '_logg' in key:
-            key = key.replace('_logg', '_surface_gravity')
+            key = key.replace('_logg', '_reference_gravity')
 
             if not skip_unit_conversion:
                 value = 10 ** value
@@ -998,12 +998,12 @@ class Planet:
         return observation_mid_transit_time, errors[1], -errors[0], n_orbits
 
     @staticmethod
-    def calculate_planet_radial_velocity(planet_radial_velocity_amplitude, planet_orbital_inclination,
+    def calculate_planet_radial_velocity(planet_radial_velocity_semi_amplitude, planet_orbital_inclination,
                                          orbital_longitude, **kwargs):
         """Calculate the planet radial velocity as seen by an observer.
 
         Args:
-            planet_radial_velocity_amplitude: maximum radial velocity for an inclination angle of 90 degree
+            planet_radial_velocity_semi_amplitude: maximum radial velocity for an inclination angle of 90 degree
             planet_orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
                 observation, i.e. 90 degree: edge view, 0 degree: top view
             orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
@@ -1013,7 +1013,7 @@ class Planet:
         Returns:
 
         """
-        kp = planet_radial_velocity_amplitude * np.sin(np.deg2rad(planet_orbital_inclination))  # (cm.s-1)
+        kp = planet_radial_velocity_semi_amplitude * np.sin(np.deg2rad(planet_orbital_inclination))  # (cm.s-1)
 
         return kp * np.sin(np.deg2rad(orbital_longitude))
 
@@ -1212,8 +1212,8 @@ class Planet:
         return parameter_dict
 
     @staticmethod
-    def mass2surface_gravity(mass, radius,
-                             mass_error_upper=0., mass_error_lower=0., radius_error_upper=0., radius_error_lower=0.):
+    def mass2reference_gravity(mass, radius,
+                               mass_error_upper=0., mass_error_lower=0., radius_error_upper=0., radius_error_lower=0.):
         """
         Convert the mass of a planet to its surface gravity.
         Args:
@@ -1225,18 +1225,18 @@ class Planet:
             radius_error_lower: (cm) lower error on the planet radius
 
         Returns:
-            (cm.s-2) the surface gravity of the planet, and its upper and lower error
+            (cm.s-2) the reference gravity of the planet, and its upper and lower error
         """
         if radius <= 0:
             warnings.warn(f"unknown or invalid radius ({radius}), surface gravity not calculated")
 
             return None, None, None
 
-        surface_gravity = cst.G * mass / radius ** 2
+        reference_gravity = cst.G * mass / radius ** 2
 
         partial_derivatives = np.array([
-            surface_gravity / mass,  # dg/dm
-            - 2 * surface_gravity / radius  # dg/dr
+            reference_gravity / mass,  # dg/dm
+            - 2 * reference_gravity / radius  # dg/dr
         ])
         uncertainties = np.abs(np.array([
             [mass_error_lower, mass_error_upper],
@@ -1245,39 +1245,39 @@ class Planet:
 
         errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
 
-        return surface_gravity, errors[1], -errors[0]
+        return reference_gravity, errors[1], -errors[0]
 
     @staticmethod
-    def surface_gravity2radius(surface_gravity, mass,
-                               surface_gravity_error_upper=0., surface_gravity_error_lower=0.,
-                               mass_error_upper=0., mass_error_lower=0.):
+    def reference_gravity2radius(reference_gravity, mass,
+                                 reference_gravity_error_upper=0., reference_gravity_error_lower=0.,
+                                 mass_error_upper=0., mass_error_lower=0.):
         """
-        Convert the mass of a planet to its surface gravity.
+        Convert the mass of a planet to its reference gravity.
         Args:
-            surface_gravity: (cm.s-2) surface_gravity of the planet
+            reference_gravity: (cm.s-2) reference gravity of the planet
             mass: (g) mass of the planet
             mass_error_upper: (g) upper error on the planet mass
             mass_error_lower: (g) lower error on the planet mass
-            surface_gravity_error_upper: (cm.s-2) upper error on the planet radius
-            surface_gravity_error_lower: (cm.s-2) lower error on the planet radius
+            reference_gravity_error_upper: (cm.s-2) upper error on the planet radius
+            reference_gravity_error_lower: (cm.s-2) lower error on the planet radius
 
         Returns:
             (cm.s-2) the surface gravity of the planet, and its upper and lower error
         """
-        if surface_gravity <= 0:
-            warnings.warn(f"unknown or invalid surface gravity ({surface_gravity}), radius not calculated")
+        if reference_gravity <= 0:
+            warnings.warn(f"unknown or invalid surface gravity ({reference_gravity}), radius not calculated")
 
             return None, None, None
 
-        radius = (cst.G * mass / surface_gravity) ** 0.5
+        radius = (cst.G * mass / reference_gravity) ** 0.5
 
         partial_derivatives = np.array([
             radius / (2 * mass),  # dr/dm
-            - radius / (2 * surface_gravity)  # dr/dg
+            - radius / (2 * reference_gravity)  # dr/dg
         ])
         uncertainties = np.abs(np.array([
             [mass_error_lower, mass_error_upper],
-            [surface_gravity_error_lower, surface_gravity_error_upper]
+            [reference_gravity_error_lower, reference_gravity_error_upper]
         ]))
 
         errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
@@ -1285,30 +1285,30 @@ class Planet:
         return radius, errors[1], -errors[0]
 
     @staticmethod
-    def surface_gravity2mass(surface_gravity, radius,
-                             surface_gravity_error_upper=0., surface_gravity_error_lower=0.,
-                             radius_error_upper=0., radius_error_lower=0.):
+    def reference_gravity2mass(reference_gravity, radius,
+                               reference_gravity_error_upper=0., reference_gravity_error_lower=0.,
+                               radius_error_upper=0., radius_error_lower=0.):
         """
         Convert the surface gravity of a planet to its mass.
         Args:
-            surface_gravity: (cm.s-2) surface gravity of the planet
+            reference_gravity: (cm.s-2) reference gravity of the planet
             radius: (cm) radius of the planet
-            surface_gravity_error_upper: (cm.s-2) upper error on the planet surface gravity
-            surface_gravity_error_lower: (cm.s-2) lower error on the planet surface gravity
+            reference_gravity_error_upper: (cm.s-2) upper error on the planet surface gravity
+            reference_gravity_error_lower: (cm.s-2) lower error on the planet surface gravity
             radius_error_upper: (cm) upper error on the planet radius
             radius_error_lower: (cm) lower error on the planet radius
 
         Returns:
             (g) the mass of the planet, and its upper and lower error
         """
-        mass = surface_gravity / cst.G * radius ** 2
+        mass = reference_gravity / cst.G * radius ** 2
 
         partial_derivatives = np.array([
-            mass / surface_gravity,  # dm/dg
+            mass / reference_gravity,  # dm/dg
             2 * mass / radius  # dm/dr
         ])
         uncertainties = np.abs(np.array([
-            [surface_gravity_error_lower, surface_gravity_error_upper],
+            [reference_gravity_error_lower, reference_gravity_error_upper],
             [radius_error_lower, radius_error_upper]
         ]))
 

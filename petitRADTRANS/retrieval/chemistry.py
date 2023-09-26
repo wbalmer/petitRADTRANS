@@ -4,7 +4,7 @@ import numpy as np
 
 from petitRADTRANS import chemistry as pm
 from petitRADTRANS.retrieval import cloud_cond as fc
-from petitRADTRANS.retrieval.util import fixed_length_amr, calc_MMW
+from petitRADTRANS.retrieval.utils import fixed_length_amr, calc_MMW
 
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):

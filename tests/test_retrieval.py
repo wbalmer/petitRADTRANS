@@ -6,11 +6,10 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 import json
 import os
 
-os.environ["OMP_NUM_THREADS"] = "1"  # to not have numpy start parallelizing on its own
 import numpy as np
 
-from petitRADTRANS.retrieval.util import gaussian_prior
-from petitRADTRANS.retrieval.util import calc_MMW
+from petitRADTRANS.retrieval.utils import gaussian_prior
+from petitRADTRANS.retrieval.utils import calc_MMW
 
 from .context import petitRADTRANS
 from .utils import tests_results_directory, reference_filenames, radtrans_parameters
@@ -48,7 +47,7 @@ def init_run():
     # Retrieved parameters
     # Prior functions
     def prior_planet_radius(x):
-        return petitRADTRANS.retrieval.util.uniform_prior(
+        return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
             x1=radtrans_parameters['retrieval_parameters']['planetary_radius_bounds'][0]
             * petitRADTRANS.physical_constants.r_jup_mean,
@@ -57,14 +56,14 @@ def init_run():
         )
 
     def prior_temperature(x):
-        return petitRADTRANS.retrieval.util.uniform_prior(
+        return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
             x1=radtrans_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][0],
             x2=radtrans_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][1]
         )
 
     def prior_cloud_pressure(x):
-        return petitRADTRANS.retrieval.util.uniform_prior(
+        return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
             x1=radtrans_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][0],
             x2=radtrans_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][1]

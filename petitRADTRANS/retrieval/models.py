@@ -4,12 +4,13 @@ import numpy as np
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.physics import (
+    flux2irradiance,
     temperature_profile_function_ret_model, temperature_profile_function_guillot_global,
     temperature_profile_function_isothermal
 )
 from petitRADTRANS.retrieval import cloud_cond as fc
 from .chemistry import get_abundances
-from .util import surf_to_meas, compute_gravity, spectrum_cgs_to_si
+from .utils import compute_gravity, spectrum_cgs_to_si
 
 """
 Models Module
@@ -178,11 +179,15 @@ def emission_model_diseq(prt_object,
 
     # Getting the model into correct units (W/m2/micron)
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
-    spectrum_model = surf_to_meas(f_lambda,
-                                  R_pl,
-                                  parameters['D_pl'].value)
+    spectrum_model = flux2irradiance(
+        f_lambda,
+        R_pl,
+        parameters['D_pl'].value
+    )
+
     if contribution:
         return wlen_model, spectrum_model, additional_outputs['emission_contribution']
+
     return wlen_model, spectrum_model
 
 
@@ -309,9 +314,11 @@ def emission_model_diseq_patchy_clouds(prt_object,
         frequencies_to_wavelengths=False
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
-    spectrum_model_cloudy = surf_to_meas(f_lambda,
-                                         R_pl,
-                                         parameters['D_pl'].value)
+    spectrum_model_cloudy = flux2irradiance(
+        f_lambda,
+        R_pl,
+        parameters['D_pl'].value
+    )
 
     # Set the cloud abundances to 0 for clear case
     for cloud in prt_object.cloud_species:
@@ -331,9 +338,11 @@ def emission_model_diseq_patchy_clouds(prt_object,
         frequencies_to_wavelengths=False
     )
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
-    spectrum_model_clear = surf_to_meas(f_lambda,
-                                        R_pl,
-                                        parameters['D_pl'].value)
+    spectrum_model_clear = flux2irradiance(
+        f_lambda,
+        R_pl,
+        parameters['D_pl'].value
+    )
 
     # Patchiness fraction
     patchiness = parameters["patchiness"].value
@@ -457,9 +466,11 @@ def guillot_emission(prt_object,
         frequencies, flux, additional_outputs = results
 
     wlen_model, f_lambda = spectrum_cgs_to_si(frequencies, flux)
-    spectrum_model = surf_to_meas(f_lambda,
-                                  R_pl,
-                                  parameters['D_pl'].value)
+    spectrum_model = flux2irradiance(
+        f_lambda,
+        R_pl,
+        parameters['D_pl'].value
+    )
     if contribution:
         return wlen_model, spectrum_model, additional_outputs['emission_contribution']
     return wlen_model, spectrum_model

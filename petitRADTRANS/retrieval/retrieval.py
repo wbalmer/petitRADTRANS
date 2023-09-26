@@ -17,7 +17,7 @@ from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
-from petitRADTRANS.retrieval.util import bin_species_exok
+from petitRADTRANS.retrieval.utils import bin_species_exok
 
 
 class Retrieval:
@@ -1309,7 +1309,7 @@ class Retrieval:
                 A dictionary with retrieval names for keys, and the values are the calculated
                 values of Teff for each sample.
         """
-        from .util import teff_calc
+        from .utils import teff_calc
         if ret_names is None:
             ret_names = [self.retrieval_name]
         if nsample is None:

@@ -9,7 +9,7 @@ py.install_sources([
     'preparing.py',
     'retrieval.py',
     'retrieval_config.py',
-    'util.py',
+    'utils.py',
     '__init__.py',
     ],
     subdir: 'petitRADTRANS/retrieval'

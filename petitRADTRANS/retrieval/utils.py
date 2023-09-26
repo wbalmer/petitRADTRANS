@@ -19,26 +19,6 @@ SQRT2 = np.sqrt(2)
 #################
 # Flux scaling
 #################
-def surf_to_meas(flux, p_rad, dist):
-    """
-    surf_to_meas
-    Convert from emission flux to measured flux at earth
-    Args:
-        flux : numpy.ndarray
-            Absolute flux value or spectrum as emitted by a source of radius p_rad
-        p_rad : float
-            Planet radius, in same units as dist
-        dist : float
-            Distance to the object, in the same units as p_rad
-    Returns:
-        m_flux : numpy.ndarray
-            Apparent flux
-    """
-
-    m_flux = flux * p_rad ** 2 / dist ** 2
-    return m_flux
-
-
 def freq_to_micron(frequency):
     return cst.c / frequency / 1e-4
 

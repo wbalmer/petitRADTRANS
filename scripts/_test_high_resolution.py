@@ -29,7 +29,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.plotting import contour_corner
-from petitRADTRANS.retrieval.util import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval.utils import calc_MMW, uniform_prior
 from matplotlib import colors
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
@@ -254,11 +254,11 @@ def init_model(planet, w_bords, line_species_str, p0=1e-2):
         pressures=pressures,
         infrared_mean_opacity=0.01,
         gamma=0.4,
-        gravities=planet.surface_gravity,
+        gravities=planet.reference_gravity,
         intrinsic_temperature=200,
         equilibrium_temperature=planet.equilibrium_temperature
     )
-    gravity = planet.surface_gravity
+    gravity = planet.reference_gravity
     radius = planet.radius
     star_radius = planet.star_radius
     star_effective_temperature = planet.star_effective_temperature
