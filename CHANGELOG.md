@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Support for SLURM.
 - Possibility to retrieve or optimize uncertainties.
 - Trimming preparation function.
+- Module `cli.prt_cli` to automatically download petitRADTRANS input data files.
 - Module `configuration` to manage paths.
 - Module `molar_mass`, as a more explicit interface between `petitRADTRANS` and `molmass`.
 - Function `utils.feature_scaling` to normalize arrays.

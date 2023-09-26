@@ -1,3 +1,6 @@
+"""Command line interface to download petitRADTRANS input data files.
+"""
+
 import datetime
 import functools
 import http.client
@@ -11,8 +14,11 @@ import warnings
 from petitRADTRANS.config import petitradtrans_config_parser
 
 
+megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
+
+
 def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
-    """Display downloading progress.
+    """Display downloading progress on the terminal.
 
     Args:
         count: number of the data block being downloaded
@@ -25,7 +31,6 @@ def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
     percent = min(int(progress_size * 100 / total_size), 100)
 
     # Convert from B to MB
-    megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
     progress_size *= megabyte
     total_size *= megabyte
 
@@ -37,10 +42,35 @@ def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
         seconds=int(total_size / speed - duration)
     )
 
-    sys.stdout.write(f"\r {percent}% | "
-                     f"{progress_size:.1f}/{total_size:.1f} MB | "
-                     f"{speed:.1f} MB/s | "
-                     f"eta {eta}")
+    _reporthook_sys_output(
+        percent=percent,
+        progress_size=progress_size,
+        total_size=total_size,
+        speed=speed,
+        eta=eta
+    )
+
+
+def _reporthook_sys_output(percent: int, progress_size: float, total_size: float, speed: float,
+                           eta: [datetime.timedelta, str]):
+    """Terminal output of download progress
+
+    Args:
+        percent: progression percentage
+        progress_size: (MB) amount of data downloaded
+        total_size: (MB) amount of data to download
+        speed: (MB.s-1) data downloading rate
+        eta: (hh:mm:ss) time before download completion
+    """
+
+    columns_str = (
+        f"\r {percent}% | "
+        f"{progress_size:.1f}/{total_size:.1f} MB | "
+        f"{speed:.1f} MB/s | "
+        f"eta {eta}"
+    )
+
+    sys.stdout.write(columns_str)
     sys.stdout.flush()
 
 
@@ -49,7 +79,7 @@ def download_input_data(destination, source=None, rewrite=False,
                         url_input_data=petitradtrans_config_parser['URLs']['prt_input_data_url'],
                         byte_amount=8192) -> [http.client.HTTPResponse, None]:
     """Download a petitRADTRANS input data file.
-    If source is None, the source URL is automatically deduced from the destination.
+    If source is None, the source URL is automatically deduced from the destination file.
 
     Args:
         destination: file to be downloaded (path to the file where the downloaded data are saved)
@@ -111,14 +141,27 @@ def download_input_data(destination, source=None, rewrite=False,
             response_read = functools.partial(response.read, byte_amount)
 
             # Initialize reporthook, memorizing the download starting time for speed and ETA
-            reporthook = functools.partial(_reporthook, time_start=time.time())
+            time_start = time.time()
+            reporthook = functools.partial(_reporthook, time_start=time_start)
 
             # Read the response, block by block, and save it to the destination file
             for i, data in enumerate(iter(response_read, b"")):
                 f.write(data)
-                reporthook(i, byte_amount, total_size)
+                reporthook(i + 1, byte_amount, total_size)
 
-    # Ensure a clean console output after the download
+    # Ensure a clean terminal output after the download
+    if (i + 1) * byte_amount >= total_size:
+        total_size *= megabyte
+        _reporthook_sys_output(
+            percent=100,
+            progress_size=total_size,
+            total_size=total_size,
+            speed=total_size / (time.time() - time_start),
+            eta="0:00:00"
+        )
+    else:
+        warnings.warn(f"not all data has been downloaded")
+
     sys.stdout.write("\n")
 
     return response
