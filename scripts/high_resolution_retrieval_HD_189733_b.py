@@ -19,7 +19,7 @@ from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
-from petitRADTRANS.retrieval.utils import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval.utils import calc_mmw, uniform_prior
 
 all_species = [
     'CO_main_iso',
@@ -107,7 +107,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
             if species != 'K':
                 del mass_fractions[spec]
 
-    mean_molar_mass = calc_MMW(mass_fractions)
+    mean_molar_mass = calc_mmw(mass_fractions)
 
     print('Setting up models...')
     atmosphere = Radtrans(
@@ -184,7 +184,7 @@ def _init_retrieval_model(prt_object, parameters):
     #     abundances['He'] = abundances['H2'] * heh2_ratio
 
     # Find the mean molecular weight in each layer
-    mmw = calc_MMW(abundances)
+    mmw = calc_mmw(abundances)
 
     return temperatures, abundances, mmw
 
@@ -1108,7 +1108,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
     run_definition_simple = RetrievalConfig(
         retrieval_name=retrieval_name,
         run_mode="retrieval",
-        AMR=False,
+        amr=False,
         pressures=pressures,
         scattering=False  # scattering is automatically included for transmission spectra
     )
@@ -1244,7 +1244,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
         path=None,
         model_generating_function=retrieval_model,
         opacity_mode='lbl',
-        pRT_object=prt_object,
+        prt_object=prt_object,
         wlen=wavelengths_instrument,
         flux=data_,
         flux_error=error_,

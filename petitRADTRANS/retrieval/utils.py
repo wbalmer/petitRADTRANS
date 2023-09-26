@@ -11,7 +11,6 @@ import numpy as np
 from scipy.special import erfcinv, gamma
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.physics import linear_spline_profile, cubic_spline_profile
 from petitRADTRANS.prt_molmass import get_species_molar_mass
 
 SQRT2 = np.sqrt(2)
@@ -62,8 +61,10 @@ def log_gaussian_prior(cube, mu, sigma):
 def delta_prior(cube, x1, x2):
     return x1
 
+
 def inverse_gamma_prior(cube, a, b):
-    return ((b**a)/gamma(a)) * (1/cube)**(a+1) * np.exp(-b/cube)
+    return ((b ** a) / gamma(a)) * (1 / cube) ** (a + 1) * np.exp(-b / cube)
+
 
 # Sanity checks on parameter ranges
 def b_range(x, b):
@@ -85,7 +86,7 @@ def a_b_range(x, a, b):
 ########################
 # Mean Molecular Weights
 ########################
-def calc_MMW(abundances):
+def calc_mmw(abundances):
     """
     calc_MMW
     Calculate the mean molecular weight in each layer.
@@ -95,7 +96,7 @@ def calc_MMW(abundances):
             dictionary of abundance arrays, each array must have the shape of the pressure array used in pRT,
             and contain the abundance at each layer in the atmosphere.
     """
-    mmw = sys.float_info.min * np.ones_like(abundances[list(abundances.keys())[0]]) # prevent division by 0
+    mmw = sys.float_info.min * np.ones_like(abundances[list(abundances.keys())[0]])  # prevent division by 0
 
     for key in abundances.keys():
         # exo_k resolution
@@ -105,15 +106,15 @@ def calc_MMW(abundances):
     return 1.0 / mmw
 
 
-def get_MMW_from_mfrac(m_frac):
+def get_mmw_from_mfrac(m_frac):
     """
     wraps calc_MMW
     """
 
-    return calc_MMW(m_frac)
+    return calc_mmw(m_frac)
 
 
-def get_MMW_from_nfrac(n_frac):
+def get_mmw_from_nfrac(n_frac):
     """
     Calculate the mean molecular weight from a number fraction
 
@@ -139,7 +140,7 @@ def mass_to_number(m_frac):
     """
 
     n_frac = {}
-    mmw = get_MMW_from_mfrac(m_frac)
+    mmw = get_mmw_from_mfrac(m_frac)
 
     for key, value in m_frac.items():
         spec = key.split("_R_")[0]
@@ -157,7 +158,7 @@ def number_to_mass(n_fracs):
     """
 
     m_frac = {}
-    mmw = get_MMW_from_nfrac(n_fracs)
+    mmw = get_mmw_from_nfrac(n_fracs)
 
     for key, value in n_fracs.items():
         spec = key.split("_R_")[0]
@@ -234,18 +235,18 @@ def bin_species_exok(species, resolution):
 def compute_gravity(parameters):
     if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
-        R_pl = np.sqrt(cst.G * parameters['mass'].value / gravity)
+        r_pl = np.sqrt(cst.G * parameters['mass'].value / gravity)
     elif 'log_g' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
-        R_pl = parameters['R_pl'].value
+        r_pl = parameters['R_pl'].value
     elif 'mass' in parameters.keys():
-        R_pl = parameters['R_pl'].value
-        gravity = cst.G * parameters['mass'].value / R_pl ** 2
+        r_pl = parameters['R_pl'].value
+        gravity = cst.G * parameters['mass'].value / r_pl ** 2
     else:
         print("Pick two of log_g, R_pl and mass priors!")
         sys.exit(5)
 
-    return gravity, R_pl
+    return gravity, r_pl
 
 
 def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
@@ -259,9 +260,9 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
         len(pressures[::scaling]) + len(p_clouds) * width * (scaling - 1)
 
     Args:
-        P_clouds : numpy.ndarray
+        p_clouds : numpy.ndarray
             The cloud base pressures in bar
-        press : np.ndarray
+        pressures : np.ndarray
             The high resolution pressure array.
         scaling : int
             The factor by which the low resolution pressure array is scaled
@@ -273,10 +274,11 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     cloud_indices = np.searchsorted(pressures, np.asarray(p_clouds))
 
     # High resolution intervals
-    def bounds(center: int, width: int) -> Tuple[int, int]:
-        upper = min(center + width // 2, length)
-        lower = max(upper - width, 0)
-        return lower, lower + width
+    def bounds(center: int, _width: int) -> Tuple[int, int]:
+        upper = min(center + _width // 2, length)
+        lower = max(upper - _width, 0)
+
+        return lower, lower + _width
 
     intervals = [bounds(idx, scaling * width) for idx in cloud_indices]
 
@@ -312,7 +314,7 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
 ########################
 # File Formatting
 ########################
-def fits_output(wavelength, spectrum, covariance, object, output_dir="",
+def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
                 correlation=None):  # TODO arg object needs to be renamed, also is it used?
     """
     Generate a fits file that can be used as an input to a pRT retrieval.
@@ -324,7 +326,7 @@ def fits_output(wavelength, spectrum, covariance, object, output_dir="",
             The flux density in W/m2/micron at each wavelength bin. dim(N)
         covariance : numpy.ndarray
             The covariance of the flux in (W/m2/micron)^2 dim(N,N)
-        object : string
+        object_name : string
             The name of the object, used for file naming.
         output_dir : string
             The parent directory of the output file.
@@ -338,7 +340,7 @@ def fits_output(wavelength, spectrum, covariance, object, output_dir="",
 
     from astropy.io import fits
     primary_hdu = fits.PrimaryHDU([])
-    primary_hdu.header['OBJECT'] = object
+    primary_hdu.header['OBJECT'] = object_name
     c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
     c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
     c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
@@ -347,6 +349,6 @@ def fits_output(wavelength, spectrum, covariance, object, output_dir="",
     columns = [c1, c2, c3, c4]
     table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
     hdul = fits.HDUList([primary_hdu, table_hdu])
-    outstring = os.path.join(output_dir, object + "_spectrum.fits")
+    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
     hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
     return hdul

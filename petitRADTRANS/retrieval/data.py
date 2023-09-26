@@ -5,10 +5,9 @@ import sys
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import gaussian_filter
-from astropy.io import fits
 
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
+import petitRADTRANS.physical_constants as cst
 
 
 class Data:
@@ -246,15 +245,15 @@ class Data:
         if np.isnan(obs).any():
             obs = np.genfromtxt(path)
         if len(obs.shape) < 2:
-            obs = np.genfromtxt(path, comments = comments)
+            obs = np.genfromtxt(path, comments=comments)
         if obs.shape[1] == 4:
-            self.wlen = obs[:,0]
-            self.wlen_bins = obs[:,1]
-            self.flux = obs[:,2]
-            self.flux_error = obs[:,3]
+            self.wlen = obs[:, 0]
+            self.wlen_bins = obs[:, 1]
+            self.flux = obs[:, 2]
+            self.flux_error = obs[:, 3]
             return
         elif obs.shape[1] != 3:
-            obs= np.genfromtxt(path)
+            obs = np.genfromtxt(path)
 
         # Warnings and errors
         if obs.shape[1] < 3:
@@ -285,8 +284,8 @@ class Data:
         self.flux_error = hdul["EXTRACT1D"].data["FLUX_ERROR"]
 
         # Convert from Jy to W/m^2/micron
-        self.flux = 1e-26 * 2.99792458e14 * self.flux/self.wlen**2
-        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error/self.wlen**2
+        self.flux = 1e-26 * 2.99792458e14 * self.flux / self.wlen ** 2
+        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error / self.wlen ** 2
 
     def loadfits(self, path):
         """
@@ -319,12 +318,11 @@ class Data:
             except Exception:  # TODO find what is the error expected here
                 self.flux_error = np.sqrt(self.covariance.diagonal())
         except Exception:  # TODO find what is the error expected here
-            self.flux_error = fits.getdata(path,'SPECTRUM').field("ERROR")
-            self.covariance = np.diag(self.flux_error**2)
+            self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
+            self.covariance = np.diag(self.flux_error ** 2)
             self.inv_cov = np.linalg.inv(self.covariance)
 
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
-
 
     def set_distance(self, distance):
         """
@@ -421,7 +419,7 @@ class Data:
                 flux_rebinned = flux_rebinned[0]
 
         if self.scale:
-            diff = (flux_rebinned - self.flux*parameters[self.name + "_scale_factor"].value) + self.offset
+            diff = (flux_rebinned - self.flux * parameters[self.name + "_scale_factor"].value) + self.offset
         else:
             diff = (flux_rebinned - self.flux) + self.offset
         f_err = self.flux_error
@@ -436,29 +434,30 @@ class Data:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
 
         if b_val is not None:
-            f_err = np.sqrt(f_err**2 + 10**b_val)
+            f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
 
-        log_l=0.0
+        log_l = 0.0
+        bval = None  # TODO bval in not set anywhere!
 
         if self.covariance is not None:
             inv_cov = self.inv_cov
             log_covariance_determinant = self.log_covariance_determinant
+
             if self.scale_err:
-                cov = self.scale_factor**2 * self.covariance
+                cov = self.scale_factor ** 2 * self.covariance
                 inv_cov = np.linalg.inv(cov)
-                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+                _, log_covariance_determinant = np.linalg.slogdet(2 * np.pi * cov)
 
             if bval is not None:
-                cov = np.diag(np.diag(self.covariance) + 10**bval)
+                cov = np.diag(np.diag(self.covariance) + 10 ** bval)
                 inv_cov = np.linalg.inv(cov)
-                _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
+                _, log_covariance_determinant = np.linalg.slogdet(2 * np.pi * cov)
 
             log_l += -0.5 * np.dot(diff, np.dot(inv_cov, diff))
             log_l += -0.5 * log_covariance_determinant
         else:
             log_l += -0.5 * np.sum((diff / f_err) ** 2.)
             log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
-
 
         if plotting:
             import matplotlib.pyplot as plt
@@ -471,10 +470,7 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
-        #if self.scale_err:
-        #    print(self.name, np.max(f_err), np.max(self.flux_error), parameters[self.name + "_scale_factor"].value, logL)
-        #else:
-        #    print(self.name, np.max(f_err), np.max(self.flux_error), logL)
+
         return log_l
 
     def get_log_likelihood(self, spectrum_model):
@@ -601,7 +597,7 @@ class Data:
         if parameters is not None:
             if f'{self.name}_b' in parameters.keys():
                 b_val = parameters[f'{self.name}_b'].value
-            elif f'uncertainty_scaling_b' in parameters.keys():
+            elif 'uncertainty_scaling_b' in parameters.keys():
                 b_val = parameters['uncertainty_scaling_b'].value
         return b_val
 

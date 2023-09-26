@@ -21,7 +21,7 @@ from petitRADTRANS.prt_molmass import get_species_molar_mass
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
-from petitRADTRANS.retrieval.utils import calc_MMW, log_prior, \
+from petitRADTRANS.retrieval.utils import calc_mmw, log_prior, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
@@ -628,7 +628,7 @@ class BaseSpectralModel:
         Returns:
 
         """
-        return calc_MMW(mass_mixing_ratios)
+        return calc_mmw(mass_mixing_ratios)
 
     @staticmethod
     def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function,
@@ -1443,7 +1443,7 @@ class BaseSpectralModel:
         retrieval_configuration = RetrievalConfig(
             retrieval_name=retrieval_name,
             run_mode=run_mode,
-            AMR=amr,
+            amr=amr,
             scattering=scattering,  # scattering is automatically included for transmission spectra
             distribution=distribution,
             pressures=pressures,
@@ -1517,7 +1517,7 @@ class BaseSpectralModel:
             name=dataset_name,
             path=None,
             model_generating_function=model_generating_function,
-            pRT_object=radtrans,
+            prt_object=radtrans,
             wlen=data_wavelengths,
             flux=data,
             flux_error=data_uncertainties,

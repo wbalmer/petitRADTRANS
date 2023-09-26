@@ -20,7 +20,7 @@ from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig
-from petitRADTRANS.retrieval.utils import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval.utils import calc_mmw, uniform_prior
 
 
 class Param:
@@ -91,7 +91,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     for key in mass_fractions:
         mass_fractions[key] *= np.ones_like(pressures)
 
-    mean_molar_mass = calc_MMW(mass_fractions)
+    mean_molar_mass = calc_mmw(mass_fractions)
 
     print('Setting up models...')
     print(w_bords)
@@ -153,7 +153,7 @@ def _init_model_old(planet, w_bords, line_species_str, p0=1e-2):
     for key in mass_fractions:
         mass_fractions[key] *= np.ones_like(pressures)
 
-    mean_molar_mass = calc_MMW(mass_fractions)
+    mean_molar_mass = calc_mmw(mass_fractions)
 
     print('Setting up models...')
     atmosphere = Radtrans(
@@ -219,7 +219,7 @@ def _init_retrieval_model(prt_object, parameters):
         abundances['He'] = abundances['H2'] * 0.3458
 
     # Find the mean molecular weight in each layer
-    mmw = calc_MMW(abundances)
+    mmw = calc_mmw(abundances)
 
     return temperatures, abundances, mmw
 
@@ -259,7 +259,7 @@ def _init_retrieval_model_old(prt_object, parameters):
     abundances['He'] = 0.24 * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
-    mmw = calc_MMW(abundances)
+    mmw = calc_mmw(abundances)
 
     return temperatures, abundances, mmw
 
@@ -1128,7 +1128,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
     run_definition_simple = RetrievalConfig(
         retrieval_name=retrieval_name,
         run_mode="retrieval",
-        AMR=False,
+        amr=False,
         pressures=pressures,
         scattering=False  # scattering is automatically included for transmission spectra
     )
@@ -1269,7 +1269,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
             path=None,
             model_generating_function=retrieval_model,
             opacity_mode='lbl',
-            pRT_object=prt_object,
+            prt_object=prt_object,
             wlen=wavelengths_instrument,
             flux=data_,
             flux_error=error_,
@@ -1282,7 +1282,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, retrieved_specie
                 path=None,
                 model_generating_function=retrieval_model[i],
                 opacity_mode='lbl',
-                pRT_object=o,
+                prt_object=o,
                 wlen=wavelengths_instrument[i],
                 flux=data_[i],
                 flux_error=error_[i],

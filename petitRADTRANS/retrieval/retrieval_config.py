@@ -27,7 +27,7 @@ class RetrievalConfig:
             Can be either 'retrieval', which runs the retrieval normally using pymultinest,
             or 'evaluate', which produces plots from the best fit parameters stored in the
             output post_equal_weights file.
-        AMR : bool
+        amr : bool
             Use an adaptive high resolution pressure grid around the location of cloud condensation.
             This will increase the size of the pressure grid by a constant factor that can be adjusted
             in the setup_pres function.
@@ -41,7 +41,7 @@ class RetrievalConfig:
     def __init__(self,
                  retrieval_name="retrieval_name",
                  run_mode="retrieval",
-                 AMR=False,
+                 amr=False,
                  scattering=False,
                  distribution="lognormal",
                  pressures=None,
@@ -57,7 +57,7 @@ class RetrievalConfig:
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
             sys.exit(1)
-        self.AMR = AMR
+        self.AMR = amr
 
         if pressures is not None:
             self.p_global = pressures
@@ -333,8 +333,8 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), PBase_lim=None, fixed_abund=None,
-                          scaling_factor = None, fixed_base=None):
+    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
+                          scaling_factor=None, fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -357,7 +357,7 @@ class RetrievalConfig:
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
                 range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
                 with a typical range being (-5,0).
-            PBase_lim : tuple(float,float)
+            p_base_lim : tuple(float,float)
                 Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
                 Obsolete.
             fixed_abund : Optional(float)
@@ -367,6 +367,8 @@ class RetrievalConfig:
                 The log cloud base pressure. If set, fixes this parameter to a constant value, and it will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds. Not yet compatible
                 with most built in pRT models.
+            scaling_factor :
+                # TODO complete docstring
         """
 
         if species.endswith("(c)"):
@@ -377,9 +379,13 @@ class RetrievalConfig:
         self.cloud_species.append(species)
         cname = species.split('_')[0]
         if scaling_factor is not None:
-            self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
-                                                transform_prior_cube_coordinate = \
-                                                lambda x : scaling_factor[0] + (scaling_factor[1]-scaling_factor[0])*x)
+            self.parameters['eq_scaling_' + cname] = Parameter(
+                'eq_scaling_' + cname, True,
+                transform_prior_cube_coordinate=lambda x: scaling_factor[0] + (
+                   scaling_factor[1] - scaling_factor[
+                    0]
+                ) * x
+            )
         if not eq:
             if abund_lim[1] > 0.0:
                 raise ValueError(
@@ -399,12 +405,12 @@ class RetrievalConfig:
                     value=fixed_abund
                 )
 
-        if PBase_lim is not None or fixed_base is not None:
+        if p_base_lim is not None or fixed_base is not None:
             if fixed_base is None:
                 self.parameters['log_Pbase_' + cname] = Parameter(
                     'log_Pbase_' + cname,
                     True,
-                    transform_prior_cube_coordinate=lambda x: PBase_lim[0] + (PBase_lim[1] - PBase_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: p_base_lim[0] + (p_base_lim[1] - p_base_lim[0]) * x
                 )
             else:
                 self.parameters['log_Pbase_' + cname] = Parameter(
@@ -424,11 +430,11 @@ class RetrievalConfig:
                  scale_err=False,
                  offset_bool=False,
                  wlen_range_micron=None,
-                 external_pRT_reference=None,
+                 external_prt_reference=None,
                  opacity_mode='c-k',
                  wlen_bins=None,
-                 pRT_grid=False,
-                 pRT_object=None,
+                 prt_grid=False,
+                 prt_object=None,
                  wlen=None,
                  flux=None,
                  flux_error=None,
@@ -459,7 +465,7 @@ class RetrievalConfig:
             wlen_range_micron : Tuple
                 A pair of wavelenths in units of micron that determine the lower and upper boundaries of the
                 model computation.
-            external_pRT_reference : str
+            external_prt_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
                 of the new Data object. This is useful when two datasets overlap, as only one model computation is
                 required to compute the log likelihood of both datasets.
@@ -467,7 +473,7 @@ class RetrievalConfig:
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
                 recommended to set the model_resolution parameter.
-            pRT_grid: bool
+            prt_grid: bool
                 Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
         self.data[name] = Data(name, path,
@@ -477,13 +483,13 @@ class RetrievalConfig:
                                distance=distance,
                                scale=scale,
                                scale_err=scale_err,
-                               offset_bool = offset_bool,
+                               offset_bool=offset_bool,
                                wlen_range_micron=wlen_range_micron,
-                               external_radtrans_reference=external_pRT_reference,
+                               external_radtrans_reference=external_prt_reference,
                                line_opacity_mode=opacity_mode,
                                wlen_bins=wlen_bins,
-                               radtrans_grid=pRT_grid,
-                               radtrans_object=pRT_object,
+                               radtrans_grid=prt_grid,
+                               radtrans_object=prt_object,
                                wlen=wlen,
                                flux=flux,
                                flux_error=flux_error,
@@ -497,7 +503,7 @@ class RetrievalConfig:
                        scale=False,
                        wlen_range_micron=None,
                        photometric_transformation_function=None,
-                       external_pRT_reference=None,
+                       external_prt_reference=None,
                        opacity_mode='c-k'):
         """
         Create a Data class object for each photometric point in a photometry file.
@@ -525,7 +531,7 @@ class RetrievalConfig:
             wlen_range_micron : Tuple
                 A pair of wavelenths in units of micron that determine the lower and upper boundaries of
                 the model computation.
-            external_pRT_reference : str
+            external_prt_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the
                 chi squared of the new Data object. This is useful when two datasets overlap, as only
                 one model computation is required to compute the log likelihood of both datasets.
@@ -583,7 +589,7 @@ class RetrievalConfig:
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
-                    external_radtrans_reference=external_pRT_reference,
+                    external_radtrans_reference=external_prt_reference,
                     line_opacity_mode=opacity_mode
                 )
                 self.data[name].flux = flux

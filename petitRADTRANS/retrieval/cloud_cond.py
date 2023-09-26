@@ -124,7 +124,7 @@ def _setup_clouds(pressures, parameters, cloud_species):
 
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
+            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(p_use)
 
     if not radii:
         radii = None
@@ -132,7 +132,7 @@ def _setup_clouds(pressures, parameters, cloud_species):
     # per-cloud species fseds
     fseds = get_fseds(parameters, cloud_species)
     if "log_kzz" in parameters.keys():
-        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
+        kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
 
 
@@ -173,7 +173,6 @@ def setup_clouds(pressures, parameters, cloud_species):
         distribution : string
             Either "lognormal" or "hansen" - tells pRT which distribution to use.
     """
-    p_use = None
     sigma_lnorm = None
     b_hans = None
     distribution = "lognormal"
@@ -191,17 +190,18 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10**parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
+            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
     if not radii:
         radii = None
 
     # per-cloud species fseds
     fseds = get_fseds(parameters, cloud_species)
     if "log_kzz" in parameters.keys():
-        kzz = 10**parameters["log_kzz"].value * np.ones_like(pressures)
+        kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
 
-def cloud_dict(parameters, parameter_name, cloud_species, shape = 0):
+
+def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
     """
     This is a generic method to create a dictionary of
     parameters values for a given cloud parameterization, testing if
@@ -209,18 +209,26 @@ def cloud_dict(parameters, parameter_name, cloud_species, shape = 0):
     if each cloud species should have the same value.
     """
     output_dictionary = {}
+
     for cloud in cloud_species:
         cname = cloud.split('_')[0]
+        output = None
+
         if parameter_name + "_" + cname in parameters.keys():
-            output = parameters[parameter_name+"_"+cname].value
+            output = parameters[parameter_name + "_" + cname].value
         elif parameter_name in parameters.keys():
             output = parameters[parameter_name].value
+
         if shape > 0:
             output = output * np.ones(shape)
+
         output_dictionary[cloud] = output
+
     if not output_dictionary:
         output_dictionary = None
+
     return output_dictionary
+
 
 def get_fseds(parameters, cloud_species):
     """
@@ -228,17 +236,19 @@ def get_fseds(parameters, cloud_species):
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
     """
-    return cloud_dict(parameters,"fsed", cloud_species)
+    return cloud_dict(parameters, "fsed", cloud_species)
 
-def get_bhans(parameters, cloud_species, shape = 0):
+
+def get_bhans(parameters, cloud_species, shape=0):
     """
     This function checks to see if the bhans values are input on a per-cloud basis
     or only as a single value, and returns the dictionary providing the fsed values
     for each cloud, or None, if no cloud is used.
     """
-    return cloud_dict(parameters, "b_hans", cloud_species, shape = shape)
+    return cloud_dict(parameters, "b_hans", cloud_species, shape=shape)
 
-def return_cloud_mass_fraction(name,FeH,CO):
+
+def return_cloud_mass_fraction(name, metallicity, co_ratio):
     if "Fe(c)" in name:
         return return_x_fe(metallicity, co_ratio)
     if "MgSiO3(c)" in name:
@@ -260,7 +270,7 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
     if "MgSiO3(c)" in name:
         return simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw)
     if "Mg2SiO4(c)" in name:
-        return simple_cdf_mg2sio4(press, temp, FeH, CO, MMW)
+        return simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw)
     if "Na2S(c)" in name:
         return simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw)
     if "KCL(c)" in name:
@@ -277,7 +287,7 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
     if "MgSiO3(c)" in name:
         return simple_cdf_mgsio3_free(press, temp, mfrac, mmw)
     if "Mg2SiO4(c)" in name:
-        return simple_cdf_mg2sio4_free(press, temp, FeH, CO, MMW)
+        return simple_cdf_mg2sio4_free(press, temp, mfrac, mmw)
     if "Na2S(c)" in name:
         return simple_cdf_na2s_free(press, temp, mfrac, mmw)
     if "KCL(c)" in name:
@@ -334,32 +344,37 @@ def return_x_mgsio3(metallicity, co_ratio):
 
     return xmgsio3
 
-def return_x_mg2sio4(metallicity, co_ratio):
 
+def return_x_mg2sio4(metallicity, co_ratio):
     nfracs_use = cp.copy(nfracs)
 
     for spec in nfracs.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec]*1e1**metallicity
+            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_mg2sio4 = np.min([nfracs_use['Mg']/2., \
-                            nfracs_use['Si'], \
-                            nfracs_use['O']/4.])
-    masses_mg2sio4 = 2* masses['Mg'] \
-      + masses['Si'] \
-      + 4. * masses['O']
+    nfracs_mg2sio4 = np.min([
+        nfracs_use['Mg'] / 2.,
+        nfracs_use['Si'],
+        nfracs_use['O'] / 4.]
+    )
+    masses_mg2sio4 = 2 * masses['Mg'] \
+        + masses['Si'] \
+        + 4. * masses['O']
 
-    Xmg2sio4 = masses_mg2sio4*nfracs_mg2sio4
+    x_mg2sio4 = masses_mg2sio4 * nfracs_mg2sio4
+
     add = 0.
+
     for spec in nfracs_use.keys():
-        add += masses[spec]*nfracs_use[spec]
+        add += masses[spec] * nfracs_use[spec]
 
-    Xmg2sio4 = Xmg2sio4 / add
+    x_mg2sio4 = x_mg2sio4 / add
 
-    return Xmg2sio4
+    return x_mg2sio4
+
 
 def return_x_na2s(metallicity, co_ratio):
     nfracs_use = cp.copy(nfracs)
@@ -456,6 +471,7 @@ def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_fe_free(x_fe, mmw=2.33):
     t = np.linspace(100., 12000., 1200)
+
     # Taken from Ackerman & Marley (2001)
     # including their erratum
 
@@ -467,6 +483,7 @@ def return_t_cond_fe_free(x_fe, mmw=2.33):
 
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
     t = np.linspace(100., 12000., 1200)
+
     # Taken from Ackerman & Marley (2001)
     # including their erratum
 
@@ -500,23 +517,26 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
     m_mgsio3 = masses['Mg'] \
         + masses['Si'] \
         + 3. * masses['O']
+
     return p_vap(t) / (xmgsio3 * mmw / m_mgsio3), t
 
-def return_T_cond_Mg2SiO4(FeH, CO, MMW = 2.33):
 
-    T = np.linspace(100.,10000.,1000)
+def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
     # Taken from Ackerman & Marley (2001)
     # including their erratum
     # Visscher 2010 condensation curve
-    P_vap = lambda x: np.exp(15.92 - 1.97*FeH - 27027.03/x)
 
+    def p_vap(x):
+        return np.exp(15.92 - 1.97 * metallicity - 27027.03 / x)
 
-    Xmg2sio4 = return_XMg2SiO4(FeH, CO)
+    # x_mg2sio4 = return_x_mg2sio4(metallicity, co_ratio)
+    #
+    # m_mg2sio4 = 2. * masses['Mg'] \
+    #     + masses['Si'] \
+    #     + 4. * masses['O']
+    return p_vap(t), t  # TODO shouldn't that be multiplied by (x_mg2sio4 * mmw / m_mg2sio4) just like above?
 
-    m_mg2sio4 =  2.*masses['Mg'] \
-      + masses['Si'] \
-      + 4. * masses['O']
-    return P_vap(T), T
 
 def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
@@ -532,16 +552,20 @@ def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
         + 3. * masses['O']
     return p_vap(t) / (x_mgsio3 * mmw / m_mgsio3), t
 
-def return_T_cond_Mg2SiO4_free(Xmg2sio4, MMW = 2.33):
 
-    T = np.linspace(100.,10000.,1000)
+def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
     # Taken from Ackerman & Marley (2001)
     # including their erratum
-    P_vap = lambda x: np.exp(25.37 - 58663./x)
-    m_mg2sio4 = 2* masses['Mg'] \
-      + masses['Si'] \
-      + 4. * masses['O']
-    return P_vap(T)/(Xmg2sio4*MMW/m_mg2sio4), T
+
+    def p_vap(x):
+        return np.exp(25.37 - 58663. / x)
+
+    m_mg2sio4 = 2 * masses['Mg'] \
+        + masses['Si'] \
+        + 4. * masses['O']
+    return p_vap(t) / (x_mg2sio4 * mmw / m_mg2sio4), t
+
 
 def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
     # Taken from Charnay+2018
@@ -658,7 +682,7 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
         return np.min(press)
 
     t_diff = tcond_on_input_grid - temp
-    diff_vec = t_diff[1:]*t_diff[:-1]
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
     if len(diff_vec[ind_cdf]) > 0:
@@ -741,65 +765,68 @@ def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
     return p_cloud
 
 
-def simple_cdf_Mg2SiO4(press, temp, FeH, CO, MMW = 2.33):
+def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
+    p_c, t_c = return_t_cond_mg2sio4(metallicity, co_ratio, mmw)
+    index = (p_c > 1e-8) & (p_c < 1e5)
+    p_c, t_c = p_c[index], t_c[index]
 
-    Pc, Tc = return_T_cond_Mg2SiO4(FeH, CO, MMW)
-    index = (Pc > 1e-8) & (Pc < 1e5)
-    Pc, Tc = Pc[index], Tc[index]
     try:
-        tcond_p = interp1d(Pc, Tc)
+        tcond_p = interp1d(p_c, t_c)
     except ValueError:
-        logging.warn("Could not interpolate pressures and temperatures!")
+        warnings.warn("Could not interpolate pressures and temperatures!")
         return np.min(press)
-    #print(Pc, press)
-    Tcond_on_input_grid = tcond_p(press)
 
-    Tdiff = Tcond_on_input_grid - temp
-    diff_vec = Tdiff[1:]*Tdiff[:-1]
+    # print(Pc, press)
+    t_cond_on_input_grid = tcond_p(press)
+
+    t_diff = t_cond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
-        P_clouds = (press[1:]+press[:-1])[ind_cdf]/2.
-        P_cloud = P_clouds[-1]
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
     else:
-        P_cloud = np.min(press)
+        p_cloud = np.min(press)
 
     if plotting:
         plt.plot(temp, press)
-        plt.plot(Tcond_on_input_grid, press)
-        plt.axhline(P_cloud, color = 'red', linestyle = '--')
+        plt.plot(t_cond_on_input_grid, press)
+        plt.axhline(p_cloud, color='red', linestyle='--')
         plt.yscale('log')
         plt.xlim([0., 3000.])
-        plt.ylim([1e2,1e-6])
+        plt.ylim([1e2, 1e-6])
         plt.show()
 
-    return P_cloud
+    return p_cloud
 
-def simple_cdf_Mg2SiO4_free(press, temp, Xmg2sio4, MMW = 2.33):
-    Pc, Tc = return_T_cond_Mg2SiO4_free(Xmg2sio4, MMW)
-    index = (Pc > 1e-8) & (Pc < 1e5)
-    Pc, Tc = Pc[index], Tc[index]
-    tcond_p = interp1d(Pc, Tc)
-    #print(Pc, press)
-    Tcond_on_input_grid = tcond_p(press)
 
-    Tdiff = Tcond_on_input_grid - temp
-    diff_vec = Tdiff[1:]*Tdiff[:-1]
+def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
+    p_c, t_c = return_t_cond_mg2sio4_free(x_mg2sio4, mmw)
+    index = (p_c > 1e-8) & (p_c < 1e5)
+    p_c, t_c = p_c[index], t_c[index]
+    tcond_p = interp1d(p_c, t_c)
+    # print(Pc, press)
+    t_cond_on_input_grid = tcond_p(press)
+
+    t_diff = t_cond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
     if len(diff_vec[ind_cdf]) > 0:
-        P_clouds = (press[1:]+press[:-1])[ind_cdf]/2.
-        P_cloud = P_clouds[-1]
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
     else:
-        P_cloud = np.min(press)
+        p_cloud = np.min(press)
 
     if plotting:
         plt.plot(temp, press)
-        plt.plot(Tcond_on_input_grid, press)
-        plt.axhline(P_cloud, color = 'red', linestyle = '--')
+        plt.plot(t_cond_on_input_grid, press)
+        plt.axhline(p_cloud, color='red', linestyle='--')
         plt.yscale('log')
         plt.xlim([0., 3000.])
-        plt.ylim([1e2,1e-6])
+        plt.ylim([1e2, 1e-6])
         plt.show()
-    return P_cloud
+    return p_cloud
 
 
 def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
@@ -832,7 +859,6 @@ def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
 
 
 def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
-
     pc, tc = return_t_cond_na2s_free(x_na2s, mmw)
     index = (pc > 1e-8) & (pc < 1e5)
 
@@ -844,7 +870,7 @@ def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
     if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:]+press[:-1])[ind_cdf]/2.
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
         p_cloud = np.min(press)
@@ -899,10 +925,10 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:]*tdiff[:-1]
+    diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
     if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:]+press[:-1])[ind_cdf]/2.
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
         p_cloud = np.min(press)

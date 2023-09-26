@@ -29,7 +29,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.plotting import contour_corner
-from petitRADTRANS.retrieval.utils import calc_MMW, uniform_prior
+from petitRADTRANS.retrieval.utils import calc_mmw, uniform_prior
 from matplotlib import colors
 
 module_dir = os.path.abspath(os.path.dirname(__file__))
@@ -286,7 +286,7 @@ def init_model(planet, w_bords, line_species_str, p0=1e-2):
     for key in mass_fractions:
         mass_fractions[key] *= np.ones_like(pressures)
 
-    mean_molar_mass = calc_MMW(mass_fractions)
+    mean_molar_mass = calc_mmw(mass_fractions)
 
     print('Setting up models...')
     atmosphere = Radtrans(
@@ -1026,7 +1026,7 @@ def init_retrieval_model(prt_object, parameters):
     abundances['He'] = 0.24 * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
-    mmw = calc_MMW(abundances)
+    mmw = calc_mmw(abundances)
 
     return temperatures, abundances, mmw
 
@@ -1036,7 +1036,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
     run_definition_simple = RetrievalConfig(
         retrieval_name=retrieval_name,
         run_mode="retrieval",
-        AMR=False,
+        amr=False,
         pressures=pressures,
         scattering=False  # scattering is automatically included for transmission spectra
     )
@@ -1164,7 +1164,7 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
         path=None,
         model_generating_function=retrieval_model,
         opacity_mode='lbl',
-        pRT_object=prt_object,
+        prt_object=prt_object,
         wlen=wavelengths_instrument,
         flux=data_,
         flux_error=error_,
@@ -1337,7 +1337,7 @@ def main(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -1611,7 +1611,7 @@ def retrieval_run(retrieval_name, n_live_points, model, pressures, true_paramete
         output_dir=output_dir,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(

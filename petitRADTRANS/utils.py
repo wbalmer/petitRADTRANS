@@ -178,6 +178,9 @@ def flatten_object(array):
     if array.dtype == 'O':
         array = flatten_object(np.concatenate(array))
     else:
+        if np.ndim(array) <= 1:
+            return array
+
         array = np.concatenate(array)
 
     return array

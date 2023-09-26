@@ -10,7 +10,7 @@ from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval.utils import calc_MMW, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
+from petitRADTRANS.retrieval.utils import calc_mmw, log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, \
     delta_prior
 
 # from petitRADTRANS.config import petitradtrans_config
@@ -564,7 +564,7 @@ class SpectralModelLegacy:
         )
 
         # Find the mean molar mass in each layer
-        mean_molar_mass = calc_MMW(mass_mixing_ratios)
+        mean_molar_mass = calc_mmw(mass_mixing_ratios)
 
         return temperatures, mass_mixing_ratios, mean_molar_mass
 

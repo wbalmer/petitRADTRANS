@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from petitRADTRANS.retrieval.utils import gaussian_prior
-from petitRADTRANS.retrieval.utils import calc_MMW
+from petitRADTRANS.retrieval.utils import calc_mmw
 
 from .context import petitRADTRANS
 from .utils import tests_results_directory, reference_filenames, radtrans_parameters
@@ -24,7 +24,7 @@ def init_run():
     run_definition_simple = petitRADTRANS.retrieval.RetrievalConfig(
         retrieval_name="test",
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest
-        AMR=False,  # We won't be using adaptive mesh refinement for the pressure grid
+        amr=False,  # We won't be using adaptive mesh refinement for the pressure grid
         pressures=radtrans_parameters['pressures'],
         scattering=False  # This would turn on scattering when calculating emission spectra
     )
@@ -190,7 +190,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     abundances['He'] = radtrans_parameters['mass_fractions']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
-    mmw = calc_MMW(abundances)
+    mmw = calc_mmw(abundances)
 
     # Calculate the spectrum
     wavelengths, transit_radii, _ = prt_object.calculate_transit_radii(

@@ -289,7 +289,7 @@ def main(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -551,7 +551,7 @@ def maintoi(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -811,7 +811,7 @@ def maintic(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -1041,7 +1041,7 @@ def main_hd(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -1274,7 +1274,7 @@ def main_hd2(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
@@ -1632,7 +1632,7 @@ def main_hd3(sim_id=0):
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(

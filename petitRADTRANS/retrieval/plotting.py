@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns  # TODO is seaborn really that useful?
 from matplotlib.lines import Line2D
-from scipy.stats import binned_statistic
 from scipy.ndimage import uniform_filter1d
+from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
 
@@ -230,8 +230,6 @@ def contour_corner(sampledict,
         color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
 
     handles = []
-    range_list = []
-
     count = 0
     fig = None
 
@@ -262,6 +260,8 @@ def contour_corner(sampledict,
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
 
+        range_list = []
+
         for range_i, i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples) - s:, i])
             labels_list.append(parameter_names[key][i])
@@ -283,18 +283,7 @@ def contour_corner(sampledict,
                     range_list.append((low, high))
             else:
                 range_take = (parameter_ranges[key][i][0], parameter_ranges[key][i][1])
-                if count > 0:
-                    low = range_list[range_i][0]
-                    high = range_list[range_i][1]
-
-                    if range_take[0] > low:
-                        low = range_take[0]
-
-                    if range_take[1] < high:
-                        high = range_take[1]
-                    range_list[range_i] = (low,high)
-                else:
-                    range_list.append(range_take)
+                range_list.append(range_take)
 
         if parameter_plot_indices is not None and true_values is not None:
             truths_list = []
@@ -306,7 +295,7 @@ def contour_corner(sampledict,
                     truths_list.append(samples[best_fit_ind][i])
             else:
                 for i in parameter_plot_indices[key]:
-                    truths_list.append(true_values[i])
+                    truths_list.append(true_values[key][i])
         else:
             truths_list = None
 
@@ -322,30 +311,12 @@ def contour_corner(sampledict,
             title_kwargs = kwargs["title_kwargs"]
         if "hist_kwargs" in kwargs.keys():
             hist_kwargs = kwargs["hist_kwargs"]
-
-            if '#' in color_list[count]:
-                value = color_list[count].lstrip('#')
-                lv = len(value)
-                color = tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
-                hist_kwargs["facecolor"] =  (color[0]/255,color[1]/255,color[2]/255,0.5)
-            else:
-                hist_kwargs["facecolor"] = color_list[count]
-
         if "hist2d_kwargs" in kwargs.keys():
             hist2d_kwargs = kwargs["hist2d_kwargs"]
-            hist2d_kwargs["fill_contours"] = True
-            hist2d_kwargs["plot_density"] = True
-            hist2d_kwargs["points"] = False
-            hist2d_kwargs["no_fill_contours"] = False
-
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
-            contour_kwargs["colors"] = color_list[count]
-        for i,label in enumerate(labels_list):
-            labels_list[i] = label +'\n'
+
         if count == 0:
-            # levels should be {1,2,3}^2/2 to enclose standard
-            # confidence intervals in 2D.
             fig = _corner_wrap(
                 data_list=data_list,
                 title_kwargs=title_kwargs,
@@ -395,11 +366,10 @@ def contour_corner(sampledict,
             label = short_name[key]
 
         handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
-        count += 1
+
     if legend:
         fig.get_axes()[2].legend(handles=handles,
-                                 loc='upper right',
-                                 fontsize = 20)
+                                 loc='upper right')
 
     if output_file is not None:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')

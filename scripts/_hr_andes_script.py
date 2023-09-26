@@ -478,7 +478,7 @@ def init_and_run_retrieval(comm, rank, planet, line_species_str, mode, retrieval
         output_dir=retrieval_directory,
         sample_spec=False,
         ultranest=False,
-        pRT_plot_style=False
+        prt_plot_style=False
     )
 
     retrieval.run(
