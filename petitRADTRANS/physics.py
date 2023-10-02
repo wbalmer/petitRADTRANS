@@ -36,6 +36,29 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return dist
 
 
+def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, planet_radius=1.0):
+    """Calculates the effective temperature by integrating the model and using the stefan boltzmann law.
+
+    Args:
+        wavelengths : numpy.ndarray
+            Wavelength grid
+        flux : numpy.ndarray
+            Flux density grid
+        orbit_semi_major_axis : Optional(float)
+            Distance to the object. Must have same units as planet_radius
+        planet_radius : Optional(float)
+            Object radius. Must have same units as orbit_semi_major_axis
+    """
+    def integrate_flux(_wavelengths, _flux):
+        return np.sum(
+            _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * np.diff(_wavelengths)
+        )
+
+    energy = integrate_flux(wavelengths, flux)
+
+    return (energy / cst.sigma) ** 0.25
+
+
 def doppler_shift(wavelength_0, velocity):
     """Calculate the Doppler-shifted wavelength for electromagnetic waves.
 

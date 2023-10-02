@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import sys
@@ -79,6 +80,7 @@ class Data:
             'c-k' mode is recommended for retrievals of everything other than
             high-resolution (R>40000) spectra.
     """
+    resolving_power_str = "_R"
 
     def __init__(self,
                  name,
@@ -323,6 +325,13 @@ class Data:
             self.inv_cov = np.linalg.inv(self.covariance)
 
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
+    @staticmethod
+    def get_ck_line_species_directory(species: str, model_resolution=None) -> str:
+        if model_resolution is not None:
+            return f"{species}{Data.resolving_power_str}{model_resolution}"
+        else:
+            return copy.copy(species)
 
     def set_distance(self, distance):
         """

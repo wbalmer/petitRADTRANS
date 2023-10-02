@@ -9,7 +9,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS import prt_molmass
+from petitRADTRANS.chemistry import prt_molmass
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore

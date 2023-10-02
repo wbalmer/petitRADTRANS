@@ -17,11 +17,11 @@ from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, rebin_spectrum
 )
-from petitRADTRANS.prt_molmass import get_species_molar_mass
+from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
 from petitRADTRANS.retrieval.preparing import preparing_pipeline
-from petitRADTRANS.retrieval.utils import calc_mmw, log_prior, \
+from petitRADTRANS.retrieval.utils import log_prior, \
     uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
@@ -628,7 +628,7 @@ class BaseSpectralModel:
         Returns:
 
         """
-        return calc_mmw(mass_mixing_ratios)
+        return compute_mean_molar_masses(mass_mixing_ratios)
 
     @staticmethod
     def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function,
@@ -1396,15 +1396,10 @@ class BaseSpectralModel:
         )
 
     def get_volume_mixing_ratios(self):
-        volume_mixing_ratios = {}
-
-        for species_, mass_mixing_ratio in self.mass_mixing_ratios.items():
-            species = species_.split('(', 1)[0]
-            volume_mixing_ratios[species_] = (
-                self.mean_molar_masses / get_species_molar_mass(species) * mass_mixing_ratio
-            )
-
-        return volume_mixing_ratios
+        return mass_fractions2volume_mixing_ratios(
+            mass_fractions=self.mass_mixing_ratios,
+            mean_molar_masses=self.mean_molar_masses
+        )
 
     @staticmethod
     def init_radtrans(wavelengths_boundaries, pressures,

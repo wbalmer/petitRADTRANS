@@ -20,6 +20,12 @@ def get_species_molar_mass(species):
     Returns:
         The molar mass of the compound in atomic mass units.
     """
+    if "_" in species:
+        species = species.split("_", 1)[0]  # remove resolving power or opacity source information
+
+    if "(c)" in species:
+        return 0  # ignore cloud species
+
     if species == 'e-':
         return cst.e_molar_mass
     elif len(re.findall(r'^[A-Z][a-z]?(\d{1,3})?[+|-]$', species)) == 1:  # positive or negative ion
@@ -35,13 +41,22 @@ def get_species_molar_mass(species):
 
         # Get the corresponding molar mass
         if '-' in species:
-            return Formula(species.rsplit(f'{ionisation_str}-', 1)[0]).mass + ionisation * cst.e_molar_mass
+            return (Formula(species.rsplit(f'{ionisation_str}-', 1)[0]).isotope.massnumber
+                    + ionisation * cst.e_molar_mass)
         elif '+' in species:
-            return Formula(species.rsplit(f'{ionisation_str}+', 1)[0]).mass - ionisation * cst.e_molar_mass
-    elif '-' in species or '+' in species:
+            return (Formula(species.rsplit(f'{ionisation_str}+', 1)[0]).isotope.massnumber
+                    - ionisation * cst.e_molar_mass)
+    elif species[-1] in ['-', '+']:
         raise ValueError(f"invalid species formula '{species}', either a symbol used is unknown, or the ion formula "
                          f"does not respects the pattern '<element_symbol><ionisation_number><+|->' "
                          f"(e.g., 'Ca2+', 'H-')")
+    elif '-' in species:
+        isotopes = species.split('-')
+
+        for i, isotope in enumerate(isotopes):
+            isotopes[i] = f"[{isotope}]"
+
+        species = "".join(isotopes)
 
     name = species.split("_")[0]
     name = name.split(',')[0]

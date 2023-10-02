@@ -5,11 +5,13 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 """
 import json
 import os
+import shutil
 
 import numpy as np
 
+from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
+from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
-from petitRADTRANS.retrieval.utils import calc_mmw
 
 from .context import petitRADTRANS
 from .utils import tests_results_directory, reference_filenames, radtrans_parameters
@@ -103,6 +105,20 @@ def init_run():
         )  # prior: min = abund_lim[0], max = min + abund_lim[1]
     )
 
+    # Remove old binned down opacities to test rebinning function
+    for species in radtrans_parameters['spectrum_parameters']['line_species_correlated_k']:
+        opacities_directory = os.path.join(
+            petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path(),
+            "opacities", "lines", "corr_k",
+            Data.get_ck_line_species_directory(
+                species=species,
+                model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
+            )
+        )
+
+        if os.path.isdir(opacities_directory):
+            shutil.rmtree(opacities_directory)
+
     # Load data
     run_definition_simple.add_data(
         name='test',
@@ -182,7 +198,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     m_sum = 0.0  # Check that the total mass fraction of all species is <1
 
     for species in prt_object.line_species:
-        spec = species.split('_R_')[0]  # deal with the naming scheme for binned down opacities (see below)
+        spec = species.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
         abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
@@ -190,7 +206,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
     abundances['He'] = radtrans_parameters['mass_fractions']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
-    mmw = calc_mmw(abundances)
+    mmw = compute_mean_molar_masses(abundances)
 
     # Calculate the spectrum
     wavelengths, transit_radii, _ = prt_object.calculate_transit_radii(

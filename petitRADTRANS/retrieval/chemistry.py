@@ -7,8 +7,8 @@ try:
 except ModuleNotFoundError:
     pass
 import petitRADTRANS.chemistry as pm
+from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, fixed_length_amr
 from petitRADTRANS.retrieval import cloud_cond as fc
-from petitRADTRANS.retrieval.utils import fixed_length_amr, calc_mmw
 
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
@@ -120,7 +120,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             print(f"Abundance sum > 1.0, msum={msum}")
             return None, None, None, None
 
-        mmw = calc_mmw(abundances_interp)
+        mmw = compute_mean_molar_masses(abundances_interp)
 
     # Prior check all input params
     clouds = {}

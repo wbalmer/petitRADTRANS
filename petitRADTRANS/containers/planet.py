@@ -1234,16 +1234,24 @@ class Planet:
 
         reference_gravity = cst.G * mass / radius ** 2
 
-        partial_derivatives = np.array([
-            reference_gravity / mass,  # dg/dm
-            - 2 * reference_gravity / radius  # dg/dr
-        ])
-        uncertainties = np.abs(np.array([
-            [mass_error_lower, mass_error_upper],
-            [radius_error_lower, radius_error_upper]
-        ]))
+        if np.any(np.not_equal((
+                radius_error_upper,
+                radius_error_lower,
+                mass_error_upper,
+                mass_error_lower
+        ), 0.)):
+            partial_derivatives = np.array([
+                reference_gravity / mass,  # dg/dm
+                - 2 * reference_gravity / radius  # dg/dr
+            ])
+            uncertainties = np.abs(np.array([
+                [mass_error_lower, mass_error_upper],
+                [radius_error_lower, radius_error_upper]
+            ]))
 
-        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+            errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+        else:
+            errors = (0., 0.)
 
         return reference_gravity, errors[1], -errors[0]
 
@@ -1269,18 +1277,26 @@ class Planet:
 
             return None, None, None
 
-        radius = (cst.G * mass / reference_gravity) ** 0.5
+        radius = np.sqrt(cst.G * mass / reference_gravity)
 
-        partial_derivatives = np.array([
-            radius / (2 * mass),  # dr/dm
-            - radius / (2 * reference_gravity)  # dr/dg
-        ])
-        uncertainties = np.abs(np.array([
-            [mass_error_lower, mass_error_upper],
-            [reference_gravity_error_lower, reference_gravity_error_upper]
-        ]))
+        if np.any(np.not_equal((
+                reference_gravity_error_upper,
+                reference_gravity_error_lower,
+                mass_error_upper,
+                mass_error_lower
+        ), 0.)):
+            partial_derivatives = np.array([
+                radius / (2 * mass),  # dr/dm
+                - radius / (2 * reference_gravity)  # dr/dg
+            ])
+            uncertainties = np.abs(np.array([
+                [mass_error_lower, mass_error_upper],
+                [reference_gravity_error_lower, reference_gravity_error_upper]
+            ]))
 
-        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+            errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+        else:
+            errors = (0., 0.)
 
         return radius, errors[1], -errors[0]
 
@@ -1303,15 +1319,23 @@ class Planet:
         """
         mass = reference_gravity / cst.G * radius ** 2
 
-        partial_derivatives = np.array([
-            mass / reference_gravity,  # dm/dg
-            2 * mass / radius  # dm/dr
-        ])
-        uncertainties = np.abs(np.array([
-            [reference_gravity_error_lower, reference_gravity_error_upper],
-            [radius_error_lower, radius_error_upper]
-        ]))
+        if np.any(np.not_equal((
+                radius_error_upper,
+                radius_error_lower,
+                reference_gravity_error_upper,
+                reference_gravity_error_lower
+        ), 0.)):
+            partial_derivatives = np.array([
+                mass / reference_gravity,  # dm/dg
+                2 * mass / radius  # dm/dr
+            ])
+            uncertainties = np.abs(np.array([
+                [reference_gravity_error_lower, reference_gravity_error_upper],
+                [radius_error_lower, radius_error_upper]
+            ]))
 
-        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+            errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+        else:
+            errors = (0., 0.)
 
         return mass, errors[1], -errors[0]

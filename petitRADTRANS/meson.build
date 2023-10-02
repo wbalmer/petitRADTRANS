@@ -11,11 +11,10 @@ py.install_sources([
     'phoenix.py',
     'physical_constants.py',
     'physics.py',
-    'prt_molmass.py',
     'radtrans.py',
     'utils.py',
     '__file_conversion.py',
-    '__init_meson_build.py',
+    '__setup_meson_build.py',
     '__init__.py',
     ],
     subdir: 'petitRADTRANS'

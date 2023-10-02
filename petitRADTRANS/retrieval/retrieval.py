@@ -11,13 +11,14 @@ from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 from scipy.stats import binned_statistic
 
 from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.__file_conversion import bin_species_exok
+from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
-from petitRADTRANS.retrieval.utils import bin_species_exok, mass_to_number
 from petitRADTRANS.utils import flatten_object
 
 # MPI Multiprocessing
@@ -520,8 +521,18 @@ class Retrieval:
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
                 self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-                chi2_wlen = self.get_reduced_chi2(samples_use[best_fit_index], subtract_n_parameters=False)
-                chi2_d_o_f = self.get_reduced_chi2(samples_use[best_fit_index], subtract_n_parameters=True)
+                chi2_wlen = self.get_reduced_chi2(
+                    sample=samples_use[best_fit_index],
+                    subtract_n_parameters=False,
+                    verbose=True,
+                    show_chi2=True
+                )
+                chi2_d_o_f = self.get_reduced_chi2(
+                    sample=samples_use[best_fit_index],
+                    subtract_n_parameters=True,
+                    verbose=True,
+                    show_chi2=False  # show chi2 only once
+                )
 
                 # Get best-fit index
                 summary.write(f"    𝛘^2/n_wlen = {chi2_wlen:.2f}\n")
@@ -567,19 +578,21 @@ class Retrieval:
                 if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
                     species = []
+
                     # Check if low res opacities already exist
                     for line in self.rd.line_species:
                         if not os.path.isdir(
-                                self.path + "opacities/lines/corr_k/" + line + "_R_" + str(dd.model_resolution)
+                            os.path.join(
+                                self.path, "opacities", "lines", "corr_k", dd.get_ck_line_species_directory(
+                                    line, dd.model_resolution
+                                )
+                            )
                         ):
                             species.append(line)
+
                     # If not, setup low-res c-k tables
                     if len(species) > 0:
-                        print("Exo-k should only be run on a single thread.")
-                        # print("The retrieval should be run once on a single core to build the c-k\n"
-                        #    "tables, and then again with multiple cores for the remainder of the retrieval.")
-                        # Automatically build the entire table
-
+                        #
                         if rank == 0:
                             bin_species_exok(species, dd.model_resolution)
 
@@ -587,13 +600,16 @@ class Retrieval:
                             comm.barrier()
 
                     species = []
+
                     for spec in self.rd.line_species:
-                        species.append(spec + "_R_" + str(dd.model_resolution))
+                        species.append(dd.get_ck_line_species_directory(spec, dd.model_resolution))
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,
                     # we just use the default species.
-                    species = cp.copy(self.rd.line_species)
+                    species = [dd.get_ck_line_species_directory(spec) for spec in self.rd.line_species]
+
                 lbl_samp = None
+
                 if dd.line_opacity_mode == 'lbl' and dd.model_resolution is not None:
                     lbl_samp = int(1e6 / dd.model_resolution)
 
@@ -1356,7 +1372,7 @@ class Retrieval:
             name = self.rd.plot_kwargs["take_PTs_from"]
         else:
             name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
-        species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
+        species = [spec.split(self.data.resolving_power_str)[0] for spec in self.data[name].pRT_object.line_species]
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
@@ -1369,7 +1385,7 @@ class Retrieval:
 
     def get_volume_mixing_ratios(self, sample, parameters_read=None):
         """
-        This function returns the VNRs of each species as a function of pressure
+        This function returns the VMRs of each species as a function of pressure.
 
         Args:
             sample : numpy.ndarray
@@ -1385,7 +1401,7 @@ class Retrieval:
                 The mean molecular weight at each pressure level in the atmosphere.
         """
         mass_fracs, mmw = self.get_mass_fractions(sample, parameters_read)
-        vmr = mass_to_number(mass_fracs)
+        vmr = mass_fractions2volume_mixing_ratios(mass_fracs)
 
         return vmr, mmw
 
@@ -1476,7 +1492,7 @@ class Retrieval:
                     f_err = np.sqrt(f_err ** 2 + 10 ** self.best_fit_params[f"{name}_b"].value)
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
             norm = norm + add
-        print(f"Best fit 𝛘^2 = {-log_l - norm:.2f}")
+
         return (-log_l - norm) * 2
 
     def get_chi2(self, sample):
@@ -1518,7 +1534,6 @@ class Retrieval:
 
             norm = norm + add
 
-        print(f"Best fit 𝛘^2 = {2 * (-log_l - norm):.2f}")
         return 2 * (-log_l - norm)
 
     def get_chi2_normalisation(self, sample):
@@ -1556,7 +1571,7 @@ class Retrieval:
 
         return norm
 
-    def get_reduced_chi2(self, sample, subtract_n_parameters=False):
+    def get_reduced_chi2(self, sample, subtract_n_parameters=False, verbose=False, show_chi2=False):
         """
         Get the 𝛘^2/DoF of the given model - divide chi^2 by DoF or number of wavelength channels.
 
@@ -1566,6 +1581,10 @@ class Retrieval:
             subtract_n_parameters : bool
                 If True, divide the Chi2 by the degrees of freedom (n_data - n_parameters). If False,
                 divide only by n_data
+            verbose : bool
+                If True, display the calculated best fit reduced chi^2, and also the best fit chi^2 if show_chi2 is True
+            show_chi2 : bool
+                If True, additionally display the calculated best fit chi^2 if verbose is True
         """
         chi2 = self.get_chi2(sample)
         d_o_f = 0
@@ -1578,16 +1597,21 @@ class Retrieval:
                 if pp.is_free_parameter:
                     d_o_f -= 1
 
-        if subtract_n_parameters:
-            print(f"Best fit 𝛘^2/DoF = {chi2 / d_o_f:.2f}")
-        else:
-            print(f"Best fit 𝛘^2/n_wlen = {chi2 / d_o_f:.2f}")
+        if verbose:
+            if show_chi2:
+                print(f"Best fit 𝛘^2 = {chi2:.2f}")
+
+            if subtract_n_parameters:
+                print(f"Best fit 𝛘^2/DoF = {chi2 / d_o_f:.2f}")
+            else:
+                print(f"Best fit 𝛘^2/n_wlen = {chi2 / d_o_f:.2f}")
 
         self.chi2 = chi2 / d_o_f
 
         return chi2 / d_o_f
 
-    def get_reduced_chi2_from_model(self, wlen_model, spectrum_model, subtract_n_parameters=False):
+    def get_reduced_chi2_from_model(self, wlen_model, spectrum_model, subtract_n_parameters=False,
+                                    verbose=False, show_chi2=False):
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
@@ -1599,6 +1623,10 @@ class Retrieval:
             subtract_n_parameters : bool
                 If True, divide the Chi2 by the degrees of freedom (n_data - n_parameters). If False,
                 divide only by n_data
+            verbose : bool
+                If True, display the calculated best fit chi^2 and reduced chi^2
+            show_chi2 : bool
+                If True, additionally display the calculated best fit chi^2 if verbose is True
         """
         log_l = 0
         norm = 0
@@ -1636,10 +1664,14 @@ class Retrieval:
 
         chi2 = 2 * (-log_l - norm)
 
-        if subtract_n_parameters:
-            print(f"Best fit 𝛘^2/DoF = {chi2 / d_o_f:.2f}")
-        else:
-            print(f"Best fit 𝛘^2/n_wlen = {chi2 / d_o_f:.2f}")
+        if verbose:
+            if show_chi2:
+                print(f"Best fit 𝛘^2 = {chi2:.2f}")
+
+            if subtract_n_parameters:
+                print(f"Best fit 𝛘^2/DoF = {chi2 / d_o_f:.2f}")
+            else:
+                print(f"Best fit 𝛘^2/n_wlen = {chi2 / d_o_f:.2f}")
 
         return chi2 / d_o_f
 
@@ -1745,7 +1777,9 @@ class Retrieval:
                 A dictionary with retrieval names for keys, and the values are the calculated
                 values of Teff for each sample.
         """
-        from .utils import teff_calc
+        from petitRADTRANS.physics import compute_effective_temperature
+        from petitRADTRANS.retrieval.data import Data
+
         if ret_names is None:
             ret_names = [self.retrieval_name]
         if nsample is None:
@@ -1753,10 +1787,15 @@ class Retrieval:
 
         # Set up the pRT object
         species = []
+
         for line in self.rd.line_species:
-            if not os.path.isdir(self.path + "opacities/lines/corr_k/"
-                                 + line + "_R_"
-                                 + str(resolution)):
+            if not os.path.isdir(
+                    os.path.join(
+                        self.path, "opacities", "lines", "corr_k", Data.get_ck_line_species_directory(
+                            line, resolution
+                        )
+                    )
+            ):
                 species.append(line)
         # If not, setup low-res c-k tables
         if len(species) > 0:
@@ -1769,7 +1808,7 @@ class Retrieval:
         species = []
 
         for spec in self.rd.line_species:
-            species.append(spec + "_R_" + str(resolution))
+            species.append(Data.get_ck_line_species_directory(spec, resolution))
 
         prt_object = Radtrans(
             line_species=cp.copy(species),
@@ -1829,7 +1868,7 @@ class Retrieval:
                 else:
                     wlen, model, __ = ret_val
 
-                tfit = teff_calc(wlen, model, params["D_pl"].value, params["R_pl"].value)
+                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["R_pl"].value)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff", np.array(teffs))
@@ -2008,7 +2047,13 @@ class Retrieval:
                 refresh=refresh,
                 mode=mode
             )
-            chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum, subtract_n_parameters=True)
+            chi2 = self.get_reduced_chi2_from_model(
+                wlen_model=bf_wlen,
+                spectrum_model=bf_spectrum,
+                subtract_n_parameters=True,
+                verbose=True,
+                show_chi2=True
+            )
 
             # Iterate through each dataset, plotting the data and the residuals.
             for name, dd in self.data.items():
@@ -2396,7 +2441,13 @@ class Retrieval:
                 prt_reference=prt_reference,
                 refresh=refresh
             )
-            chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum, subtract_n_parameters=True)
+            chi2 = self.get_reduced_chi2_from_model(
+                wlen_model=bf_wlen,
+                spectrum_model=bf_spectrum,
+                subtract_n_parameters=True,
+                verbose=True,
+                show_chi2=True
+            )
             ax.plot(bf_wlen,
                     bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],
                     marker=None,
@@ -2984,7 +3035,7 @@ class Retrieval:
             if sample_posteriors:
                 abundances = {}
                 for species in species_to_plot:
-                    abundances[species.split("_R_")[0]] = []
+                    abundances[species.split()[0]] = []
 
                 # Go through EVERY sample to find the abundance distribution.
                 # Very slow.
@@ -2994,12 +3045,17 @@ class Retrieval:
                     else:
                         abund_dict, mmw = self.get_mass_fractions(sample[:-1], parameters_read)
                     for species in species_to_plot:
-                        abundances[species.split("_R_")[0]].append(abund_dict[species.split("_R_")[0]])
+                        abundances[species.split(self.data.resolving_power_str)[0]].append(
+                            abund_dict[species.split(self.data.resolving_power_str)[0]]
+                        )
 
                 # Plot median and 1sigma contours
                 for i, species in enumerate(species_to_plot):
-                    low, med, high = np.quantile(np.array(abundances[species.split("_R_")[0]]), [0.159, 0.5, 0.841],
-                                                 axis=0)
+                    low, med, high = np.quantile(
+                        np.array(abundances[species.split(self.data.resolving_power_str)[0]]),
+                        [0.159, 0.5, 0.841],
+                        axis=0
+                    )
                     ax.plot(med,
                             pressures,
                             label=species.split('_')[0],
@@ -3031,7 +3087,7 @@ class Retrieval:
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
                 for i, spec in enumerate(species_to_plot):
-                    ax.plot(abund_dict[spec.split("_R_")[0]],
+                    ax.plot(abund_dict[spec.split(self.data.resolving_power_str)[0]],
                             pressures,
                             label=spec.split('_')[0],
                             color=colors[i % len(colors)],
