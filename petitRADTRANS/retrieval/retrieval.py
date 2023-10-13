@@ -1,3 +1,4 @@
+import copy
 import copy as cp
 import json
 import logging
@@ -13,6 +14,7 @@ from scipy.stats import binned_statistic
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import bin_species_exok
+from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
@@ -393,6 +395,29 @@ class Retrieval:
             sampler.print_results()
             sampler.plot_corner()
 
+    def _rebin_opacities(self, resolution):
+        species = []
+
+        for line in self.rd.line_species:
+            matches = get_opacity_input_file(
+                path_input_data=self.path,
+                category='correlated_k_opacities',
+                species=join_species_all_info(line, spectral_info=get_resolving_power_string(resolution)),
+                find_all=True
+            )
+
+            if len(matches) == 0:
+                species.append(line)
+
+        # If not, setup low-res c-k tables
+        if len(species) > 0:
+            #
+            if rank == 0:
+                bin_species_exok(species, resolution)
+
+            if comm is not None:
+                comm.barrier()
+
     def generate_retrieval_summary(self, stats=None):
         """
         This function produces a human-readable text file describing the retrieval.
@@ -578,36 +603,19 @@ class Retrieval:
             if dd.external_pRT_reference is None:
                 if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
-                    species = []
-
-                    # Check if low res opacities already exist
-                    for line in self.rd.line_species:
-                        if not os.path.isdir(
-                            os.path.join(
-                                self.path, "opacities", "lines", "corr_k", dd.get_ck_line_species_directory(
-                                    line, dd.model_resolution
-                                )
-                            )
-                        ):
-                            species.append(line)
-
-                    # If not, setup low-res c-k tables
-                    if len(species) > 0:
-                        #
-                        if rank == 0:
-                            bin_species_exok(species, dd.model_resolution)
-
-                        if comm is not None:
-                            comm.barrier()
+                    self._rebin_opacities(resolution=dd.model_resolution)
 
                     species = []
 
                     for spec in self.rd.line_species:
-                        species.append(dd.get_ck_line_species_directory(spec, dd.model_resolution))
+                        species.append(join_species_all_info(
+                            spec,
+                            spectral_info=get_resolving_power_string(dd.model_resolution))
+                        )
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,
                     # we just use the default species.
-                    species = [dd.get_ck_line_species_directory(spec) for spec in self.rd.line_species]
+                    species = copy.deepcopy(self.rd.line_species)
 
                 lbl_samp = None
 
@@ -1785,7 +1793,6 @@ class Retrieval:
                 values of Teff for each sample.
         """
         from petitRADTRANS.physics import compute_effective_temperature
-        from petitRADTRANS.retrieval.data import Data
 
         if ret_names is None:
             ret_names = [self.retrieval_name]
@@ -1793,29 +1800,12 @@ class Retrieval:
             nsample = self.rd.plot_kwargs["nsample"]
 
         # Set up the pRT object
-        species = []
-
-        for line in self.rd.line_species:
-            if not os.path.isdir(
-                    os.path.join(
-                        self.path, "opacities", "lines", "corr_k", Data.get_ck_line_species_directory(
-                            line, resolution
-                        )
-                    )
-            ):
-                species.append(line)
-        # If not, setup low-res c-k tables
-        if len(species) > 0:
-            print("Exo-k should only be run on a single thread.")
-            print("The retrieval should be run once on a single core to build the c-k\n"
-                  "tables, and then again with multiple cores for the remainder of the retrieval.")
-            # Automatically build the entire table
-            bin_species_exok(species, resolution)
+        self._rebin_opacities(resolution=resolution)
 
         species = []
 
         for spec in self.rd.line_species:
-            species.append(Data.get_ck_line_species_directory(spec, resolution))
+            species.append(join_species_all_info(spec, spectral_info=get_resolving_power_string(resolution)))
 
         prt_object = Radtrans(
             line_species=cp.copy(species),

@@ -5,11 +5,11 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 """
 import json
 import os
-import shutil
 
 import numpy as np
 
-from petitRADTRANS._input_data_loader import get_opacity_input_file
+from petitRADTRANS._input_data_loader import (get_default_correlated_k_resolution, get_opacity_input_file,
+                                              get_resolving_power_string, join_species_all_info)
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
@@ -113,8 +113,11 @@ def init_run():
             category='correlated_k_opacities',
             species=species
         ).replace(
-            '.R1000',
-            f".R{radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2}"
+            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
+            join_species_all_info(
+                '',
+                get_resolving_power_string(radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2)
+            )
         )
 
         if os.path.isfile(file):

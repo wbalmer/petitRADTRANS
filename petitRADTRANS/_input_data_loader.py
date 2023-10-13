@@ -189,12 +189,15 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, filename=None):
+def _get_input_file(path_input_data, sub_path, filename=None, find_all=False):
     full_path = os.path.join(path_input_data, sub_path)
 
     files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
 
     if len(files) == 0:  # no file in path, raise error
+        if find_all:
+            return []
+
         raise FileNotFoundError(get_input_data_file_not_found_error_message(path_input_data))
     else:  # at least one file detected in path
         if filename is not None:  # check if one of the files matches the given filename
@@ -229,23 +232,25 @@ def _get_input_file(path_input_data, sub_path, filename=None):
                             matching_files.append(file)
                     else:
                         if get_default_correlated_k_resolution() == resolution_file:
-                            matching_files = [file]
-                            break
+                            matching_files.append(file)
                         elif get_default_line_by_line_resolution() == resolution_file:
-                            matching_files = [file]
-                            break
-
-                        matching_files.append(file)
+                            matching_files.append(file)
 
             if len(matching_files) == 0:
+                if find_all:
+                    return matching_files
+
                 files_str = "\n".join(files)
-                raise FileNotFoundError(f"no file with name '{filename}' found in directory '{full_path}'\n"
+                raise FileNotFoundError(f"no file matching name '{filename}' found in directory '{full_path}'\n"
                                         f"Available files are:\n"
                                         f"{files_str}")
             elif len(matching_files) == 1:
                 return matching_files[0]
             else:
-                pass  # search for default file
+                if find_all:
+                    return matching_files
+
+                # Else, search for default file
 
         # No filename given and only one file is in path, return it
         if len(files) == 1:
@@ -348,21 +353,6 @@ def _has_isotope(string):
         return True
     else:
         return False
-
-
-def _join_species_all_info(name, all_iso='', ionization='', cloud_info='', source='', spectral_info=''):
-    if all_iso != '':
-        name += '_' + all_iso
-
-    name += ionization + cloud_info
-
-    if source != '':
-        name += '__' + source
-
-    if spectral_info != '':
-        name += '.' + spectral_info
-
-    return name
 
 
 def _rebuild_isotope_numbers(species, mode='add'):
@@ -748,11 +738,11 @@ def get_cloud_aliases(name: str) -> str:
 
 
 def get_default_correlated_k_resolution() -> str:
-    return "R1000"
+    return get_resolving_power_string(1000)
 
 
 def get_default_line_by_line_resolution() -> str:
-    return "R1e6"
+    return get_resolving_power_string(1e6)
 
 
 def get_input_data_file_not_found_error_message(file: str) -> str:
@@ -771,7 +761,7 @@ def get_input_data_file_not_found_error_message(file: str) -> str:
     )
 
 
-def get_opacity_input_file(path_input_data: str, category: str, species: str) -> str:
+def get_opacity_input_file(path_input_data: str, category: str, species: str, find_all: bool = False) -> str:
     """Return the absolute filename of a species opacity.
     The validity of the given species name is checked.
 
@@ -796,6 +786,9 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str) ->
             Input data category
         species:
             Species to get the opacity filename. The species name must be valid.
+        find_all:
+            If True, return all the matched files. If False, raise an error if no file is found, and only one file
+            is returned.
     Returns:
         The absolute opacity filename of the species
     """
@@ -805,14 +798,14 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str) ->
     istopologue_name = get_species_isotopologue_name(species, join=False)
 
     _, all_iso, ionization, cloud_info, source, spectral_info = _split_species_all_info(species, final_ion_format='pm')
-    filename = _join_species_all_info(
+    filename = join_species_all_info(
         name=istopologue_name,
         ionization=ionization,
         cloud_info=cloud_info,
         source=source,
         spectral_info=spectral_info
     )
-    directory = _join_species_all_info(
+    directory = join_species_all_info(
         name=istopologue_name,
         ionization=ionization.replace('p', '+').replace('m', '-'),
         cloud_info=cloud_info
@@ -830,7 +823,26 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str) ->
     if not os.path.isdir(full_path):
         raise NotADirectoryError(get_input_data_file_not_found_error_message(full_path))
 
-    return os.path.join(full_path, _get_input_file(path_input_data, category, filename))
+    matches = _get_input_file(
+        path_input_data=path_input_data,
+        sub_path=category,
+        filename=filename,
+        find_all=find_all
+    )
+
+    if hasattr(matches, '__iter__') and not isinstance(matches, str):
+        matches = [os.path.join(full_path, m) for m in matches]
+    else:
+        matches = os.path.join(full_path, matches)
+
+    return matches
+
+
+def get_resolving_power_string(resolving_power: [int, float]) -> str:
+    if isinstance(resolving_power, int):
+        return f"R{resolving_power}"
+    elif isinstance(resolving_power, float):
+        return f"R{resolving_power:.0e}".replace('e+', 'e').replace('e0', 'e')
 
 
 def get_species_basename(species: str, join: bool = False) -> str:
@@ -840,7 +852,7 @@ def get_species_basename(species: str, join: bool = False) -> str:
     name = _rebuild_isotope_numbers(name, mode='remove')
 
     if join:
-        return _join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
+        return join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
     else:
         return name
 
@@ -848,10 +860,25 @@ def get_species_basename(species: str, join: bool = False) -> str:
 def get_species_isotopologue_name(species: str, join: bool = False) -> str:
     name, all_iso, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
 
-    name = _join_species_all_info(name, all_iso)
+    name = join_species_all_info(name, all_iso)
     name = _rebuild_isotope_numbers(name, mode='add')
 
     if join:
-        return _join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
+        return join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
     else:
         return name
+
+
+def join_species_all_info(name, all_iso='', ionization='', cloud_info='', source='', spectral_info=''):
+    if all_iso != '':
+        name += '_' + all_iso
+
+    name += ionization + cloud_info
+
+    if source != '':
+        name += '__' + source
+
+    if spectral_info != '':
+        name += '.' + spectral_info
+
+    return name
