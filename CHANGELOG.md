@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a79] - 2023-02-10
+## [3.0.0-a80] - 2023-02-10
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
+- Rules for opacites and species names are now clearly defined, based on the ExoMol format.
+- Structure of directory input_data now is akin to ExoMol.
 - Line-by-line opacities can now be read from HDF5 files.
 - Cloud opacities can now be read from HDF5 files.
 - CIA cross-sections can now be read from HDF5 files.

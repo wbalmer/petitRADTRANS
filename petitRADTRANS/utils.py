@@ -54,12 +54,42 @@ class LockedDict(dict):
     def __setitem__(self, key, value):
         """Prevent a key to be added if the lock is on."""
         if key not in self and self._locked:
-            raise KeyError(f"'{key}' not in LockedDict (locked), unlock the LockedDict to add new keys")
+            raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
         else:
             super().__setitem__(key, value)
 
+    @classmethod
+    def build_and_lock(cls, dictionary=None, **kwargs):
+        """Instantiate a LockedDict and lock it."""
+        new_cls = cls()
+        new_cls.unlock()  # ensure the dictionary can be updated
+        new_cls.update(dictionary, **kwargs)
+        new_cls.lock()
+
+        return new_cls
+
     def lock(self):
         self._locked = True
+
+    def update(self, __m=None, **kwargs) -> None:
+        """Ensure that update takes the lock into account and do not remove keys."""
+        __tmp = dict(self)
+
+        if __m is None:
+            __tmp.update(**kwargs)
+        else:
+            __tmp.update(__m, **kwargs)
+
+        # Ensure that no keys are removed during update
+        if len(__tmp.keys()) < len(self.keys()) and self._locked:
+            raise KeyError(
+                f"locked LockedDict has {len(self.keys())} items "
+                f"but the update has {len(__tmp.keys())}, "
+                f"unlock the LockedDict to change the number of keys during an update"
+            )
+
+        for key, value in __tmp.items():
+            self.__setitem__(key, value)
 
     def unlock(self):
         self._locked = False

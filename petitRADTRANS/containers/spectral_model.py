@@ -17,6 +17,7 @@ from petitRADTRANS.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, rebin_spectrum
 )
+from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import Retrieval, RetrievalConfig
@@ -2068,9 +2069,6 @@ class SpectralModel(BaseSpectralModel):
     def _calculate_equilibrium_mass_mixing_ratios(pressures, temperatures, co_ratio, metallicity,
                                                   line_species, included_line_species,
                                                   carbon_pressure_quench=None, imposed_mass_mixing_ratios=None):
-        # Import is here because it is long to load TODO add a load_data function to the module instead?
-        from petitRADTRANS.chemistry import pre_calculated_chemistry as pm
-
         if imposed_mass_mixing_ratios is None:
             imposed_mass_mixing_ratios = {}
 
@@ -2086,12 +2084,15 @@ class SpectralModel(BaseSpectralModel):
 
         log10_metallicities = np.log10(log10_metallicities)
 
-        equilibrium_mass_mixing_ratios = pm.interpolate_mass_fractions_chemical_table(
-            co_ratios=co_ratios,
-            log10_metallicities=log10_metallicities,
-            temperatures=temperatures,
-            pressures=pressures,
-            carbon_pressure_quench=carbon_pressure_quench
+        equilibrium_mass_mixing_ratios = (
+            pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
+                co_ratios=co_ratios,
+                log10_metallicities=log10_metallicities,
+                temperatures=temperatures,
+                pressures=pressures,
+                carbon_pressure_quench=carbon_pressure_quench,
+                full=False  # no need for nabla_adiabatic or the mean molar mass
+            )
         )
 
         # Check imposed mass mixing ratios keys
@@ -2123,9 +2124,6 @@ class SpectralModel(BaseSpectralModel):
 
                 # Correct for line species name to match pRT chemistry name
                 line_species_name = line_species_name_.split('_', 1)[0]
-
-                if line_species_name == 'C2H2':  # C2H2 special case
-                    line_species_name += ',acetylene'
 
                 if key == line_species_name:
                     if key not in included_line_species:
@@ -3018,8 +3016,6 @@ class SpectralModel(BaseSpectralModel):
             spec = species.split('_', 1)[0]
 
             if spec in self.mass_mixing_ratios:
-                if species not in self.mass_mixing_ratios and species != 'K':
+                if species not in self.mass_mixing_ratios:
                     self.mass_mixing_ratios[species] = self.mass_mixing_ratios[spec]
-
-                if species != 'K':  # TODO fix this K special case by choosing smarter opacities names
                     del self.mass_mixing_ratios[spec]

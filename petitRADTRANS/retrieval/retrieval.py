@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 import warnings
 
 import matplotlib.pyplot as plt
@@ -651,6 +652,11 @@ class Retrieval:
                 i_p += 1
 
         for name, data in self.rd.data.items():
+            message = None
+            wlen = None
+            model = None
+            exc_info = None
+
             try:
                 use_obj = data.pRT_object
 
@@ -668,25 +674,26 @@ class Retrieval:
                     wlen, model, _ = model_returned_values
                 else:
                     wlen, model = model_returned_values
-
-            except KeyError as _error:
-                raise KeyError(
-                    f"{str(_error)}, this may be caused by an invalid parameter dictionary or invalid abundances"
-                )
-            except ValueError as _error:
-                raise ValueError(
-                    f"{str(_error)}, this may be caused by erroneous calculations or invalid inputs"
-                )
-            except IndexError as _error:
-                raise IndexError(
-                    f"{str(_error)}, this may be caused by arrays with an incorrect shape"
-                )
-            except ZeroDivisionError as _error:
-                raise _error
-            except TypeError as _error:
-                raise TypeError(
-                    f"{str(_error)}, this may be caused by invalid inputs"
-                )
+            except KeyError:
+                exc_info = sys.exc_info()
+                message = "and may be caused by an invalid parameter dictionary or invalid abundances"
+            except ValueError:
+                exc_info = sys.exc_info()
+                message = "and may be caused by erroneous calculations or invalid inputs"
+            except IndexError:
+                exc_info = sys.exc_info()
+                message = "and may be caused by arrays with an incorrect shape"
+            except ZeroDivisionError:
+                exc_info = sys.exc_info()
+                message = ""
+            except TypeError:
+                exc_info = sys.exc_info()
+                message = "and may be caused by invalid inputs"
+            finally:
+                if message is not None:
+                    message = "this error was directly caused by the above error " + message
+                    traceback.print_exception(*exc_info)
+                    raise RuntimeError(message)
 
             if wlen is None or model is None:
                 raise ValueError("unable to compute a spectrum (output wavelengths and spectrum are both None), "

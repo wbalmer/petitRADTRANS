@@ -134,7 +134,7 @@ def test_line_by_line_emission_spectrum():
 
 def test_line_by_line_transmission_spectrum():
     # Calculate a transmission spectrum
-    frequencies, transit_radii, _ =atmosphere_lbl.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_lbl.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],

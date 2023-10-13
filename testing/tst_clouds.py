@@ -173,7 +173,7 @@ if low_res:
                                           'CO2',
                                           'Na_allard',
                                           'K_allard'], \
-          cloud_species = ['Mg2SiO4(c)_cd'], \
+          cloud_species = ['Mg2SiO4(s)_crystalline__DHS'], \
           rayleigh_species = ['H2', 'He'], \
           continuum_opacities = ['H2-H2', 'H2-He'], \
           wlen_bords_micron = [0.3, 15])
@@ -184,7 +184,7 @@ else:
                                         'CO2_main_iso',
                                         'Na',
                                         'K'],
-                          cloud_species=['Mg2SiO4(c)_cd'],
+                          cloud_species=['Mg2SiO4(s)_crystalline__DHS'],
                           rayleigh_species=['H2', 'He'],
                           continuum_opacities=['H2-H2', 'H2-He'],
                           wlen_bords_micron=[2.2, 2.4],
@@ -332,7 +332,7 @@ if low_res:
                                           'CO2',
                                           'Na_allard',
                                           'K_allard'], \
-          cloud_species = ['Mg2SiO4(c)_cd'], \
+          cloud_species = ['Mg2SiO4(s)_crystalline__DHS'], \
           rayleigh_species = ['H2', 'He'], \
           continuum_opacities = ['H2-H2', 'H2-He'], \
           wlen_bords_micron = [0.3, 15], \
@@ -344,7 +344,7 @@ else:
                                         'CO2_main_iso',
                                         'Na',
                                         'K'],
-                          cloud_species=['Mg2SiO4(c)_cd'],
+                          cloud_species=['Mg2SiO4(s)_crystalline__DHS'],
                           rayleigh_species=['H2', 'He'],
                           continuum_opacities=['H2-H2', 'H2-He'],
                           wlen_bords_micron=[2.2, 2.4],

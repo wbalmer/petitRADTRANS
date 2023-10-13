@@ -128,7 +128,7 @@ def create_test_radtrans_config_file(filename):
                     'H2O_main_iso': 0.001,
                     'CH4': 0.001,
                     'CO_all_iso': 0.1,
-                    'Mg2SiO4(c)': 0.0
+                    'Mg2SiO4(s)_crystalline__DHS': 0.0
                  },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
@@ -181,7 +181,7 @@ def create_test_radtrans_config_file(filename):
                    'cloud_pressure': 0.01,
                    'haze_factor': 10.0,
                    'cloud_species': {
-                       'Mg2SiO4(c)_cd': {
+                       'Mg2SiO4(s)_crystalline__DHS': {
                            'mass_fraction': 5e-7,
                            'radius': 5e-5,  # (cm)
                            'f_sed': 2.0,

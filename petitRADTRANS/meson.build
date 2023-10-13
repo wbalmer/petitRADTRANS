@@ -13,6 +13,7 @@ py.install_sources([
     'physics.py',
     'radtrans.py',
     'utils.py',
+    '_input_data_loader.py',
     '__file_conversion.py',
     '__setup_meson_build.py',
     '__init__.py',

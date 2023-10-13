@@ -9,6 +9,7 @@ import shutil
 
 import numpy as np
 
+from petitRADTRANS._input_data_loader import get_opacity_input_file
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
@@ -107,17 +108,17 @@ def init_run():
 
     # Remove old binned down opacities to test rebinning function
     for species in radtrans_parameters['spectrum_parameters']['line_species_correlated_k']:
-        opacities_directory = os.path.join(
-            petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path(),
-            "opacities", "lines", "corr_k",
-            Data.get_ck_line_species_directory(
-                species=species,
-                model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
-            )
+        file = get_opacity_input_file(
+            path_input_data=petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path(),
+            category='correlated_k_opacities',
+            species=species
+        ).replace(
+            '.R1000',
+            f".R{radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2}"
         )
 
-        if os.path.isdir(opacities_directory):
-            shutil.rmtree(opacities_directory)
+        if os.path.isfile(file):
+            os.remove(file)
 
     # Load data
     run_definition_simple.add_data(

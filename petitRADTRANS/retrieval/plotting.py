@@ -9,6 +9,7 @@ from matplotlib.lines import Line2D
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import binned_statistic
 
+from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 import petitRADTRANS.physical_constants as cst
 
 
@@ -628,13 +629,12 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         for s in species:
             opacities_weights[s] = 1.
     elif mass_fractions == 'eq':
-        from .chemistry import interpolate_mass_fractions_chemical_table
-
-        mass_fractions = interpolate_mass_fractions_chemical_table(
+        mass_fractions = pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
             co_ratios=co_ratio * np.ones_like(temperatures),
             log10_metallicities=log10_metallicity * np.ones_like(temperatures),
             temperatures=temperatures,
-            pressures=pressure_bar
+            pressures=pressure_bar,
+            full=False
         )
 
         for s in species:

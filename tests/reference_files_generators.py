@@ -117,7 +117,8 @@ def __save_emission_spectrum(filename, frequencies, flux, plot_figure=False, fig
         plt.title(figure_title)
 
 
-def __save_mass_fractions(filename, mass_fractions, plot_figure=False, y_axis=None, y_label='', y_lim=None,
+def __save_mass_fractions(filename, mass_fractions, mean_molar_masses, nabla_adiabatic,
+                          plot_figure=False, y_axis=None, y_label='', y_lim=None,
                           figure_title=None, prt_version=version):
     np.savez_compressed(
         file=os.path.join(filename),
@@ -125,6 +126,8 @@ def __save_mass_fractions(filename, mass_fractions, plot_figure=False, y_axis=No
                f'wavelength units: um\n'
                f'spectral radiosity units: erg.cm-2.s-1.Hz-1',
         prt_version=f'{prt_version}',
+        mean_molar_masses=mean_molar_masses,
+        nabla_adiabatic=nabla_adiabatic,
         **mass_fractions  # pass mass fractions as keyword arguments to avoid the need of pickle
     )
 
@@ -137,7 +140,7 @@ def __save_mass_fractions(filename, mass_fractions, plot_figure=False, y_axis=No
         plt.figure()
 
         for species in mass_fractions.keys():
-            if species not in ['MMW', 'nabla_ad']:
+            if species not in ['MMW', 'nabla_ad']:  # kept for backward compatibility
                 plt.loglog(mass_fractions[species], y_axis, label=species)
 
         plt.ylim(y_lim)
@@ -148,7 +151,7 @@ def __save_mass_fractions(filename, mass_fractions, plot_figure=False, y_axis=No
 
         # Nabla figure
         plt.figure()
-        plt.loglog(mass_fractions['nabla_ad'], y_axis)
+        plt.loglog(nabla_adiabatic, y_axis)
 
         plt.ylim(y_lim)
         plt.xlabel(r'Moist adiabatic temperature gradient $\nabla_{\rm ad}$')
@@ -157,7 +160,7 @@ def __save_mass_fractions(filename, mass_fractions, plot_figure=False, y_axis=No
 
         # Mean molar mass figure
         plt.figure()
-        plt.loglog(mass_fractions['MMW'], y_axis)
+        plt.loglog(mean_molar_masses, y_axis)
 
         plt.ylim(y_lim)
         plt.xlabel(r'Mean molar mass')
@@ -467,8 +470,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_ref(p
     from .test_radtrans_correlated_k import atmosphere_ck
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, flux, additional_outputs = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
@@ -476,9 +479,9 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_ref(p
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
-            'Mg2SiO4(c)_cd'
+            'Mg2SiO4(s)_crystalline__DHS'
         ]['sigma_log_normal'],
         return_contribution=True,
         frequencies_to_wavelengths=False
@@ -507,8 +510,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_stell
     from .test_radtrans_correlated_k_scattering import atmosphere_ck_scattering
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     geometries = [
         'planetary_ave',
@@ -523,8 +526,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_stell
             reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
             mean_molar_masses=radtrans_parameters['mean_molar_mass'],
             eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-            cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-            cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+            cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+            cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
             emission_geometry=geometry,
             star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
             star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -546,8 +549,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_hansen_radius_ref(plot_
     from .test_radtrans_correlated_k import atmosphere_ck
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, flux, _ = atmosphere_ck.calculate_flux(
         temperatures=temperature_guillot_2010,
@@ -555,8 +558,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_hansen_radius_ref(plot_
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_b_hansen=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['b_hansen'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_b_hansen=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['b_hansen'],
         cloud_particles_radius_distribution='hansen',
         frequencies_to_wavelengths=False
     )
@@ -572,8 +575,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_scatt
     from .test_radtrans_correlated_k_scattering import atmosphere_ck_scattering
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, flux, _ = atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
@@ -581,8 +584,8 @@ def create_radtrans_correlated_k_emission_spectrum_cloud_calculated_radius_scatt
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         add_cloud_scattering_as_absorption=True,
         frequencies_to_wavelengths=False
     )
@@ -628,10 +631,10 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
     from .test_radtrans_correlated_k_scattering import atmosphere_ck_scattering
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
-    frequencies, transit_radii, _ =atmosphere_ck_scattering.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck_scattering.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -639,8 +642,8 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
         planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
 
@@ -656,7 +659,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_s
 def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    frequencies, transit_radii, _ =atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -675,7 +678,7 @@ def create_radtrans_correlated_k_transmission_spectrum_ref(plot_figure=False):
 def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    frequencies, transit_radii, _ =atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -696,7 +699,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_power_law_ref(plot_
 def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    frequencies, transit_radii, _ =atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -716,7 +719,7 @@ def create_radtrans_correlated_k_transmission_spectrum_gray_cloud_ref(plot_figur
 def create_radtrans_correlated_k_transmission_spectrum_rayleigh_ref(plot_figure=False):
     from .test_radtrans_correlated_k import atmosphere_ck
 
-    frequencies, transit_radii, _ =atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -737,10 +740,10 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
     from .test_radtrans_correlated_k import atmosphere_ck
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
-    frequencies, transit_radii, _ =atmosphere_ck.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=mass_fractions,
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -748,11 +751,11 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
         planet_radius=radtrans_parameters['planetary_parameters']['radius']
             * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        clouds_particles_mean_radii={'Mg2SiO4(c)': radtrans_parameters['cloud_parameters']['cloud_species'][
-            'Mg2SiO4(c)_cd'
+        clouds_particles_mean_radii={'Mg2SiO4(s)_crystalline__DHS': radtrans_parameters['cloud_parameters']['cloud_species'][
+            'Mg2SiO4(s)_crystalline__DHS'
         ]['radius']},
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
-            'Mg2SiO4(c)_cd'
+            'Mg2SiO4(s)_crystalline__DHS'
         ]['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
@@ -767,8 +770,8 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
     from .test_radtrans_correlated_k import atmosphere_ck
 
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, transit_radii, additional_outputs = atmosphere_ck.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
@@ -779,9 +782,9 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_calculated_radius_r
             * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
-            'Mg2SiO4(c)_cd'
+            'Mg2SiO4(s)_crystalline__DHS'
         ]['sigma_log_normal'],
         return_contribution=True,
         frequencies_to_wavelengths=False
@@ -826,7 +829,7 @@ def create_radtrans_line_by_line_downsampled_emission_spectrum_ref(plot_figure=F
 def create_radtrans_line_by_line_downsampled_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line_sampling import atmosphere_lbl_downsampled
 
-    frequencies, transit_radii, _ =atmosphere_lbl_downsampled.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_lbl_downsampled.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -862,7 +865,7 @@ def create_radtrans_line_by_line_emission_spectrum_ref(plot_figure=False):
 def create_radtrans_line_by_line_transmission_spectrum_ref(plot_figure=False):
     from .test_radtrans_line_by_line import atmosphere_lbl
 
-    frequencies, transit_radii, _ =atmosphere_lbl.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_lbl.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
@@ -909,17 +912,23 @@ def create_radtrans_mass_fractions_atmosphere_quench_ref(plot_figure=False):
     metallicities = radtrans_parameters['chemical_parameters']['metallicities'][1] \
         * np.ones_like(radtrans_parameters['pressures'])
 
-    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
-        co_ratios=c_o_ratios,
-        log10_metallicities=metallicities,
-        temperatures=temperature_guillot_2010,
-        pressures=radtrans_parameters['pressures'],
-        carbon_pressure_quench=radtrans_parameters['chemical_parameters']['pressure_quench_carbon']
+    mass_fractions, mean_molar_masses, nabla_adiabatic = (
+        petitRADTRANS.chemistry.pre_calculated_chemistry.pre_calculated_equilibrium_chemistry_table.
+        interpolate_mass_fractions(
+            co_ratios=c_o_ratios,
+            log10_metallicities=metallicities,
+            temperatures=temperature_guillot_2010,
+            pressures=radtrans_parameters['pressures'],
+            carbon_pressure_quench=radtrans_parameters['chemical_parameters']['pressure_quench_carbon'],
+            full=True
+        )
     )
 
     __save_mass_fractions(
         filename=reference_filenames['mass_fractions_atmosphere_quench'],
         mass_fractions=mass_fractions,
+        mean_molar_masses=mean_molar_masses,
+        nabla_adiabatic=nabla_adiabatic,
         plot_figure=plot_figure,
         y_axis=radtrans_parameters['pressures'],
         y_label='Pressure (bar)',
@@ -935,16 +944,22 @@ def create_radtrans_mass_fractions_c_o_ratios_ref(plot_figure=False):
     pressures = radtrans_parameters['chemical_parameters']['pressure'] * np.ones_like(c_o_ratios)
     temperatures = radtrans_parameters['chemical_parameters']['temperature'] * np.ones_like(c_o_ratios)
 
-    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
-        co_ratios=c_o_ratios,
-        log10_metallicities=metallicities,
-        temperatures=temperatures,
-        pressures=pressures
+    mass_fractions, mean_molar_masses, nabla_adiabatic = (
+        petitRADTRANS.chemistry.pre_calculated_chemistry.pre_calculated_equilibrium_chemistry_table.
+        interpolate_mass_fractions(
+            co_ratios=c_o_ratios,
+            log10_metallicities=metallicities,
+            temperatures=temperatures,
+            pressures=pressures,
+            full=True
+        )
     )
 
     __save_mass_fractions(
         filename=reference_filenames['mass_fractions_c_o_ratios'],
         mass_fractions=mass_fractions,
+        mean_molar_masses=mean_molar_masses,
+        nabla_adiabatic=nabla_adiabatic,
         plot_figure=plot_figure,
         y_axis=c_o_ratios,
         y_label='C/O',
@@ -960,16 +975,22 @@ def create_radtrans_mass_fractions_metallicities_ref(plot_figure=False):
     pressures = radtrans_parameters['chemical_parameters']['pressure'] * np.ones_like(metallicities)
     temperatures = radtrans_parameters['chemical_parameters']['temperature'] * np.ones_like(metallicities)
 
-    mass_fractions = petitRADTRANS.chemistry.interpolate_mass_fractions_chemical_table(
-        co_ratios=c_o_ratios,
-        log10_metallicities=metallicities,
-        temperatures=temperatures,
-        pressures=pressures,
+    mass_fractions, mean_molar_masses, nabla_adiabatic = (
+        petitRADTRANS.chemistry.pre_calculated_chemistry.pre_calculated_equilibrium_chemistry_table.
+        interpolate_mass_fractions(
+            co_ratios=c_o_ratios,
+            log10_metallicities=metallicities,
+            temperatures=temperatures,
+            pressures=pressures,
+            full=True
+        )
     )
 
     __save_mass_fractions(
         filename=reference_filenames['mass_fractions_metallicities'],
         mass_fractions=mass_fractions,
+        mean_molar_masses=mean_molar_masses,
+        nabla_adiabatic=nabla_adiabatic,
         plot_figure=plot_figure,
         y_axis=10 ** metallicities,
         y_label='[Fe/H]',
@@ -1015,8 +1036,6 @@ def create_singular_values():
     planet_equilibrium_temperature, \
         planet_equilibrium_temperature_error_upper, \
         planet_equilibrium_temperature_error_lower = planet.calculate_planetary_equilibrium_temperature()
-
-
 
     __save_singular_values(
         filename=reference_filenames['singular_values']

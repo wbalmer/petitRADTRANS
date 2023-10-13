@@ -6,7 +6,7 @@ try:
     import easychem as ec
 except ModuleNotFoundError:
     pass
-import petitRADTRANS.chemistry as pm
+from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, fixed_length_amr
 from petitRADTRANS.retrieval import cloud_cond as fc
 
@@ -73,14 +73,16 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         if 'log_pquench' in parameters.keys():
             pquench_c = 10 ** parameters['log_pquench'].value
 
-        abundances_interp = pm.interpolate_mass_fractions_chemical_table(
-            parameters['C/O'].value * np.ones_like(pressures),
-            parameters['Fe/H'].value * np.ones_like(pressures),
-            temperatures,
-            pressures,
-            carbon_pressure_quench=pquench_c
+        abundances_interp, mmw, _ = (
+            pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
+                parameters['C/O'].value * np.ones_like(pressures),
+                parameters['Fe/H'].value * np.ones_like(pressures),
+                temperatures,
+                pressures,
+                carbon_pressure_quench=pquench_c,
+                full=True
+            )
         )
-        mmw = abundances_interp['MMW']
 
     # Free chemistry abundances
     msum = 0.0

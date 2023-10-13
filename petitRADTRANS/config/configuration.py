@@ -5,11 +5,16 @@ import configparser
 import os
 from pathlib import Path
 
+from petitRADTRANS.utils import LockedDict
+
 
 class PetitradtransConfigParser(configparser.ConfigParser):
     _directory = os.path.join(str(Path.home()), '.petitradtrans')
     _config_file = os.path.join(_directory, 'petitradtrans_config_file.ini')
     _default_config = {
+        'Default files': {
+
+        },
         'Paths': {
             'pRT_input_data_path': os.path.join(str(Path.home()), 'petitRADTRANS', 'input_data'),
             'pRT_outputs_path': os.path.join(str(Path.home()), 'petitRADTRANS', 'outputs')
@@ -39,6 +44,30 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             os.makedirs(cls._directory)
 
         config.save()
+
+    def check_input_data_path(self, path):
+        if self.get_input_data_path() not in path:
+            raise ValueError(f"path '{path}' must be within the input_data path ('{self.get_input_data_path()}')")
+
+        path = path.rsplit(self.get_input_data_path())[1][1:]  # remove leading '/'
+
+        if len(path) == 0:
+            raise ValueError(f"path must be within the input_data path, but is the input_data path itself ('{path}')")
+
+        is_subpath = False
+
+        for subpath in get_input_data_subpaths().values():
+            if subpath in path:
+                is_subpath = True
+                break
+
+        if not is_subpath:
+            subpaths_str = "\n".join(get_input_data_subpaths().values())
+            raise ValueError(f"path '{path}' must be within an input_data subpath\n"
+                             f"Valid subpaths are:\n"
+                             f"{subpaths_str}")
+
+        return path
 
     @property
     def config_file(self):
@@ -119,6 +148,15 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         print(f"Input data path changed to '{path}'")
 
+    def set_default_file(self, file: str):
+        file = os.path.abspath(file)
+        path, filename = file.rsplit(os.path.sep, 1)
+
+        sub_path = self.check_input_data_path(path)
+
+        print(f"Setting new default file '{file}'")
+        self.power_set('Default files', sub_path, filename)
+
     def repair(self):
         repaired = False
 
@@ -140,6 +178,18 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         if repaired:
             print(f"Repairing configuration file ('{self._config_file}')...")
             self.save()
+
+
+def get_input_data_subpaths():
+    return LockedDict.build_and_lock({
+        "cia_opacities": os.path.join("opacities", "continuum", "collision_induced_absorptions"),
+        "clouds_opacities": os.path.join("opacities", "continuum", "clouds"),
+        "correlated_k_opacities": os.path.join("opacities", "lines", "correlated_k"),
+        "line_by_line_opacities": os.path.join("opacities", "lines", "line_by_line"),
+        "planet_data": "planet_data",
+        "pre_calculated_chemistry": "pre_calculated_chemistry",
+        "stellar_spectra": "stellar_spectra"
+    })
 
 
 petitradtrans_config_parser = PetitradtransConfigParser()

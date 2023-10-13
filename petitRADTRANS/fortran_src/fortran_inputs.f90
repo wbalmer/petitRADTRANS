@@ -357,7 +357,7 @@ module fortran_inputs
         end subroutine load_all_line_by_line_opacities
 
 
-        subroutine load_cia_opacities(collision, path_input_data, &
+        subroutine load_cia_opacities(collision, directory, &
                                       cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, &
                                       n_temperatures_grid, n_wavelengths_grid)
             ! """
@@ -369,15 +369,14 @@ module fortran_inputs
             double precision, intent(out)         :: cia_alpha_grid(10000,50)
             double precision, intent(out)         :: cia_wavelength_grid(10000)
             double precision, intent(out)         :: cia_temperature_grid(50)
-            character(len=*), intent(in)             :: path_input_data
+            character(len=*), intent(in)             :: directory
             integer,intent(out)                   :: n_temperatures_grid, n_wavelengths_grid
 
             integer                               :: i,j,stat
 
             ! ELALEI allowing the tables to have whatever shape
             ! The Python code needs trimmed outputs (n_temperatures_grid, n_wavelengths_grid)
-            open(unit=10,file=trim(adjustl(path_input_data)) &
-               //'/opacities/continuum/CIA/'//trim(adjustl(collision))//'/temps.dat', status='old')
+            open(unit=10,file=trim(adjustl(directory))//'/temps.dat', status='old')
 
             i=0
 
@@ -398,9 +397,7 @@ module fortran_inputs
             close(10)
             n_temperatures_grid=i-1
 
-            open(unit=11,file=trim(adjustl(path_input_data)) &
-                //'/opacities/continuum/CIA/'//trim(adjustl(collision)) &
-                //'/CIA_'//trim(adjustl(collision))//'_final.dat', status='old')
+            open(unit=11,file=trim(adjustl(directory))//'/CIA_'//trim(adjustl(collision))//'_final.dat', status='old')
             read(11,*)
             read(11,*)
 
@@ -422,9 +419,7 @@ module fortran_inputs
 
             close(11)
 
-            open(unit=11,file=trim(adjustl(path_input_data)) &
-                //'/opacities/continuum/CIA/'//trim(adjustl(collision)) &
-                //'/CIA_'//trim(adjustl(collision))//'_final.dat', status='old')
+            open(unit=11,file=trim(adjustl(directory))//'/CIA_'//trim(adjustl(collision))//'_final.dat', status='old')
             read(11,*)
             read(11,*)
 
@@ -444,7 +439,8 @@ module fortran_inputs
         end subroutine load_cia_opacities
 
 
-        subroutine load_cloud_opacities(path_input_data, all_species, all_modes, &
+        subroutine load_cloud_opacities(path_input_data, path_input_files, path_reference_files, &
+                                        all_species, all_iso, all_modes, &
                                         n_clouds, n_cloud_wavelength_bins, &
                                         clouds_particles_densities, clouds_absorption_opacities, &
                                         clouds_scattering_opacities, clouds_asymmetry_parameters, cloud_wavelengths, &
@@ -457,7 +453,9 @@ module fortran_inputs
             integer, parameter :: N_cloud_rad_bins = 130
 
             character(len=*), intent(in) :: path_input_data
-            character(len=*), intent(in) :: all_species, all_modes
+            character(len=*), intent(in) :: path_input_files
+            character(len=*), intent(in) :: path_reference_files
+            character(len=*), intent(in) :: all_species, all_iso, all_modes
             integer, intent(in) :: n_clouds, n_cloud_wavelength_bins
             double precision, intent(out) :: clouds_particles_densities(n_clouds)
             double precision, intent(out) :: &
@@ -467,73 +465,55 @@ module fortran_inputs
                 cloud_wavelengths(n_cloud_wavelength_bins), &
                 clouds_particles_radii_bins(N_cloud_rad_bins+1), clouds_particles_radii(N_cloud_rad_bins)
 
-            integer :: i_str, curr_spec_ind, i_cloud, i_cloud_read, i_cloud_lamb, i_size, i_lamb
-            integer :: species_name_inds(2,n_clouds), species_mode_inds(2,n_clouds)
-            character(len=species_string_max_length)  :: cloud_opa_names(n_clouds), cloud_name_buff, buff_line, path_add
+            integer :: i_cloud, i_cloud_lamb, i_size, i_lamb
+            integer :: io
+            integer :: species_name_inds(2,n_clouds), species_mode_inds(2,n_clouds), species_iso_inds(2,n_clouds)
+            character(len=species_string_max_length)  :: cloud_opa_names(n_clouds), cloud_opa_mode(n_clouds), &
+                cloud_name_buff, buff_line
             double precision :: cloud_dens_buff, buffer
-            character(len=species_string_max_length) :: cloud_opa_mode(n_clouds)
+            character(len=species_string_max_length * 2) :: cloud_opa_isos(n_clouds), path_add
 
             ! Get single cloud species names
-            curr_spec_ind = 1
-            species_name_inds(1,curr_spec_ind) = 1
-            do i_str = 1, len(all_species)
-                if (curr_spec_ind > n_clouds) then
-                    exit
-                end if
-
-                if (all_species(i_str:i_str) == ':') then
-                    species_name_inds(2,curr_spec_ind) = i_str-1
-                    curr_spec_ind = curr_spec_ind+1
-
-                    if (curr_spec_ind <= n_clouds) then
-                       species_name_inds(1,curr_spec_ind) = i_str+1
-                    end if
-                end if
-            end do
+            call split_string(all_species, n_clouds, species_name_inds)
 
             ! Get single cloud species modes
-            curr_spec_ind = 1
-            species_mode_inds(1,curr_spec_ind) = 1
+            call split_string(all_modes, n_clouds, species_mode_inds)
 
-            do i_str = 1, len(all_species)
-                if (curr_spec_ind > n_clouds) then
-                    exit
-                end if
+            ! Get single isotopologue names
+            call split_string(all_iso, n_clouds, species_iso_inds)
 
-                if (all_modes(i_str:i_str) == ':') then
-                    species_mode_inds(2,curr_spec_ind) = i_str-1
-                    curr_spec_ind = curr_spec_ind+1
-
-                    if (curr_spec_ind <= n_clouds) then
-                        species_mode_inds(1,curr_spec_ind) = i_str+1
-                    end if
-                end if
-            end do
-
-            ! Read in cloud densities
+            ! Load cloud densities
             clouds_particles_densities = -1d0
+
             do i_cloud = 1, n_clouds
                 cloud_opa_names(i_cloud) = all_species(&
                     species_name_inds(1,i_cloud):species_name_inds(2,i_cloud)&
                 )
+                cloud_opa_isos(i_cloud) = all_iso(&
+                    species_iso_inds(1, i_cloud):species_iso_inds(2, i_cloud)&
+                )
 
-                open(unit=10,file=trim(adjustl(path_input_data))//'/opa_input_files/cloud_names.dat', status='old')
-                open(unit=11,file=trim(adjustl(path_input_data))//'/opa_input_files/cloud_densities.dat', status='old')
+                open(unit=10, file=trim(adjustl(path_input_files))//'/cloud_names.dat', status='old')
+                open(unit=11, file=trim(adjustl(path_input_files))//'/cloud_densities.dat', status='old')
 
-                do i_cloud_read = 1, 1000000
-                    read(10,*,end=199) cloud_name_buff
-                    read(11,*) cloud_dens_buff
+                do
+                    read(10, *, iostat=io) cloud_name_buff
+                    read(11, *, iostat=io) cloud_dens_buff
 
                     if (trim(adjustl(cloud_name_buff)) == trim(adjustl(cloud_opa_names(i_cloud)))) then
                         clouds_particles_densities(i_cloud) = cloud_dens_buff
                     end if
+
+                    if(io < 0) then
+                        exit
+                    end if
                 end do
 
-                199 close(10)
+                close(10)
                 close(11)
 
                 if (clouds_particles_densities(i_cloud) < 0d0) then
-                    write(*,*) 'ERROR! DENSITY FOR CLOUD SPECIES '//trim( &
+                    write(*, *) 'ERROR! DENSITY FOR CLOUD SPECIES '//trim( &
                          adjustl(cloud_opa_names(i_cloud))) &
                          //'NOT FOUND!'
                     stop  ! TODO remove fortran stops and replace with error output
@@ -545,72 +525,46 @@ module fortran_inputs
             clouds_scattering_opacities = 0d0
             clouds_asymmetry_parameters = 0d0
 
-            open(unit=10,file=trim(adjustl(path_input_data))// &
-               '/opacities/continuum//clouds/MgSiO3_c/amorphous/mie/bin_borders.dat', status='old')
-            read(10,*)
+            open(unit=10, file=trim(adjustl(path_reference_files))// &
+               '/bin_borders.dat', status='old')
+            read(10, *)
 
             do i_cloud_lamb = 1, N_cloud_rad_bins
-                read(10,*) clouds_particles_radii_bins(i_cloud_lamb)
+                read(10, *) clouds_particles_radii_bins(i_cloud_lamb)
             end do
 
-            read(10,*) clouds_particles_radii_bins(N_cloud_rad_bins+1)
+            read(10, *) clouds_particles_radii_bins(N_cloud_rad_bins+1)
             close(10)
 
-            open(unit=11,file=trim(adjustl(path_input_data))// &
-               '/opacities/continuum//clouds/MgSiO3_c/amorphous/mie/particle_sizes.dat', status='old')
-            read(11,*)
+            open(unit=11, file=trim(adjustl(path_reference_files))// &
+               '/particle_sizes.dat', status='old')
+            read(11, *)
 
             do i_cloud_lamb = 1, N_cloud_rad_bins
-                read(11,'(A80)') buff_line
+                read(11, '(A80)') buff_line
                 read(buff_line(17:len(buff_line)),*) clouds_particles_radii(i_cloud_lamb)
             end do
 
             close(11)
 
-            open(unit=10,file=trim(adjustl(path_input_data))// &
-               '/opacities/continuum//clouds/MgSiO3_c/amorphous/mie/opa_0001.dat', status='old')
+            open(unit=10, file=trim(adjustl(path_reference_files))// &
+               '/opa_0001.dat', status='old')
             do i_cloud_lamb = 1,11
-                read(10,*)
+                read(10, *)
             end do
 
             do i_cloud_lamb = 1, n_cloud_wavelength_bins
-                read(10,*) cloud_wavelengths(i_cloud_lamb)
+                read(10, *) cloud_wavelengths(i_cloud_lamb)
                 cloud_wavelengths(i_cloud_lamb) = cloud_wavelengths(i_cloud_lamb) / 1d4
             end do
 
             close(10)
 
             do i_cloud = 1, n_clouds
-
                 cloud_opa_mode(i_cloud) = &
                     all_modes(species_mode_inds(1,i_cloud):species_mode_inds(2,i_cloud))
 
-                path_add = trim(adjustl(&
-                    cloud_opa_names(i_cloud)(1:len(trim(adjustl(cloud_opa_names(i_cloud))))-3)&
-                ))
-
-                if (trim(adjustl( &
-                        cloud_opa_names(i_cloud)(len(trim(adjustl( &
-                        cloud_opa_names(i_cloud))))-2: &
-                        len(trim(adjustl( &
-                        cloud_opa_names(i_cloud))))))) == '(c)') then
-                    path_add = trim(adjustl(path_add))//'_c'
-                else if (trim(adjustl( &
-                      cloud_opa_names(i_cloud)(len(trim(adjustl( &
-                      cloud_opa_names(i_cloud))))-2: &
-                      len(trim(adjustl( &
-                      cloud_opa_names(i_cloud))))))) == '(L)') then
-                    path_add = trim(adjustl(path_add))//'_L'
-                end if
-
-                write(*,*) ' Read in opacity of cloud species ' &
-                    //trim(adjustl(path_add(1:len(trim(adjustl(path_add)))-2)))//' ...'
-
-                if (cloud_opa_mode(i_cloud)(1:1) == 'a') then
-                    path_add = trim(adjustl(path_add))//'/amorphous'
-                else if (cloud_opa_mode(i_cloud)(1:1) == 'c') then
-                    path_add = trim(adjustl(path_add))//'/crystalline'
-                end if
+                path_add = trim(adjustl(cloud_opa_isos(i_cloud)))
 
                 if (cloud_opa_mode(i_cloud)(2:2) == 'm') then
                     path_add = trim(adjustl(path_add))//'/mie'
@@ -620,23 +574,25 @@ module fortran_inputs
                     clouds_particles_densities(i_cloud) = clouds_particles_densities(i_cloud)*0.75d0
                 end if
 
+                write(*, *) ' Loading opacity of cloud species '//trim(adjustl(path_add))//'...'
+
                 open(unit=11,file=trim(adjustl(path_input_data))// &
-                  '/opacities/continuum//clouds/'//trim(adjustl(path_add))// &
+                  '/'//trim(adjustl(path_add))// &
                   '/particle_sizes.dat', status='old')
-                read(11,*)
+                read(11, *)
 
                 do i_size = 1, N_cloud_rad_bins
-                    read(11,'(A80)') buff_line
-                    open(unit=10,file=trim(adjustl(path_input_data))// &
-                         '/opacities/continuum//clouds/'//trim(adjustl(path_add))// &
+                    read(11, '(A80)') buff_line
+                    open(unit=10, file=trim(adjustl(path_input_data))// &
+                         '/'//trim(adjustl(path_add))// &
                          '/'//trim(adjustl(buff_line(1:17))), status='old')
 
                     do i_lamb = 1,11
-                        read(10,*)
+                        read(10, *)
                     end do
 
                     do i_lamb = 1, n_cloud_wavelength_bins
-                        read(10,*) buffer, clouds_absorption_opacities(i_size,i_lamb,i_cloud), &
+                        read(10, *) buffer, clouds_absorption_opacities(i_size,i_lamb,i_cloud), &
                             clouds_scattering_opacities(i_size,i_lamb,i_cloud), &
                             clouds_asymmetry_parameters(i_size,i_lamb,i_cloud)
                     end do
@@ -647,19 +603,47 @@ module fortran_inputs
                 close(11)
             end do
 
-            write(*,*) 'Done.'
-            write(*,*)
+            write(*, *) 'Done.'
+            write(*, *)
+
+            contains
+                subroutine split_string(input_string, n_clouds, split_indices)
+                    implicit none
+
+                    character(len=*), intent(in) :: input_string
+                    integer, intent(in) :: n_clouds
+                    integer, intent(out) :: split_indices(2, n_clouds)
+
+                    integer :: i, i_obj
+
+                    i_obj = 1
+                    split_indices(1, i_obj) = 1
+
+                    do i = 1, len(input_string)
+                        if (i_obj > n_clouds) then
+                            exit
+                        end if
+
+                        if (input_string(i:i) == ',') then
+                            split_indices(2, i_obj) = i - 1
+                            i_obj = i_obj + 1
+
+                            if (i_obj <= n_clouds) then
+                               split_indices(1, i_obj) = i + 1
+                            end if
+                        end if
+                    end do
+                end subroutine split_string
         end subroutine load_cloud_opacities
 
 
-        subroutine load_frequencies(path_input_data, line_species, n_frequencies, frequencies, frequency_bins_edges)
+        subroutine load_frequencies(path_input_data, n_frequencies, frequencies, frequency_bins_edges)
             ! """
             ! Subroutine to read in frequency grid
             ! """
             implicit none
             ! I/O
             character(len=*), intent(in) :: path_input_data
-            character(len=*), intent(in)  :: line_species
             integer, intent(in) :: n_frequencies
             double precision, intent(out) :: frequencies(n_frequencies), &
                frequency_bins_edges(n_frequencies+1)
@@ -670,8 +654,8 @@ module fortran_inputs
             ! Because freqs for c-k are stored as borders!
             n_frequencies_use_ck = n_frequencies + 1
 
-            open(newunit=file_unit, file=trim(adjustl(path_input_data)) // '/opacities/lines/corr_k/' // &
-                 trim(adjustl(line_species))//'/kappa_g_info.dat', status='old')
+            open(newunit=file_unit, file=trim(adjustl(path_input_data)) // &
+                 '/kappa_g_info.dat', status='old')
 
             read(file_unit,*)
 
@@ -690,22 +674,21 @@ module fortran_inputs
         end subroutine load_frequencies
 
 
-        subroutine load_frequencies_g_sizes(path_input_data, line_species, n_frequencies, n_g)
+        subroutine load_frequencies_g_sizes(path_input_data, n_frequencies, n_g)
             ! """
             ! Subroutine to get length of frequency grid in correlated-k line_opacity_mode.
             ! """
             implicit none
 
             character(len=*), intent(in) :: path_input_data
-            character(len=*), intent(in)  :: line_species
             integer, intent(out) :: n_frequencies, n_g
 
             integer :: file_unit
 
             n_g = 1
 
-            open(newunit=file_unit,file=trim(adjustl(path_input_data)) // '/opacities/lines/corr_k/' // &
-                 trim(adjustl(line_species)) // '/kappa_g_info.dat', status='old')
+            open(newunit=file_unit,file=trim(adjustl(path_input_data)) // &
+                 '/kappa_g_info.dat', status='old')
 
             read(file_unit, *) n_frequencies, n_g
 
@@ -715,7 +698,8 @@ module fortran_inputs
         end subroutine load_frequencies_g_sizes
 
 
-        subroutine load_line_opacity_grid(path_input_data, all_species, n_frequencies, n_g, n_species, &
+        subroutine load_line_opacity_grid(path_input_data, species_directory, &
+                                          all_species, n_frequencies, n_g, n_species, &
                                           size_temperature_profile_grid, line_opacity_mode, start_index, &
                                           has_custom_line_opacities_temperature_profile_grid, &
                                           custom_file_names, line_opacities_grid)
@@ -725,6 +709,7 @@ module fortran_inputs
             implicit none
 
             character(len=*), intent(in) :: path_input_data
+            character(len=*), intent(in) :: species_directory
             character(len=*), intent(in) :: all_species
             character(len=*), intent(in) :: custom_file_names
             integer, intent(in) :: n_frequencies, n_g, n_species, size_temperature_profile_grid, start_index
@@ -788,7 +773,7 @@ module fortran_inputs
                         opa_file_names_inds(2,i_file))
                 end do
             else
-                open(unit=20,file=trim(adjustl(path_input_data))//'/opa_input_files/opa_filenames.txt', status='old')
+                open(unit=20,file=trim(adjustl(path_input_data))//'/opa_filenames.txt', status='old')
 
                 do i_file = 1, size_temperature_profile_grid
                     read(20,*) path_names(i_file)
@@ -801,19 +786,15 @@ module fortran_inputs
             do i_spec = 1, n_species
                 ! Get species file ID and molparam
                 if (line_opacity_mode == 'c-k') then
-                    filename = trim(adjustl(path_input_data))//'/opacities/lines/corr_k/' &
-                         //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                         species_name_inds(2,i_spec))))//'/molparam_id.txt'
+                    filename = trim(adjustl(species_directory))//'/molparam_id.txt'
                 else if (line_opacity_mode == 'lbl') then
-                    filename = trim(adjustl(path_input_data))//'/opacities/lines/line_by_line/' &
-                         //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                         species_name_inds(2,i_spec))))//'/molparam_id.txt'
+                    filename = trim(adjustl(species_directory))//'/molparam_id.txt'
                 end if
 
                 inquire(file=trim(filename), exist=file_exists)
 
                 if (.not. file_exists) then  ! put all opacities values to -1 and abort read
-                    write(*, '("Cannot open file ''", A, "'': No such file or directory")') trim(filename)
+                    write(*, '("Error: cannot open file ''", A, "'': no such file or directory")') trim(filename)
 
                     line_opacities_grid = -1d0
 
@@ -835,27 +816,19 @@ module fortran_inputs
                     ! Open opacity file
                     if (line_opacity_mode == 'c-k') then
                         if (has_custom_line_opacities_temperature_profile_grid) then
-                            open(unit=20,file=trim(adjustl(path_input_data))//'/opacities/lines/corr_k/' &
-                                //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                                species_name_inds(2,i_spec))))//'/'// &
-                                adjustl(trim(path_names(i_file))), form='unformatted', status='old')
+                            open(unit=20,file=trim(adjustl(species_directory))// &
+                                '/'//adjustl(trim(path_names(i_file))), form='unformatted', status='old')
                         else
-                            open(unit=20,file=trim(adjustl(path_input_data))//'/opacities/lines/corr_k/' &
-                                //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                                species_name_inds(2,i_spec))))//'/sigma_'//species_id// &
-                                adjustl(trim(path_names(i_file))), form='unformatted')
+                            open(unit=20,file=trim(adjustl(species_directory))// &
+                                '/sigma_'//species_id//adjustl(trim(path_names(i_file))), form='unformatted')
                         end if
                     else if (line_opacity_mode == 'lbl') then
                         if (has_custom_line_opacities_temperature_profile_grid) then
-                            path_read_stream =  trim(adjustl(path_input_data))//'/opacities/lines/line_by_line/' &
-                            //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                            species_name_inds(2,i_spec))))//'/'// &
-                            adjustl(trim(path_names(i_file)))
+                            path_read_stream = trim(adjustl(species_directory))//'/opacities/lines/line_by_line/'// &
+                            '/'//adjustl(trim(path_names(i_file)))
                         else
-                            path_read_stream =  trim(adjustl(path_input_data))//'/opacities/lines/line_by_line/' &
-                               //trim(adjustl(all_species(species_name_inds(1,i_spec): &
-                               species_name_inds(2,i_spec))))//'/sigma_'//species_id// &
-                               adjustl(trim(path_names(i_file)))
+                            path_read_stream =  trim(adjustl(species_directory))// &
+                               '/sigma_'//species_id// adjustl(trim(path_names(i_file)))
                         end if
 
                         call load_line_by_line_opacity_grid(&

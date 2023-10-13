@@ -18,7 +18,7 @@ def compute_mean_molar_masses(abundances):
 
     for key in abundances.keys():
         # exo_k resolution
-        spec = key.split("_R_")[0]
+        spec = key.split(".R")[0]
         mean_molar_masses += abundances[key] / get_species_molar_mass(spec)
 
     return 1.0 / mean_molar_masses

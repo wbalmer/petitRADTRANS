@@ -20,15 +20,16 @@ def get_species_molar_mass(species):
     Returns:
         The molar mass of the compound in atomic mass units.
     """
-    if "_" in species:
-        species = species.split("_", 1)[0]  # remove resolving power or opacity source information
-
-    if "(c)" in species:
-        return 0  # ignore cloud species
-
     if species == 'e-':
         return cst.e_molar_mass
-    elif len(re.findall(r'^[A-Z][a-z]?(\d{1,3})?[+|-]$', species)) == 1:  # positive or negative ion
+
+    if "(s)" in species or "(l)" in species:
+        return 0  # ignore cloud species
+
+    if "__" in species:
+        species = species.split("__", 1)[0]  # remove resolving power or opacity source information
+
+    if len(re.findall(r'^[A-Z][a-z]?(\d{1,3})?[+|-]$', species)) == 1:  # positive or negative ion
         # Get the number of electrons lost or gained
         ionisation = re.findall(r'^.{1,2}(\d{1,3})[+|-]$', species)
 

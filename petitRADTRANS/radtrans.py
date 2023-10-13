@@ -1,5 +1,4 @@
 import copy
-import glob
 import os
 import sys
 import warnings
@@ -9,7 +8,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.chemistry import prt_molmass
+from petitRADTRANS._input_data_loader import get_cia_aliases, get_cloud_aliases, get_opacity_input_file
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
@@ -156,12 +155,10 @@ class Radtrans:
 
         # Initialize line parameters
         if len(line_species) > 0:  # TODO init Radtrans even if there is no opacity
-            self._frequencies, self._frequency_bins_edges, i_start_opacities \
-                = self._init_line_opacities_parameters()
+            self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
         else:
             self._frequencies = None
             self._frequency_bins_edges = None
-            i_start_opacities = None
 
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict()
@@ -204,7 +201,20 @@ class Radtrans:
         )
 
         # Load all opacities
-        self.load_all_opacities(i_start_opacities)
+        self.load_all_opacities()
+
+    def __getattr__(self, name):
+        base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
+
+        def __handle_deprecated_attributes(suggested_name):
+            raise AttributeError(f"{base_message}. Maybe you meant {suggested_name}?")
+
+        if name == 'calc_flux':
+            __handle_deprecated_attributes(suggested_name=self.calculate_flux.__name__)
+        elif name == 'calc_transm':
+            __handle_deprecated_attributes(suggested_name=self.calculate_transit_radii.__name__)
+
+        return super().__getattribute__(name)
 
     @property
     def anisotropic_cloud_scattering(self):
@@ -1878,7 +1888,7 @@ class Radtrans:
 
         return cia_loaded_opacities
 
-    def _init_line_opacities_parameters(self):
+    def _init_frequency_grid(self):
         """Initialize parameters useful for loading line opacities.
         This includes the frequency grid used for spectral calculations
 
@@ -1897,29 +1907,16 @@ class Radtrans:
 
                 self._use_precise_correlated_k_opacities = True
 
-            # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution.
-            # Use the first entry of self.line_species for this, if given.
-            opacities_dir = os.path.join(self._path_input_data, 'opacities', 'lines', 'corr_k', self._line_species[0])
-            hdf5_files = glob.glob(opacities_dir + '/*.h5')  # check if first species is hdf5
+            # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution
+            # Use the first entry of self.line_species for this, if given
+            hdf5_file = get_opacity_input_file(
+                path_input_data=self._path_input_data,
+                category='correlated_k_opacities',
+                species=self._line_species[0]
+            )
 
-            if hdf5_files:
-                with h5py.File(hdf5_files[0], 'r') as f:
-                    frequency_bins_edges = cst.c * f['bin_edges'][:][::-1]
-            else:
-                # Use classical pRT format
-                # In the long run: move to hdf5 fully?
-                # But: people calculate their own k-tables with my code sometimes now.
-                # TODO make a code to convert Paul's k-tables into HDF5 (if it doesn't exists), and get rid of this
-                n_frequencies, _ = finput.load_frequencies_g_sizes(self._path_input_data, self._line_species[0])
-
-                g_file = os.path.join(opacities_dir, 'kappa_g_info.dat')
-
-                self.__check_input_data_file_existence(g_file)
-
-                # Read the frequency range of the opacity data
-                frequencies, frequency_bins_edges = finput.load_frequencies(
-                    self._path_input_data, self._line_species[0], n_frequencies
-                )
+            with h5py.File(hdf5_file, 'r') as f:
+                frequency_bins_edges = cst.c * f['bin_edges'][:][::-1]
 
             # Extend the wavelength range if user requests larger range than what first line opa species contains
             wavelengths = cst.c / frequency_bins_edges * 1e4  # Hz to um
@@ -1959,89 +1956,54 @@ class Radtrans:
                 dtype='d',
                 order='F'
             )
-
-            start_index = -1
         elif self._line_opacity_mode == 'lbl':  # line-by-line
-            n_frequencies = None
-            start_index = None
-            wavelengths_dat_file = None
-            load_from_dat = False
+            # Load the wavelength grid
+            opacities_file = get_opacity_input_file(
+                path_input_data=self._path_input_data,
+                category='line_by_line_opacities',
+                species=self._line_species[0]
+            )
 
-            # Seek if there is a .dat file to load the wavelength grid from, otherwise a HDF5 file will be used
-            for species in self._line_species:
-                wavelengths_dat_file = os.path.join(
-                    self._path_input_data, 'opacities', 'lines', 'line_by_line', species, 'wlen.dat'
-                )
+            with h5py.File(opacities_file, 'r') as f:
+                wavelength_grid = 1 / f['bin_edges'][:]  # cm-1 to cm
 
-                if os.path.isfile(wavelengths_dat_file):
-                    # Get dimensions of opacity arrays for a given P-T point
-                    print(f"Loading file '{wavelengths_dat_file}'...")
-                    n_frequencies, start_index = finput.find_line_by_line_frequency_loading_boundaries(
-                        self._wavelengths_boundaries[0] * 1e-4,  # um to cm
-                        self._wavelengths_boundaries[1] * 1e-4,  # um to cm
-                        wavelengths_dat_file
-                    )
+            wavelength_grid = wavelength_grid[::-1]
+            wavelength_min = self._wavelengths_boundaries[0] * 1e-4  # um to cm
+            wavelength_max = self._wavelengths_boundaries[1] * 1e-4  # um to cm
 
-                    load_from_dat = True
+            # Check if the requested wavelengths boundaries are within the file boundaries
+            bad_boundaries = False
 
-                    break
+            if wavelength_min < wavelength_grid[0]:
+                bad_boundaries = True
 
-            if not load_from_dat:  # load the wavelength grid from a HDF5 file
-                # Load the wavelength grid
-                opacities_file = os.path.join(
-                    self._path_input_data, 'opacities', 'lines', 'line_by_line',
-                    self._line_species[0] + '.otable.petitRADTRANS.h5'
-                )
+            if wavelength_max > wavelength_grid[-1]:
+                bad_boundaries = True
 
-                self.__check_input_data_file_existence(opacities_file)
+            if bad_boundaries:
+                raise ValueError(f"Requested wavelength interval "
+                                 f"({self._wavelengths_boundaries[0]}--{self._wavelengths_boundaries[1]}) "
+                                 f"is out of opacities table wavelength grid "
+                                 f"({1e4 * wavelength_grid[0]}--{1e4 * wavelength_grid[-1]})")
 
-                with h5py.File(opacities_file, 'r') as f:
-                    wavelength_grid = 1 / f['wavenumbers'][:]  # cm-1 to cm
+            # Get the freq. corresponding to the requested boundaries, with the request fully within the selection
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(wavelength_grid, wavelength_min),
+                np.less_equal(wavelength_grid, wavelength_max)
+            ))[0]
+            selection = np.array([selection[0], selection[-1]])
 
-                wavelength_grid = wavelength_grid[::-1]
-                wavelength_min = self._wavelengths_boundaries[0] * 1e-4  # um to cm
-                wavelength_max = self._wavelengths_boundaries[1] * 1e-4  # um to cm
+            if wavelength_grid[selection[0]] > wavelength_min:
+                selection[0] -= 1
 
-                # Check if the requested wavelengths boundaries are within the file boundaries
-                bad_boundaries = False
+            if wavelength_grid[selection[-1]] < wavelength_max:
+                selection[-1] += 1
 
-                if wavelength_min < wavelength_grid[0]:
-                    bad_boundaries = True
+            if self._line_by_line_opacity_sampling > 1:
+                # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
+                selection[-1] += self._line_by_line_opacity_sampling - 1
 
-                if wavelength_max > wavelength_grid[-1]:
-                    bad_boundaries = True
-
-                if bad_boundaries:
-                    raise ValueError(f"Requested wavelength interval "
-                                     f"({self._wavelengths_boundaries[0]}--{self._wavelengths_boundaries[1]}) "
-                                     f"is out of opacities table wavelength grid "
-                                     f"({1e4 * wavelength_grid[0]}--{1e4 * wavelength_grid[-1]})")
-
-                # Get the freq. corresponding to the requested boundaries, with the request fully within the selection
-                selection = np.nonzero(np.logical_and(
-                    np.greater_equal(wavelength_grid, wavelength_min),
-                    np.less_equal(wavelength_grid, wavelength_max)
-                ))[0]
-                selection = np.array([selection[0], selection[-1]])
-
-                if wavelength_grid[selection[0]] > wavelength_min:
-                    selection[0] -= 1
-
-                if wavelength_grid[selection[-1]] < wavelength_max:
-                    selection[-1] += 1
-
-                if self._line_by_line_opacity_sampling > 1:
-                    # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-                    selection[-1] += self._line_by_line_opacity_sampling - 1
-
-                frequencies = cst.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
-            else:
-                if self._line_by_line_opacity_sampling > 1:
-                    n_frequencies += self._line_by_line_opacity_sampling - 1
-
-                frequencies = cst.c / finput.load_line_by_line_wavelengths(
-                    start_index, n_frequencies, wavelengths_dat_file
-                )
+            frequencies = cst.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
 
             # Down-sample frequency grid in lbl mode if requested
             if self._line_by_line_opacity_sampling > 1:
@@ -2051,7 +2013,7 @@ class Radtrans:
         else:
             raise ValueError(f"line opacity mode must be 'c-k' or 'lbl', but was '{self._line_opacity_mode}'")
 
-        return frequencies, frequency_bins_edges, start_index
+        return frequencies, frequency_bins_edges
 
     @staticmethod
     def _interpolate_cia(collision_dict, combined_mass_fractions,
@@ -2972,9 +2934,9 @@ class Radtrans:
 
         return stellar_intensity
 
-    def load_all_opacities(self, start_index=None):
+    def load_all_opacities(self):
         # Load line opacities
-        self.load_line_opacities(start_index, self._path_input_data)
+        self.load_line_opacities(self._path_input_data)
 
         # Read continuum opacities
         # Clouds
@@ -2993,175 +2955,90 @@ class Radtrans:
 
             print(f"  Loading CIA opacities for {collision}...")
 
-            hdf5_file = os.path.join(
-                path_input_data, 'opacities', 'continuum', 'CIA', collision + '.ciatable.petitRADTRANS.h5'
+            hdf5_file = get_cia_aliases(collision)
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='cia_opacities',
+                species=hdf5_file
             )
 
-            if os.path.isfile(hdf5_file):
-                with h5py.File(hdf5_file, 'r') as f:
-                    wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
-                    wavelengths = wavelengths[::-1]  # correct ordering
+            with h5py.File(hdf5_file, 'r') as f:
+                wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
+                wavelengths = wavelengths[::-1]  # correct ordering
 
-                    species = f['mol_name'][:]
-                    species = [s.decode('utf-8') for s in species]
-
-                    # Update keys one-by-one to keep the LockedDict
-                    self._cias_loaded_opacities[collision]['molecules'] = species
-                    self._cias_loaded_opacities[collision]['weight'] = np.prod(f['mol_mass'][:])
-                    self._cias_loaded_opacities[collision]['lambda'] = wavelengths
-                    self._cias_loaded_opacities[collision]['temperature'] = f['t'][:]
-                    self._cias_loaded_opacities[collision]['alpha'] = np.transpose(
-                        f['cross_sections'][:]
-                    )[::-1, :]  # (wavelength, temperature), cor. order
-            else:
-                print(f"HDF5 CIA file '{hdf5_file}' not found, loading from .dat...")
-
-                if self._line_opacity_mode != 'c-k':
-                    # Correlated-k can be converted on-the-fly
-                    warnings.warn(self.__dat_opacity_files_warning_message)
-
-                cia_directory = os.path.join(path_input_data, 'opacities', 'continuum', 'CIA', collision)
-
-                self.__check_input_data_file_existence(cia_directory)
-
-                # TODO what is the purpose of the *_dims variables?
-                cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
-                    cia_temp_dims, cia_lambda_dims = finput.load_cia_opacities(collision, path_input_data)
-                cia_alpha_grid = np.array(cia_alpha_grid, dtype='d', order='F')
-                cia_temperature_grid = cia_temperature_grid[:cia_temp_dims]
-                cia_wavelength_grid = cia_wavelength_grid[:cia_lambda_dims]
-                cia_alpha_grid = cia_alpha_grid[:cia_lambda_dims, :cia_temp_dims]
-
-                weight = 1
-                colliding_species = collision.split('-')
-
-                for collision_dict in colliding_species:
-                    weight = weight * prt_molmass.get_species_molar_mass(collision_dict)
+                species = f['mol_name'][:]
+                species = [s.decode('utf-8') for s in species]
 
                 # Update keys one-by-one to keep the LockedDict
-                self._cias_loaded_opacities[collision]['molecules'] = colliding_species
-                self._cias_loaded_opacities[collision]['weight'] = weight
-                self._cias_loaded_opacities[collision]['lambda'] = cia_wavelength_grid
-                self._cias_loaded_opacities[collision]['temperature'] = cia_temperature_grid
-                self._cias_loaded_opacities[collision]['alpha'] = cia_alpha_grid
+                self._cias_loaded_opacities[collision]['molecules'] = species
+                self._cias_loaded_opacities[collision]['weight'] = np.prod(f['mol_mass'][:])
+                self._cias_loaded_opacities[collision]['lambda'] = wavelengths
+                self._cias_loaded_opacities[collision]['temperature'] = f['t'][:]
+                self._cias_loaded_opacities[collision]['alpha'] = np.transpose(
+                    f['alpha'][:]
+                )[::-1, :]  # (wavelength, temperature), correct ordering
 
         print('Done.\n')
 
     def load_cloud_opacities(self, path_input_data):
         # Function to read cloud opacities
-        cloud_species_mode = []
-
         hdf5_files = []
-        opacities_dir = os.path.join(path_input_data, 'opacities', 'continuum', 'clouds')
-        use_hdf5_files = True
+        internal_structures = []
+        scattering_methods = []
 
         for i in range(len(self._cloud_species)):
-            split_str = self._cloud_species[i].split('_')
-            cloud_species_mode.append(split_str[1])
-            self._cloud_species[i] = split_str[0]
+            hdf5_file = get_cloud_aliases(self._cloud_species[i])
 
-            hdf5_file = os.path.join(
-                opacities_dir,
-                self._cloud_species[i] + '_' + cloud_species_mode[i] + '.cotable.petitRADTRANS.h5'
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='clouds_opacities',
+                species=hdf5_file
             )
 
-            if not os.path.isfile(hdf5_file):
-                '''
-                The function that read .dat files is fed with all cloud species at once, so if one HDF5 file is missing,
-                it is easier to just read everything from .dat files. It is unlikely that a user will have a mix of
-                files HDF5 and .dat files anyway.
-                '''
-                print(f"HDF5 cloud opacity file '{hdf5_file}' not found, loading all cloud data from .dat...")
-                warnings.warn(self.__dat_opacity_files_warning_message)
-                use_hdf5_files = False
-                break
+            internal_structures.append(hdf5_file.rsplit(')_', 1)[1].split('__', 1)[0])
+            scattering_methods.append(hdf5_file.rsplit('__', 1)[1].split('.', 1)[0])
 
             hdf5_files.append(hdf5_file)
 
-        if use_hdf5_files:
-            clouds_particles_densities = np.zeros(len(hdf5_files))
-            clouds_absorption_opacities = None
-            clouds_scattering_opacities = None
-            clouds_asymmetry_parameters = None
-            cloud_wavelengths = None
-            clouds_particles_radii_bins = None
-            clouds_particles_radii = None
+        clouds_particles_densities = np.zeros(len(hdf5_files))
+        clouds_absorption_opacities = None
+        clouds_scattering_opacities = None
+        clouds_asymmetry_parameters = None
+        cloud_wavelengths = None
+        clouds_particles_radii_bins = None
+        clouds_particles_radii = None
 
-            for i, hdf5_file in enumerate(hdf5_files):
-                if cloud_species_mode[i][0] == 'c':
-                    particles_internal_structure = 'crystalline'
-                elif cloud_species_mode[i][0] == 'a':
-                    particles_internal_structure = 'amorphous'
-                else:
-                    raise ValueError(f"Particle internal structure code must be 'a' or 'c', "
-                                     f"but was '{cloud_species_mode[i][0]}'")
+        for i, hdf5_file in enumerate(hdf5_files):
+            print(f" Loading opacities of cloud species '{self._cloud_species[i]}' "
+                  f"({internal_structures[i]}, using {scattering_methods[i]} scattering)...")
 
-                if cloud_species_mode[i][1] == 'm':
-                    scattering_method = 'Mie (spherical shape)'
-                elif cloud_species_mode[i][1] == 'd':
-                    scattering_method = 'DHS (irregular shape)'
-                else:
-                    raise ValueError(f"Particle shape code must be 'm' or 'd', "
-                                     f"but was '{cloud_species_mode[i][1]}'")
+            with h5py.File(hdf5_file, 'r') as f:
+                if i == 0:
+                    # Initialize cloud arrays
+                    cloud_wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
+                    cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
+                    clouds_particles_radii_bins = f['particle_radius_bins'][:]
+                    clouds_particles_radii = f['particles_radii'][:]
 
-                print(f" Loading opacities of cloud species '{self._cloud_species[i]}' "
-                      f"({particles_internal_structure}, using {scattering_method} scattering)...")
+                    clouds_absorption_opacities = np.zeros(
+                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    )
+                    clouds_scattering_opacities = np.zeros(
+                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    )
+                    clouds_asymmetry_parameters = np.zeros(
+                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    )
 
-                with h5py.File(hdf5_file, 'r') as f:
-                    if i == 0:
-                        # Initialize cloud arrays
-                        cloud_wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
-                        cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
-                        clouds_particles_radii_bins = f['particle_radius_bins'][:]
-                        clouds_particles_radii = f['particles_radii'][:]
+                clouds_particles_densities[i] = f['particles_density'][()]
+                clouds_absorption_opacities[:, :, i] = f['absorption_opacities'][:]
+                clouds_scattering_opacities[:, :, i] = f['scattering_opacities'][:]
+                clouds_asymmetry_parameters[:, :, i] = f['asymmetry_parameters'][:]
 
-                        clouds_absorption_opacities = np.zeros(
-                            (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                        )
-                        clouds_scattering_opacities = np.zeros(
-                            (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                        )
-                        clouds_asymmetry_parameters = np.zeros(
-                            (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                        )
-
-                    clouds_particles_densities[i] = f['particles_density'][()]
-                    clouds_absorption_opacities[:, :, i] = f['absorption_opacities'][:]
-                    clouds_scattering_opacities[:, :, i] = f['scattering_opacities'][:]
-                    clouds_asymmetry_parameters[:, :, i] = f['asymmetry_parameters'][:]
-
-            # Flip wavelengths/wavenumbers axis to match wavelengths ordering
-            clouds_absorption_opacities = clouds_absorption_opacities[:, ::-1, :]
-            clouds_scattering_opacities = clouds_scattering_opacities[:, ::-1, :]
-            clouds_asymmetry_parameters = clouds_asymmetry_parameters[:, ::-1, :]
-        else:
-            # Prepare single strings delimited by ':' which are then
-            # put into F routines
-            all_cloud_species = ''
-
-            for cloud_species in self._cloud_species:
-                all_cloud_species = all_cloud_species + cloud_species + ':'
-
-            all_cloud_species_modes = ''
-
-            for cloud_species_mode in cloud_species_mode:
-                all_cloud_species_modes = all_cloud_species_modes + cloud_species_mode + ':'
-
-            reference_file = os.path.join(
-                    path_input_data, 'opacities', 'continuum', 'clouds', 'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
-                )
-
-            self.__check_input_data_file_existence(reference_file)
-
-            n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
-
-            # Actual loading of opacities
-            clouds_particles_densities, clouds_absorption_opacities, clouds_scattering_opacities, \
-                clouds_asymmetry_parameters, cloud_wavelengths, clouds_particles_radii_bins, clouds_particles_radii \
-                = finput.load_cloud_opacities(
-                    path_input_data, all_cloud_species, all_cloud_species_modes,
-                    len(self._cloud_species), n_cloud_wavelength_bins
-                )
+        # Flip wavelengths/wavenumbers axis to match wavelengths ordering
+        clouds_absorption_opacities = clouds_absorption_opacities[:, ::-1, :]
+        clouds_scattering_opacities = clouds_scattering_opacities[:, ::-1, :]
+        clouds_asymmetry_parameters = clouds_asymmetry_parameters[:, ::-1, :]
 
         clouds_absorption_opacities[clouds_absorption_opacities < 0.] = 0.
         clouds_scattering_opacities[clouds_scattering_opacities < 0.] = 0.
@@ -3187,75 +3064,6 @@ class Radtrans:
         self._clouds_loaded_opacities['particles_radii'] = (
             np.array(clouds_particles_radii, dtype='d', order='F')
         )
-
-    @staticmethod
-    def load_dat_line_opacities(has_custom_line_opacities_temperature_pressure_grid,
-                                opacities_temperature_pressure_grid,
-                                size_temperature_pressure_grid, custom_line_paths, line_opacity_mode, path_input_data,
-                                species, lbl_opacity_sampling, frequencies, g_size, start_index):
-        """Load k-coefficient tables or opacities tables in the classic petitRADTRANS .dat format."""
-        if not has_custom_line_opacities_temperature_pressure_grid:
-            size_temperature_profile = len(opacities_temperature_pressure_grid[:, 0])
-        else:
-            size_temperature_profile = size_temperature_pressure_grid
-
-        custom_file_names = ''
-
-        if has_custom_line_opacities_temperature_pressure_grid:
-            for i_TP in range(size_temperature_profile):
-                custom_file_names = custom_file_names + custom_line_paths[i_TP] + ':'
-
-        if line_opacity_mode == 'c-k':
-            _n_frequencies, _n_g = finput.load_frequencies_g_sizes(path_input_data, species)
-
-            # Read in the frequency range of the opacity data
-            _frequencies, frequency_bins_edges = finput.load_frequencies(path_input_data, species, _n_frequencies)
-        else:
-            if lbl_opacity_sampling <= 1:
-                _n_frequencies = frequencies.size
-            else:
-                _n_frequencies = frequencies.size * lbl_opacity_sampling
-
-            _n_g = g_size
-            _frequencies = None
-
-        line_opacities_grid = finput.load_line_opacity_grid(
-            path_input_data,
-            species + ':',
-            _n_frequencies,
-            _n_g,
-            1,
-            size_temperature_profile,
-            line_opacity_mode,
-            start_index,
-            has_custom_line_opacities_temperature_pressure_grid,
-            custom_file_names
-        )
-
-        if np.all(line_opacities_grid == -1):
-            raise RuntimeError("molecular opacity loading failed, check above outputs to find the cause")
-
-        if line_opacity_mode == 'c-k':
-            # Initialize an empty array that has the same spectral entries as
-            # pRT object has nominally. Only fill those values where the k-tables
-            # have entries.
-            ret_val = np.zeros((g_size, frequencies.size, 1, size_temperature_profile))
-
-            # Indices in retVal to be filled with read-in opacities
-            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
-                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
-            # Indices of read-in opacities to be filled into retVal
-            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
-
-            ret_val[:, index_fill, 0, :] = line_opacities_grid[:, index_use, 0, :]
-            line_opacities_grid = ret_val
-
-        # Down-sample opacities in lbl mode if requested
-        if line_opacity_mode == 'lbl' and lbl_opacity_sampling > 1:
-            line_opacities_grid = line_opacities_grid[:, ::lbl_opacity_sampling, :]
-
-        return line_opacities_grid
 
     @staticmethod
     def load_hdf5_ktables(file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size):
@@ -3290,8 +3098,11 @@ class Radtrans:
             ret_val[ret_val < 0.] = 0.
 
             # Divide by mass to convert cross-sections to opacities
-            mol_mass = f['mol_mass'][()]
-            line_opacities_grid = ret_val / mol_mass / cst.amu
+            mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
+
+        line_opacities_grid = ret_val * mol_mass_inv
+
+        # line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
 
         return line_opacities_grid
 
@@ -3299,7 +3110,7 @@ class Radtrans:
     def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, lbl_opacity_sampling=1):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
-            frequency_grid = cst.c * f['wavenumbers'][:]  # cm-1 to s-1
+            frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to s-1
 
             selection = np.nonzero(np.logical_and(
                 np.greater_equal(frequency_grid, np.min(frequencies)),
@@ -3311,8 +3122,11 @@ class Radtrans:
                 # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
                 selection[0] -= lbl_opacity_sampling - 1  # array is ordered by increasing wvn, so decreasing wvl
 
-            line_opacities_grid = f['opacities'][:, :, selection[0]:selection[-1] + 1]
-            line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
+            line_opacities_grid = f['xsecarr'][:, :, selection[0]:selection[-1] + 1]
+            # line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
+            # Divide by mass to convert cross-sections to opacities
+            mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
+            line_opacities_grid *= mol_mass_inv
 
         line_opacities_grid = line_opacities_grid[:, :, ::-1]
 
@@ -3340,118 +3154,73 @@ class Radtrans:
 
         return line_opacities_grid
 
-    def load_line_opacities(self, start_index, path_input_data,
-                            default_temperature_grid_size=13, default_pressure_grid_size=10):
+    def load_line_opacities(self, path_input_data):
         """Read the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
 
         Args:
-            start_index:
             path_input_data:
-            default_temperature_grid_size:
-            default_pressure_grid_size:
 
         Returns:
 
         """
         # TODO currently all the pressure-temperature grid is loaded, it could be more memory efficient to provide a T an p range at init and only load the relevant parts of the grid # noqa: E501
-        # Get the default pressure-temperature grid
-        opacities_temperature_pressure_grid = np.genfromtxt(
-            os.path.join(path_input_data, 'opa_input_files', 'opa_PT_grid.dat')
-        )
-
-        opacities_temperature_pressure_grid = np.flip(opacities_temperature_pressure_grid, axis=1)
-        opacities_temperature_pressure_grid[:, 1] *= 1e6  # bars to cgs
-        opacities_temperature_pressure_grid = np.array(opacities_temperature_pressure_grid, dtype='d', order='F')
-
-        custom_line_paths = {}
+        if self._line_opacity_mode == 'c-k':
+            category = 'correlated_k_opacities'
+        elif self._line_opacity_mode == 'lbl':
+            category = 'line_by_line_opacities'
+        else:
+            raise ValueError(f"invalid line opacity mode: '{self._line_opacity_mode}' (must be 'c-k'|'lbl')")
 
         # Read opacities grid
         if len(self._line_species) > 0:
-            # Read in g grid for correlated-k
-            if self._line_opacity_mode == 'c-k':
-                buffer = np.genfromtxt(
-                    os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat')
+            for i, species in enumerate(self._line_species):
+                hdf5_file = get_opacity_input_file(
+                    path_input_data=path_input_data,
+                    category=category,
+                    species=species
                 )
-                self._lines_loaded_opacities['g_gauss'] = np.array(buffer[:, 0], dtype='d', order='F')
-                self._lines_loaded_opacities['weights_gauss'] = np.array(buffer[:, 1], dtype='d', order='F')
 
-            for species in self._line_species:
-                file_path_hdf5 = None
+                # Load g grid for correlated-k
+                if self._line_opacity_mode == 'c-k' and i == 0:
+                    with h5py.File(hdf5_file, 'r') as f:
+                        self._lines_loaded_opacities['g_gauss'] = f['samples'][:]
+                        self._lines_loaded_opacities['weights_gauss'] = f['weights'][:]
 
-                if self._line_opacity_mode == 'c-k':
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'corr_k', species)
-                    file_path_hdf5 = glob.glob(path_opacities + '/*.h5')
+                    # Convert into F-ordered array for more efficient processing in the Fortran modules
+                    self._lines_loaded_opacities['g_gauss'] = np.array(
+                        self._lines_loaded_opacities['g_gauss'], dtype='d', order='F'
+                    )
+                    self._lines_loaded_opacities['weights_gauss'] = np.array(
+                        self._lines_loaded_opacities['weights_gauss'], dtype='d', order='F'
+                    )
 
-                    if len(file_path_hdf5) == 0:
-                        file_path_hdf5 = None
-                    else:
-                        file_path_hdf5 = file_path_hdf5[0]
-                elif self._line_opacity_mode == 'lbl':
-                    path_opacities = os.path.join(path_input_data, 'opacities', 'lines', 'line_by_line')
-                    file_path_hdf5 = os.path.join(path_opacities, species + '.otable.petitRADTRANS.h5')
-
-                if file_path_hdf5 is not None:
-                    if not os.path.isfile(file_path_hdf5):
-                        print(f"HDF5 opacity file '{file_path_hdf5}' not found, "
-                              f"loading from .dat...")
-                        warnings.warn(self.__dat_opacity_files_warning_message)
-                        file_path_hdf5 = None
-                else:
-                    print("HDF5 opacity file not found, loading from .dat...")
-                    warnings.warn(self.__dat_opacity_files_warning_message)
-
+                # Load temperature-pressure grid
                 self._lines_loaded_opacities['temperature_pressure_grid'][species], \
-                    custom_line_paths[species], \
                     self._lines_loaded_opacities['temperature_grid_size'][species], \
                     self._lines_loaded_opacities['pressure_grid_size'][species], \
                     self._lines_loaded_opacities['has_custom_tp_grid'][species] \
                     = self.load_line_opacities_pressure_temperature_grid(
-                    file_path_hdf5=file_path_hdf5,
-                    path_input_data=path_input_data,
-                    line_opacity_mode=self._line_opacity_mode,
-                    species=species,
-                    opacities_temperature_pressure_grid=opacities_temperature_pressure_grid,
-                    default_temperature_grid_size=default_temperature_grid_size,
-                    default_pressure_grid_size=default_pressure_grid_size
+                    hdf5_file=hdf5_file
                 )
 
-                # Read the opacities
-                if file_path_hdf5 is None:
-                    self._lines_loaded_opacities['opacity_grid'][species] = self.load_dat_line_opacities(
-                        has_custom_line_opacities_temperature_pressure_grid=self._lines_loaded_opacities[
-                            'has_custom_tp_grid'
-                        ][species],
-                        opacities_temperature_pressure_grid=opacities_temperature_pressure_grid,
-                        size_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'][
-                            species
-                        ].shape[0],
-                        custom_line_paths=custom_line_paths[species],
-                        line_opacity_mode=self._line_opacity_mode,
-                        path_input_data=self._path_input_data,
-                        species=species,
-                        lbl_opacity_sampling=self._line_by_line_opacity_sampling,
+                # Load the opacities
+                print(f" Loading line opacities of species '{species}'...")
+
+                if self._line_opacity_mode == 'c-k':
+                    self._lines_loaded_opacities['opacity_grid'][species] = self.load_hdf5_ktables(
+                        file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,
                         g_size=self._lines_loaded_opacities['g_gauss'].size,
-                        start_index=start_index
+                        temperature_pressure_grid_size=self._lines_loaded_opacities['temperature_pressure_grid'][
+                            species].shape[0]
                     )
-                else:
-                    print(f" Loading line opacities of species '{species}'...")
-
-                    if self._line_opacity_mode == 'c-k':
-                        self._lines_loaded_opacities['opacity_grid'][species] = self.load_hdf5_ktables(
-                            file_path_hdf5=file_path_hdf5,
-                            frequencies=self._frequencies,
-                            g_size=self._lines_loaded_opacities['g_gauss'].size,
-                            temperature_pressure_grid_size=self._lines_loaded_opacities['temperature_pressure_grid'][
-                                species].shape[0]
-                        )
-                    elif self._line_opacity_mode == 'lbl':
-                        self._lines_loaded_opacities['opacity_grid'][species] = self.load_hdf5_line_opacity_table(
-                            file_path_hdf5=file_path_hdf5,
-                            frequencies=self._frequencies,
-                            lbl_opacity_sampling=self._line_by_line_opacity_sampling
-                        )
+                elif self._line_opacity_mode == 'lbl':
+                    self._lines_loaded_opacities['opacity_grid'][species] = self.load_hdf5_line_opacity_table(
+                        file_path_hdf5=hdf5_file,
+                        frequencies=self._frequencies,
+                        lbl_opacity_sampling=self._line_by_line_opacity_sampling
+                    )
 
                     print(" Done.")
 
@@ -3462,50 +3231,23 @@ class Radtrans:
             print('\n')
 
     @staticmethod
-    def load_line_opacities_pressure_temperature_grid(file_path_hdf5, path_input_data, line_opacity_mode, species,
-                                                      opacities_temperature_pressure_grid,
-                                                      default_temperature_grid_size, default_pressure_grid_size):
+    def load_line_opacities_pressure_temperature_grid(hdf5_file):
         """Load line opacities temperature grids."""
-        custom_line_paths = None
+        with h5py.File(hdf5_file, 'r') as f:
+            pressure_grid = f['p'][:]
+            temperature_grid = f['t'][:]
 
-        if file_path_hdf5 is None:
-            # Check and sort custom grid for species, if defined.
-            custom_grid_data = Radtrans.__check_custom_pressure_temperature_grid(
-                path_input_data,
-                line_opacity_mode,
-                species
-            )
+        ret_val = np.zeros((temperature_grid.size * pressure_grid.size, 2))
 
-            # If no custom grid was specified (no PTpaths.ls found), take nominal grid
-            # This assumes that the files indeed are following the nominal grid and naming convention
-            # Otherwise, it will take the info provided in PTpaths.ls which was filled into custom_grid_data
-            if custom_grid_data is None:
-                line_opacities_temperature_pressure_grid = opacities_temperature_pressure_grid
-                line_opacities_temperature_grid_size = default_temperature_grid_size
-                line_opacities_pressure_grid_size = default_pressure_grid_size
-                has_custom_line_opacities_temperature_pressure_grid = False
-            else:
-                line_opacities_temperature_pressure_grid = custom_grid_data[0]
-                custom_line_paths = custom_grid_data[1]
-                line_opacities_temperature_grid_size = custom_grid_data[2]
-                line_opacities_pressure_grid_size = custom_grid_data[3]
-                has_custom_line_opacities_temperature_pressure_grid = True
-        else:
-            with h5py.File(file_path_hdf5, 'r') as f:
-                pressure_grid = f['p'][:]
-                temperature_grid = f['t'][:]
+        for i_t in range(temperature_grid.size):
+            for i_p in range(pressure_grid.size):
+                ret_val[i_t * pressure_grid.size + i_p, 1] = pressure_grid[i_p] * 1e6  # bar to cgs
+                ret_val[i_t * pressure_grid.size + i_p, 0] = temperature_grid[i_t]
 
-            ret_val = np.zeros((temperature_grid.size * pressure_grid.size, 2))
+        line_opacities_temperature_pressure_grid = ret_val
+        line_opacities_temperature_grid_size = temperature_grid.size
+        line_opacities_pressure_grid_size = pressure_grid.size
+        has_custom_line_opacities_temperature_pressure_grid = True
 
-            for i_t in range(temperature_grid.size):
-                for i_p in range(pressure_grid.size):
-                    ret_val[i_t * pressure_grid.size + i_p, 1] = pressure_grid[i_p] * 1e6  # bar to cgs
-                    ret_val[i_t * pressure_grid.size + i_p, 0] = temperature_grid[i_t]
-
-            line_opacities_temperature_pressure_grid = ret_val
-            line_opacities_temperature_grid_size = temperature_grid.size
-            line_opacities_pressure_grid_size = pressure_grid.size
-            has_custom_line_opacities_temperature_pressure_grid = True
-
-        return line_opacities_temperature_pressure_grid, custom_line_paths, line_opacities_temperature_grid_size, \
+        return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
             line_opacities_pressure_grid_size, has_custom_line_opacities_temperature_pressure_grid

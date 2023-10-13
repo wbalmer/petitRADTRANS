@@ -455,7 +455,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
     """
     import copy as cp
     from scipy.interpolate import interp1d, CubicSpline
-    import petitRADTRANS.chemistry.pre_calculated_chemistry as pm
+    from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 
     t3, delta, alpha, tint, press, feh, co_ratio, conv = rad_trans_params
     # Go grom bar to cgs
@@ -467,12 +467,15 @@ def temperature_profile_function_ret_model(rad_trans_params):
     # This is the eddington temperature
     tedd = (3. / 4. * tint ** 4. * (2. / 3. + tau)) ** 0.25
 
-    ab = pm.interpolate_mass_fractions_chemical_table(co_ratio * np.ones_like(tedd),
-                                                      feh * np.ones_like(tedd),
-                                                      tedd,
-                                                      press)
-
-    nabla_ad = ab['nabla_ad']
+    ab, _, nabla_ad = (
+        pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
+            co_ratio * np.ones_like(tedd),
+            feh * np.ones_like(tedd),
+            tedd,
+            press,
+            full=True
+        )
+    )
 
     tfinal = None  # TODO tmp fix for reference before assignment
     tret = None  # TODO tmp fix for reference before assignment
@@ -497,12 +500,15 @@ def temperature_profile_function_ret_model(rad_trans_params):
             else:
                 t_take = cp.copy(tfinal)  # TODO reference before assignment
 
-            ab = pm.interpolate_mass_fractions_chemical_table(co_ratio * np.ones_like(t_take),
-                                                              feh * np.ones_like(t_take),
-                                                              t_take,
-                                                              press)
-
-            nabla_ad = ab['nabla_ad']
+            ab, _, nabla_ad = (
+                pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
+                    co_ratio * np.ones_like(t_take),
+                    feh * np.ones_like(t_take),
+                    t_take,
+                    press,
+                    full=True
+                )
+            )
 
             # Calculate the average nabla_ad between the layers
             nabla_ad_mean = nabla_ad

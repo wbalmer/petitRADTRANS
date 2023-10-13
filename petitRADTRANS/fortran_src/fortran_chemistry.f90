@@ -2,27 +2,28 @@ module fortran_chemistry
     implicit none
 
     contains
-        subroutine read_dat_chemical_table(n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species, &
-                                           path_input_data, mass_fractions_table)
+        subroutine read_dat_chemical_table(path_input_data, &
+                                           n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species, &
+                                           chemistry_table)
             implicit none
             ! I/O
             integer, intent(in) :: n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species
             character(len=500), intent(in) :: path_input_data
             double precision, intent(out) :: &
-                mass_fractions_table(n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
+                chemistry_table(n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
             ! Internal
             integer :: i_feh, i_co, i_p, i_t
 
-            mass_fractions_table = 0d0
+            chemistry_table = 0d0  ! also contains nabla_ad and mmw
 
             open(unit=13,file=trim(adjustl(path_input_data)) // &
-                'abundance_files/abunds_python.dat',form='unformatted')
+                '/abunds_python.dat',form='unformatted')
 
             do i_feh = 1, n_metallicities
                 do i_co = 1, n_co_ratios
                     do i_p = 1, n_pressures
                         do i_t = 1, n_temperatures
-                            read(13) mass_fractions_table(1:n_species,i_t,i_p,i_co,i_feh)
+                            read(13) chemistry_table(1:n_species,i_t,i_p,i_co,i_feh)
                         end do
                     end do
                 end do
@@ -30,7 +31,7 @@ module fortran_chemistry
 
             ! Do not powerlaw interpolate MMW and nabla_ad, only the abundances!
             ! Use linear interpolation for the former instead.
-            mass_fractions_table(1:n_species-2,:,:,:,:) = log10(mass_fractions_table(1:n_species-2,:,:,:,:))
+            chemistry_table(1:n_species-2,:,:,:,:) = log10(chemistry_table(1:n_species-2,:,:,:,:))
 
             close(13)
         end subroutine read_dat_chemical_table

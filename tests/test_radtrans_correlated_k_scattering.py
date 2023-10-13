@@ -42,8 +42,8 @@ atmosphere_ck_scattering = init_radtrans_correlated_k()
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, flux, _ = atmosphere_ck_scattering.calculate_flux(
         temperatures=temperature_guillot_2010,
@@ -51,8 +51,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
 
@@ -74,8 +74,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     geometry = 'planetary_ave'
 
@@ -85,8 +85,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -109,8 +109,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside():
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     geometry = 'dayside_ave'
 
@@ -120,8 +120,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -142,8 +142,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_non_isotropic():
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     geometry = 'non-isotropic'
 
@@ -153,8 +153,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
         star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -178,8 +178,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering():
     mass_fractions = copy.deepcopy(radtrans_parameters['mass_fractions'])
-    mass_fractions['Mg2SiO4(c)'] = \
-        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['mass_fraction']
+    mass_fractions['Mg2SiO4(s)_crystalline__DHS'] = \
+        radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['mass_fraction']
 
     frequencies, transit_radii, _ =atmosphere_ck_scattering.calculate_transit_radii(
         temperatures=radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures']),
@@ -189,8 +189,8 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
-        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['f_sed'],
-        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(c)_cd']['sigma_log_normal'],
+        cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
+        cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
 

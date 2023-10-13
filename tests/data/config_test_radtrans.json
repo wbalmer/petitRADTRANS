@@ -10,11 +10,11 @@
     "mass_fractions": {
         "H2": 0.74,
         "He": 0.24,
-        "H2O_HITEMP": 0.001,
-        "H2O_main_iso": 0.001,
+        "H2O__HITEMP": 0.001,
+        "H2O": 0.001,
         "CH4": 0.001,
         "CO_all_iso": 0.1,
-        "Mg2SiO4(c)": 0.0
+        "Mg2SiO4(s)_crystalline__DHS": 0.0
     },
     "mean_molar_mass": 2.33,
     "chemical_parameters": {
@@ -57,11 +57,11 @@
     "spectrum_parameters": {
         "line_by_line_opacity_sampling": 4,
         "line_species_correlated_k": [
-            "H2O_HITEMP",
+            "H2O__HITEMP",
             "CH4"
         ],
         "line_species_line_by_line": [
-            "H2O_main_iso",
+            "H2O",
             "CO_all_iso"
         ],
         "rayleigh_species": [
@@ -87,7 +87,7 @@
         "cloud_pressure": 0.01,
         "haze_factor": 10.0,
         "cloud_species": {
-            "Mg2SiO4(c)_cd": {
+            "Mg2SiO4(s)_crystalline__DHS": {
                 "mass_fraction": 5e-07,
                 "radius": 5e-05,
                 "f_sed": 2.0,

@@ -80,7 +80,7 @@ class Data:
             'c-k' mode is recommended for retrievals of everything other than
             high-resolution (R>40000) spectra.
     """
-    resolving_power_str = "_R"
+    resolving_power_str = ".R"
 
     def __init__(self,
                  name,

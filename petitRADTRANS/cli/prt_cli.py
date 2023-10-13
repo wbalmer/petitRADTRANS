@@ -14,7 +14,7 @@ import warnings
 from petitRADTRANS.config import petitradtrans_config_parser
 
 
-megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
+__megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
 
 
 def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
@@ -31,8 +31,8 @@ def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
     percent = min(int(progress_size * 100 / total_size), 100)
 
     # Convert from B to MB
-    progress_size *= megabyte
-    total_size *= megabyte
+    progress_size *= __megabyte
+    total_size *= __megabyte
 
     # Speed and ETA
     duration = max(time.time() - time_start, 1e-6)
@@ -151,7 +151,7 @@ def download_input_data(destination, source=None, rewrite=False,
 
     # Ensure a clean terminal output after the download
     if (i + 1) * byte_amount >= total_size:
-        total_size *= megabyte
+        total_size *= __megabyte
         _reporthook_sys_output(
             percent=100,
             progress_size=total_size,
