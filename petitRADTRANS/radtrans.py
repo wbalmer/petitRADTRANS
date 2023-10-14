@@ -1965,45 +1965,45 @@ class Radtrans:
             )
 
             with h5py.File(opacities_file, 'r') as f:
-                wavelength_grid = 1 / f['bin_edges'][:]  # cm-1 to cm
+                frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to Hz
 
-            wavelength_grid = wavelength_grid[::-1]
-            wavelength_min = self._wavelengths_boundaries[0] * 1e-4  # um to cm
-            wavelength_max = self._wavelengths_boundaries[1] * 1e-4  # um to cm
+            frequency_min = cst.c / self._wavelengths_boundaries[1] * 1e4  # um to cm
+            frequency_max = cst.c / self._wavelengths_boundaries[0] * 1e4  # um to cm
 
             # Check if the requested wavelengths boundaries are within the file boundaries
             bad_boundaries = False
 
-            if wavelength_min < wavelength_grid[0]:
+            if frequency_min < frequency_grid[0]:
                 bad_boundaries = True
 
-            if wavelength_max > wavelength_grid[-1]:
+            if frequency_max > frequency_grid[-1]:
                 bad_boundaries = True
 
             if bad_boundaries:
                 raise ValueError(f"Requested wavelength interval "
                                  f"({self._wavelengths_boundaries[0]}--{self._wavelengths_boundaries[1]}) "
                                  f"is out of opacities table wavelength grid "
-                                 f"({1e4 * wavelength_grid[0]}--{1e4 * wavelength_grid[-1]})")
+                                 f"({1e-4 * cst.c / frequency_grid[-1]}--{1e-4 * cst.c / frequency_grid[0]})")
 
             # Get the freq. corresponding to the requested boundaries, with the request fully within the selection
             selection = np.nonzero(np.logical_and(
-                np.greater_equal(wavelength_grid, wavelength_min),
-                np.less_equal(wavelength_grid, wavelength_max)
+                np.greater_equal(frequency_grid, frequency_min),
+                np.less_equal(frequency_grid, frequency_max)
             ))[0]
             selection = np.array([selection[0], selection[-1]])
 
-            if wavelength_grid[selection[0]] > wavelength_min:
+            if frequency_grid[selection[0]] > frequency_min:
                 selection[0] -= 1
 
-            if wavelength_grid[selection[-1]] < wavelength_max:
+            if frequency_grid[selection[-1]] < frequency_max:
                 selection[-1] += 1
 
             if self._line_by_line_opacity_sampling > 1:
                 # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-                selection[-1] += self._line_by_line_opacity_sampling - 1
+                selection[0] -= self._line_by_line_opacity_sampling - 1
 
-            frequencies = cst.c / wavelength_grid[selection[0]:selection[-1] + 1]  # cm to s-1
+            frequencies = frequency_grid[selection[0]:selection[-1] + 1]
+            frequencies = frequencies[::-1]
 
             # Down-sample frequency grid in lbl mode if requested
             if self._line_by_line_opacity_sampling > 1:
