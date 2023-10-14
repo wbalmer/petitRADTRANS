@@ -2914,7 +2914,7 @@ class Radtrans:
                     if specified, uses this radius in cm
                     to scale the flux, otherwise it uses PHOENIX radius.
         """
-        from petitRADTRANS import phoenix
+        from petitRADTRANS.stellar_spectra import phoenix
 
         if star_radius is not None:
             spec, _ = phoenix.compute_phoenix_spectrum(star_effective_temperature)

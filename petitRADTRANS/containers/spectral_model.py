@@ -13,7 +13,7 @@ import scipy.ndimage
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.math import gaussian_weights_running
-from petitRADTRANS.phoenix import compute_phoenix_spectrum
+from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, rebin_spectrum
 )
