@@ -37,16 +37,17 @@ module fortran_chemistry
         end subroutine read_dat_chemical_table
 
 
-        subroutine interpolate_mass_fractions_table(co_ratios, log10_metallicities, temperatures, pressures, &
-                                                    largest_co_ratios_indices, largest_metallicities_indices, &
-                                                    largest_temperatures_indices, largest_pressures_indices, &
-                                                    table_metallicities, table_co_ratios, table_pressures, &
-                                                    table_temperatures, mass_fractions_table, &
-                                                    n_layers, n_metallicities, n_co_ratios, n_pressures, &
-                                                    n_temperatures, n_species, mass_fractions)
+        subroutine interpolate_chemical_table(co_ratios, log10_metallicities, temperatures, pressures, &
+                                              largest_co_ratios_indices, largest_metallicities_indices, &
+                                              largest_temperatures_indices, largest_pressures_indices, &
+                                              table_metallicities, table_co_ratios, table_pressures, &
+                                              table_temperatures, chemical_table, full, &
+                                              n_layers, n_metallicities, n_co_ratios, n_pressures, &
+                                              n_temperatures, n_species, chemical_table_interp)
 
             implicit none
             ! I/O
+            logical, intent(in) :: full
             integer, intent(in) :: n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species, n_layers
             double precision, intent(in) :: co_ratios(n_layers), log10_metallicities(n_layers), &
                temperatures(n_layers), pressures(n_layers)
@@ -55,8 +56,8 @@ module fortran_chemistry
             double precision, intent(in) :: table_co_ratios(n_co_ratios), table_metallicities(n_metallicities), &
                table_temperatures(n_temperatures), table_pressures(n_pressures)
             double precision, intent(in) :: &
-                mass_fractions_table(n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
-            double precision, intent(out) :: mass_fractions(n_species, n_layers)
+                chemical_table(n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
+            double precision, intent(out) :: chemical_table_interp(n_species, n_layers)
             ! internal
             integer :: i_goal, i_p, i_t, i_feh, i_co, i_p_take, i_t_take, i_feh_take, &
                i_co_take, i_spec
@@ -78,7 +79,7 @@ module fortran_chemistry
                                i_t_take = largest_temperatures_indices(i_goal)-mod(i_t,2)
 
                                intp_bound(1:n_species, i_t, i_p, i_co, i_feh) = &
-                                   mass_fractions_table(1:n_species, i_t_take, i_p_take, i_co_take, i_feh_take)
+                                   chemical_table(1:n_species, i_t_take, i_p_take, i_co_take, i_feh_take)
 
                                intp_coords(1, i_t) = table_temperatures(i_t_take)
                            end do
@@ -107,17 +108,22 @@ module fortran_chemistry
                     (intp_coords(2,2) - intp_coords(2,1)) * (pressures(i_goal) - intp_coords(2,1))
 
                 ! Interpolate to correct temperature
-                mass_fractions(1:n_species,i_goal) = intp_bound_m3(1:n_species, 1) + &
+                chemical_table_interp(1:n_species,i_goal) = intp_bound_m3(1:n_species, 1) + &
                     (intp_bound_m3(1:n_species, 2) - intp_bound_m3(1:n_species, 1)) / &
                     (intp_coords(1,2) - intp_coords(1,1)) * (temperatures(i_goal) - intp_coords(1,1))
 
                 do i_spec = 1, n_species
-                    if (ISNAN(mass_fractions(i_spec,i_goal))) then
-                        mass_fractions(i_spec,i_goal) = -50d0
+                    if (isnan(chemical_table_interp(i_spec, i_goal))) then
+                        chemical_table_interp(i_spec, i_goal) = -50d0
                     end if
                 end do
             end do
 
-            mass_fractions(1:n_species-2,:) = 1d1**mass_fractions(1:n_species-2,:)
-        end subroutine interpolate_mass_fractions_table
+            if (full) then
+                ! Do not compute the power of ten of nabla_adiabatic and the mean molar mass
+                chemical_table_interp(1:n_species-2, :) = 1d1**chemical_table_interp(1:n_species-2, :)
+            else
+                chemical_table_interp(:, :) = 1d1**chemical_table_interp(:, :)
+            end if
+        end subroutine interpolate_chemical_table
 end module fortran_chemistry

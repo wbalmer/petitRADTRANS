@@ -1,6 +1,5 @@
 """Manage equilibrium chemistry pre-calculated table.
 """
-import copy
 import os
 
 import h5py
@@ -95,15 +94,13 @@ class PreCalculatedEquilibriumChemistryTable:
         else:
             chemical_table = self.mass_fractions
 
-        chemical_table = np.array(chemical_table, dtype='d', order='F')
-
         # Get the interpolated values from Fortran routine
-        _chemical_table = fchem.interpolate_mass_fractions_table(
+        _chemical_table = fchem.interpolate_chemical_table(
             co_ratios, log10_metallicities, temperatures,
             pressures, co_ratios_large_int,
             fehs_large_int, temps_large_int,
             pressures_large_int, self.log10_metallicities, self.co_ratios,
-            self.pressures, self.temperatures, chemical_table
+            self.pressures, self.temperatures, chemical_table, full
         )
 
         # Sort in output format of this function
@@ -122,7 +119,6 @@ class PreCalculatedEquilibriumChemistryTable:
         # Carbon quenching? Assumes pressures_goal is sorted in ascending order
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > np.min(pressures):
-
                 q_index = min(np.searchsorted(pressures, carbon_pressure_quench),
                               int(len(pressures)) - 1)
 
@@ -171,6 +167,11 @@ class PreCalculatedEquilibriumChemistryTable:
             self.mass_fractions = f['mass_fractions'][()]
             self.mean_molar_masses = f['mean_molar_masses'][()]
             self.nabla_adiabatic = f['nabla_adiabatic'][()]
+
+        # Change array ordering for more efficient fortran calculation (this takes time, so it is done during loading)
+        self.mass_fractions = np.array(self.mass_fractions, dtype='d', order='F')
+        self.mean_molar_masses = np.array(self.mean_molar_masses, dtype='d', order='F')
+        self.nabla_adiabatic = np.array(self.nabla_adiabatic, dtype='d', order='F')
 
         self._loaded = True
 
