@@ -57,7 +57,7 @@ def test_planck_function():
 
 
 def test_stellar_model():
-    stellar_spectrum, _ = petitRADTRANS.stellar_spectra.phoenix.compute_phoenix_spectrum(
+    stellar_spectrum, _ = petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.compute_phoenix_spectrum(
         radtrans_parameters['stellar_parameters']['effective_temperature']
     )
 

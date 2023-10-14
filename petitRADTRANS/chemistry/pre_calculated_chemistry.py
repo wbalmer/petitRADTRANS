@@ -14,6 +14,8 @@ from petitRADTRANS._input_data_loader import get_input_data_file_not_found_error
 
 class PreCalculatedEquilibriumChemistryTable:
     def __init__(self):
+        self._loaded = False
+
         self.log10_metallicities = None
         self.co_ratios = None
         self.temperatures = None
@@ -22,7 +24,6 @@ class PreCalculatedEquilibriumChemistryTable:
         self.mass_fractions = None
         self.nabla_adiabatic = None
         self.mean_molar_masses = None
-        self._loaded = False
 
     @staticmethod
     def get_default_input_data_path():
@@ -144,7 +145,7 @@ class PreCalculatedEquilibriumChemistryTable:
         if not os.path.isfile(chemical_table_file):
             raise FileNotFoundError(get_input_data_file_not_found_error_message(chemical_table_file))
 
-        print(f"Loading chemical equilibrium mass mixing ratio table from file '{chemical_table_file}'...")
+        print(f"Loading chemical equilibrium chemistry table from file '{chemical_table_file}'...")
 
         with h5py.File(chemical_table_file, 'r') as f:
             self.log10_metallicities = f['log10_metallicities'][()]
