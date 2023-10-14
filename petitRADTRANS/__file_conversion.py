@@ -15,8 +15,9 @@ import numpy as np
 
 import petitRADTRANS
 from petitRADTRANS._input_data_loader import (_get_base_cia_names, _get_base_cloud_names, _get_base_correlated_k_names,
-                                              _get_base_line_by_line_names, get_species_basename,
-                                              get_species_isotopologue_name, get_opacity_input_file)
+                                              _get_base_line_by_line_names, get_default_correlated_k_resolution,
+                                              get_species_basename, get_species_isotopologue_name,
+                                              get_opacity_input_file, get_resolving_power_string, join_species_all_info)
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict
@@ -2413,7 +2414,10 @@ def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False)
     for i, s in enumerate(species):
         # Output files
         hdf5_opacity_file_input = paths[i]
-        hdf5_opacity_file = paths[i].replace('.R1000', f".R{resolution}")
+        hdf5_opacity_file = paths[i].replace(
+            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
+            join_species_all_info('', spectral_info=get_resolving_power_string(resolution))
+        )
 
         if os.path.isfile(hdf5_opacity_file) and not rewrite:
             print(f"Skipping already re-binned species '{s}' (file '{hdf5_opacity_file}' already exists)...")
