@@ -1,4 +1,4 @@
-"""
+"""Manage the Phoenix star table.
 """
 import os
 
