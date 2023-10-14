@@ -39,10 +39,12 @@ def test_configuration_file_generation():
     print(f"Testing for incorrect input_data path behaviour...")
 
     try:
-        petitRADTRANS.stellar_spectra.phoenix.__load_stellar_spectra()
+        petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
 
         if os.path.isdir(config.get_input_data_path()):
-            raise FileExistsError(f"directory '{config.get_input_data_path()}' exists, while it should not for this test")
+            raise FileExistsError(
+                f"directory '{config.get_input_data_path()}' exists, while it should not for this test"
+            )
     except FileNotFoundError as error:
         if not os.path.isdir(config.directory):
             raise FileNotFoundError(f"configuration directory '{config.directory}' is expected to be generated")
@@ -62,7 +64,7 @@ def test_configuration_file_generation():
 
     # Now test if the file is correctly loaded once everything is set properly
     print(f"Testing for correct input_data path behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.__load_stellar_spectra()
+    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
 
 
 def test_configuration_file_repair():
@@ -117,4 +119,4 @@ def test_configuration_file_repair():
     petitRADTRANS.config.petitradtrans_config_parser.load()
 
     print(f"Testing for correct behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.__load_stellar_spectra()
+    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()

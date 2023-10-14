@@ -155,7 +155,7 @@ def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> np.ndarray:
     return phi_x / phi_x.sum()
 
 
-def gaussian_weights_running(sigmas: np.nd, truncate=4.0):
+def gaussian_weights_running(sigmas: np.ndarray, truncate: float = 4.0) -> np.ndarray:
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
     Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
@@ -180,7 +180,7 @@ def gaussian_weights_running(sigmas: np.nd, truncate=4.0):
     return np.transpose(phi_x.T / phi_x.sum(axis=1))
 
 
-def mean_uncertainty(uncertainties):
+def mean_uncertainty(uncertainties: np.ndarray) -> float:
     """Calculate the uncertainty of the mean of an array.
 
     Args:
@@ -192,7 +192,7 @@ def mean_uncertainty(uncertainties):
     return np.sqrt(np.sum(uncertainties ** 2)) / np.size(uncertainties)
 
 
-def median_uncertainties(uncertainties):
+def median_uncertainties(uncertainties: np.ndarray) -> float:
     """Calculate the uncertainty of the median of an array.
 
     Demonstration:
@@ -214,17 +214,17 @@ def median_uncertainties(uncertainties):
         * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
 
 
-def normalize(array, axis=None):
+def normalize(array: np.ndarray, axis: int = None) -> np.ndarray:
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
 
 
-def running_mean(x, n):
+def running_mean(x: np.ndarray, n: int) -> np.ndarray:
     cum_sum = np.cumsum(np.insert(x, 0, 0))
 
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)
 
 
-def sigma2bayes_factor(sigma):
+def sigma2bayes_factor(sigma: float) -> float:
     """
     Convert a sigma significance into a Bayes factor, or "evidence".
     Note: sometimes algorithms return the "log-evidence", or ln(z). The Bayes factor is z.

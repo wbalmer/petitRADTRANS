@@ -64,11 +64,15 @@ class PhoenixStarTable:
 
             spec_dat_high = self.flux_grid[int(interpolation_index)]
 
-            spec_dat = weight_low * spec_dat_low \
-                       + weight_high * spec_dat_high
+            spec_dat = (
+                weight_low * spec_dat_low
+                + weight_high * spec_dat_high
+            )
 
-            radius = weight_low * self.radius_grid[int(interpolation_index - 1)] \
-                     + weight_high * self.radius_grid[int(interpolation_index)]
+            radius = (
+                weight_low * self.radius_grid[int(interpolation_index - 1)]
+                + weight_high * self.radius_grid[int(interpolation_index)]
+            )
 
         freq = cst.c / self.wavelength_grid
         flux = spec_dat

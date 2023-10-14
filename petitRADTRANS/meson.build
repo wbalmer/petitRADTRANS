@@ -3,12 +3,12 @@ subdir('containers')
 subdir('config')
 #subdir('slurm_runs')
 subdir('chemistry')
+subdir('stellar_spectra')
 subdir('cli')
 subdir('ccf')
 
 py.install_sources([
     'math.py',
-    'phoenix.py',
     'physical_constants.py',
     'physics.py',
     'radtrans.py',
