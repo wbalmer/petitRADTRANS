@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a81] - 2023-13-10
+## [3.0.0-a81] - 2023-14-10
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Trimming preparation function.
 - Module `cli.prt_cli` to automatically download petitRADTRANS input data files.
 - Module `configuration` to manage paths.
-- Module `molar_mass`, as a more explicit interface between `petitRADTRANS` and `molmass`.
+- Module `stallar_spectra`, to handle stellar spectra calculations.
 - Function `utils.feature_scaling` to normalize arrays.
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.

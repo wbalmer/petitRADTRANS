@@ -15,7 +15,7 @@ from scripts.mock_observation import add_telluric_lines, add_variable_throughput
 from petitRADTRANS.retrieval.preparing import preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.phoenix import compute_phoenix_spectrum
+from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift, temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig

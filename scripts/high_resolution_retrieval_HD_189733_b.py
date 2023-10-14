@@ -15,7 +15,7 @@ from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.utils import calculate_reduced_chi2
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.containers.spectral_model import SpectralModel
-from petitRADTRANS.phoenix import compute_phoenix_spectrum
+from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig

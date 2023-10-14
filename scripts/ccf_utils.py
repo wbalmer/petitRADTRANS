@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.stats import norm
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS import phoenix
+from petitRADTRANS.stellar_spectra import phoenix
 from petitRADTRANS import physics
 from scripts._ccf_old import calculate_ccf_snr, ccf_analysis
 from petitRADTRANS.cli.eso_etc_cli import download_snr_data, get_snr_data_file_name, output

@@ -23,7 +23,7 @@ from scripts.model_containers import SpectralModelLegacy
 from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.phoenix import compute_phoenix_spectrum
+from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import temperature_profile_function_guillot_global, doppler_shift
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval

@@ -2914,13 +2914,13 @@ class Radtrans:
                     if specified, uses this radius in cm
                     to scale the flux, otherwise it uses PHOENIX radius.
         """
-        from petitRADTRANS import phoenix
+        from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 
         if star_radius is not None:
-            spec, _ = phoenix.compute_phoenix_spectrum(star_effective_temperature)
+            spec, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
             rad = star_radius
         else:
-            spec, rad = phoenix.compute_phoenix_spectrum(star_effective_temperature)
+            spec, rad = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
 
         add_stellar_flux = np.zeros(100)
         add_wavelengths = np.logspace(np.log10(1.0000002e-02), 2, 100)

@@ -4,7 +4,7 @@ import numpy as np
 from scipy.special import erf, erfinv, lambertw
 
 
-def bayes_factor2sigma(bayes_factor):
+def bayes_factor2sigma(bayes_factor: float) -> float:
     """
     Convert a Bayes factor, or "evidence", into a sigma significance. For Bayes factor higher than exp(25), the function
     is approximated with a square root function.
@@ -46,7 +46,7 @@ def bayes_factor2sigma(bayes_factor):
         return sigma
 
 
-def box_car_conv(array, points):
+def box_car_conv(array: np.ndarray, points: np.ndarray) -> np.ndarray:
     res = np.zeros_like(array)
     len_arr = len(array)
 
@@ -61,18 +61,22 @@ def box_car_conv(array, points):
         elif i - points / 2 < 0:
             smooth_val = array[:max(2 * i, 1)]
             res[i] = np.sum(smooth_val) / len(smooth_val)
+
     return res
 
 
-def calculate_chi2(data, model, uncertainties):
+def calculate_chi2(data: [float, np.ndarray], model: [float, np.ndarray], uncertainties: [float, np.ndarray]) \
+        -> [float, np.ndarray]:
     return np.sum(((data - model) / uncertainties) ** 2)
 
 
-def calculate_reduced_chi2(data, model, uncertainties, degrees_of_freedom=0):
+def calculate_reduced_chi2(data: [float, np.ndarray], model: [float, np.ndarray], uncertainties: [float, np.ndarray],
+                           degrees_of_freedom: int = 0) -> [float, np.ndarray]:
     return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom)
 
 
-def calculate_uncertainty(derivatives, uncertainties, covariance_matrix=None):
+def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray, covariance_matrix: np.ndarray = None)\
+        -> np.ndarray:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
     coefficients between x, y, ...
@@ -86,9 +90,12 @@ def calculate_uncertainty(derivatives, uncertainties, covariance_matrix=None):
         2. https://phas.ubc.ca/~oser/p509/Lec_10.pdf
         3. http://math.jacobs-university.de/oliver/teaching/jacobs/fall2015/esm106/handouts/error-propagation.pdf
     Args:
-        derivatives: partial derivatives of the function with respect to each variables (df/dx, df/dy, ...)
-        uncertainties: uncertainties of each variable (either a 1D-array or a 2D-array containing - and + unc.)
-        covariance_matrix: covariance matrix between the variables, by default set to the identity matrix
+        derivatives:
+            Partial derivatives of the function with respect to each variables (df/dx, df/dy, ...)
+        uncertainties:
+            Uncertainties of each variable (either a 1D-array or a 2D-array containing - and + unc.)
+        covariance_matrix:
+            Covariance matrix between the variables, by default set to the identity matrix
 
     Returns:
         A size-2 array containing the - and + uncertainties of the function
@@ -110,7 +117,7 @@ def calculate_uncertainty(derivatives, uncertainties, covariance_matrix=None):
         ]))
 
 
-def feature_scaling(array, min_value=0, max_value=1):
+def feature_scaling(array: np.ndarray, min_value: float = 0.0, max_value: float = 1.0) -> np.ndarray:
     """Bring all values of array between a min and max value.
 
     Args:
@@ -124,7 +131,7 @@ def feature_scaling(array, min_value=0, max_value=1):
     return min_value + ((array - np.min(array)) * (max_value - min_value)) / (np.max(array) - np.min(array))
 
 
-def gaussian_weights1d(sigma, truncate=4.0):
+def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> np.ndarray:
     """Compute a 1D Gaussian convolution kernel.
     To be used with scipy.ndimage.convolve1d.
 
@@ -139,18 +146,16 @@ def gaussian_weights1d(sigma, truncate=4.0):
     Returns:
 
     """
-    sd = float(sigma)
-
     # Make the radius of the filter equal to truncate standard deviations
-    radius = int(truncate * sd + 0.5)
+    radius = int(truncate * sigma + 0.5)
 
     x = np.arange(-radius, radius + 1)
-    phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
+    phi_x = np.exp(-0.5 / sigma ** 2 * x ** 2)
 
     return phi_x / phi_x.sum()
 
 
-def gaussian_weights_running(sigmas, truncate=4.0):
+def gaussian_weights_running(sigmas: np.nd, truncate=4.0):
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
     Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
