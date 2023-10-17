@@ -50,12 +50,13 @@ def test_line_by_line_downsampled_emission_spectrum():
 
 def test_line_by_line_downsampled_transmission_spectrum():
     # Calculate a transmission spectrum
-    frequencies, transit_radii, _ =atmosphere_lbl_downsampled.calculate_transit_radii(
+    frequencies, transit_radii, _ = atmosphere_lbl_downsampled.calculate_transit_radii(
         temperatures=temperature_isothermal,
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius']
+        * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         frequencies_to_wavelengths=False
     )

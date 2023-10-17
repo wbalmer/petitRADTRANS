@@ -302,7 +302,7 @@ Kzz = np.ones_like(temperature)*1e1**7.5
 fsed = 2.
 b_hans = 0.01
 atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW,
-                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_b_hansen=b_hans, cloud_particles_radius_distribution='hansen')
+                          eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_hansen_b=b_hans, cloud_particles_radius_distribution='hansen')
 
 plt.yscale('log')
 plt.xscale('log')
@@ -319,7 +319,7 @@ plt.clf()
 mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
 frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                                 eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
          color = 'black', label = 'cloudy, no scattering', zorder = 1)
@@ -354,15 +354,15 @@ pressures = np.logspace(-6, 2, 100)
 atmosphere.setup_opa_structure(pressures)
 
 frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
-                          add_cloud_scattering_as_absorption= True)
+                                                 eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
+                                                 add_cloud_scattering_as_absorption= True)
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
          label = 'cloudy, including scattering', zorder = 2)
 
 mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                          eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                                 eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, '-', \
          color = 'red', label = 'clear', zorder = 0)

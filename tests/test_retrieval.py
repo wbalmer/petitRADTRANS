@@ -137,7 +137,8 @@ def init_run():
     # Corner plot
     run_definition_simple.parameters['R_pl'].plot_in_corner = True
     run_definition_simple.parameters['R_pl'].corner_label = r'$R_{\rm P}$ ($\rm R_{Jup}$)'
-    run_definition_simple.parameters['R_pl'].corner_transform = lambda x: x / petitRADTRANS.physical_constants.r_jup_mean
+    run_definition_simple.parameters['R_pl'].corner_transform = \
+        lambda x: x / petitRADTRANS.physical_constants.r_jup_mean
     run_definition_simple.parameters['Temperature'].plot_in_corner = True
     run_definition_simple.parameters['Temperature'].corner_label = "Temp"
     run_definition_simple.parameters['log_Pcloud'].plot_in_corner = True

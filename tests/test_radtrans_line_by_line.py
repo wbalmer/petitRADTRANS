@@ -51,7 +51,8 @@ def init_spectral_model_line_by_line():
         use_equilibrium_chemistry=False,
         imposed_mass_mixing_ratios=radtrans_parameters['mass_fractions'],
         # Transmission spectrum parameters (radtrans.calc_transm)
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,  # cm
+        planet_radius=radtrans_parameters['planetary_parameters']['radius']
+        * petitRADTRANS.physical_constants.r_jup_mean,  # cm
         planet_surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
         # cloud_pressure=1e-1,
@@ -139,7 +140,8 @@ def test_line_by_line_transmission_spectrum():
         mass_fractions=radtrans_parameters['mass_fractions'],
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        planet_radius=radtrans_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
+        planet_radius=radtrans_parameters['planetary_parameters']['radius']
+        * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
         frequencies_to_wavelengths=False
     )

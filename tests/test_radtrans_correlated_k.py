@@ -66,7 +66,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
         mass_fractions=mass_fractions,
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        eddy_diffusion_coefficients=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
             'Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
@@ -95,7 +95,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
         mass_fractions=mass_fractions,
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        eddy_diffusion_coefficients=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
             'Mg2SiO4(s)_crystalline__DHS']['sigma_log_normal'],
@@ -123,9 +123,9 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
         mass_fractions=mass_fractions,
         reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficient=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
+        eddy_diffusion_coefficients=radtrans_parameters['planetary_parameters']['eddy_diffusion_coefficient'],
         cloud_f_sed=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS']['f_sed'],
-        cloud_b_hansen=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS'][
+        cloud_hansen_b=radtrans_parameters['cloud_parameters']['cloud_species']['Mg2SiO4(s)_crystalline__DHS'][
             'b_hansen'],
         cloud_particles_radius_distribution='hansen',
         frequencies_to_wavelengths=False

@@ -63,7 +63,7 @@ if case1:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                                                     eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
+                                                     eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm, \
                                                      return_contribution= False)
     plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label = 'cloudy, including scattering', zorder = 2)
@@ -120,10 +120,10 @@ if case2:
     mass_fractions['Mg2SiO4(c)'] = mfr_cloud
 
     frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                                                  eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                                                  emission_geometry='non-isotropic', star_effective_temperature=5778, \
-                                                  star_radius=cst.r_sun, orbit_semi_major_axis=0.05 * cst.au, \
-                                                  star_irradiation_angle=30.)
+                                                     eddy_diffusion_coefficients=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                                                     emission_geometry='non-isotropic', star_effective_temperature=5778, \
+                                                     star_radius=cst.r_sun, orbit_semi_major_axis=0.05 * cst.au, \
+                                                     star_irradiation_angle=30.)
     plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
              label='non-isotropic, 30 degrees', zorder=0)
 
@@ -181,9 +181,9 @@ if case3:
         atmosphere.reflectance = r * np.ones_like(atmosphere._frequencies)
 
         frequencies, flux, _ = atmosphere.calculate_flux(temperature, mass_fractions, gravity, MMW, \
-                                                      eddy_diffusion_coefficient=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
-                                                      emission_geometry='planetary_ave', star_effective_temperature=5778, \
-                                                      star_radius=cst.r_sun, orbit_semi_major_axis=cst.au)
+                                                         eddy_diffusion_coefficients=Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std=sigma_lnorm, \
+                                                         emission_geometry='planetary_ave', star_effective_temperature=5778, \
+                                                         star_radius=cst.r_sun, orbit_semi_major_axis=cst.au)
 
         plt.semilogy(cst.c / frequencies / 1e-4, flux / 1e-6, \
                      label='Surface Reflectance = ' + str(r), zorder=2)

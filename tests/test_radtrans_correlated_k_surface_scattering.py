@@ -11,8 +11,6 @@ may be performed in order to rule out "unlucky" results.
 """
 import copy
 
-import numpy as np
-
 from .context import petitRADTRANS
 from .utils import compare_from_reference_file, \
     reference_filenames, radtrans_parameters, temperature_guillot_2010
