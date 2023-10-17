@@ -269,6 +269,66 @@ def _get_prt2_line_by_line_names():
     })
 
 
+def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
+    # Read the Ps and Ts
+    pressure_temperature_grid = np.genfromtxt(pressure_temperature_grid_file)
+
+    # Read the file names
+    with open(pressure_temperature_grid_file, 'r') as f:
+        lines = f.readlines()
+
+    n_lines = len(lines)
+
+    # Prepare the array to contain the pressures, temperatures, indices in the unsorted list.
+    # Also prepare the list of unsorted names
+    sorted_grid = np.ones((n_lines, 3))
+    names = []
+
+    # Fill the array and name list
+    for i in range(n_lines):
+        columns = lines[i].split(' ')
+
+        sorted_grid[i, 0] = pressure_temperature_grid[i, 0]
+        sorted_grid[i, 1] = pressure_temperature_grid[i, 1]
+        sorted_grid[i, 2] = i
+
+        if columns[-1][-1] == '\n':
+            names.append(columns[-1][:-1])
+        else:
+            names.append(columns[-1])
+
+    # Sort the array by temperature
+    sorted_indices = np.argsort(sorted_grid[:, 1])
+    sorted_grid = sorted_grid[sorted_indices, :]
+
+    # Sort the array entries with constant temperatures by pressure
+    n_pressures = 0
+
+    for i in range(n_lines):
+        if np.abs(sorted_grid[i, 1] - sorted_grid[0, 1]) > 1e-10:
+            break
+
+        n_pressures = n_pressures + 1
+
+    n_temperatures = int(n_lines / n_pressures)
+
+    for i in range(n_temperatures):
+        sorted_grid_ = sorted_grid[i * n_pressures:(i + 1) * n_pressures, :]
+        sorted_indices = np.argsort(sorted_grid_[:, 0])
+        sorted_grid_ = sorted_grid_[sorted_indices, :]
+        sorted_grid[i * n_pressures:(i + 1) * n_pressures, :] = sorted_grid_
+
+    names_sorted = []
+
+    for i in range(n_lines):
+        names_sorted.append(names[int(sorted_grid[i, 2] + 0.01)])
+
+    # Convert from bar to cgs
+    sorted_grid[:, 0] = sorted_grid[:, 0] * 1e6
+
+    return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
+
+
 def get_default_rebinning_wavelength_range():
     return np.array([0.1, 251.0])  # um
 
@@ -1138,7 +1198,6 @@ def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
                                   rewrite=False, old_paths=False, clean=False):
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
-    from petitRADTRANS.radtrans import Radtrans
 
     # Initialize information
     kurucz_website = 'http://kurucz.harvard.edu/'
@@ -1531,7 +1590,7 @@ def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
             has_custom_grid = True
 
             # _sort_opa_pt_grid converts bar into cgs
-            custom_grid_data = Radtrans._sort_pressure_temperature_grid(custom_pt_grid_file)
+            custom_grid_data = _sort_pressure_temperature_grid(custom_pt_grid_file)
 
             opacities_temperature_profile_grid_ = custom_grid_data[0]
             opacities_temperatures_ = np.unique(opacities_temperature_profile_grid_[:, 0])
@@ -1746,7 +1805,6 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
-    from petitRADTRANS.radtrans import Radtrans
 
     # Initialize infos
     kurucz_website = 'http://kurucz.harvard.edu/'
@@ -2137,7 +2195,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
             print(" Found custom PT grid")
 
             # _sort_opa_pt_grid converts bar into cgs
-            custom_grid_data = Radtrans._sort_pressure_temperature_grid(custom_pt_grid_file)
+            custom_grid_data = _sort_pressure_temperature_grid(custom_pt_grid_file)
 
             opacities_temperature_profile_grid_ = custom_grid_data[0]
             opacities_temperatures_ = np.unique(opacities_temperature_profile_grid_[:, 0])

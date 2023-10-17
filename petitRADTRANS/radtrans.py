@@ -193,12 +193,37 @@ class Radtrans:
                 'particles_asymmetry_parameters': None,
             }
         )
-        self._clouds_loaded_opacities.lock()
 
-        # Load in the angle (mu) grid for the emission spectral calculations
-        self._emission_cos_angle_grid, self._emission_cos_angle_grid_weights = (
-            self._load_emission_angle_grid(self._path_input_data)
-        )
+        # Initialize the angle (mu) grid for the emission spectral calculations
+        if emission_cos_angle_grid is None:
+            self._emission_cos_angle_grid = np.array([
+                0.1127016654,
+                0.5,
+                0.8872983346
+            ])
+
+            if emission_cos_angle_grid_weights is not None:
+                warnings.warn("ignoring emission_cos_angle_grid_weights custom values and using the default ones\n"
+                              "To use a custom emission angle grid, "
+                              "set both emission_cos_angle_grid and emission_cos_angle_grid_weights")
+
+            self._emission_cos_angle_grid_weights = np.array([
+                0.2777777778,
+                0.4444444444,
+                0.2777777778
+            ])
+        else:
+            if emission_cos_angle_grid_weights is None:
+                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
+                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
+                                 f"but was not set")
+            elif np.size(emission_cos_angle_grid_weights) != np.size(emission_cos_angle_grid):
+                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
+                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
+                                 f"but is of size {np.size(emission_cos_angle_grid_weights)}")
+
+            self._emission_cos_angle_grid = emission_cos_angle_grid
+            self._emission_cos_angle_grid_weights = emission_cos_angle_grid_weights
 
         # Load all opacities
         self.load_all_opacities()
@@ -406,36 +431,6 @@ class Radtrans:
     def __check_anisotropic_cloud_scattering(mode):
         if mode not in ['auto', True, False]:
             raise ValueError(f"anisotropic cloud scattering must be 'auto'|True|False, but was '{mode}'")
-
-    @staticmethod
-    def __check_custom_pressure_temperature_grid(path, mode, species):
-        """Check if custom grid exists, if yes return sorted P-T array with corresponding sorted path_input_data names,
-        return None otherwise.
-        This function can sort the grid appropriately if needed, but it must be specified by the user in
-        the opacity folder of the relevant species.
-        The custom grid must be rectangular.
-
-        Args:
-            path:
-            mode:
-            species:
-
-        Returns:
-
-        """
-        pressure_temperature_grid_file = path + '/opacities/lines/'
-
-        if mode == 'lbl':
-            pressure_temperature_grid_file = pressure_temperature_grid_file + 'line_by_line/'
-        elif mode == 'c-k':
-            pressure_temperature_grid_file = pressure_temperature_grid_file + 'corr_k/'
-
-        pressure_temperature_grid_file = pressure_temperature_grid_file + species + '/PTpaths.ls'
-
-        if not os.path.isfile(pressure_temperature_grid_file):
-            return None
-        else:
-            return Radtrans._sort_pressure_temperature_grid(pressure_temperature_grid_file)
 
     @staticmethod
     def __check_line_opacity_mode(mode):
@@ -1902,11 +1897,6 @@ class Radtrans:
                 index where to start reading .dat line-by-line opacity files, not used if all lbl files are in HDF5
         """
         if self._line_opacity_mode == 'c-k':  # correlated-k
-            if self._scattering_in_emission and not self._use_precise_correlated_k_opacities:
-                print("Emission scattering is enabled in c-k mode: enforcing the precise calculation of c-k opacities")
-
-                self._use_precise_correlated_k_opacities = True
-
             # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution
             # Use the first entry of self.line_species for this, if given
             hdf5_file = get_opacity_input_file(
@@ -2104,77 +2094,6 @@ class Radtrans:
             )
 
         return line_opacities
-
-    @staticmethod
-    def _load_emission_angle_grid(path_input_data):
-        mu_points_file = os.path.abspath(os.path.join(path_input_data, 'opa_input_files', 'mu_points.dat'))
-        print(f" Loading emission angles grid from file '{mu_points_file}'...")
-
-        mu_points = np.genfromtxt(mu_points_file)
-        mu = mu_points[:, 0]
-        w_gauss_mu = mu_points[:, 1]
-
-        return mu, w_gauss_mu
-
-    @staticmethod
-    def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
-        # Read the Ps and Ts
-        pressure_temperature_grid = np.genfromtxt(pressure_temperature_grid_file)
-
-        # Read the file names
-        with open(pressure_temperature_grid_file, 'r') as f:
-            lines = f.readlines()
-
-        n_lines = len(lines)
-
-        # Prepare the array to contain the pressures, temperatures, indices in the unsorted list.
-        # Also prepare the list of unsorted names
-        sorted_grid = np.ones((n_lines, 3))
-        names = []
-
-        # Fill the array and name list
-        for i in range(n_lines):
-            columns = lines[i].split(' ')
-
-            sorted_grid[i, 0] = pressure_temperature_grid[i, 0]
-            sorted_grid[i, 1] = pressure_temperature_grid[i, 1]
-            sorted_grid[i, 2] = i
-
-            if columns[-1][-1] == '\n':
-                names.append(columns[-1][:-1])
-            else:
-                names.append(columns[-1])
-
-        # Sort the array by temperature
-        sorted_indices = np.argsort(sorted_grid[:, 1])
-        sorted_grid = sorted_grid[sorted_indices, :]
-
-        # Sort the array entries with constant temperatures by pressure
-        n_pressures = 0
-
-        for i in range(n_lines):
-            if np.abs(sorted_grid[i, 1] - sorted_grid[0, 1]) > 1e-10:
-                break
-
-            n_pressures = n_pressures + 1
-
-        n_temperatures = int(n_lines / n_pressures)
-
-        for i in range(n_temperatures):
-            sorted_grid_ = sorted_grid[i * n_pressures:(i + 1) * n_pressures, :]
-            sorted_indices = np.argsort(sorted_grid_[:, 0])
-            sorted_grid_ = sorted_grid_[sorted_indices, :]
-            sorted_grid[i * n_pressures:(i + 1) * n_pressures, :] = sorted_grid_
-
-        names_sorted = []
-
-        for i in range(n_lines):
-            names_sorted.append(names[int(sorted_grid[i, 2] + 0.01)])
-
-        # Convert from bar to cgs
-        sorted_grid[:, 0] = sorted_grid[:, 0] * 1e6
-
-        return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
 
     @staticmethod
     def compute_bins_edges(middle_bin_points):
