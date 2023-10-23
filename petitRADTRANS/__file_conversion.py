@@ -2483,7 +2483,7 @@ def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False)
 
         print(f"Rebinning species {s}...")
         # Use Exo-k to rebin to low-res
-        print(f" Binning down to R = '{resolution}'...", end=' ')
+        print(f" Binning down to R = {resolution}...", end=' ')
         tab = exo_k.Ktable(filename=hdf5_opacity_file_input)
         tab.bin_down(wavenumber_grid)
 
