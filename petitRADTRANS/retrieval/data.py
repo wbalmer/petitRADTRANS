@@ -406,9 +406,16 @@ class Data:
                                                    self.data_resolution)
 
                 # Rebin to model observation
-                if np.all(wlen_model == self.wlen):
-                    flux_rebinned = copy.deepcopy(spectrum_model)
+                if np.size(wlen_model) == np.size(self.wlen):
+                    if np.all(wlen_model == self.wlen):
+                        flux_rebinned = copy.deepcopy(spectrum_model)
+                        rebin = False
+                    else:
+                        rebin = True
                 else:
+                    rebin = True
+
+                if rebin:
                     flux_rebinned = frebin.rebin_spectrum_bin(
                         wlen_model,
                         spectrum_model,
