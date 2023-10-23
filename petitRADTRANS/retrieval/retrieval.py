@@ -1180,8 +1180,10 @@ class Retrieval:
                         samples_use[i_p] = np.median(samples[:, i_s])
                 i_p += 1
         self.best_fit_params = self.build_param_dict(samples_use, parameters_read)
+
         if return_array:
             return self.best_fit_params, samples_use
+
         return self.best_fit_params
 
     def get_full_range_model(self,
