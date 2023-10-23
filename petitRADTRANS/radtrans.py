@@ -2421,6 +2421,9 @@ class Radtrans:
         if clouds_particles_mean_radii is not None:
             additional_outputs['clouds_particles_mean_radii'] = clouds_particles_mean_radii
 
+        if stellar_intensities is not None:
+            additional_outputs['stellar_intensities'] = stellar_intensities
+
         if return_contribution:
             additional_outputs['emission_contribution'] = emission_contribution
 
@@ -2932,8 +2935,7 @@ class Radtrans:
         from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 
         if star_radius is not None:
-            spec, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
-            rad = star_radius
+            star_spectrum, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
             _star_radius = star_radius
         else:
             star_spectrum, _star_radius = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
