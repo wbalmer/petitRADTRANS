@@ -844,7 +844,8 @@ class Radtrans:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
             else:
                 # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
-                line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec].split('_')[0]]
+                chem_spec = self._line_species[i_spec].split('.', 1)[0].split('_', 1)[0]
+                line_species_mass_fractions[:, i_spec] = mass_fractions[chem_spec]
 
         # Combine line opacities with continuum opacities
         opacities = finput.combine_opacities(
