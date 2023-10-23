@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a82] - 2023-17-10
+## [3.0.0-a82] - 2023-23-10
 ### Added
 - SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
