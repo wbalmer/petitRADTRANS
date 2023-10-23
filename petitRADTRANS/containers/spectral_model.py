@@ -1579,10 +1579,11 @@ class BaseSpectralModel:
             if np.ndim(output_wavelengths) <= 1:
                 output_wavelengths = np.array([output_wavelengths])
 
-        star_spectral_radiosities = flux_hz2flux_cm(
-            star_spectral_radiosities,
-            cst.c / star_spectrum_wavelengths * 1e4  # um to cm
-        ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
+        if star_spectral_radiosities is not None and star_spectrum_wavelengths is not None:
+            star_spectral_radiosities = flux_hz2flux_cm(
+                star_spectral_radiosities,
+                cst.c / star_spectrum_wavelengths * 1e4  # um to cm
+            ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
         star_spectrum = star_spectral_radiosities
 
