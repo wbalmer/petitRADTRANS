@@ -878,7 +878,7 @@ class Radtrans:
                                  opacities, continuum_opacities_scattering, return_contribution):
         """Calculate the transit radii.
         TODO complete docstring
-        
+
         Args:
             temperatures:
             mean_molar_masses:
@@ -2934,18 +2934,17 @@ class Radtrans:
         if star_radius is not None:
             spec, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
             rad = star_radius
+            _star_radius = star_radius
         else:
-            spec, rad = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
+            star_spectrum, _star_radius = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
 
-        add_stellar_flux = np.zeros(100)
-        add_wavelengths = np.logspace(np.log10(1.0000002e-02), 2, 100)
+        stellar_intensity = Radtrans.rebin_star_spectrum(
+            star_spectrum=star_spectrum[:, 1],
+            star_wavelengths=star_spectrum[:, 0],
+            wavelengths=cst.c / frequencies
+        )
 
-        wavelengths_interp = np.append(spec[:, 0], add_wavelengths)
-        fluxes_interp = np.append(spec[:, 1], add_stellar_flux)
-
-        stellar_intensity = frebin.rebin_spectrum(wavelengths_interp, fluxes_interp, cst.c / frequencies)
-
-        stellar_intensity = stellar_intensity / np.pi * (rad / orbit_semi_major_axis) ** 2
+        stellar_intensity = stellar_intensity / np.pi * (star_radius / orbit_semi_major_axis) ** 2
 
         return stellar_intensity
 
@@ -3276,3 +3275,15 @@ class Radtrans:
 
         return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
             line_opacities_pressure_grid_size, has_custom_line_opacities_temperature_pressure_grid
+
+    @staticmethod
+    def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
+        add_stellar_flux = np.zeros(100)
+        add_wavelengths = np.logspace(np.log10(1.0000002e-02), 2, 100)
+
+        wavelengths_interp = np.append(star_wavelengths, add_wavelengths)
+        fluxes_interp = np.append(star_spectrum, add_stellar_flux)
+
+        stellar_intensity = frebin.rebin_spectrum(wavelengths_interp, fluxes_interp, wavelengths)
+
+        return stellar_intensity
