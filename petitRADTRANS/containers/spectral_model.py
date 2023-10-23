@@ -15,7 +15,8 @@ from petitRADTRANS.containers.planet import Planet
 from petitRADTRANS.math import gaussian_weights_running
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.physics import (
-    doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, rebin_spectrum
+    doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
+    rebin_spectrum
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
@@ -835,7 +836,7 @@ class BaseSpectralModel:
             )
 
         # Calculate the spectrum
-        wavelengths, spectral_radiosity, _ = radtrans.calculate_flux(
+        wavelengths, spectral_radiosity, additional_outputs = radtrans.calculate_flux(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             reference_gravity=planet_surface_gravity,
@@ -872,11 +873,10 @@ class BaseSpectralModel:
         spectral_radiosity *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
         wavelengths *= 1e4  # cm to um
 
-        return wavelengths, spectral_radiosity
+        return wavelengths, spectral_radiosity, additional_outputs
 
     @staticmethod
     def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
-        # The PHOENIX data are loaded only when the module is imported
         star_data, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
@@ -962,7 +962,7 @@ class BaseSpectralModel:
 
         """
         # Calculate the spectrum
-        wavelengths, planet_transit_radius, _ = radtrans.calculate_transit_radii(
+        wavelengths, planet_transit_radius, additional_outputs = radtrans.calculate_transit_radii(
             temperatures=temperatures,
             mass_fractions=mass_mixing_ratios,
             reference_gravity=planet_surface_gravity,
@@ -992,7 +992,7 @@ class BaseSpectralModel:
         wavelengths *= 1e4  # cm to um
         # TODO add an option to convert into stellar flux during transit by adding a star spectrum?
 
-        return wavelengths, planet_transit_radius
+        return wavelengths, planet_transit_radius, additional_outputs
 
     @staticmethod
     def calculate_transit_fractional_light_loss(spectrum, **kwargs):
@@ -1262,7 +1262,7 @@ class BaseSpectralModel:
         )
 
     def get_spectral_radiosity_spectrum_model(self, radtrans: Radtrans, parameters):
-        self.wavelengths, self.spectral_radiosities = self.calculate_spectral_radiosity_spectrum(
+        self.wavelengths, self.spectral_radiosities, additional_outputs = self.calculate_spectral_radiosity_spectrum(
             radtrans=radtrans,
             temperatures=self.temperatures,
             mass_mixing_ratios=self.mass_mixing_ratios,
@@ -1270,7 +1270,7 @@ class BaseSpectralModel:
             **parameters
         )
 
-        return self.wavelengths, self.spectral_radiosities
+        return self.wavelengths, self.spectral_radiosities, additional_outputs
 
     def get_spectrum_model(self, radtrans: Radtrans, mode='emission', parameters=None, update_parameters=False,
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
@@ -1302,15 +1302,19 @@ class BaseSpectralModel:
 
         # Raw spectrum
         if mode == 'emission':
-            self.wavelengths, self.spectral_radiosities = self.get_spectral_radiosity_spectrum_model(
-                radtrans=radtrans,
-                parameters=parameters
+            self.wavelengths, self.spectral_radiosities, additional_outputs = (
+                self.get_spectral_radiosity_spectrum_model(
+                    radtrans=radtrans,
+                    parameters=parameters
+                )
             )
             spectrum = copy.copy(self.spectral_radiosities)
         elif mode == 'transmission':
-            self.wavelengths, self.transit_radii = self.get_transit_spectrum_model(
-                radtrans=radtrans,
-                parameters=parameters
+            self.wavelengths, self.transit_radii, additional_outputs = (
+                self.get_transit_spectrum_model(
+                    radtrans=radtrans,
+                    parameters=parameters
+                )
             )
             spectrum = copy.copy(self.transit_radii)
         else:
@@ -1361,7 +1365,7 @@ class BaseSpectralModel:
         return wavelengths, spectrum
 
     def get_transit_spectrum_model(self, radtrans: Radtrans, parameters):
-        self.wavelengths, self.transit_radii = self.calculate_transit_spectrum(
+        self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_spectrum(
             radtrans=radtrans,
             temperatures=self.temperatures,
             mass_mixing_ratios=self.mass_mixing_ratios,
@@ -1369,7 +1373,7 @@ class BaseSpectralModel:
             **parameters
         )
 
-        return self.wavelengths, self.transit_radii
+        return self.wavelengths, self.transit_radii, additional_outputs
 
     def get_telluric_transmittances(self, file, relative_velocities=None, rewrite=False, tellurics_resolving_power=1e6,
                                     **kwargs):
@@ -1546,8 +1550,9 @@ class BaseSpectralModel:
                         telluric_transmittances_wavelengths=None, telluric_transmittances=None, airmass=None,
                         instrumental_deformations=None, noise_matrix=None,
                         output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
+                        planet_radius=None,
                         star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
-                        is_observed=False, star_radius=None, system_distance=None,
+                        orbit_semi_major_axis=None, is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None,
                         transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
@@ -1573,6 +1578,11 @@ class BaseSpectralModel:
         if output_wavelengths is not None:
             if np.ndim(output_wavelengths) <= 1:
                 output_wavelengths = np.array([output_wavelengths])
+
+        star_spectral_radiosities = flux_hz2flux_cm(
+            star_spectral_radiosities,
+            cst.c / star_spectrum_wavelengths * 1e4  # um to cm
+        ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
         star_spectrum = star_spectral_radiosities
 
@@ -1607,7 +1617,13 @@ class BaseSpectralModel:
         if is_observed and mode == 'emission':
             # Calculate planet radiosity + star radiosity
             if star_spectrum is not None:
-                spectrum = spectrum + star_spectrum
+                star_spectrum = Radtrans.rebin_star_spectrum(
+                    star_spectrum=star_spectrum,
+                    star_wavelengths=star_spectrum_wavelengths,
+                    wavelengths=wavelengths
+                )
+
+                # spectrum = spectrum + star_spectrum
 
                 star_observed_spectrum = flux2irradiance(
                     flux=star_spectrum,
@@ -1617,7 +1633,7 @@ class BaseSpectralModel:
 
             spectrum = flux2irradiance(
                 flux=spectrum,
-                source_radius=star_radius,
+                source_radius=planet_radius,
                 target_distance=system_distance
             )
         else:
@@ -1855,8 +1871,9 @@ class BaseSpectralModel:
                     imposed_mass_mixing_ratios[species] = 10 ** p[species] \
                                                           * np.ones(prt_object.pressures.shape)
                 else:
-                    spec = species.split('_R_')[
-                        0]  # deal with the naming scheme for binned down opacities (see below)
+                    # spec = species.split('.')[
+                    #     0]  # deal with the naming scheme for binned down opacities (see below)
+                    spec = species
                     imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
                         * np.ones(prt_object.pressures.shape)
 
@@ -1968,7 +1985,7 @@ class BaseSpectralModel:
 
                 raise TypeError(f"missing {len(missing)} positional arguments: '{joint}'")
 
-            return 1 + spectrum / star_observed_spectrum
+            return spectrum / star_observed_spectrum
         elif mode == 'transmission':
             return 1 - (spectrum / star_radius) ** 2
         else:
