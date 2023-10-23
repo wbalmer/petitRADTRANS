@@ -156,10 +156,12 @@ class Radtrans:
 
         # Initialize non-settable properties
         self.__scattering_in_transmission = False
-        self.__absorber_present = len(self._line_species) == 0 \
-            and len(self._gas_continuum_contributors) == 0 \
-            and len(self._rayleigh_species) == 0 \
+        self.__absorber_present = not (
+            len(self._line_species) == 0
+            and len(self._gas_continuum_contributors) == 0
+            and len(self._rayleigh_species) == 0
             and len(self._cloud_species) == 0
+        )
 
         # Initialize line parameters
         if len(line_species) > 0:  # TODO init Radtrans even if there is no opacity
