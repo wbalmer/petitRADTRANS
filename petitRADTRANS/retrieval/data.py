@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 import sys
@@ -405,12 +406,15 @@ class Data:
                                                    self.data_resolution)
 
                 # Rebin to model observation
-                flux_rebinned = frebin.rebin_spectrum_bin(
-                    wlen_model,
-                    spectrum_model,
-                    self.wlen,
-                    self.wlen_bins
-                )
+                if np.all(wlen_model == self.wlen):
+                    flux_rebinned = copy.deepcopy(spectrum_model)
+                else:
+                    flux_rebinned = frebin.rebin_spectrum_bin(
+                        wlen_model,
+                        spectrum_model,
+                        self.wlen,
+                        self.wlen_bins
+                    )
         else:
             flux_rebinned = \
                 self.photometric_transformation_function(wlen_model,
@@ -423,6 +427,7 @@ class Data:
             diff = (flux_rebinned - self.flux * parameters[self.name + "_scale_factor"].value) + self.offset
         else:
             diff = (flux_rebinned - self.flux) + self.offset
+
         f_err = self.flux_error
         b_val = None
 
