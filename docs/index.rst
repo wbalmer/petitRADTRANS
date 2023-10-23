@@ -11,6 +11,10 @@ Python package for calculating transmission and emission spectra
 of exoplanets, assuming clear or cloudy atmospheres. pRT incorporates
 an easy `subpackage <content/notebooks/pRT_Retrieval_Example.html>`_ for running retrievals with nested sampling.
 
+**pRT Version 3 is coming up!** petitRADTRANS 3 comes with a lot of quality-of-life features,
+optimization, and code rationalization, but also with breaking
+changes. Read `here <content/version3_preview.html>`_ for a summary of the pRT 3 improvements and changes.
+
 **To get started with some examples on how to run pRT immediately,
 see** `"Getting started" <content/notebooks/getting_started.html>`_. **Otherwise read on for some more general info,
 also on how to best run retrievals.**
@@ -74,6 +78,7 @@ ________________
    :caption: Guide:
 
    content/installation
+   content/version3_preview
    content/tutorial
    content/available_opacities
    content/retrieval_examples

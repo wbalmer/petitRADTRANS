@@ -1246,11 +1246,10 @@ class Retrieval:
                 rayleigh_species=cp.copy(self.rd.rayleigh_species),
                 gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                 cloud_species=cp.copy(self.rd.cloud_species),
-                line_opacity_mode='c-k',
-                wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
+                line_opacity_mode=self.data[self.rd.plot_kwargs["take_PTs_from"]].opacity_mode,
+                wavelengths_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.rd.scattering
             )
-
         if self.rd.AMR:
             parameters["pressure_scaling"] = self.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.parameters["pressure_width"]
@@ -1266,7 +1265,7 @@ class Retrieval:
         return mg_func(atmosphere, parameters, PT_plot_mode=False, AMR=self.rd.AMR)
 
     def get_best_fit_model(self, best_fit_params, parameters_read, ret_name=None, contribution=False,
-                           prt_reference=None, refresh=True, mode='bestfit'):
+                           prt_reference=None, model_generating_function=None, refresh=True, mode='bestfit'):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
         range of the retrieval, to be used in plots.
@@ -1283,6 +1282,10 @@ class Retrieval:
             prt_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for plotting,
                 instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
@@ -1318,11 +1321,13 @@ class Retrieval:
                     f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_full.npy").T
                 return bf_wlen, bf_spectrum, bf_contribution
 
-            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
-                                                                              model_generating_func=None,
-                                                                              ret_name=ret_name,
-                                                                              contribution=contribution,
-                                                                              prt_reference=prt_reference)
+            bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(
+                self.best_fit_params,
+                model_generating_func=model_generating_function,
+                ret_name=ret_name,
+                contribution=contribution,
+                prt_reference=prt_reference
+            )
             np.save(f"{self.output_dir}evaluate_{self.retrieval_name}/{ret_name}_{mode}_model_contribution",
                     bf_contribution)
         else:
@@ -1335,7 +1340,7 @@ class Retrieval:
 
             ret_val = self.get_full_range_model(
                 self.best_fit_params,
-                model_generating_func=None,
+                model_generating_func=model_generating_function,
                 ret_name=ret_name,
                 contribution=contribution,
                 prt_reference=prt_reference
@@ -1389,9 +1394,10 @@ class Retrieval:
             name = self.rd.plot_kwargs["take_PTs_from"]
         else:
             name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+
         species = [spec.split(self.data.resolving_power_str)[0] for spec in self.data[name].pRT_object.line_species]
         abundances, mmw, _, _ = get_abundances(
-            pressures,
+            self.rd.p_global,
             temps,
             cp.copy(species),
             cp.copy(self.data[name].pRT_object.cloud_species),
@@ -1423,12 +1429,42 @@ class Retrieval:
         return vmr, mmw
 
     def save_volume_mixing_ratios(self, sample_dict, parameter_dict, rets=None):
+        """
+        Save volume mixing ratios (VMRs) and line absorber species information for specified retrievals.
+
+        Parameters:
+        - self: The instance of the class containing the function.
+        - sample_dict (dict): A dictionary mapping retrieval names to lists of samples.
+        - parameter_dict (dict): A dictionary mapping retrieval names to parameter values.
+        - rets (list, optional): List of retrieval names to process. If None, uses the default retrieval name.
+
+        Returns:
+        - vmrs (numpy.ndarray): Array containing volume mixing ratios for each sample and species.
+
+        The function processes the specified retrievals and saves the corresponding VMRs and line absorber species
+        information to files in the output directory. If 'rets' is not provided, the default retrieval name is used.
+        The VMRs are saved in a numpy file, and the line absorber species are saved in a JSON file.
+
+        Example usage:
+            ```
+            sample_dict = {'Retrieval1': [...], 'Retrieval2': [...]}
+            parameter_dict = {'Retrieval1': {...}, 'Retrieval2': {...}}
+            vmrs = save_volume_mixing_ratios(sample_dict, parameter_dict)
+            ```
+        """
         if rets is None:
             rets = [self.retrieval_name]
 
         vmrs = None
 
         for ret in rets:
+            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+                name = self.rd.plot_kwargs["take_PTs_from"]
+            else:
+                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+
+            species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
+
             samples_use = sample_dict[ret]
             parameters_read = parameter_dict[ret]
             vmrs = []
@@ -1438,9 +1474,59 @@ class Retrieval:
                 vmrs.append(np.array(list(vmr.values())))
 
             vmrs = np.array(vmrs)
-            np.save(f"{self.output_dir}{ret}_volume_mixing_ratio_profiles", vmrs)
+            np.save(f"{self.output_dir}evaluate_{ret}/{ret}_volume_mixing_ratio_profiles", vmrs)
+            line_spec_file = f"{self.output_dir}evaluate_{ret}/{ret}_line_absorber_species.json"
+
+            with open(line_spec_file,'w+') as myFile:
+                json.dump(species, myFile)
 
         return vmrs
+
+    def save_mass_fractions(self, sample_dict, parameter_dict, rets = None):
+        """
+        Save mass fractions and line absorber species information for specified retrievals.
+
+        Parameters:
+        - self: The instance of the class containing the function.
+        - sample_dict (dict): A dictionary mapping retrieval names to lists of samples.
+        - parameter_dict (dict): A dictionary mapping retrieval names to parameter values.
+        - rets (list, optional): List of retrieval names to process. If None, uses the default retrieval name.
+
+        Returns:
+        - mass_fractions (numpy.ndarray): Array containing mass fractions for each sample and species.
+
+        The function processes the specified retrievals and saves the corresponding mass fracs and line absorber species
+        information to files in the output directory. If 'rets' is not provided, the default retrieval name is used.
+        The mass fractinos are saved in a numpy file, and the line absorber species are saved in a JSON file.
+
+        Example usage:
+            ```
+            sample_dict = {'Retrieval1': [...], 'Retrieval2': [...]}
+            parameter_dict = {'Retrieval1': {...}, 'Retrieval2': {...}}
+            mass_fractions = save_mass_fractions(sample_dict, parameter_dict)
+            ```
+        """
+        if rets is None:
+            rets = [self.retrieval_name]
+        for ret in rets:
+            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+                name = self.rd.plot_kwargs["take_PTs_from"]
+            else:
+                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+            species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
+
+            samples_use = sample_dict[ret]
+            parameters_read = parameter_dict[ret]
+            mass_fractions = []
+            for sample in samples_use:
+                m_frac,_ = self.get_mass_fraction(sample[:-1],parameters_read)
+                mass_fractions.append(np.array(list(m_frac.values())))
+            mass_fractions = np.array(mass_fractions)
+            np.save(f"{self.output_dir}evaluate_{ret}/{ret}_mass_fraction_profiles", mass_fractions)
+            line_spec_file = f"{self.output_dir}evaluate_{ret}/{ret}_line_absorber_species.json"
+            with open(line_spec_file,'w+') as myFile:
+                json.dump(species, myFile)
+        return mass_fractions
 
     def get_evidence(self, ret_name=""):
         """
@@ -1815,10 +1901,9 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=[0.5, 28],
+            wavelengths_boundaries=np.array([0.85, 250]),
             scattering_in_emission=self.rd.scattering
         )  # TODO this prt_object is never used
-
         if self.rd.AMR:
             p = self.rd._setup_pres()
         else:
@@ -1873,7 +1958,13 @@ class Retrieval:
             np.save(self.output_dir + "evaluate_" + name + "/sampled_teff", np.array(teffs))
         return tdict
 
-    def plot_all(self, output_dir=None, ret_names=None, contribution=False, mode='bestfit'):
+    def plot_all(self,
+                 output_dir=None,
+                 ret_names=None,
+                 contribution=False,
+                 model_generating_func=None,
+                 prt_reference=None,
+                 mode='bestfit'):
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
         the best fit PT profile and a corner plot for parameters specified in the
@@ -1903,6 +1994,13 @@ class Retrieval:
                 in a single corner plot.
             contribution : bool
                 If true, plot the emission or transmission contribution function.
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             mode : str
                 If 'bestfit', consider the maximum likelihood sample for plotting,
                 if median, calculate the model based on the median retrieved parameters.
@@ -1952,18 +2050,45 @@ class Retrieval:
 
             # Plotting
             #
-            self.plot_spectra(samples_use, parameters_read, refresh=True, mode=mode)
+            self.plot_spectra(samples_use,
+                              parameters_read,
+                              refresh=True,
+                              model_generating_func=model_generating_func,
+                              pRT_reference=prt_reference,
+                              mode=mode)
 
             if self.evaluate_sample_spectra:
-                self.plot_sampled(samples_use, parameters_read)
+                self.plot_sampled(samples_use,
+                                  parameters_read,
+                                  model_generating_func=model_generating_func,
+                                  pRT_reference=prt_reference,)
 
-            self.plot_pt(sample_dict, parameters_read, contribution=contribution, mode=mode, refresh=False)
-            self.plot_corner(sample_dict, parameter_dict, parameters_read)
+            self.plot_pt(sample_dict,
+                         parameters_read,
+                         contribution=contribution,
+                         model_generating_func=model_generating_func,
+                         pRT_reference=prt_reference,
+                         mode=mode,
+                         refresh=False)
+            self.plot_corner(sample_dict,
+                             parameter_dict,
+                             parameters_read)
 
             if contribution:
-                self.plot_contribution(samples_use, parameters_read, mode=mode, refresh=False)
+                self.plot_contribution(samples_use,
+                                       parameters_read,
+                                       model_generating_func=model_generating_func,
+                                       pRT_reference=prt_reference,
+                                       mode=mode,
+                                       refresh=False)
 
-            self.plot_abundances(samples_use, parameters_read, contribution=contribution, mode=mode, refresh=False)
+            self.plot_abundances(samples_use,
+                                 parameters_read,
+                                 contribution=contribution,
+                                 model_generating_func=model_generating_func,
+                                 pRT_reference=prt_reference,
+                                 mode=mode,
+                                 refresh=False)
             print("Finished generating all plots!")
 
         if self.use_MPI and comm is not None:
@@ -1990,6 +2115,10 @@ class Retrieval:
             prt_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for plotting,
                 instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
@@ -2041,7 +2170,7 @@ class Retrieval:
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
-                model_generating_func,
+                model_generating_func=model_generating_func,
                 prt_reference=prt_reference,
                 refresh=refresh,
                 mode=mode
@@ -2325,7 +2454,7 @@ class Retrieval:
         return fig, ax, ax_r
 
     def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
-                     nsample=None, prt_reference=None, refresh=True):
+                     nsample=None, model_generating_func=None, pRT_reference=None, refresh=True):
         """
         Plot a set of randomly sampled output spectra for each dataset in
         the retrieval.
@@ -2356,6 +2485,10 @@ class Retrieval:
             prt_reference : str
                 If specified, the pRT object of the data with name pRT_reference will be used for plotting,
                 instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
@@ -2437,7 +2570,8 @@ class Retrieval:
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 samples_use[best_fit_index, :-1],
                 parameters_read,
-                prt_reference=prt_reference,
+                model_generating_func=model_generating_func,
+                pRT_reference=pRT_reference,
                 refresh=refresh
             )
             chi2 = self.get_reduced_chi2_from_model(
@@ -2473,8 +2607,8 @@ class Retrieval:
 
         return fig, ax
 
-    def plot_pt(self, sample_dict, parameters_read, contribution=False, refresh=False, prt_reference=None,
-                mode='bestfit'):
+    def plot_pt(self, sample_dict, parameters_read, contribution=False, refresh = False, model_generating_func=None,
+                prt_reference=None, mode='bestfit'):
         """
         Plot the PT profile with error contours
 
@@ -2492,8 +2626,12 @@ class Retrieval:
                 retrieval that is still running. If False no new spectrum will be calculated and the plot will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
             prt_reference : str
-                If specified, the pRT object of the data with name pRT_reference will be used for calculating
-                the contribution function, instead of generating a new pRT object at R = 1000.
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             mode : str
                 'bestfit' or 'median', indicating which set of values should be used to calculate the contribution
                 function.
@@ -2541,34 +2679,43 @@ class Retrieval:
                 temps_sort = np.load(temp_file + ".npy")
             else:
                 for sample in samples_use:
-                    pressures, t = self.log_likelihood(sample[:-1], 0, 0)
+                    press, t = self.log_likelihood(sample[:-1], 0, 0)
+
+                    if t is None:
+                        continue
+
                     temps.append(t)
 
-                temps = np.array(temps)
+                temps = np.array(temps, dtype=float)
                 temps_sort = np.sort(temps, axis=0)
                 np.save(press_file, pressures)
                 np.save(temp_file, temps_sort)
 
+            len_samp = temps_sort.shape[0]
             fig, ax = plt.subplots(figsize=(16, 10))
             ax.fill_betweenx(pressures,
                              x1=temps_sort[0, :],
                              x2=temps_sort[-1, :],
-                             color='cyan', label='all',
+                             color='cyan',
+                             label='all',
                              zorder=0)
             ax.fill_betweenx(pressures,
                              x1=temps_sort[int(len_samp * (0.5 - 0.997 / 2.)), :],
                              x2=temps_sort[int(len_samp * (0.5 + 0.997 / 2.)), :],
-                             color='brown', label='3 sig',
+                             color='brown',
+                             label='3 sig',
                              zorder=1)
             ax.fill_betweenx(pressures,
                              x1=temps_sort[int(len_samp * (0.5 - 0.95 / 2.)), :],
                              x2=temps_sort[int(len_samp * (0.5 + 0.95 / 2.)), :],
-                             color='orange', label='2 sig',
+                             color='orange',
+                             label='2 sig',
                              zorder=2)
             ax.fill_betweenx(pressures,
                              x1=temps_sort[int(len_samp * (0.5 - 0.68 / 2.)), :],
                              x2=temps_sort[int(len_samp * (0.5 + 0.68 / 2.)), :],
-                             color='red', label='1 sig',
+                             color='red',
+                             label='1 sig',
                              zorder=3)
 
             '''
@@ -2606,7 +2753,8 @@ class Retrieval:
                 bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
-                    prt_reference=prt_reference,
+                    model_generating_func=model_generating_func,
+                    pRT_reference=prt_reference,
                     refresh=refresh,
                     contribution=True,
                     mode=mode
@@ -2806,8 +2954,8 @@ class Retrieval:
         if self.use_MPI and comm is not None:
             comm.barrier()
 
-    def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, log_scale_contribution=False,
-                          n_contour_levels=30, refresh=True, mode='bestfit', ):
+    def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, pRT_reference=None,log_scale_contribution=False,
+                          n_contour_levels=30, refresh=True, mode='bestfit' ):
         """
         Plot the contribution function of the bestfit or median model from a retrieval. This plot indicates the
         relative contribution from each wavelength and each pressure level in the atmosphere to the spectrum.
@@ -2817,11 +2965,13 @@ class Retrieval:
                 An array of the samples from the post_equal_weights file, used to find the best fit sample
             parameters_read : list
                 A list of the free parameters as read from the output files.
-            model_generating_func : method   # TODO not used
-                A function that will take in the standard 'model' arguments
-                (pRT_object, params, pt_plot_mode, AMR, resolution)
-                and will return the wavlength and flux arrays as calculated by petitRadTrans.
-                If no argument is given, it uses the method of the first dataset included in the retrieval.
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             log_scale_contribution : bool
                 If true, take the log10 of the contribution function to visualise faint features.
             n_contour_levels : int
@@ -2884,6 +3034,8 @@ class Retrieval:
             bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
                 sample_use,
                 parameters_read,
+                model_generating_func=model_generating_func,
+                pRT_reference=pRT_reference,
                 refresh=refresh,
                 contribution=True,
                 mode=mode
@@ -2948,6 +3100,8 @@ class Retrieval:
                         species_to_plot=None,
                         contribution=False,
                         refresh=True,
+                        model_generating_func=None,
+                        prt_reference=None,
                         mode='bestfit',
                         sample_posteriors=False,
                         volume_mixing_ratio=False):
@@ -2963,6 +3117,13 @@ class Retrieval:
                 A list of which molecular species to include in the plot.
             contribution : bool
                 If true, overplot the emission or transmission contribution function.
+            pRT_reference : str
+                If specified, the pRT object of the data with name pRT_reference will be used for plotting,
+                instead of generating a new pRT object at R = 1000.
+            model_generating_function : (callable, optional):
+                A function that returns the wavelength and spectrum, and takes a pRT_Object and the
+                current set of parameters stored in self.parameters. This should be the same model
+                function used in the retrieval.
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
@@ -3098,7 +3259,8 @@ class Retrieval:
                 bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
-                    refresh=refresh,
+                    model_generating_func=model_generating_func,
+                    prt_reference=prt_reference,refresh=refresh,
                     contribution=True
                 )
                 nu = cst.c / bf_wlen
