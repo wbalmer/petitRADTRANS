@@ -183,6 +183,25 @@ def make_press_temp_iso(rad_trans_params):
     return press_new, temp_new
 
 
+def planck_function_cm(temperature, wavelength):
+    """Returns the Planck function :math:`B_{\\lambda}(T)` in units of
+    :math:`\\rm erg/s/cm^2/cm/steradian`.
+
+    Args:
+        temperature (float):
+            Temperature in K.
+        wavelength:
+            Array containing the wavelength in cm.
+    """
+
+    _planck_function = (
+            2. * cst.h * cst.c ** 2. / wavelength ** 5.
+            / (np.exp(cst.h * cst.c / wavelength / cst.kB / temperature) - 1.)
+    )
+
+    return _planck_function
+
+
 def planck_function_hz(temperature, frequency):
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
