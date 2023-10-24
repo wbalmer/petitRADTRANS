@@ -10,7 +10,7 @@ import time
 
 from scripts.jwst_retrieval_wasp39_b import *
 from petitRADTRANS.retrieval import Retrieval
-from petitRADTRANS.retrieval.plotting import contour_corner
+from petitRADTRANS.plotlib.plotlib import contour_corner
 import matplotlib.pyplot as plt
 
 

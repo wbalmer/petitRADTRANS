@@ -4,8 +4,6 @@ py.install_sources([
     'data.py',
     'models.py',
     'parameter.py',
-    'plotting.py',
-    'plot_style.py',
     'preparing.py',
     'retrieval.py',
     'retrieval_config.py',

@@ -6,6 +6,7 @@ subdir('chemistry')
 subdir('stellar_spectra')
 subdir('cli')
 subdir('ccf')
+subdir('plotlib')
 
 py.install_sources([
     'math.py',

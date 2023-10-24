@@ -5,6 +5,8 @@ calculations, transforms from mass to number fractions, and fits file output.
 """
 import os
 
+import json
+
 import numpy as np
 from scipy.special import erfcinv, gamma
 
@@ -61,41 +63,39 @@ def a_b_range(x, a, b):
 ########################
 # File Formatting
 ########################
-def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
-                correlation=None):  # TODO arg object needs to be renamed, also is it used?
-    """
-    Generate a fits file that can be used as an input to a pRT retrieval.
+def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False, add_stats=False):
+    if name is None:
+        name = output_dir.rsplit(os.sep, 1)[1]
 
-    Args:
-        wavelength : numpy.ndarray
-            The wavelength bin centers in micron. dim(N)
-        spectrum : numpy.ndarray
-            The flux density in W/m2/micron at each wavelength bin. dim(N)
-        covariance : numpy.ndarray
-            The covariance of the flux in (W/m2/micron)^2 dim(N,N)
-        object_name : string
-            The name of the object, used for file naming.
-        output_dir : string
-            The parent directory of the output file.
-        correlation : numpy.ndarray
-            The correlation matrix of the flux points (See Brogi & Line 2018, https://arxiv.org/pdf/1811.01681.pdf)
+    if not os.path.isdir(output_dir):
+        raise NotADirectoryError(f"output directory '{output_dir}' does not exist")
 
-    Returns:
-        hdul : astropy.fits.HDUlist
-            The HDUlist object storing the spectrum.
-    """
+    sample_file = os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat')
+    parameter_names_file = os.path.join(output_dir, 'out_PMN', name + '_params.json')
 
-    from astropy.io import fits
-    primary_hdu = fits.PrimaryHDU([])
-    primary_hdu.header['OBJECT'] = object_name
-    c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
-    c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
-    c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
-    if correlation is not None:
-        c4 = fits.Column(name="CORRELATION", array=correlation, format=str(correlation.shape[0]) + 'D', unit=" - ")
-    columns = [c1, c2, c3, c4]
-    table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
-    hdul = fits.HDUList([primary_hdu, table_hdu])
-    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
-    hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
-    return hdul
+    if not os.path.isfile(sample_file):
+        raise FileNotFoundError(f"sample file '{sample_file}' does not exist")
+
+    if not os.path.isfile(parameter_names_file):
+        raise FileNotFoundError(f"parameter names file '{parameter_names_file}' does not exist")
+
+    samples = np.genfromtxt(os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat'))
+
+    with open(parameter_names_file, 'r') as f:
+        parameters_read = json.load(f)
+
+    samples_dict = {}
+
+    for i, key in enumerate(parameters_read):
+        samples_dict[key] = samples[:, i]
+
+    if add_log_likelihood:
+        samples_dict['log_likelihood'] = samples[:, -1]
+
+    if add_stats:
+        with open(os.path.join(output_dir, 'out_PMN', name + '_stats.json'), 'r') as f:
+            parameters_read = json.load(f)
+
+        samples_dict['stats'] = parameters_read
+
+    return samples_dict

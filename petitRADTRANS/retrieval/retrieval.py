@@ -21,7 +21,8 @@ from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import Parameter
-from petitRADTRANS.retrieval.plotting import plot_data, contour_corner
+from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+from petitRADTRANS.plotlib.plotlib import plot_data, contour_corner
 from petitRADTRANS.utils import flatten_object
 
 # MPI Multiprocessing
@@ -59,11 +60,11 @@ class Retrieval:
         bayes_factor_species : Str
             A pRT species that should be removed to test for the bayesian evidence for its presence.
         corner_plot_names : List(Str)
-            List of additional retrieval names that should be included in the corner plot.
+            List of additional retrieval names that should be included in the corner plotlib.
         short_names : List(Str)
             For each corner_plot_name, a shorter name to be included when plotting.
         prt_plot_style : Bool
-            Use the petitRADTRANS plotting style as described in plot_style.py. Recommended to
+            Use the petitRADTRANS plotting style as described in style.py. Recommended to
             turn this parameter to false if you want to use interactive plotting, or if the
             test_plotting parameter is True.
         test_plotting : Bool
@@ -541,7 +542,12 @@ class Retrieval:
 
             if self.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
-                self.get_samples(self.output_dir)
+                self.samples, self.param_dict = self.get_samples(
+                    ultranest=self.ultranest,
+                    names=self.corner_files,
+                    output_dir=self.output_dir,
+                    ret_names=None
+                )
                 samples_use = self.samples[self.retrieval_name]
                 parameters_read = self.param_dict[self.retrieval_name]
                 # Get best-fit index
@@ -1038,7 +1044,7 @@ class Retrieval:
                 self.best_fit_specs[name] = [wlen_model, spectrum_model]
 
     @staticmethod
-    def _get_samples(ultranest, names, output_dir=None, ret_names=None):
+    def get_samples(ultranest, names, output_dir=None, ret_names=None):
         if ret_names is None:
             ret_names = []
 
@@ -1062,87 +1068,28 @@ class Retrieval:
 
         # pymultinest
         for name in names:
-            samples_ = np.genfromtxt(output_dir + 'out_PMN/' + name + '_post_equal_weights.dat')
+            samples_ = get_pymultinest_sample_dict(
+                output_dir=output_dir,
+                name=name,
+                add_log_likelihood=True,
+                add_stats=False
+            )
 
-            with open(output_dir + 'out_PMN/' + name + '_params.json', 'r') as f:
-                parameters_read = json.load(f)
-
-            samples[name] = samples_
-            param_dict[name] = parameters_read
+            samples[name] = np.array(list(samples_.values()))
+            param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
 
         for name in ret_names:
-            samples_ = np.genfromtxt(output_dir + 'out_PMN/' + name + '_post_equal_weights.dat')
+            samples_ = get_pymultinest_sample_dict(
+                output_dir=output_dir,
+                name=name,
+                add_log_likelihood=False,
+                add_stats=False
+            )
 
-            with open(output_dir + 'out_PMN/' + name + '_params.json', 'r') as f:
-                parameters_read = json.load(f)
-
-            samples[name] = samples_
-            param_dict[name] = parameters_read
+            samples[name] = np.array(list(samples_.values()))
+            param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
 
         return samples, param_dict
-
-    def get_samples(self, output_dir=None, ret_names=None):
-        """
-        This function looks in the given output directory and finds the post_equal_weights
-        file associated with the current retrieval name.
-
-        Args:
-            output_dir : str
-                Parent directory of the out_PMN/RETRIEVALNAME_post_equal_weights.dat file
-            ret_names : List(str)
-                A list of retrieval names to add to the sample and parameter dictionary.
-                Functions the same as setting corner_files during initialisation.
-
-        Returns:
-            sample_dict : dict
-                A dictionary with keys being the name of the retrieval, and values are a numpy
-                ndarray containing the samples in the post_equal_weights file
-            parameter_dict : dict
-                A dictionary with keys being the name of the retrieval, and values are a list of names
-                of the parameters used in the retrieval. The first name corresponds to the first column
-                of the samples, and so on.
-        """
-        # TODO could be static
-        if output_dir is None:
-            output_dir = self.output_dir
-
-        if ret_names is None:
-            ret_names = []
-
-        if self.ultranest:
-            for name in self.corner_files:
-                samples = np.genfromtxt(output_dir + 'out_' + name + '/chains/equal_weighted_post.txt')
-                # TODO formatting of paramname file
-                parameters_read = open(output_dir + 'out_' + name + '/chains/weighted_post.paramnames')
-                self.samples[name] = samples
-                self.param_dict[name] = parameters_read
-            for name in ret_names:
-                samples = np.genfromtxt(output_dir + 'out_' + name + '/chains/qual_weighted_post.txt')
-                parameters_read = open(output_dir + 'out_' + name + '/chains/weighted_post.paramnames')
-                self.samples[name] = samples
-                self.param_dict[name] = parameters_read
-            return self.samples, self.param_dict
-
-        # pymultinest
-        for name in self.corner_files:
-            samples = np.genfromtxt(output_dir + 'out_PMN/' + name + '_post_equal_weights.dat')
-
-            with open(output_dir + 'out_PMN/' + name + '_params.json', 'r') as f:
-                parameters_read = json.load(f)
-
-            self.samples[name] = samples
-            self.param_dict[name] = parameters_read
-
-        for name in ret_names:
-            samples = np.genfromtxt(output_dir + 'out_PMN/' + name + '_post_equal_weights.dat')
-
-            with open(output_dir + 'out_PMN/' + name + '_params.json', 'r') as f:
-                parameters_read = json.load(f)
-
-            self.samples[name] = samples
-            self.param_dict[name] = parameters_read
-
-        return self.samples, self.param_dict
 
     def get_max_likelihood_params(self, best_fit_params, parameters_read):
         """
@@ -1289,7 +1236,7 @@ class Retrieval:
             refresh : bool
                 If True (default value) the .npy files in the evaluate_[retrieval_name] folder will be replaced
                 by recalculating the best fit model. This is useful if plotting intermediate results from a
-                retrieval that is still running. If False no new spectrum will be calculated and the plot will
+                retrieval that is still running. If False no new spectrum will be calculated and the plotlib will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
             mode : str
                 If "best_fit", will use the maximum likelihood parameter values to calculate the best fit model
@@ -1921,7 +1868,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=[0.5, 28],
+            wavelengths_boundaries=np.array([0.5, 28]),
             scattering_in_emission=self.rd.scattering
         )
 
@@ -2022,7 +1969,12 @@ class Retrieval:
             if output_dir is None:
                 output_dir = self.output_dir
 
-            sample_dict, parameter_dict = self.get_samples(output_dir, ret_names=ret_names)
+            sample_dict, parameter_dict = self.get_samples(
+                ultranest=self.ultranest,
+                names=self.corner_files,
+                output_dir=output_dir,
+                ret_names=ret_names
+            )
 
             ###########################################
             # Plot best-fit spectrum
@@ -2059,7 +2011,7 @@ class Retrieval:
                               parameters_read,
                               refresh=True,
                               model_generating_function=model_generating_function,
-                              pRT_reference=prt_reference,
+                              prt_reference=prt_reference,
                               mode=mode)
 
             if self.evaluate_sample_spectra:
@@ -2072,7 +2024,7 @@ class Retrieval:
                          parameters_read,
                          contribution=contribution,
                          model_generating_function=model_generating_function,
-                         pRT_reference=prt_reference,
+                         prt_reference=prt_reference,
                          mode=mode,
                          refresh=False)
             self.plot_corner(sample_dict,
@@ -2091,7 +2043,7 @@ class Retrieval:
                                  parameters_read,
                                  contribution=contribution,
                                  model_generating_function=model_generating_function,
-                                 pRT_reference=prt_reference,
+                                 prt_reference=prt_reference,
                                  mode=mode,
                                  refresh=False)
             print("Finished generating all plots!")
@@ -3324,8 +3276,6 @@ class Retrieval:
                                     rasterized=True,
                                     zorder=100)
 
-                # plt.plot(temp, p, color = 'white', linewidth = 3.)
-                # plt.plot(temp, p, '-', color = 'black', linewidth = 1.,label='Input')
                 ax.plot(
                     contr_em_weigh * (3 - 1e-7) + 1e-7,
                     pressures, '--',

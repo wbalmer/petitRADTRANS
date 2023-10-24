@@ -28,7 +28,7 @@ from petitRADTRANS.physics import temperature_profile_function_guillot_global, d
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval import RetrievalConfig, Retrieval
 from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.plotting import contour_corner
+from petitRADTRANS.plotlib.plotlib import contour_corner
 from petitRADTRANS.retrieval.utils import calc_mmw, uniform_prior
 from matplotlib import colors
 
@@ -813,7 +813,7 @@ def init_parameters(planet, line_species_str, mode,
     # log_l_tot, v_rest, kps, i_peak = co_added_retrieval(
     #     wavelengths_instrument, reduced_mock_observations, true_wavelength,
     #     true_spectrum, star_radiosity, true_parameters, np.zeros(ndit_half), error, orbital_phases,
-    #     plot=True, output_dir=retrieval_directory
+    #     plotlib=True, output_dir=retrieval_directory
     # )
 
     # print('Running pseudo-retrieval...')
@@ -824,7 +824,7 @@ def init_parameters(planet, line_species_str, mode,
     #     true_parameters, kps_pseudo_retrieval, v_rest_pseudo_retrieval,
     #     model, reduced_mock_observations, instrument_snr,
     #     true_parameters, np.zeros(ndit_half),
-    #     plot=True, output_dir=retrieval_directory
+    #     plotlib=True, output_dir=retrieval_directory
     # )
     print('Calculating true log L...')
     true_log_l, w2, r2 = pseudo_retrieval(
@@ -1389,11 +1389,11 @@ def multi_retrieval_stats(retrieval_names, true_parameters, percentiles=None):
 
     for retrieval_name in retrieval_names:
         output_dir = f'./petitRADTRANS/__tmp/test_retrieval/{retrieval_name}/'
-        sample_dict, parameter_dict = Retrieval._get_samples(
+        sample_dict, parameter_dict = Retrieval.get_samples(
             ultranest=False,
             names=[retrieval_name],
             output_dir=output_dir,
-            ret_names=[retrieval_name]
+            name=[retrieval_name]
         )
 
         _, _, _, _, _, _, _, _, _, _, _, tp, _ = load_all(output_dir)

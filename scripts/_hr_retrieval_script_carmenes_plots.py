@@ -302,7 +302,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
             xs, ys,
             axis_high=ax3_high,
             axis_low=ax3_low,
-            plot_function_name='plot',
+            plot_function_name='plotlib',
             y_min=None,
             y_low=np.max(spectra_tlloss[mid_phase]) + features_amplitude_factor * features_amplitude,
             y_high=np.min(spectra_tlloss[phase_15]) - features_amplitude_factor * features_amplitude,
@@ -333,7 +333,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
             xs, ys,
             axis_high=ax4_high,
             axis_low=ax4_low,
-            plot_function_name='plot',
+            plot_function_name='plotlib',
             y_min=None,
             y_low=np.max(spectra_convolve[mid_phase]) + features_amplitude_factor * features_amplitude,
             y_high=np.min(spectra_convolve[phase_15]) - features_amplitude_factor * features_amplitude,
@@ -1018,11 +1018,11 @@ def plot_corner_comparison(true_parameters, retrieval_directory):
     parameter_plot_indices = {}
 
     for retrieval_name in retrieval_names:
-        sample_dict, parameter_dict = Retrieval._get_samples(ultranest=False, names=[retrieval_name],
-                                                             output_dir=f'./petitRADTRANS/__tmp/test_retrieval/'
+        sample_dict, parameter_dict = Retrieval.get_samples(ultranest=False, names=[retrieval_name],
+                                                            output_dir=f'./petitRADTRANS/__tmp/test_retrieval/'
                                                                         f'{retrieval_name}/',
-                                                             ret_names=[retrieval_name]
-                                                             )
+                                                            name=[retrieval_name]
+                                                            )
         n_param = len(parameter_dict[retrieval_name])
         parameter_plot_indices[retrieval_name] = np.arange(0, n_param)
         sample_dicts[retrieval_name] = sample_dict[retrieval_name]
@@ -1260,9 +1260,9 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
     :param cloud_altitude: (m) add an opaque cloud deck at the given altitude
     :param wvn2wvl: convert wavenumbers (cm-1) into wavelengths (m)
     :param xlim: x-axis boundaries
-    :param legend: plot the legend
+    :param legend: plotlib the legend
     :param exclude: list of label to exclude (e.g. ['H2O', 'clouds'])
-    :param kwargs: keyword arguments for plot
+    :param kwargs: keyword arguments for plotlib
     """
     update_figure_font_size(figure_font_size)
     fig, axe = plt.subplots(figsize=figsize)
@@ -1893,9 +1893,9 @@ def plot_transmission_contribution_spectra(file, offset=0.0, cloud_altitude=None
     :param cloud_altitude: (m) add an opaque cloud deck at the given altitude
     :param wvn2wvl: convert wavenumbers (cm-1) into wavelengths (m)
     :param xlim: x-axis boundaries
-    :param legend: plot the legend
+    :param legend: plotlib the legend
     :param exclude: list of label to exclude (e.g. ['H2O', 'clouds'])
-    :param kwargs: keyword arguments for plot
+    :param kwargs: keyword arguments for plotlib
     """
     if exclude is None:
         exclude = np.array([None])
@@ -4298,7 +4298,7 @@ def plot_all_figures(retrieved_parameters,
     validity_, noiseless_validity_, reprocessed_deformed_spectrum_validity, reprocessed_noisy_spectrum_validity = (
         plot_validity(sm, radtrans, figure_directory, image_format, noise_matrix, False))
 
-    # Expected retrieval corner plot
+    # Expected retrieval corner plotlib
     parameter_names_ref = [
         'temperature',
         'CH4_hargreaves_main_iso',

@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from scripts.high_resolution_retrieval_HD_189733_b2 import *
 # from petitRADTRANS.ccf._high_resolution_retrieval2 import *
 from petitRADTRANS.retrieval import Retrieval
-from petitRADTRANS.retrieval.plotting import contour_corner
+from petitRADTRANS.plotlib.plotlib import contour_corner
 from petitRADTRANS.radtrans import Radtrans
 
 
@@ -1784,7 +1784,7 @@ def main_hd3(sim_id=0):
 #
 #     wavelengths_instrument = None
 #     instrument_snr = None
-#     plot = True
+#     plotlib = True
 #     instrument_resolving_power = 1e5
 #
 #     for j, ls_str in enumerate(line_species_str):
@@ -1809,7 +1809,7 @@ def main_hd3(sim_id=0):
 #                     telluric_transmittance=telluric_transmittance, airmass=airmass,
 #                     variable_throughput=variable_throughput,
 #                     instrument_resolving_power=instrument_resolving_power,
-#                     load_from=load_from, plot=plot
+#                     load_from=load_from, plotlib=plotlib
 #                 )
 
 

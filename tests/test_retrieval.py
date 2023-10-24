@@ -256,7 +256,11 @@ def test_simple_retrieval(test_number=0, max_test_number=max_number_of_tests):
         )
 
         # Just check if get_samples works
-        sample_dict, parameter_dict = retrieval.get_samples()
+        sample_dict, parameter_dict = retrieval.get_samples(
+            ultranest=False,
+            names=retrieval.corner_files,
+            output_dir=retrieval.output_dir
+        )
 
         # Get results and reference
         with open(reference_filenames['pymultinest_parameter_analysis']) as f:

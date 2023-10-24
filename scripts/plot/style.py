@@ -89,8 +89,8 @@ cloud_color = {
 }
 
 wavenumber_units = r'cm$^{-1}$'
-wavelength_units = r'm'
-spectral_radiosity_units = r'W$\cdot$m${-2}$/cm$^{-1}$'
+wavelength_units = r'cm'
+spectral_radiosity_units = r'erg$\cdot$s$^{-1}\cdot$cm${-2}$/cm$^{-1}$'
 
 
 def update_figure_font_size(font_size):

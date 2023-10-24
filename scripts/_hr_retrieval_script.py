@@ -13,7 +13,7 @@ from scripts.high_resolution_retrieval import *
 # from petitRADTRANS.ccf.model_containers import RetrievalSpectralModel
 # from petitRADTRANS.ccf.spectra_utils import load_snr_file
 from petitRADTRANS.retrieval import Retrieval
-from petitRADTRANS.retrieval.plotting import contour_corner
+from petitRADTRANS.plotlib.plotlib import contour_corner
 import matplotlib.pyplot as plt
 
 
@@ -220,7 +220,7 @@ def main(sim_id=0):
 #         airmass = None  # os.path.join(module_dir, 'metis', 'brogi_crires_test', 'air.npy')
 #         variable_throughput = os.path.join(module_dir, 'metis', 'brogi_crires_test')
 #
-#         plot = True
+#         plot= True
 #         instrument_resolving_power = 1e5
 #
 #         if not os.path.isdir(retrieval_directory):
