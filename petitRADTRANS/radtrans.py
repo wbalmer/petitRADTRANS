@@ -2936,10 +2936,10 @@ class Radtrans:
         from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 
         if star_radius is not None:
-            star_spectrum, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
+            star_spectrum, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
             _star_radius = star_radius
         else:
-            star_spectrum, _star_radius = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
+            star_spectrum, _star_radius = phoenix_star_table.compute_spectrum(star_effective_temperature)
 
         stellar_intensity = Radtrans.rebin_star_spectrum(
             star_spectrum=star_spectrum[:, 1],

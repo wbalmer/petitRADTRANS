@@ -19,7 +19,7 @@ class PhoenixStarTable:
         self.flux_grid = None
         self.wavelength_grid = None
 
-    def compute_phoenix_spectrum(self, temperature):
+    def compute_spectrum(self, temperature):
         """
         Returns a matrix where the first column is the wavelength in cm
         and the second is the stellar flux :math:`F_\\nu` in units of
@@ -85,7 +85,7 @@ class PhoenixStarTable:
         return spec_dat, radius
 
     @staticmethod
-    def get_default_phoenix_file():
+    def get_default_file():
         return os.path.join(
             petitradtrans_config_parser.get_input_data_path(),
             get_input_data_subpaths()["stellar_spectra"],
@@ -95,7 +95,7 @@ class PhoenixStarTable:
 
     def load(self, file=None):
         if file is None:
-            file = self.get_default_phoenix_file()
+            file = self.get_default_file()
 
         if not os.path.isfile(file):
             raise FileNotFoundError(get_input_data_file_not_found_error_message(file))

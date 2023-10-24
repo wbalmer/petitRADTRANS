@@ -2365,14 +2365,14 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_da
     """
     Convert a PHOENIX stellar spectrum in .dat format to HDF5 format.
     """
-    from petitRADTRANS.stellar_spectra.phoenix import get_default_phoenix_file
+    from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
     # Load the stellar parameters
     if old_paths:
         path = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['stellar_spectra'])
     else:
         path = os.path.join(path_input_data, get_input_data_subpaths()['stellar_spectra'], 'phoenix')
 
-    hdf5_file = get_default_phoenix_file()
+    hdf5_file = phoenix_star_table.get_default_file()
 
     if os.path.isfile(hdf5_file) and not rewrite:
         __print_skipping_message(hdf5_file)

@@ -877,7 +877,7 @@ class BaseSpectralModel:
 
     @staticmethod
     def calculate_star_spectral_radiosities(star_effective_temperature, **kwargs):
-        star_data, _ = phoenix_star_table.compute_phoenix_spectrum(star_effective_temperature)
+        star_data, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
         star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um
