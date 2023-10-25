@@ -7,7 +7,7 @@ from .utils import radtrans_parameters, reference_filenames
 
 
 def init_planet():
-    return petitRADTRANS.containers.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
+    return petitRADTRANS.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
 
 
 planet = init_planet()
@@ -16,9 +16,9 @@ planet = init_planet()
 def test_planet_get():
     # Try to download the planet data
     # Remove the planet file if it exists
-    filename = petitRADTRANS.containers.planet.Planet.generate_filename(
+    filename = petitRADTRANS.planet.Planet.generate_filename(
         name=radtrans_parameters['planetary_parameters']['name'],
-        directory=petitRADTRANS.containers.planet.Planet.default_planet_models_directory
+        directory=petitRADTRANS.planet.Planet.default_planet_models_directory
     )
 
     file_exists = False
@@ -34,7 +34,7 @@ def test_planet_get():
         shutil.move(filename, filename_tmp)
 
     try:
-        _ = petitRADTRANS.containers.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
+        _ = petitRADTRANS.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
 
         if not os.path.isfile(filename):
             raise FileNotFoundError(f"no new HDF5 file '{filename}' generated")
@@ -49,11 +49,11 @@ def test_planet_get():
         raise FileExistsError(f"temporary VOT file '{vot_filename}' should have been removed")
 
     # Planet data downloaded, now try to load the planet
-    _ = petitRADTRANS.containers.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
+    _ = petitRADTRANS.planet.Planet.get(radtrans_parameters['planetary_parameters']['name'])
 
 
 def test_planet_from_tab():
-    _ = petitRADTRANS.containers.planet.Planet.from_tab_file(
+    _ = petitRADTRANS.planet.Planet.from_tab_file(
         reference_filenames['NASA_exoplanet_archive_test']
     )
 
@@ -64,5 +64,3 @@ def test_planet_calculate_equilibrium_temperature():
     planet.star_radius = radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
     planet.orbit_semi_major_axis = radtrans_parameters['planetary_parameters']['orbit_semi_major_axis']
     planet.bond_albedo = radtrans_parameters['planetary_parameters']['surface_reflectance']
-
-

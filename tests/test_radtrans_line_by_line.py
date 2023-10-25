@@ -31,7 +31,7 @@ def init_radtrans_line_by_line():
 
 
 def init_spectral_model_line_by_line():
-    spectral_model = petitRADTRANS.containers.spectral_model.SpectralModel(
+    spectral_model = petitRADTRANS.spectral_model.SpectralModel(
         # Radtrans object parameters
         pressures=radtrans_parameters['pressures'],  # bar
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
@@ -99,7 +99,7 @@ def init_spectral_model_line_by_line():
 
     # Test custom function
     spectral_model.calculate_mass_mixing_ratios = \
-        petitRADTRANS.containers.spectral_model.BaseSpectralModel.calculate_mass_mixing_ratios
+        petitRADTRANS.spectral_model.BaseSpectralModel.calculate_mass_mixing_ratios
     spectral_model.calculate_mean_molar_masses = \
         calculate_mean_molar_masses
 
