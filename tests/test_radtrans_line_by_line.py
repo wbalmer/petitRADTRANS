@@ -97,9 +97,25 @@ def init_spectral_model_line_by_line():
     def calculate_mean_molar_masses(pressures, **kwargs):
         return radtrans_parameters['mean_molar_mass'] * np.ones(pressures.size)
 
+    def calculate_mass_mixing_ratios(pressures, **kwargs):
+        """Template for mass mixing ratio profile function.
+        Here, generate iso-abundant mass mixing ratios profiles.
+
+        Args:
+            pressures: (bar) pressures of the temperature profile
+            **kwargs: other parameters needed to generate the temperature profile
+
+        Returns:
+            A 1D-array containing the temperatures as a function of pressures
+        """
+        return {
+            species: mass_mixing_ratio * np.ones(np.size(pressures))
+            for species, mass_mixing_ratio in kwargs['imposed_mass_mixing_ratios'].items()
+        }
+
     # Test custom function
     spectral_model.calculate_mass_mixing_ratios = \
-        petitRADTRANS.spectral_model.BaseSpectralModel.calculate_mass_mixing_ratios
+        calculate_mass_mixing_ratios
     spectral_model.calculate_mean_molar_masses = \
         calculate_mean_molar_masses
 
