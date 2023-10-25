@@ -7,10 +7,14 @@ import numpy as np
 from matplotlib.lines import Line2D
 from scipy.stats import binned_statistic
 
-from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+from petitRADTRANS.chemistry.condensation import (
+    return_t_cond_fe, return_t_cond_fe_l, return_t_cond_fe_comb, return_t_cond_kcl, return_t_cond_mgsio3,
+    return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
+)
+from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.plotlib.style import update_figure_font_size
+from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 
 
 def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list, color_list,
@@ -690,6 +694,35 @@ def nice_corner(samples,
     plt.savefig(output_file)
     # plt.show()
     # plt.clf()
+
+
+def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, temperatures=None):
+    for metallicity in metallicities:
+        for co_ratio in co_ratios:
+            p, t = return_t_cond_fe(metallicity, co_ratio)
+            plt.plot(t, p, label='Fe(c), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio), color='black')
+            p, t = return_t_cond_fe_l(metallicity, co_ratio)
+            plt.plot(t, p, '--', label='Fe(l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            p, t = return_t_cond_fe_comb(metallicity, co_ratio)
+            plt.plot(t, p, ':', label='Fe(c+l), [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            p, t = return_t_cond_mgsio3(metallicity, co_ratio)
+            plt.plot(t, p, label='MgSiO3, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            p, t = return_t_cond_na2s(metallicity, co_ratio)
+            plt.plot(t, p, label='Na2S, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+            p, t = return_t_cond_kcl(metallicity, co_ratio)
+            plt.plot(t, p, label='KCL, [Fe/H] = ' + str(metallicity) + ', C/O = ' + str(co_ratio))
+
+    plt.yscale('log')
+    plt.xlim([0., 2000.])
+    plt.ylim([1e2, 1e-3])
+    plt.legend(loc='best', frameon=False)
+    plt.show()
+
+    if pressures is not None or temperatures is not None:
+        simple_cdf_fe(pressures, temperatures, 0., 0.55)
+        simple_cdf_mgsio3(pressures, temperatures, 0., 0.55)
+        simple_cdf_na2s(pressures, temperatures, 0., 0.55)
+        simple_cdf_kcl(pressures, temperatures, 0., 0.55)
 
 
 def plot_data(fig, ax, data, resolution=None, scaling=1.0):

@@ -1,6 +1,4 @@
 py.install_sources([
-    'chemistry.py',
-    'cloud_cond.py',
     'data.py',
     'models.py',
     'parameter.py',

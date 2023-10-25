@@ -1,21 +1,3 @@
-import sys
-
-import numpy as np
-
-from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.physics import (
-    flux2irradiance,
-    temperature_profile_function_ret_model, temperature_profile_function_guillot_global,
-    temperature_profile_function_isothermal,
-    cubic_spline_profile,
-    linear_spline_profile,
-    dtdp_temperature_profile,
-    madhu_seager_2009
-)
-from petitRADTRANS.retrieval import cloud_cond as fc
-from .chemistry import get_abundances
-
 """
 Models Module
 
@@ -42,6 +24,24 @@ All models must take the same set of inputs:
         the location of the photosphere, increasing the resolution where required.
         For example, using the fixed_length_amr function defined below.
 """
+# TODO replace by SpectralModel function
+import sys
+
+import numpy as np
+
+from petitRADTRANS.chemistry.core import get_abundances
+from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.physics import (
+    flux2irradiance,
+    temperature_profile_function_ret_model, temperature_profile_function_guillot_global,
+    temperature_profile_function_isothermal,
+    cubic_spline_profile,
+    linear_spline_profile,
+    dtdp_temperature_profile,
+    madhu_seager_2009
+)
+from petitRADTRANS.chemistry import condensation as fc
 
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)

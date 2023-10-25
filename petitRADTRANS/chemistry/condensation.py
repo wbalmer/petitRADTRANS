@@ -1,31 +1,19 @@
+"""This file allows the calculation of equilibrium cloud abundances and base pressures"""
+# TODO make a better cloud module
+# TODO add/replace with Exo-REM condensation curves
 import copy as cp
 import warnings
 
 import numpy as np
 from scipy.interpolate import interp1d
 
-plotting = False
-
-if plotting:
-    import matplotlib as plt
-
-#############################################################
-# Cloud Cond
-#############################################################
-# This file allows the calculation of equilibrium cloud abundances
-# and base pressures
-#
-# TODO: Make a better cloud module.
-
-#############################################################
-# To calculate X_Fe from [Fe/H], C/O
-#############################################################
+from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
 # metal species
-metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
+__metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
 
 # solar abundances, [Fe/H] = 0, from Asplund+ 2009
-nfracs = {
+__elemental_abundances = {
     'H': 0.9207539305,
     'He': 0.0783688694,
     'C': 0.0002478241,
@@ -44,28 +32,6 @@ nfracs = {
     'V': 7.83688694089992e-09,
     'Fe': 2.91167958499589e-05,
     'Ni': 1.52807116806281e-06
-}
-
-# atomic masses  TODO use molmass instead
-masses = {
-    'H': 1.,
-    'He': 4.,
-    'C': 12.,
-    'N': 14.,
-    'O': 16.,
-    'Na': 23.,
-    'Mg': 24.3,
-    'Al': 27.,
-    'Si': 28.,
-    'P': 31.,
-    'S': 32.,
-    'Cl': 35.45,
-    'K': 39.1,
-    'Ca': 40.,
-    'Ti': 47.9,
-    'V': 51.,
-    'Fe': 55.8,
-    'Ni': 58.7
 }
 
 
@@ -232,19 +198,19 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
 
 
 def return_x_fe(metallicity, co_ratio):
-    nfracs_use = cp.copy(nfracs)
+    nfracs_use = cp.copy(__elemental_abundances)
 
-    for spec in nfracs.keys():
+    for spec in __elemental_abundances.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    x_fe = masses['Fe'] * nfracs_use['Fe']
+    x_fe = get_species_molar_mass('Fe') * nfracs_use['Fe']
     add = 0.
     for spec in nfracs_use.keys():
-        add += masses[spec] * nfracs_use[spec]
+        add += get_species_molar_mass(spec) * nfracs_use[spec]
 
     x_fe = x_fe / add
 
@@ -252,26 +218,26 @@ def return_x_fe(metallicity, co_ratio):
 
 
 def return_x_mgsio3(metallicity, co_ratio):
-    nfracs_use = cp.copy(nfracs)
+    nfracs_use = cp.copy(__elemental_abundances)
 
-    for spec in nfracs.keys():
+    for spec in __elemental_abundances.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
     nfracs_mgsio3 = np.min([nfracs_use['Mg'],
                             nfracs_use['Si'],
                             nfracs_use['O'] / 3.])
-    masses_mgsio3 = masses['Mg'] \
-        + masses['Si'] \
-        + 3. * masses['O']
+    masses_mgsio3 = get_species_molar_mass('Mg') \
+        + get_species_molar_mass('Si') \
+        + 3. * get_species_molar_mass('O')
 
     xmgsio3 = masses_mgsio3 * nfracs_mgsio3
     add = 0.
     for spec in nfracs_use.keys():
-        add += masses[spec] * nfracs_use[spec]
+        add += get_species_molar_mass(spec) * nfracs_use[spec]
 
     xmgsio3 = xmgsio3 / add
 
@@ -279,12 +245,12 @@ def return_x_mgsio3(metallicity, co_ratio):
 
 
 def return_x_mg2sio4(metallicity, co_ratio):
-    nfracs_use = cp.copy(nfracs)
+    nfracs_use = cp.copy(__elemental_abundances)
 
-    for spec in nfracs.keys():
+    for spec in __elemental_abundances.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
@@ -293,16 +259,16 @@ def return_x_mg2sio4(metallicity, co_ratio):
         nfracs_use['Si'],
         nfracs_use['O'] / 4.]
     )
-    masses_mg2sio4 = 2 * masses['Mg'] \
-        + masses['Si'] \
-        + 4. * masses['O']
+    masses_mg2sio4 = 2 * get_species_molar_mass('Mg') \
+        + get_species_molar_mass('Si') \
+        + 4. * get_species_molar_mass('O')
 
     x_mg2sio4 = masses_mg2sio4 * nfracs_mg2sio4
 
     add = 0.
 
     for spec in nfracs_use.keys():
-        add += masses[spec] * nfracs_use[spec]
+        add += get_species_molar_mass(spec) * nfracs_use[spec]
 
     x_mg2sio4 = x_mg2sio4 / add
 
@@ -310,24 +276,24 @@ def return_x_mg2sio4(metallicity, co_ratio):
 
 
 def return_x_na2s(metallicity, co_ratio):
-    nfracs_use = cp.copy(nfracs)
+    nfracs_use = cp.copy(__elemental_abundances)
 
-    for spec in nfracs.keys():
+    for spec in __elemental_abundances.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
     nfracs_na2s = np.min([nfracs_use['Na'] / 2.,
                           nfracs_use['S']])
-    masses_na2s = 2. * masses['Na'] \
-        + masses['S']
+    masses_na2s = 2. * get_species_molar_mass('Na') \
+        + get_species_molar_mass('S')
 
     xna2s = masses_na2s * nfracs_na2s
     add = 0.
     for spec in nfracs_use.keys():
-        add += masses[spec] * nfracs_use[spec]
+        add += get_species_molar_mass(spec) * nfracs_use[spec]
 
     xna2s = xna2s / add
 
@@ -335,24 +301,24 @@ def return_x_na2s(metallicity, co_ratio):
 
 
 def return_x_kcl(metallicity, co_ratio):
-    nfracs_use = cp.copy(nfracs)
+    nfracs_use = cp.copy(__elemental_abundances)
 
-    for spec in nfracs.keys():
+    for spec in __elemental_abundances.keys():
 
         if (spec != 'H') and (spec != 'He'):
-            nfracs_use[spec] = nfracs[spec] * 1e1 ** metallicity
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
     nfracs_kcl = np.min([nfracs_use['K'],
                          nfracs_use['Cl']])
-    masses_kcl = masses['K'] \
-        + masses['Cl']
+    masses_kcl = get_species_molar_mass('K') \
+        + get_species_molar_mass('Cl')
 
     xkcl = masses_kcl * nfracs_kcl
     add = 0.
     for spec in nfracs_use.keys():
-        add += masses[spec] * nfracs_use[spec]
+        add += get_species_molar_mass(spec) * nfracs_use[spec]
 
     xkcl = xkcl / add
 
@@ -374,7 +340,7 @@ def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
-    return p_vap(t) / (x_fe * mmw / masses['Fe']), t
+    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
@@ -388,7 +354,7 @@ def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
-    return p_vap(t) / (x_fe * mmw / masses['Fe']), t
+    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
@@ -411,7 +377,7 @@ def return_t_cond_fe_free(x_fe, mmw=2.33):
     def p_vap(x):
         return np.exp(15.71 - 47664. / x)
 
-    return p_vap(t) / (x_fe * mmw / masses['Fe']), t
+    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
@@ -423,7 +389,7 @@ def return_t_cond_fe_l_free(x_fe, mmw=2.33):
     def p_vap(x):
         return np.exp(9.86 - 37120. / x)
 
-    return p_vap(t) / (x_fe * mmw / masses['Fe']), t
+    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
@@ -447,9 +413,9 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
 
     xmgsio3 = return_x_mgsio3(metallicity, co_ratio)
 
-    m_mgsio3 = masses['Mg'] \
-        + masses['Si'] \
-        + 3. * masses['O']
+    m_mgsio3 = get_species_molar_mass('Mg') \
+        + get_species_molar_mass('Si') \
+        + 3. * get_species_molar_mass('O')
 
     return p_vap(t) / (xmgsio3 * mmw / m_mgsio3), t
 
@@ -465,9 +431,9 @@ def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
 
     # x_mg2sio4 = return_x_mg2sio4(metallicity, co_ratio)
     #
-    # m_mg2sio4 = 2. * masses['Mg'] \
-    #     + masses['Si'] \
-    #     + 4. * masses['O']
+    # m_mg2sio4 = 2. * get_species_molar_mass('Mg') \
+    #     + get_species_molar_mass('Si') \
+    #     + 4. * get_species_molar_mass('O')
     return p_vap(t), t  # TODO shouldn't that be multiplied by (x_mg2sio4 * mmw / m_mg2sio4) just like above?
 
 
@@ -480,9 +446,9 @@ def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
-    m_mgsio3 = masses['Mg'] \
-        + masses['Si'] \
-        + 3. * masses['O']
+    m_mgsio3 = get_species_molar_mass('Mg') \
+        + get_species_molar_mass('Si') \
+        + 3. * get_species_molar_mass('O')
     return p_vap(t) / (x_mgsio3 * mmw / m_mgsio3), t
 
 
@@ -494,9 +460,9 @@ def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
-    m_mg2sio4 = 2 * masses['Mg'] \
-        + masses['Si'] \
-        + 4. * masses['O']
+    m_mg2sio4 = 2 * get_species_molar_mass('Mg') \
+        + get_species_molar_mass('Si') \
+        + 4. * get_species_molar_mass('O')
     return p_vap(t) / (x_mg2sio4 * mmw / m_mg2sio4), t
 
 
@@ -516,8 +482,8 @@ def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
 
     xna2s = return_x_na2s(metallicity, co_ratio)
 
-    m_na2s = 2. * masses['Na'] \
-        + masses['S']
+    m_na2s = 2. * get_species_molar_mass('Na') \
+        + get_species_molar_mass('S')
 
     return p_vap(t) / (xna2s * mmw / m_na2s), t
 
@@ -540,8 +506,8 @@ def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     def p_vap(x):
         return 1e1 ** (8.55 - 13889. / x - 0.5 * (np.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
 
-    m_na2s = 2. * masses['Na'] \
-        + masses['S']
+    m_na2s = 2. * get_species_molar_mass('Na') \
+        + get_species_molar_mass('S')
 
     return p_vap(t) / (x_na2s * mmw / m_na2s), t
 
@@ -555,8 +521,8 @@ def return_t_cond_kcl(metallicity, co_ratio, mmw=2.33):
 
     xkcl = return_x_kcl(metallicity, co_ratio)
 
-    m_kcl = masses['K'] \
-        + masses['Cl']
+    m_kcl = get_species_molar_mass('K') \
+        + get_species_molar_mass('Cl')
 
     return p_vap(t) / (xkcl * mmw / m_kcl), t
 
@@ -568,8 +534,8 @@ def return_t_cond_kcl_free(x_kcl, mmw=2.33):
     def p_vap(x):
         return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
 
-    m_kcl = masses['K'] \
-        + masses['Cl']
+    m_kcl = get_species_molar_mass('K') \
+        + get_species_molar_mass('Cl')
 
     return p_vap(t) / (x_kcl * mmw / m_kcl), t
 
@@ -591,14 +557,6 @@ def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
     return p_cloud
 
 
@@ -624,15 +582,6 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
-
     return p_cloud
 
 
@@ -657,15 +606,6 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
-
     return p_cloud
 
 
@@ -685,15 +625,6 @@ def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
         p_cloud = p_clouds[-1]
     else:
         p_cloud = np.min(press)
-
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
 
     return p_cloud
 
@@ -722,15 +653,6 @@ def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(t_cond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
-
     return p_cloud
 
 
@@ -751,14 +673,6 @@ def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(t_cond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
     return p_cloud
 
 
@@ -778,15 +692,6 @@ def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
         p_cloud = p_clouds[-1]
     else:
         p_cloud = np.min(press)
-
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
 
     return p_cloud
 
@@ -808,15 +713,6 @@ def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
-
     return p_cloud
 
 
@@ -836,15 +732,6 @@ def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
         p_cloud = p_clouds[-1]
     else:
         p_cloud = np.min(press)
-
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
 
     return p_cloud
 
@@ -866,75 +753,4 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
     else:
         p_cloud = np.min(press)
 
-    if plotting:
-        plt.plot(temp, press)
-        plt.plot(tcond_on_input_grid, press)
-        plt.axhline(p_cloud, color='red', linestyle='--')
-        plt.yscale('log')
-        plt.xlim([0., 3000.])
-        plt.ylim([1e2, 1e-6])
-        plt.show()
-
     return p_cloud
-
-
-def plot_all():
-    from petitRADTRANS.physics import temperature_profile_function_guillot_global
-
-    # FeHs = np.linspace(-0.5, 2., 5)
-    # COs = np.linspace(0.3, 1.2, 5)
-    fehs = [0.]
-    co_ratios = [0.55]
-
-    for FeH in fehs:
-        for CO in co_ratios:
-            p, t = return_t_cond_fe(FeH, CO)
-            plt.plot(t, p, label='Fe(c), [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO), color='black')
-            p, t = return_t_cond_fe_l(FeH, CO)
-            plt.plot(t, p, '--', label='Fe(l), [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO))
-            p, t = return_t_cond_fe_comb(FeH, CO)
-            plt.plot(t, p, ':', label='Fe(c+l), [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO))
-            p, t = return_t_cond_mgsio3(FeH, CO)
-            plt.plot(t, p, label='MgSiO3, [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO))
-            p, t = return_t_cond_na2s(FeH, CO)
-            plt.plot(t, p, label='Na2S, [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO))
-            p, t = return_t_cond_kcl(FeH, CO)
-            plt.plot(t, p, label='KCL, [Fe/H] = ' + str(FeH) + ', C/O = ' + str(CO))
-
-    plt.yscale('log')
-    '''
-    plt.xlim([0., 5000.])
-    plt.ylim([1e5,1e-10])
-    '''
-    plt.xlim([0., 2000.])
-    plt.ylim([1e2, 1e-3])
-    plt.legend(loc='best', frameon=False)
-    plt.show()
-
-    kappa_ir = 0.01
-    gamma = 0.4
-    t_int = 200.
-    t_equ = 1550.
-    gravity = 1e1 ** 2.45
-
-    pressures = np.logspace(-6, 2, 100)
-
-    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
-
-    simple_cdf_fe(pressures, temperature, 0., 0.55)
-    simple_cdf_mgsio3(pressures, temperature, 0., 0.55)
-
-    t_int = 200.
-    t_equ = 800.
-    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
-    simple_cdf_na2s(pressures, temperature, 0., 0.55)
-
-    t_int = 150.
-    t_equ = 650.
-    temperature = temperature_profile_function_guillot_global(pressures, kappa_ir, gamma, gravity, t_int, t_equ)
-    simple_cdf_kcl(pressures, temperature, 0., 0.55)
-
-
-if __name__ == '__main__':
-    if plotting:
-        plot_all()

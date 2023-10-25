@@ -1330,7 +1330,7 @@ class Retrieval:
             MMW : numpy.ndarray
                 The mean molecular weight at each pressure level in the atmosphere.
         """
-        from petitRADTRANS.retrieval.chemistry import get_abundances
+        from petitRADTRANS.chemistry.core import get_abundances
         parameters = self.build_param_dict(sample, parameters_read)
 
         self.PT_plot_mode = True
