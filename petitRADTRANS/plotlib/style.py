@@ -17,8 +17,6 @@ __small_figure_font_size = 22  # 0.25 text width
 __medium_figure_font_size = 16  # 0.5 text width
 __large_figure_font_size = 22  # 1.0 text width
 
-large_figsize = [19.20, 10.80]  # 1920 x 1080 for 100 dpi (default)
-
 wavenumber_units = r'cm$^{-1}$'
 wavelength_units = r'cm'
 flux_units = r'erg$\cdot$s$^{-1}\cdot$cm${-2}$/cm$^{-1}$'
