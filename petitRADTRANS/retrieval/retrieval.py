@@ -22,7 +22,6 @@ from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import Parameter
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.plotlib.plotlib import plot_data, contour_corner
 from petitRADTRANS.utils import flatten_object
 
 # MPI Multiprocessing
@@ -1917,6 +1916,7 @@ class Retrieval:
                  model_generating_function=None,
                  prt_reference=None,
                  mode='bestfit'):
+        # TODO no plot functions outside of plotlib
         """
         Produces plots for the best fit spectrum, a sample of 100 output spectra,
         the best fit PT profile and a corner plot for parameters specified in the
@@ -2452,6 +2452,8 @@ class Retrieval:
                 retrieval that is still running. If False no new spectrum will be calculated and the plot will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
         """
+        from petitRADTRANS.plotlib.plotlib import plot_data
+
         if not self.use_MPI or rank == 0:
 
             if not self.run_mode == 'evaluate':
@@ -2833,6 +2835,8 @@ class Retrieval:
             true_values :
                 # TODO complete docstring
         """
+        from petitRADTRANS.plotlib.plotlib import contour_corner
+
         if not self.use_MPI or rank == 0:
 
             if not self.run_mode == 'evaluate':
