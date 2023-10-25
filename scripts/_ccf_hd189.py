@@ -9,8 +9,8 @@ from scipy.interpolate import interp1d
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import doppler_shift, rebin_spectrum
 from petitRADTRANS.ccf.ccf_core import cross_correlate
-from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.containers.spectral_model import SpectralModel
+from petitRADTRANS.planet import Planet
+from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.preparing import preparing_pipeline, remove_throughput_fit, remove_telluric_lines_fit
 from scripts.high_resolution_retrieval_carmenes import load_carmenes_data
 

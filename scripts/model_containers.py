@@ -6,7 +6,7 @@ import numpy as np
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum
 from petitRADTRANS.physics import temperature_profile_function_guillot_global
 from petitRADTRANS.radtrans import Radtrans

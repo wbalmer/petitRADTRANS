@@ -11,7 +11,7 @@ import numpy as np
 import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.math import gaussian_weights_running
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.physics import (

@@ -7,7 +7,7 @@ import numpy as np
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.ndimage.filters import gaussian_filter1d
 
-from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.physics import doppler_shift
 
 

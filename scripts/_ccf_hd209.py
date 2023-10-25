@@ -10,9 +10,9 @@ from scipy.interpolate import interp1d
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.physics import doppler_shift
 from petitRADTRANS.ccf.ccf_core import cross_correlate, co_add_cross_correlation
-from petitRADTRANS.ccf.ccf import ccf_analysis, get_ccf_velocity_space, get_co_added_ccf_velocity_space
-from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.containers.spectral_model import SpectralModel
+from petitRADTRANS.ccf.ccf import ccf_analysis, get_co_added_ccf_velocity_space
+from petitRADTRANS.planet import Planet
+from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.preparing import preparing_pipeline, preparing_pipeline_sysrem, trim_spectrum
 from scripts.load_spectral_matrix import construct_spectral_matrix
 from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz

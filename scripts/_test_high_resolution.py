@@ -20,7 +20,7 @@ from scripts.mock_observation import add_telluric_lines, add_variable_throughput
     convolve_shift_rebin, generate_mock_observations, get_orbital_phases, \
     get_mock_secondary_eclipse_spectra, get_mock_transit_spectra
 from scripts.model_containers import SpectralModelLegacy
-from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.retrieval.preparing import _remove_throughput_test, preparing_pipeline, bias_pipeline_metric
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.stellar_spectra.phoenix import compute_phoenix_spectrum

@@ -9,7 +9,7 @@ import copy
 import numpy as np
 
 from petitRADTRANS.ccf.ccf_core import cross_correlate_matrices, co_add_cross_correlation
-from petitRADTRANS.containers.planet import Planet
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.physics import doppler_shift, rebin_spectrum
 
 

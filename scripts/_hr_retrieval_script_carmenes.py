@@ -18,8 +18,8 @@ import numpy as np
 import petitRADTRANS.physical_constants as cst
 from astropy.io import fits
 from petitRADTRANS.cli.eso_skycalc_cli import get_tellurics_npz
-from petitRADTRANS.containers.planet import Planet
-from petitRADTRANS.containers.spectral_model import SpectralModel
+from petitRADTRANS.planet import Planet
+from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.plotlib.plotlib import contour_corner
 from petitRADTRANS.retrieval.preparing import preparing_pipeline_sysrem
