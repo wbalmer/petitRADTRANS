@@ -2594,7 +2594,7 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
             reduce=True
         )
     else:
-        sm_best_fit.temperatures, sm_best_fit.mass_mixing_ratios, sm_best_fit.mean_molar_masses, \
+        sm_best_fit.temperatures, sm_best_fit.mass_fractions, sm_best_fit.mean_molar_masses, \
             sm_best_fit.model_parameters = sm_best_fit.get_spectral_calculation_parameters(
                 pressures=np.array([1]),
                 wavelengths=np.array([1]),

@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `Radtrans.calculate_transit_radii` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
+- Object `SpectralModel` is now imported using `from petitRADTRANS.spectral_model import SpectralModel`.
+- Object `Planet` is now imported using `from petitRADTRANS.planet import Planet`.
 - Module `nat_cst` renamed `physical_constants`.
 - Some functions have moved from the module `physical_constants` to another, more specific module.
 - Some functions have moved from the module `Radtrans` to another, more specific module.
@@ -47,6 +49,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Removed
 - Multiple `Radtrans` attributes, some are now function outputs.
+- Function `get_radtrans` of object `SpectralModel`, as `SpectralModel` is now a child of `Radtrans`.
 - Class `ReadOpacities`, now merged with `Radtrans`.
 - Module `pyth_input`, now merged with `Radtrans`.
 - Module `version`, version is now defined in pyproject.toml.

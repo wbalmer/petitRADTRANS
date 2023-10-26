@@ -1961,7 +1961,7 @@ def main_aumicc():
         exposure_time=exposure_time
     )
 
-    mmr = models['K']['T_int = 50, [Fe/H] = 1, C/O = 0.55, P_cloud = 100.0']['all'].mass_mixing_ratios
+    mmr = models['K']['T_int = 50, [Fe/H] = 1, C/O = 0.55, P_cloud = 100.0']['all'].mass_fractions
 
     for species in species_list:
         if species == 'all':
@@ -2482,7 +2482,7 @@ def main_toi776():
 
         plt.savefig(f"./figures/{planet_name.replace(' ', '_')}/{species}_detection.png")
 
-    mmr = models['K']['T_int = 50, [Fe/H] = 1, C/O = 0.55, P_cloud = 100.0']['all'].mass_mixing_ratios
+    mmr = models['K']['T_int = 50, [Fe/H] = 1, C/O = 0.55, P_cloud = 100.0']['all'].mass_fractions
 
     for species in species_list:
         if species == 'all':

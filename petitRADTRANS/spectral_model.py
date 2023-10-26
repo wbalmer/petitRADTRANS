@@ -11,34 +11,45 @@ import numpy as np
 import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.planet import Planet
+from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
+from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
+from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running
-from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
     rebin_spectrum
 )
-from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.parameter import RetrievalParameter
+from petitRADTRANS.retrieval.preparing import preparing_pipeline
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.retrieval.preparing import preparing_pipeline
+from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
 
-class SpectralModel:
+class SpectralModel(Radtrans):
     # TODO add function to list all the meaningful model_parameters
-    # TODO ideally this should inherit from Radtrans, but it cannot be done right now because when Radtrans is init, it takes ages to load opacity data  # noqa: E501
-    # TODO the Base object is not really useful and neither used, better use only the SpectralModel object
     # TODO add transit duration function
-    def __init__(self, pressures,
-                 line_species=None, rayleigh_species=None, continuum_opacities=None, cloud_species=None,
-                 opacity_mode='lbl', do_scat_emis=True, lbl_opacity_sampling=1,
-                 temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
-                 wavelengths_boundaries=None, wavelengths=None, transit_radii=None, spectral_radiosities=None,
-                 times=None, **model_parameters):
+    def __init__(
+            self,
+            pressures: np.ndarray[float] = None,
+            wavelengths_boundaries: np.ndarray[float] = None,
+            line_species: list[str] = None,
+            gas_continuum_contributors: list[str] = None,
+            rayleigh_species: list[str] = None,
+            cloud_species: list[str] = None,
+            line_opacity_mode: str = 'c-k',
+            line_by_line_opacity_sampling: int = 1,
+            scattering_in_emission: bool = False,
+            emission_cos_angle_grid: np.ndarray[float] = None,
+            emission_cos_angle_grid_weights: np.ndarray[float] = None,
+            anisotropic_cloud_scattering: bool = 'auto',
+            path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
+            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
+    ):
         """Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
 
@@ -78,17 +89,17 @@ class SpectralModel:
                 names.
             cloud_species:
                 list of strings, denoting which cloud opacity species to include; must match the opacity file names.
-            opacity_mode:
+            line_opacity_mode:
                 if equal to ``'c-k'``: use low-resolution mode, at
                 :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
                 assumption. if equal to ``'lbl'``: use high-resolution mode, at
                 :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
                 treatment.
-            do_scat_emis:
+            scattering_in_emission:
                 Will be ``False`` by default.
                 If ``True`` scattering will be included in the emission spectral
                 calculations. Note that this increases the runtime of pRT!
-            lbl_opacity_sampling:
+            line_by_line_opacity_sampling:
                 Will be ``None`` by default. If integer positive value, and if
                 ``mode == 'lbl'`` is ``True``, then this will only consider every
                 lbl_opacity_sampling-nth point of the high-resolution opacities.
@@ -117,43 +128,6 @@ class SpectralModel:
             **model_parameters:
                 dictionary of parameters. The keys can match arguments of functions used to generate the model.
         """
-        # Atmosphere/Radtrans parameters
-        self.pressures = pressures
-        self.lbl_opacity_sampling = lbl_opacity_sampling
-        self.do_scat_emis = do_scat_emis
-        self.opacity_mode = opacity_mode
-
-        if line_species is None:
-            self.line_species = []
-        else:
-            self.line_species = line_species
-
-        if rayleigh_species is None:
-            self.rayleigh_species = []
-        else:
-            self.rayleigh_species = rayleigh_species
-
-        if continuum_opacities is None:
-            self.continuum_opacities = []
-        else:
-            self.continuum_opacities = continuum_opacities
-
-        if cloud_species is None:
-            self.cloud_species = []
-        else:
-            self.cloud_species = cloud_species
-
-        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
-        # Spectrum generation base parameters
-        self.temperatures = temperatures
-        self.mass_mixing_ratios = mass_mixing_ratios
-        self.mean_molar_masses = mean_molar_masses
-
-        # Spectrum parameters
-        self.wavelengths = wavelengths
-        self.transit_radii = transit_radii
-        self.spectral_radiosities = spectral_radiosities
-
         # Other model parameters
         self.model_parameters = model_parameters
 
@@ -183,7 +157,33 @@ class SpectralModel:
 
             wavelengths_boundaries = self.get_optimal_wavelength_boundaries()
 
-        self.wavelengths_boundaries = wavelengths_boundaries
+        # Atmosphere/Radtrans parameters
+        super().__init__(
+            pressures=pressures,
+            wavelengths_boundaries=wavelengths_boundaries,
+            line_species=line_species,
+            gas_continuum_contributors=gas_continuum_contributors,
+            rayleigh_species=rayleigh_species,
+            cloud_species=cloud_species,
+            line_opacity_mode=line_opacity_mode,
+            line_by_line_opacity_sampling=line_by_line_opacity_sampling,
+            scattering_in_emission=scattering_in_emission,
+            emission_cos_angle_grid=emission_cos_angle_grid,
+            emission_cos_angle_grid_weights=emission_cos_angle_grid_weights,
+            anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            path_input_data=path_input_data
+        )
+
+        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
+        # Spectrum generation base parameters
+        self.temperatures = temperatures
+        self.mass_fractions = mass_mixing_ratios
+        self.mean_molar_masses = mean_molar_masses
+
+        # Spectrum parameters
+        self.wavelengths = wavelengths
+        self.transit_radii = transit_radii
+        self.fluxes = spectral_radiosities
 
     @staticmethod
     def __init_velocities(radial_velocity_amplitude_function, planet_radial_velocities_function,
@@ -438,16 +438,19 @@ class SpectralModel:
                 else:
                     planet_radial_velocity_amplitude = kwargs['planet_radial_velocity_amplitude']
 
+            # Use the above calculated orbital longitudes and planet radial velocity amplitude
             planet_radial_velocities = planet_radial_velocities_function(
                 **kwargs
             )
         else:
+            # Object is not orbiting, it has 0 orbit radial velocity
             orbital_longitudes = None
             planet_radial_velocity_amplitude = None
 
             if planet_radial_velocities is None:
                 planet_radial_velocities = np.zeros(1)
 
+        # Calculate the relative velocities from the above calculated orbit radial velocity
         relative_velocities = relative_velocities_function(
             planet_radial_velocities=planet_radial_velocities,
             system_observer_radial_velocities=system_observer_radial_velocities,
@@ -1060,7 +1063,7 @@ class SpectralModel:
         return compute_mean_molar_masses(mass_mixing_ratios)
 
     @staticmethod
-    def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function,
+    def calculate_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function=None,
                                                  relative_velocities=None, rebin_range_margin_power=6, **kwargs):
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(output_wavelengths, 'dtype'):
@@ -1084,7 +1087,12 @@ class SpectralModel:
         # Take Doppler shifting into account
         rebin_required_interval_shifted = copy.copy(rebin_required_interval)
 
-        if relative_velocities is not None:
+        if shift_wavelengths_function is not None:
+            if relative_velocities is None:
+                warnings.warn("wavelength shifting function provided but no relative velocities, "
+                              "assuming relative_velocities = 0 cm.s-1")
+                relative_velocities = np.zeros(1)
+
             rebin_required_interval_shifted[0] = shift_wavelengths_function(
                 wavelengths_rest=np.array([rebin_required_interval[0]]),
                 relative_velocities=np.array([
@@ -1100,8 +1108,9 @@ class SpectralModel:
                 ]),
                 **kwargs
             )[0][0]
-
-        # TODO take convolution into account
+        elif relative_velocities is not None:
+            raise TypeError(f"missing argument 'shift_wavelengths_function' "
+                            f"to take into account relative velocities ({relative_velocities})")
 
         # Ensure that non-shifted spectrum can still be re-binned
         rebin_required_interval[0] = np.min((rebin_required_interval_shifted[0], rebin_required_interval[0]))
@@ -1111,7 +1120,7 @@ class SpectralModel:
         rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - rebin_range_margin_power)
         rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - rebin_range_margin_power)
 
-        return rebin_required_interval
+        return np.array(rebin_required_interval)
 
     @staticmethod
     def calculate_orbital_longitudes(times_to_longitude_start, orbital_period, longitude_start=0, **kwargs):
@@ -1434,7 +1443,7 @@ class SpectralModel:
         return 1 - spectrum_transit_fractional_light_loss
 
     @staticmethod
-    def calculate_transit_spectrum(radtrans: Radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
+    def calculate_transit_spectrum(radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
                                    planet_surface_gravity, reference_pressure, planet_radius,
                                    cloud_pressure=None, haze_factor=1.0, cloud_particle_size_distribution='lognormal',
                                    cloud_particle_radii=None, cloud_particle_log_normal_width=None,
@@ -1605,134 +1614,87 @@ class SpectralModel:
             pressures=self.pressures,
             line_species=self.line_species,
             rayleigh_species=self.rayleigh_species,
-            continuum_opacities=self.continuum_opacities,
+            continuum_opacities=self.gas_continuum_contributors,
             cloud_species=self.cloud_species,
-            opacity_mode=self.opacity_mode,
-            do_scat_emis=self.do_scat_emis,
-            lbl_opacity_sampling=self.lbl_opacity_sampling
+            opacity_mode=self.line_opacity_mode,
+            do_scat_emis=self.scattering_in_emission,
+            lbl_opacity_sampling=self.line_by_line_opacity_sampling
         )
 
-    def get_relative_velocities(self, system_observer_radial_velocities=None, planet_radial_velocity_amplitude=None,
-                                planet_rest_frame_velocity_shift=None, times=None, mid_transit_time=None,
-                                orbital_period=None, orbital_longitudes=None,
-                                is_orbiting=None, planet_orbital_inclination=None, planet_radial_velocities=None,
-                                full=False, **kwargs):
-        if system_observer_radial_velocities is None:
-            system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
-
-        if planet_radial_velocity_amplitude is None:
-            planet_radial_velocity_amplitude = self.model_parameters['planet_radial_velocity_amplitude']
-
-        if planet_rest_frame_velocity_shift is None:
-            planet_rest_frame_velocity_shift = self.model_parameters['planet_rest_frame_velocity_shift']
-
-        if times is None:
-            times = self.model_parameters['times']
-
-        if mid_transit_time is None:
-            mid_transit_time = self.model_parameters['mid_transit_time']
-
-        if orbital_period is None:
-            orbital_period = self.model_parameters['orbital_period']
-
-        if orbital_longitudes is None:
-            orbital_longitudes = self.model_parameters['orbital_longitudes']
-
-        if is_orbiting is None:
-            is_orbiting = self.model_parameters['is_orbiting']
-
-        if planet_orbital_inclination is None:
-            planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
-
-        relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes = \
-            self._calculate_relative_velocities_wrap(
-                radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
-                planet_radial_velocities_function=self.calculate_planet_radial_velocities,
-                relative_velocities_function=self.calculate_relative_velocities,
-                orbital_longitudes_function=self.calculate_orbital_longitudes,
-                system_observer_radial_velocities=system_observer_radial_velocities,
-                planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
-                is_orbiting=is_orbiting,
-                orbital_longitudes=orbital_longitudes,
-                times=times,
-                mid_transit_time=mid_transit_time,
-                orbital_period=orbital_period,
-                planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
-                planet_radial_velocities=planet_radial_velocities,
-                planet_orbital_inclination=planet_orbital_inclination,
-                **kwargs
-            )
-
-        if full:
-            return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes
-        else:
-            return relative_velocities
-
-    def get_retrieval_velocities(self, planet_radial_velocity_amplitude_range=None,
-                                 planet_rest_frame_velocity_shift_range=None,
-                                 mid_transit_times_range=None,
+    @staticmethod
+    def get_retrieval_velocities(planet_radial_velocity_amplitude_range,
+                                 planet_rest_frame_velocity_shift_range,
+                                 mid_transit_times_range,
                                  system_observer_radial_velocities=None, orbital_period=None,
-                                 planet_orbital_inclination=None, star_mass=None, orbit_semi_major_axis=None, **kwargs):
-        if system_observer_radial_velocities is None:
-            system_observer_radial_velocities = self.model_parameters['system_observer_radial_velocities']
-
+                                 planet_orbital_inclination=None,
+                                 radial_velocity_amplitude_function=None, planet_radial_velocities_function=None,
+                                 relative_velocities_function=None, orbital_longitudes_function=None,
+                                 times=None,
+                                 **kwargs):
         if planet_radial_velocity_amplitude_range is None:
-            planet_radial_velocity_amplitude_range = self.model_parameters['planet_radial_velocity_amplitude_range']
+            planet_radial_velocity_amplitude_range = 0
 
         if planet_rest_frame_velocity_shift_range is None:
-            planet_rest_frame_velocity_shift_range = self.model_parameters['planet_rest_frame_velocity_shift_range']
+            planet_rest_frame_velocity_shift_range = 0
 
         if mid_transit_times_range is None:
-            mid_transit_times_range = self.model_parameters['mid_transit_times_range']
+            mid_transit_times_range = 0
 
-        if orbital_period is None:
-            orbital_period = self.model_parameters['orbital_period']
+        if radial_velocity_amplitude_function is None:
+            radial_velocity_amplitude_function = SpectralModel.calculate_radial_velocity_amplitude
 
-        if planet_orbital_inclination is None:
-            planet_orbital_inclination = self.model_parameters['planet_orbital_inclination']
+        if planet_radial_velocities_function is None:
+            planet_radial_velocities_function = SpectralModel.calculate_planet_radial_velocities
 
-        if star_mass is None:
-            star_mass = self.model_parameters['star_mass']
+        if relative_velocities_function is None:
+            relative_velocities_function = SpectralModel.calculate_relative_velocities
 
-        if orbit_semi_major_axis is None:
-            orbit_semi_major_axis = self.model_parameters['orbit_semi_major_axis']
+        if orbital_longitudes_function is None:
+            orbital_longitudes_function = SpectralModel.calculate_orbital_longitudes
 
-        velocities_min = np.min(self.get_relative_velocities(
+        velocities, _, _, _ = SpectralModel._calculate_relative_velocities_wrap(
+            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
+            planet_radial_velocities_function=planet_radial_velocities_function,
+            relative_velocities_function=relative_velocities_function,
+            orbital_longitudes_function=orbital_longitudes_function,
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
             planet_rest_frame_velocity_shift=np.min(planet_rest_frame_velocity_shift_range),
-            mid_transit_time=np.min(mid_transit_times_range),  # the transit happens sooner, spectrum is more r-shifted
-            orbital_period=orbital_period,
-            star_mass=star_mass,
-            orbit_semi_major_axis=orbit_semi_major_axis,
-            is_orbiting=True,
-            planet_orbital_inclination=planet_orbital_inclination,
-            planet_radial_velocities=None,
-            full=False,
-            **kwargs
-        ))
-
-        velocities_max = np.max(self.get_relative_velocities(
-            system_observer_radial_velocities=system_observer_radial_velocities,
             planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
-            planet_rest_frame_velocity_shift=np.max(planet_rest_frame_velocity_shift_range),
-            mid_transit_time=np.max(mid_transit_times_range),  # the transit happens later, spectrum is more b-shifted
             orbital_period=orbital_period,
-            star_mass=star_mass,
-            orbit_semi_major_axis=orbit_semi_major_axis,
-            is_orbiting=True,
+            times=times,
+            mid_transit_time=np.min(mid_transit_times_range),  # the transit happens sooner, spectrum is more r-shifted
             planet_orbital_inclination=planet_orbital_inclination,
+            orbital_longitudes=None,
+            is_orbiting=True,
             planet_radial_velocities=None,
-            full=False,
             **kwargs
-        ))
+        )
+        velocity_min = np.min(velocities)
 
-        return np.array([velocities_min, velocities_max])
+        velocities, _, _, _ = SpectralModel._calculate_relative_velocities_wrap(
+            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
+            planet_radial_velocities_function=planet_radial_velocities_function,
+            relative_velocities_function=relative_velocities_function,
+            orbital_longitudes_function=orbital_longitudes_function,
+            system_observer_radial_velocities=system_observer_radial_velocities,
+            planet_rest_frame_velocity_shift=np.max(planet_rest_frame_velocity_shift_range),
+            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
+            orbital_period=orbital_period,
+            times=times,
+            mid_transit_time=np.max(mid_transit_times_range),  # the transit happens later, spectrum is more b-shifted
+            orbital_longitudes=None,
+            is_orbiting=True,
+            planet_radial_velocities=None,
+            **kwargs
+        )
+        velocity_max = np.max(velocities)
+
+        return np.array([velocity_min, velocity_max])
 
     def get_reprocessed_spectrum(self, spectrum, **kwargs):
         return self.pipeline(spectrum, **kwargs)
 
-    def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None, line_species=None,
+    def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None,
                                             **kwargs
                                             ):
         """Initialize the temperature profile, mass mixing ratios and mean molar mass of a model.
@@ -1781,23 +1743,22 @@ class SpectralModel:
         return self.calculate_spectral_parameters(
             pressures=pressures,
             wavelengths=wavelengths,
-            line_species=line_species,
             **functions_dict,
             **kwargs
         )
 
-    def get_spectral_radiosity_spectrum_model(self, radtrans: Radtrans, parameters):
-        self.wavelengths, self.spectral_radiosities, additional_outputs = self.calculate_spectral_radiosity_spectrum(
-            radtrans=radtrans,
+    def get_spectral_radiosity_spectrum_model(self, parameters):
+        self.wavelengths, self.fluxes, additional_outputs = self.calculate_spectral_radiosity_spectrum(
+            radtrans=self,
             temperatures=self.temperatures,
-            mass_mixing_ratios=self.mass_mixing_ratios,
+            mass_mixing_ratios=self.mass_fractions,
             mean_molar_mass=self.mean_molar_masses,
             **parameters
         )
 
-        return self.wavelengths, self.spectral_radiosities, additional_outputs
+        return self.wavelengths, self.fluxes, additional_outputs
 
-    def get_spectrum_model(self, radtrans: Radtrans, mode='emission', parameters=None, update_parameters=False,
+    def get_spectrum_model(self, mode='emission', parameters=None, update_parameters=False,
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
@@ -1819,7 +1780,6 @@ class SpectralModel:
             parameters['reduce'] = reduce
 
             self.update_spectral_calculation_parameters(
-                radtrans=radtrans,
                 **parameters
             )
 
@@ -1827,17 +1787,15 @@ class SpectralModel:
 
         # Raw spectrum
         if mode == 'emission':
-            self.wavelengths, self.spectral_radiosities, additional_outputs = (
+            self.wavelengths, self.fluxes, additional_outputs = (
                 self.get_spectral_radiosity_spectrum_model(
-                    radtrans=radtrans,
                     parameters=parameters
                 )
             )
-            spectrum = copy.copy(self.spectral_radiosities)
+            spectrum = copy.copy(self.fluxes)
         elif mode == 'transmission':
             self.wavelengths, self.transit_radii, additional_outputs = (
                 self.get_transit_spectrum_model(
-                    radtrans=radtrans,
                     parameters=parameters
                 )
             )
@@ -1914,11 +1872,11 @@ class SpectralModel:
             **kwargs
         )
 
-    def get_transit_spectrum_model(self, radtrans: Radtrans, parameters):
+    def get_transit_spectrum_model(self, parameters):
         self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_spectrum(
-            radtrans=radtrans,
+            radtrans=self,
             temperatures=self.temperatures,
-            mass_mixing_ratios=self.mass_mixing_ratios,
+            mass_mixing_ratios=self.mass_fractions,
             mean_molar_masses=self.mean_molar_masses,
             **parameters
         )
@@ -1927,7 +1885,7 @@ class SpectralModel:
 
     def get_volume_mixing_ratios(self):
         return mass_fractions2volume_mixing_ratios(
-            mass_fractions=self.mass_mixing_ratios,
+            mass_fractions=self.mass_fractions,
             mean_molar_masses=self.mean_molar_masses
         )
 
@@ -2061,7 +2019,7 @@ class SpectralModel:
     @classmethod
     def load(cls, filename):
         # Generate an empty SpectralModel
-        new_spectrum_model = cls(pressures=None, wavelengths_boundaries=[0.0, 0.0])
+        new_spectrum_model = cls(pressures=None, wavelengths_boundaries=np.zeros(2))
 
         # Update the SpectralModel attributes from the file
         with h5py.File(filename, 'r') as f:
@@ -2603,8 +2561,8 @@ class SpectralModel:
             radius=planet_radius
         )[0]
 
-    def update_spectral_calculation_parameters(self, radtrans: Radtrans, **parameters):
-        pressures = radtrans.pressures * 1e-6  # cgs to bar
+    def update_spectral_calculation_parameters(self, **parameters):
+        pressures = self.pressures * 1e-6  # cgs to bar
 
         kwargs = {'imposed_mass_mixing_ratios': {}}
 
@@ -2635,19 +2593,159 @@ class SpectralModel:
                 else:
                     kwargs[parameter] = copy.copy(value)
 
-        self.temperatures, self.mass_mixing_ratios, self.mean_molar_masses, self.model_parameters = \
+        self.temperatures, self.mass_fractions, self.mean_molar_masses, self.model_parameters = \
             self.get_spectral_calculation_parameters(
                 pressures=pressures,
-                wavelengths=hz2um(radtrans.frequencies),
-                line_species=radtrans.line_species,
+                wavelengths=hz2um(self.frequencies),
                 **kwargs
             )
 
         # Adapt chemical names to line species names, as required by Retrieval
-        for species in radtrans.line_species:
+        for species in self.line_species:
             spec = species.split('_', 1)[0]
 
-            if spec in self.mass_mixing_ratios:
-                if species not in self.mass_mixing_ratios:
-                    self.mass_mixing_ratios[species] = self.mass_mixing_ratios[spec]
-                    del self.mass_mixing_ratios[spec]
+            if spec in self.mass_fractions:
+                if species not in self.mass_fractions:
+                    self.mass_fractions[species] = self.mass_fractions[spec]
+                    del self.mass_fractions[spec]
+
+    @classmethod
+    def with_velocity_range(
+            cls,
+            times: np.ndarray[float],
+            planet_radial_velocity_amplitude_range: np.ndarray[float],
+            planet_rest_frame_velocity_shift_range: np.ndarray[float],
+            mid_transit_times_range: np.ndarray[float],
+            system_observer_radial_velocities: np.ndarray[float],
+            orbital_period: float,
+            star_mass: float,
+            orbit_semi_major_axis: float,
+            output_wavelengths: np.ndarray,
+            planet_orbital_inclination: float = 90.0,
+            mid_transit_time: float = None,
+            planet_radial_velocity_amplitude: float = None,
+            planet_rest_frame_velocity_shift: float = None,
+            shift_wavelengths_function: callable = None,
+            radial_velocity_amplitude_function: callable = None,
+            planet_radial_velocities_function: callable = None,
+            relative_velocities_function: callable = None,
+            orbital_longitudes_function: callable = None,
+            pressures: np.ndarray[float] = None,
+            line_species: list[str] = None,
+            gas_continuum_contributors: list[str] = None,
+            rayleigh_species: list[str] = None,
+            cloud_species: list[str] = None,
+            line_opacity_mode: str = 'c-k',
+            line_by_line_opacity_sampling: int = 1,
+            scattering_in_emission: bool = False,
+            emission_cos_angle_grid: np.ndarray[float] = None,
+            emission_cos_angle_grid_weights: np.ndarray[float] = None,
+            anisotropic_cloud_scattering: bool = 'auto',
+            path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
+            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
+    ):
+        if shift_wavelengths_function is None:
+            shift_wavelengths_function = SpectralModel.shift_wavelengths
+
+        if mid_transit_time is None:
+            mid_transit_time = np.mean(mid_transit_times_range)
+        else:
+            if mid_transit_time > np.max(mid_transit_times_range) or mid_transit_time < np.min(mid_transit_times_range):
+                raise ValueError(f"mid_transit_time must be within mid_transit_times_range "
+                                 f"({mid_transit_times_range}), "
+                                 f"but was {mid_transit_time}")
+
+        if planet_radial_velocity_amplitude is None:
+            planet_radial_velocity_amplitude = np.mean(planet_radial_velocity_amplitude_range)
+        else:
+            if (planet_radial_velocity_amplitude > np.max(planet_radial_velocity_amplitude_range)
+                    or planet_radial_velocity_amplitude < np.min(planet_radial_velocity_amplitude_range)):
+                raise ValueError(f"planet_radial_velocity_amplitude must be within "
+                                 f"planet_radial_velocity_amplitude_range "
+                                 f"({planet_radial_velocity_amplitude_range}), "
+                                 f"but was {planet_radial_velocity_amplitude}")
+
+        if planet_rest_frame_velocity_shift is None:
+            planet_rest_frame_velocity_shift = np.mean(planet_rest_frame_velocity_shift_range)
+        else:
+            if (planet_rest_frame_velocity_shift > np.max(planet_rest_frame_velocity_shift_range)
+                    or planet_rest_frame_velocity_shift < np.min(planet_rest_frame_velocity_shift_range)):
+                raise ValueError(f"planet_rest_frame_velocity_shift must be within "
+                                 f"planet_rest_frame_velocity_shift_range "
+                                 f"({planet_rest_frame_velocity_shift_range}), "
+                                 f"but was {planet_rest_frame_velocity_shift}")
+
+        retrieval_velocities = SpectralModel.get_retrieval_velocities(
+            planet_radial_velocity_amplitude_range=planet_radial_velocity_amplitude_range,
+            planet_rest_frame_velocity_shift_range=planet_rest_frame_velocity_shift_range,
+            mid_transit_times_range=mid_transit_times_range,
+            system_observer_radial_velocities=system_observer_radial_velocities,
+            orbital_period=orbital_period,
+            planet_orbital_inclination=planet_orbital_inclination,
+            star_mass=star_mass,
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            times=times,
+            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
+            planet_radial_velocities_function=planet_radial_velocities_function,
+            relative_velocities_function=relative_velocities_function,
+            orbital_longitudes_function=orbital_longitudes_function,
+            **model_parameters
+        )
+
+        wavelengths_boundaries = SpectralModel.calculate_optimal_wavelengths_boundaries(
+            output_wavelengths=output_wavelengths,
+            shift_wavelengths_function=shift_wavelengths_function,
+            relative_velocities=retrieval_velocities,
+            **model_parameters
+        )
+
+        new_spectral_model = cls(
+            pressures=pressures,
+            wavelengths_boundaries=wavelengths_boundaries,
+            line_species=line_species,
+            gas_continuum_contributors=gas_continuum_contributors,
+            rayleigh_species=rayleigh_species,
+            cloud_species=cloud_species,
+            line_opacity_mode=line_opacity_mode,
+            line_by_line_opacity_sampling=line_by_line_opacity_sampling,
+            scattering_in_emission=scattering_in_emission,
+            emission_cos_angle_grid=emission_cos_angle_grid,
+            emission_cos_angle_grid_weights=emission_cos_angle_grid_weights,
+            anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+            path_input_data=path_input_data,
+            temperatures=temperatures,
+            mass_mixing_ratios=mass_mixing_ratios,
+            mean_molar_masses=mean_molar_masses,
+            wavelengths=wavelengths,
+            transit_radii=transit_radii,
+            spectral_radiosities=spectral_radiosities,
+            orbital_period=orbital_period,
+            system_observer_radial_velocities=system_observer_radial_velocities,
+            planet_orbital_inclination=planet_orbital_inclination,
+            star_mass=star_mass,
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            times=times,
+            mid_transit_time=mid_transit_time,
+            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+            planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+            output_wavelengths=output_wavelengths,
+            **model_parameters
+        )
+
+        if shift_wavelengths_function is not None:
+            new_spectral_model.shift_wavelengths = shift_wavelengths_function
+
+        if radial_velocity_amplitude_function is not None:
+            new_spectral_model.calculate_radial_velocity_amplitude = radial_velocity_amplitude_function
+
+        if planet_radial_velocities_function is not None:
+            new_spectral_model.calculate_planet_radial_velocities = planet_radial_velocities_function
+
+        if relative_velocities_function is not None:
+            new_spectral_model.calculate_relative_velocities = relative_velocities_function
+
+        if orbital_longitudes_function is not None:
+            new_spectral_model.calculate_orbital_longitudes = orbital_longitudes_function
+
+        return new_spectral_model

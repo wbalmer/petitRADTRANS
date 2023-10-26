@@ -448,8 +448,8 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         ],
         rayleigh_species=['H2', 'He'],
         continuum_opacities=['H2-H2', 'H2-He'],
-        opacity_mode='lbl',
-        lbl_opacity_sampling=4,
+        line_opacity_mode='lbl',
+        line_by_line_opacity_sampling=4,
         # Temperature profile parameters
         temperature_profile_mode='isothermal',
         temperature=planet.equilibrium_temperature,  # K

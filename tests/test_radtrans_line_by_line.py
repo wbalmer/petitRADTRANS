@@ -36,9 +36,9 @@ def init_spectral_model_line_by_line():
         pressures=radtrans_parameters['pressures'],  # bar
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        continuum_opacities=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
-        do_scat_emis=False,  # is False by default on Radtrans but True by default on SpectralModel
-        opacity_mode='lbl',
+        gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+        scattering_in_emission=False,  # is False by default on Radtrans but True by default on SpectralModel
+        line_opacity_mode='lbl',
         # Temperature profile parameters: generate a Guillot temperature profile
         temperature_profile_mode='guillot',
         temperature=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature'],  # K
@@ -119,13 +119,11 @@ def init_spectral_model_line_by_line():
     spectral_model.calculate_mean_molar_masses = \
         calculate_mean_molar_masses
 
-    radtrans = spectral_model.get_radtrans()
-
-    return spectral_model, radtrans
+    return spectral_model
 
 
 atmosphere_lbl = init_radtrans_line_by_line()
-spectral_model_lbl, radtrans_spectral_model_lbl = init_spectral_model_line_by_line()
+spectral_model_lbl = init_spectral_model_line_by_line()
 
 
 def test_line_by_line_emission_spectrum():
@@ -178,7 +176,6 @@ def test_line_by_line_spectral_model_emission():
     spectral_model.model_parameters['is_orbiting'] = False
 
     wavelengths, spectral_radiosities = spectral_model.get_spectrum_model(
-        radtrans=radtrans_spectral_model_lbl,
         mode='emission',
         parameters=None,
         update_parameters=True,
@@ -201,7 +198,7 @@ def test_line_by_line_spectral_model_emission():
 
     for species in spectral_model.line_species:
         assert np.allclose(
-            spectral_model.mass_mixing_ratios[species],
+            spectral_model.mass_fractions[species],
             radtrans_parameters['mass_fractions'][species],
             atol=0,
             rtol=relative_tolerance
@@ -235,7 +232,6 @@ def test_line_by_line_spectral_model_transmission():
     spectral_model.model_parameters['temperature'] = temperature_isothermal
 
     wavelengths, transit_radii = spectral_model.get_spectrum_model(
-        radtrans=radtrans_spectral_model_lbl,
         mode='transmission',
         parameters=None,
         update_parameters=True,
@@ -258,7 +254,7 @@ def test_line_by_line_spectral_model_transmission():
 
     for species in spectral_model.line_species:
         assert np.allclose(
-            spectral_model.mass_mixing_ratios[species],
+            spectral_model.mass_fractions[species],
             radtrans_parameters['mass_fractions'][species],
             atol=0,
             rtol=relative_tolerance
@@ -289,7 +285,6 @@ def test_line_by_line_spectral_model_transmission_ccf():
     spectral_model.model_parameters['temperature'] = temperature_isothermal
 
     wavelengths, mock_transmission_data = spectral_model.get_spectrum_model(
-        radtrans=radtrans_spectral_model_lbl,
         mode='transmission',
         parameters=None,
         update_parameters=True,
@@ -312,7 +307,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
 
     for species in spectral_model.line_species:
         assert np.allclose(
-            spectral_model.mass_mixing_ratios[species],
+            spectral_model.mass_fractions[species],
             radtrans_parameters['mass_fractions'][species],
             atol=0,
             rtol=relative_tolerance
@@ -338,7 +333,6 @@ def test_line_by_line_spectral_model_transmission_ccf():
 
     # Get models
     wavelengths_model, model = spectral_model.get_spectrum_model(
-        radtrans=radtrans_spectral_model_lbl,
         mode='transmission',
         parameters=None,
         update_parameters=True,
