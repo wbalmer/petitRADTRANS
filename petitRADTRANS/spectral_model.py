@@ -1061,11 +1061,11 @@ class SpectralModel(Radtrans):
             )
 
             # TODO more general handling of isotopologues (use smarter species names)
-            if 'CO_main_iso' in line_species and 'CO_all_iso' in line_species:
+            if 'CO_main_iso' in line_species and 'CO-NatAbund' in line_species:
                 raise ValueError("cannot add main isotopologue and all isotopologues of CO at the same time")
 
             if 'CO_main_iso' not in imposed_mass_fractions and 'CO_36' not in imposed_mass_fractions:
-                if 'CO_all_iso' not in line_species:
+                if 'CO-NatAbund' not in line_species:
                     if 'CO_main_iso' in mass_mixing_ratios_equilibrium:
                         co_mass_mixing_ratio = copy.copy(mass_mixing_ratios_equilibrium['CO_main_iso'])
                     else:

@@ -4,12 +4,12 @@ from petitRADTRANS import Radtrans
 import os
 os.environ["pRT_input_data_path"] = "/Users/molliere/Documents/programm_data/petitRADTRANS_public/input_data"
 
-atmosphere = Radtrans(line_species = ['H2O_HITEMP', 'CO_all_iso_HITEMP', 'CH4', 'CO2', 'Na_allard', 'K_allard'], \
+atmosphere = Radtrans(line_species = ['H2O_HITEMP', 'CO-NatAbund_HITEMP', 'CH4', 'CO2', 'Na_allard', 'K_allard'], \
                           rayleigh_species = ['H2', 'He'], \
                           continuum_opacities = ['H2-H2', 'H2-He'], \
                           wlen_bords_micron = [0.3, 15])
 
-atmosphere2 = Radtrans(line_species = ['H2O_Exomol', 'CO_all_iso_HITEMP', 'CH4', 'CO2', 'Na_allard', 'K_allard'], \
+atmosphere2 = Radtrans(line_species = ['H2O_Exomol', 'CO-NatAbund_HITEMP', 'CH4', 'CO2', 'Na_allard', 'K_allard'], \
                           rayleigh_species = ['H2', 'He'], \
                           continuum_opacities = ['H2-H2', 'H2-He'], \
                           wlen_bords_micron = [0.3, 15])
@@ -34,8 +34,8 @@ abundances['K_burrows'] = 0.000001 * np.ones_like(temperature)
 abundances['Na_lor_cut'] = 0.00001 * np.ones_like(temperature)
 abundances['K_lor_cut'] = 0.000001 * np.ones_like(temperature)
 
-abundances['CO_all_iso_HITEMP'] = 0.01 * np.ones_like(temperature)
-abundances['CO_all_iso_Chubb'] = 0.01 * np.ones_like(temperature)
+abundances['CO-NatAbund_HITEMP'] = 0.01 * np.ones_like(temperature)
+abundances['CO-NatAbund_Chubb'] = 0.01 * np.ones_like(temperature)
 abundances['CO2'] = 0.00001 * np.ones_like(temperature)
 abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 

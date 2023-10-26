@@ -183,14 +183,14 @@ class SimplePlanet(Planet):
 class SpectralModelLegacy:
     default_line_species = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'HCN_main_iso',
         'K',
         'Na_allard',
         'NH3_main_iso',
-        'TiO_all_iso_exo',
+        'TiO-NatAbund_exo',
         'VO'
     ]
     default_rayleigh_species = [

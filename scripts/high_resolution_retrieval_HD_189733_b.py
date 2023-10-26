@@ -43,7 +43,7 @@ class Param:
 # TODO replace these private functions by a nice object doing everything needed
 def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     print('Initialization...')
-    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
+    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO-NatAbund']  # 'H2O_Exomol'
 
     if not isinstance(planet.mass, float) or planet.mass == 0:
         print("Warning: planet mass undefined, using a made-up one")
@@ -75,7 +75,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     # print('1', np.sum(list(mass_fractions.values()), axis=0))
     # print(list(mass_fractions.keys()))
     #
-    # if 'CO_all_iso' not in line_species:
+    # if 'CO-NatAbund' not in line_species:
     #     co_mass_mixing_ratio = copy.copy(mass_fractions['CO'])
     #
     #     if 'CO_main_iso' in line_species:

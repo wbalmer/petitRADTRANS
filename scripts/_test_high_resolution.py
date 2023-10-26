@@ -247,7 +247,7 @@ def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=F
 
 def init_model(planet, w_bords, line_species_str, p0=1e-2):
     print('Initialization...')
-    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
+    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO-NatAbund']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
     temperature = temperature_profile_function_guillot_global(
@@ -1237,7 +1237,7 @@ def main(sim_id=0):
     planet_name = 'HD 209458 b'
     planet = Planet.get(planet_name)
 
-    line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f't{sim_id}_vttt_mbrogimd_kp_vr_CO_H2O_79-80'
     mode = 'transit'

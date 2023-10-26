@@ -13,7 +13,7 @@ case3 = True
 if case1:
     # Load scattering version of pRT
     atmosphere = Radtrans(line_species = ['H2O_HITEMP',
-                                          'CO_all_iso_HITEMP',
+                                          'CO-NatAbund_HITEMP',
                                           'CH4',
                                           'CO2',
                                           'Na_allard',
@@ -47,7 +47,7 @@ if case1:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_HITEMP'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso_HITEMP'] = 0.005 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund_HITEMP'] = 0.005 * np.ones_like(temperature)
     mass_fractions['CO2'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['CH4'] = 0.0000001 * np.ones_like(temperature)
     mass_fractions['Na_allard'] = 0.00001 * np.ones_like(temperature)
@@ -73,7 +73,7 @@ if case1:
 if case2:
 
     atmosphere = Radtrans(line_species=['H2O_HITEMP',
-                                        'CO_all_iso_HITEMP',
+                                        'CO-NatAbund_HITEMP',
                                         'CH4',
                                         'CO2',
                                         'Na_allard',
@@ -105,7 +105,7 @@ if case2:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_HITEMP'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso_HITEMP'] = 0.01 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund_HITEMP'] = 0.01 * np.ones_like(temperature)
     mass_fractions['CO2'] = 0.00001 * np.ones_like(temperature)
     mass_fractions['CH4'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['Na_allard'] = 0.00001 * np.ones_like(temperature)

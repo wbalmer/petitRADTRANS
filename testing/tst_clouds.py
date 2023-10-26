@@ -5,7 +5,7 @@ low_res = False
 
 if low_res:
     atmosphere = Radtrans(line_species = ['H2O_HITEMP',
-                                          'CO_all_iso_HITEMP',
+                                          'CO-NatAbund_HITEMP',
                                           'CH4',
                                           'CO2',
                                           'Na_allard',
@@ -15,7 +15,7 @@ if low_res:
                           wlen_bords_micron = [0.3, 15])
 else:
     atmosphere = Radtrans(line_species=['H2O_main_iso',
-                                        'CO_all_iso',
+                                        'CO-NatAbund',
                                         'CH4_main_iso',
                                         'CO2_main_iso',
                                         'Na',
@@ -46,7 +46,7 @@ if low_res:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_HITEMP'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso_HITEMP'] = 0.01 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund_HITEMP'] = 0.01 * np.ones_like(temperature)
     mass_fractions['CO2'] = 0.00001 * np.ones_like(temperature)
     mass_fractions['CH4'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['Na_allard'] = 0.00001 * np.ones_like(temperature)
@@ -56,7 +56,7 @@ else:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_main_iso'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso'] = 0.01 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund'] = 0.01 * np.ones_like(temperature)
     mass_fractions['CO2_main_iso'] = 0.00001 * np.ones_like(temperature)
     mass_fractions['CH4_main_iso'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['Na'] = 0.00001 * np.ones_like(temperature)
@@ -168,7 +168,7 @@ from petitRADTRANS import Radtrans
 
 if low_res:
     atmosphere = Radtrans(line_species = ['H2O_HITEMP',
-                                          'CO_all_iso_HITEMP',
+                                          'CO-NatAbund_HITEMP',
                                           'CH4',
                                           'CO2',
                                           'Na_allard',
@@ -179,7 +179,7 @@ if low_res:
           wlen_bords_micron = [0.3, 15])
 else:
     atmosphere = Radtrans(line_species=['H2O_main_iso',
-                                        'CO_all_iso',
+                                        'CO-NatAbund',
                                         'CH4_main_iso',
                                         'CO2_main_iso',
                                         'Na',
@@ -209,7 +209,7 @@ if low_res:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_HITEMP'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso_HITEMP'] = 0.01 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund_HITEMP'] = 0.01 * np.ones_like(temperature)
     mass_fractions['CO2'] = 0.00001 * np.ones_like(temperature)
     mass_fractions['CH4'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['Na_allard'] = 0.00001 * np.ones_like(temperature)
@@ -220,7 +220,7 @@ else:
     mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
     mass_fractions['He'] = 0.24 * np.ones_like(temperature)
     mass_fractions['H2O_main_iso'] = 0.001 * np.ones_like(temperature)
-    mass_fractions['CO_all_iso'] = 0.01 * np.ones_like(temperature)
+    mass_fractions['CO-NatAbund'] = 0.01 * np.ones_like(temperature)
     mass_fractions['CO2_main_iso'] = 0.00001 * np.ones_like(temperature)
     mass_fractions['CH4_main_iso'] = 0.000001 * np.ones_like(temperature)
     mass_fractions['Na'] = 0.00001 * np.ones_like(temperature)
@@ -327,7 +327,7 @@ plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6, \
 # Load scattering version of pRT
 if low_res:
     atmosphere = Radtrans(line_species = ['H2O_HITEMP',
-                                          'CO_all_iso_HITEMP',
+                                          'CO-NatAbund_HITEMP',
                                           'CH4',
                                           'CO2',
                                           'Na_allard',
@@ -339,7 +339,7 @@ if low_res:
           do_scat_emis = True)
 else:
     atmosphere = Radtrans(line_species=['H2O_main_iso',
-                                        'CO_all_iso',
+                                        'CO-NatAbund',
                                         'CH4_main_iso',
                                         'CO2_main_iso',
                                         'Na',

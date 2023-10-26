@@ -3,7 +3,7 @@ from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.physics import temperature_profile_function_guillot_global
 
 atmosphere = Radtrans(line_species = ['H2O_main_iso',
-                                      'CO_all_iso',
+                                      'CO-NatAbund',
                                       'CH4_main_iso',
                                       'CO2_main_iso',
                                       'Na',
@@ -33,7 +33,7 @@ mass_fractions = {}
 mass_fractions['H2'] = 0.74 * np.ones_like(temperature)
 mass_fractions['He'] = 0.24 * np.ones_like(temperature)
 mass_fractions['H2O_main_iso'] = 0.001 * np.ones_like(temperature)
-mass_fractions['CO_all_iso'] = 0.01 * np.ones_like(temperature)
+mass_fractions['CO-NatAbund'] = 0.01 * np.ones_like(temperature)
 mass_fractions['CO2_main_iso'] = 0.00001 * np.ones_like(temperature)
 mass_fractions['CH4_main_iso'] = 0.000001 * np.ones_like(temperature)
 mass_fractions['Na'] = 0.00001 * np.ones_like(temperature)

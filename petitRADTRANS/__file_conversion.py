@@ -43,6 +43,9 @@ def __get_prt2_input_data_subpaths():
 
 
 def __remove_files(old_files):
+    if isinstance(old_files, str):
+        old_files = [old_files]
+
     for old_file in old_files:
         if os.path.isfile(old_file):
             print(f" Removing old file '{old_file}'...")
@@ -149,8 +152,8 @@ def _get_prt2_correlated_k_names():
         'CO_12_HITEMP': '12C-16O__HITEMP.R1000_0.1-250mu',
         'CO_13_HITEMP': '13C-16O__HITEMP.R1000_0.1-250mu',
         'CO_13_Chubb': '13C-16O__Li2015.R1000_0.3-50mu',
-        'CO_all_iso_Chubb': 'CO_all_iso__Chubb.R1000_0.3-50mu',
-        'CO_all_iso_HITEMP': 'CO_all_iso__HITEMP.R1000_0.1-250mu',
+        'CO_all_iso_Chubb': 'C-O-NatAbund__Chubb.R1000_0.3-50mu',
+        'CO_all_iso_HITEMP': 'C-O-NatAbund__HITEMP.R1000_0.1-250mu',
         'CO2': None,
         'CrH': None,
         'Fe': None,
@@ -188,8 +191,8 @@ def _get_prt2_correlated_k_names():
         'Ti+': None,
         'TiO_48_Exomol': '48Ti-16O__McKemmish.R1000_0.1-250mu',
         'TiO_48_Plez': '48Ti-16O__Plez.R1000_0.1-250mu',
-        'TiO_all_Exomol': 'TiO_all_iso__McKemmish.R1000_0.1-250mu',
-        'TiO_all_Plez': 'TiO_all_iso__Plez.R1000_0.1-250mu',
+        'TiO_all_Exomol': 'Ti-O-NatAbund__McKemmish.R1000_0.1-250mu',
+        'TiO_all_Plez': 'Ti-O-NatAbund__Plez.R1000_0.1-250mu',
         'V': None,
         'V+': None,
         'VO': None,
@@ -258,8 +261,8 @@ def _get_prt2_line_by_line_names():
         'TiO_49_Plez': '49Ti-16O__Plez.R1e6_0.3-28mu',
         'TiO_50_Exomol_McKemmish': '50Ti-16O__Toto.R1e6_0.3-28mu',
         'TiO_50_Plez': '50Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_all_iso_Plez': 'TiO_all_iso__Plez.R1e6_0.3-28mu',
-        'TiO_all_iso_exo': 'TiO_all_iso__Toto.R1e6_0.3-28mu',
+        'TiO_all_iso_Plez': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso_exo': 'Ti-O-NatAbund__Toto.R1e6_0.3-28mu',
         'V': None,
         'V+': None,
         'VO': '51V-16O__Plez.R1e6_0.3-28mu',
@@ -491,6 +494,7 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
 
     if clean:
         __remove_files(list(dat_files.values()))
+        __remove_files([os.path.join(path, 'abunds_python.dat')])
 
 
 def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
@@ -690,7 +694,6 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_d
 
             dataset = fh5.create_dataset(
                 name='mol_mass',
-                shape=(1,),
                 data=np.array([float(get_species_molar_mass(species)) for species in cia_dict['molecules']])
             )
             dataset.attrs['long_name'] = 'Masses of the colliding species'
@@ -698,7 +701,6 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_d
 
             dataset = fh5.create_dataset(
                 name='mol_name',
-                shape=(1,),
                 data=cia_dict['molecules']
             )
             dataset.attrs['long_name'] = 'Names of the colliding species described'
@@ -848,6 +850,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
         'Fe(c)_cd': get_species_molar_mass('Fe'),
         'H2O(c)_cm': get_species_molar_mass('H2O'),
         'H2O(c)_cd': get_species_molar_mass('H2O'),
+        'H2OL(c)_am': get_species_molar_mass('H2O'),
         'KCL(c)_cm': get_species_molar_mass('H2O'),
         'KCL(c)_cd': get_species_molar_mass('H2O'),
         'Mg05Fe05SiO3(c)_am': (
@@ -991,7 +994,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
         reference_file = os.path.join(
             path_input_data,
             get_input_data_subpaths()['clouds_opacities'],
-            'MgSiO3(s)_amorphous', 'MgSiO3_all_iso(s)_amorphous', 'mie', 'opa_0001.dat'
+            'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie', 'opa_0001.dat'
         )
 
     if not os.path.isfile(reference_file):
@@ -1008,7 +1011,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
         path_reference_files = os.path.join(cloud_path, 'MgSiO3_c', 'amorphous', 'mie')
     else:
         cloud_path = os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities'])
-        path_reference_files = os.path.join(cloud_path, 'MgSiO3(s)_amorphous', 'MgSiO3_all_iso(s)_amorphous', 'mie')
+        path_reference_files = os.path.join(cloud_path, 'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie')
 
     path_input_files = os.path.join(path_input_data, 'opa_input_files')
 
@@ -2134,8 +2137,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
         'TiO_49_Plez': get_species_molar_mass('49Ti') + get_species_molar_mass('16O'),
         'TiO_50_Exomol_McKemmish': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
         'TiO_50_Plez': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
-        'TiO_all_iso_Plez': get_species_molar_mass('TiO_all_iso'),
-        'TiO_all_iso_exo': get_species_molar_mass('TiO_all_iso'),
+        'TiO_all_iso_Plez': get_species_molar_mass('TiO-NatAbund'),
+        'TiO_all_iso_exo': get_species_molar_mass('TiO-NatAbund'),
         'V': get_species_molar_mass('V'),
         'V+': get_species_molar_mass('V') - get_species_molar_mass('e-'),
         'VO': get_species_molar_mass('VO'),
@@ -2670,12 +2673,12 @@ def refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_i
                 print(f"Skipping key '{key}'")
                 continue
 
-            for cia, filename in d_prt3.items():
-                if multi and cia not in d_prt2:
-                    print(f"Skipping multi-defined key '{cia}'...")
+            for _key, filename in d_prt3.items():
+                if multi and _key not in d_prt2:
+                    print(f"Skipping multi-defined key '{_key}'...")
                     continue
 
-                old_directory = d_prt2[cia]
+                old_directory = d_prt2[_key]
 
                 if move_dirs:
                     spec = copy.deepcopy(old_directory)
@@ -2804,6 +2807,7 @@ def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(
     if not old_paths:
         print("Refactoring input data folder...")
         refactor_input_data_folder(path_input_data=path_input_data)
+        print("Refactoring done\n----")
 
     print("Starting all conversions...")
 
@@ -2829,4 +2833,8 @@ def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(
     print("Successfully converted all .dat files into HDF5")
 
     if clean:
+        print("Starting final cleaning...")
         _clean_input_data_mac_junk_files(path_input_data)
+        __remove_files([os.path.join(path_input_data, 'opa_input_files')])
+        print("Successfully removed opa_input_files directory")
+        print("Final cleaning complete")

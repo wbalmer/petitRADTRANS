@@ -440,7 +440,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         pressures=np.logspace(-10, 2, 100),  # bar
         line_species=[
             # 'CH4_hargreaves_main_iso',
-            'CO_all_iso',
+            'CO-NatAbund',
             'H2O_main_iso',
             # 'H2S_main_iso',
             # 'HCN_main_iso',
@@ -457,7 +457,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         use_equilibrium_chemistry=False,
         imposed_mass_fractions={
             'CH4_hargreaves_main_iso': 3.4e-5,
-            'CO_all_iso': 1.8e-2,
+            'CO-NatAbund': 1.8e-2,
             'H2O_main_iso': 5.4e-3,
             'H2S_main_iso': 1.0e-3,
             'HCN_main_iso': 2.7e-7,

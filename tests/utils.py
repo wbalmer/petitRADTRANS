@@ -127,7 +127,7 @@ def create_test_radtrans_config_file(filename):
                     'H2O_HITEMP': 0.001,
                     'H2O_main_iso': 0.001,
                     'CH4': 0.001,
-                    'CO_all_iso': 0.1,
+                    'CO-NatAbund': 0.1,
                     'Mg2SiO4(s)_crystalline__DHS': 0.0
                  },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
@@ -168,7 +168,7 @@ def create_test_radtrans_config_file(filename):
                     ],
                     'line_species_line_by_line': [
                         'H2O_main_iso',
-                        'CO_all_iso'
+                        'CO-NatAbund'
                     ],
                     'rayleigh_species': ['H2', 'He'],
                     'continuum_opacities': ['H2-H2', 'H2-He'],

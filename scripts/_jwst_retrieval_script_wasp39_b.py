@@ -25,8 +25,8 @@ def main(sim_id=0):
     planet_name = 'WASP-39 b'
     planet = Planet.get(planet_name)
 
-    line_species_str = ['CO_all_iso_HITEMP_R_120', 'CO2_R_120', 'H2O_Exomol_R_120']#['CO_all_iso', 'CO2_main_iso', 'H2O_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    line_species_str = ['CO-NatAbund_HITEMP_R_120', 'CO2_R_120', 'H2O_Exomol_R_120']#['CO-NatAbund', 'CO2_main_iso', 'H2O_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_jwst_p_kp_vr_CO_CO2_H2O_t_NIRCam_F322W2'
     retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))

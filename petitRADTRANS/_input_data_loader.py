@@ -37,41 +37,41 @@ def __build_cia_aliases_dict():
 
 def _get_base_cia_names():
     return LockedDict.build_and_lock({
-        'H2--H2': 'H2--H2_all_iso__BoRi.R831_0.6-250mu',
-        'H2--He': 'H2--He_all_iso__BoRi.DeltaWavenumber2_0.5-500mu',
-        'H2O--H2O': 'H2O--H2O_all_iso',
-        'H2O--N2': 'H2O--N2_all_iso',
-        'N2--H2': 'N2--H2_all_iso.DeltaWavenumber1_5.3-909mu',
-        'N2--He': 'N2--He_all_iso.DeltaWavenumber1_10-909mu',
-        'N2--N2': 'N2--N2_all_iso.DeltaWavelength1e-6_2-100mu',
-        'O2--O2': 'O2--O2_all_iso.DeltaWavelength1e-6_0.34-8.7mu',
-        'N2--O2': 'N2--O2_all_iso.DeltaWavelength1e-6_0.72-5.4mu',
-        'CO2--CO2': 'CO2--CO2_all_iso.DeltaWavelength1e-6_3-100mu',
+        'H2--H2': 'H2--H2-NatAbund__BoRi.R831_0.6-250mu',
+        'H2--He': 'H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu',
+        'H2O--H2O': 'H2O--H2O-NatAbund',
+        'H2O--N2': 'H2O--N2-NatAbund',
+        'N2--H2': 'N2--H2-NatAbund.DeltaWavenumber1_5.3-909mu',
+        'N2--He': 'N2--He-NatAbund.DeltaWavenumber1_10-909mu',
+        'N2--N2': 'N2--N2-NatAbund.DeltaWavelength1e-6_2-100mu',
+        'O2--O2': 'O2--O2-NatAbund.DeltaWavelength1e-6_0.34-8.7mu',
+        'N2--O2': 'N2--O2-NatAbund.DeltaWavelength1e-6_0.72-5.4mu',
+        'CO2--CO2': 'CO2--CO2-NatAbund.DeltaWavelength1e-6_3-100mu',
     })
 
 
 def _get_base_cloud_names():
     return LockedDict.build_and_lock({
-        'Al2O3(s)_crystalline': 'Al2O3_all_iso(s)_crystalline_167.R39_0.1-250mu',
-        'Fe(s)_amorphous': 'Fe_all_iso(s)_amorphous.R39_0.1-250mu',
-        'Fe(s)_crystalline': 'Fe_all_iso(s)_crystalline_229.R39_0.1-250mu',
-        'H2O(s)_crystalline': 'H2O_all_iso(s)_crystalline_194.R39_0.1-250mu',
-        'H2O(l)': 'H2O_all_iso(l).R39_0.1-250mu',
-        'H2OSO425(s)_amorphous': 'H2OSO425_all_iso(s)_amorphous.R39_0.1-250mu',
-        'H2OSO450(s)_amorphous': 'H2OSO450_all_iso(s)_amorphous.R39_0.1-250mu',
-        'H2OSO475(s)_amorphous': 'H2OSO475_all_iso(s)_amorphous.R39_0.1-250mu',
-        'H2OSO484(s)_amorphous': 'H2OSO484_all_iso(s)_amorphous.R39_0.1-250mu',
-        'H2OSO495(s)_amorphous': 'H2OSO495_all_iso(s)_amorphous.R39_0.1-250mu',
-        'KCl(s)_crystalline': 'KCl_all_iso(s)_crystalline_225.R39_0.1-250mu',
-        'Mg2SiO4(s)_amorphous': 'Mg2SiO4_all_iso(s)_amorphous.R39_0.1-250mu',
-        'Mg2SiO4(s)_crystalline': 'Mg2SiO4_all_iso(s)_crystalline_062.R39_0.1-250mu',
-        'Mg05Fe05SiO3(s)_amorphous': 'Mg05Fe05SiO3_all_iso(s)_amorphous.R39_0.1-250mu',
-        'MgAl2O4(s)_crystalline': 'MgAl2O4_all_iso(s)_amorphous.R39_0.1-250mu',
-        'MgFeSiO4(s)_amorphous': 'MgFeSiO4_all_iso(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_amorphous': 'MgSiO3_all_iso(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_crystalline': 'MgSiO3_all_iso(s)_crystalline_061.R39_0.1-250mu',
-        'Na2S(s)_crystalline': 'Na2S_all_iso(s)_crystalline_225.R39_0.1-250mu',
-        'SiC(s)_crystalline': 'SiC_all_iso(s)_crystalline_216.R39_0.1-250mu'
+        'Al2O3(s)_crystalline': 'Al2O3-NatAbund(s)_crystalline_167.R39_0.1-250mu',
+        'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_229.R39_0.1-250mu',
+        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_194.R39_0.1-250mu',
+        'H2O(l)': 'H2O-NatAbund(l).R39_0.1-250mu',
+        'H2OSO425(s)_amorphous': 'H2-O-S-O4-NatAbund(s)_amorphous__25.R39_0.1-250mu',
+        'H2OSO450(s)_amorphous': 'H2-O-S-O4-NatAbund(s)_amorphous__50.R39_0.1-250mu',
+        'H2OSO475(s)_amorphous': 'H2-O-S-O4-NatAbund(s)_amorphous__75.R39_0.1-250mu',
+        'H2OSO484(s)_amorphous': 'H2-O-S-O4-NatAbund(s)_amorphous__84.R39_0.1-250mu',
+        'H2OSO495(s)_amorphous': 'H2-O-S-O4-NatAbund(s)_amorphous__95.R39_0.1-250mu',
+        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_225.R39_0.1-250mu',
+        'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline_062.R39_0.1-250mu',
+        'Mg05Fe05SiO3(s)_amorphous': 'Mg05-Fe05-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgAl2O4(s)_crystalline': 'Mg-Al2-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgFeSiO4(s)_amorphous': 'Mg-Fe-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgSiO3(s)_amorphous': 'Mg-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline_061.R39_0.1-250mu',
+        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline_225.R39_0.1-250mu',
+        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline_216.R39_0.1-250mu'
     })
 
 
@@ -90,7 +90,7 @@ def _get_base_correlated_k_names():
         'CH4': '12C-1H4__YT34to10.R1000_0.3-50mu',
         'CO': '12C-16O__HITEMP.R1000_0.1-250mu',
         '13CO': '13C-16O__HITEMP.R1000_0.1-250mu',
-        'CO_all_iso': 'CO_all_iso__HITEMP.R1000_0.1-250mu',
+        'CO_all_iso': 'C-O-NatAbund__HITEMP.R1000_0.1-250mu',
         'CO2': '12C-16O2__UCL-4000.R1000_0.3-50mu',
         'CrH': '52Cr-1H__MoLLIST.R1000_0.3-50mu',
         'Fe': '56Fe__Kurucz.R1000_0.1-250mu',
@@ -122,7 +122,7 @@ def _get_base_correlated_k_names():
         'Ti': '48Ti__Kurucz.R1000_0.1-250mu',
         'Ti+': '48Ti_p__Kurucz.R1000_0.1-250mu',
         '48TiO': '48Ti-16O__Plez.R1000_0.1-250mu',
-        'TiO_all_iso': 'TiO_all_iso__Plez.R1000_0.1-250mu',
+        'TiO_all_iso': 'Ti-O-NatAbund__Plez.R1000_0.1-250mu',
         'V': '51V__Kurucz.R1000_0.1-250mu',
         'V+': '51V_p__Kurucz.R1000_0.1-250mu',
         'VO': '51V-16O__VOMYT.R1000_0.3-50mu'
@@ -147,7 +147,7 @@ def _get_base_line_by_line_names():
         '13CO': '13C-16O__HITRAN.R1e6_0.3-28mu',
         '13C-17O': '13C-17O__HITRAN.R1e6_0.3-28mu',
         '13C-18O': '13C-18O__HITRAN.R1e6_0.3-28mu',
-        'CO_all_iso': 'CO_all_iso__HITRAN.R1e6_0.3-28mu',
+        'CO_all_iso': 'C-O-NatAbund__HITRAN.R1e6_0.3-28mu',
         'CO': '12C-16O__HITRAN.R1e6_0.3-28mu',
         'Cr': '52Cr__Kurucz.R1e6_0.3-28mu',
         'Fe': '56Fe__Kurucz.R1e6_0.3-28mu',
@@ -181,7 +181,7 @@ def _get_base_line_by_line_names():
         'TiO': '48Ti-16O__Plez.R1e6_0.3-28mu',
         '49TiO': '49Ti-16O__Plez.R1e6_0.3-28mu',
         '50TiO': '50Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_all_iso': 'TiO_all_iso__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
         'V': '51V__Kurucz.R1e6_0.3-28mu',
         'V+': '51V_p__Kurucz.R1e6_0.3-28mu',
         'VO': '51V-16O__Plez.R1e6_0.3-28mu',
@@ -348,7 +348,7 @@ def _get_spectral_information(filename):
 
 
 def _has_isotope(string):
-    if (len(re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{0,3})?-(\d{1,3})?([A-Z][a-z]?)', string)) > 0
+    if (len(re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{0,3})?-(\d{1,3})([A-Z][a-z]?)', string)) > 0
             or len(re.findall(r'^(\d{1,3})([A-Z][a-z]?)(\d{0,3})?', string)) > 0):
         return True
     else:
@@ -380,12 +380,23 @@ def _rebuild_isotope_numbers(species, mode='add'):
     else:
         raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
-    # Handle all_iso case
-    if '_all_iso' in species:
+    # Handle natural abundance case
+    if '-NatAbund' in species:
         if mode == 'add':
-            return species
+            species = species.rsplit('-NatAbund', 1)[0]
+            _species = species.split('--')  # CIA case
+
+            for i, __species in enumerate(_species):  # for each colliding species
+                matches = re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{1,3})?', __species)
+
+                __species = [group[1] + group[2] for group in matches]
+                _species[i] = isotope_separator.join(__species)
+
+            species = '--'.join(_species)
+
+            return species + '-NatAbund'
         elif mode == 'remove':
-            return species.replace('_all_iso', '')
+            return species.replace('-NatAbund', '')
         else:
             raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
@@ -393,7 +404,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
     _species = species.split('--')  # CIA case
 
     for i, __species in enumerate(_species):  # for each colliding species
-        if '-' in __species:
+        if isotope_separator in __species:
             isotopes = __species.split('-')
         else:
             isotopes = [__species]
@@ -519,11 +530,11 @@ def _split_species_all_info(species, final_ion_format='+-'):
     # Remove cloud info
     name, cloud_info = _split_species_cloud_info(name)
 
-    if '_all_iso' in name:
-        name = name.replace('_all_iso', '')
-        all_iso = 'all_iso'
+    if '-NatAbund' in name:
+        name = name.replace('-NatAbund', '')
+        natural_abundance = 'NatAbund'
     else:
-        all_iso = ''
+        natural_abundance = ''
 
     # Check for repeated ion symbol, function can work without, but it eases the user's understanding of future error
     if len(re.findall(r'^.*([+\-pm])([+\-pm])$', name)) > 0:
@@ -533,7 +544,7 @@ def _split_species_all_info(species, final_ion_format='+-'):
     # Extract ion symbol
     name, ionization = _split_species_ion(name, final_ion_format=final_ion_format)
 
-    return name, all_iso, ionization, cloud_info, source, spectral_info
+    return name, natural_abundance, ionization, cloud_info, source, spectral_info
 
 
 def check_opacity_name(opacity_name: str):
@@ -543,7 +554,7 @@ def check_opacity_name(opacity_name: str):
         - must begin with a number (up to 3 digits) or an uppercase letter
         - must contains a "valid" chemical formula (N1237He15 is considered valid)
         - can have isotopes, that should be separated with '-' (H218O is a working ex., but corresponds to 1H218-16O)
-        - can contains '_all_iso' to signal a mix of isotopes (incompatible with providing isotopic information)
+        - can contains '-NatAbund' to signal a mix of isotopes (incompatible with providing isotopic information)
         - can contains '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to
             signal a ion
         - can contains '(l)' for clouds of liquid particles
@@ -570,7 +581,7 @@ def check_opacity_name(opacity_name: str):
         - 'H2O.R120'
         - 'H2O(l)__Mie'
         - 'H2O(s)_amorphous__Mie'
-        - 'H2O_all_iso(s)_crystalline_194__DHS.R39_0.1-250mu'
+        - 'H2O-NatAbund(s)_crystalline_194__DHS.R39_0.1-250mu'
         - '24Mg2-28Si-16O4(s)_crystalline_068__DHS.R39_0.1-250mu'  (most complex)
 
     Args:
@@ -593,7 +604,7 @@ def check_opacity_name(opacity_name: str):
             r'^'
             r'(\d{0,3}[A-Z])'  # must start with up to 3 digits or an uppercase character
             r'(\d|[A-Z]|[a-z]|--(?!-)|-(?!-)|\[|])*'  # list of isotopes and their number, can be separated by "-"
-            r'(_all_iso)?'  # indicate if a mix of isotopologues has been used to make the opacities
+            r'(-NatAbund)?'  # indicate if a mix of isotopologues has been used to make the opacities
             r'(_?(\d{1,3})?[+\-pm])?'  # ionization (+ or p, - or m), can be separated from the isotopes with a "_"
             r'('  # begin clouds formatting
             r'(\(l\))'  # liquid state, no additional information required
@@ -613,7 +624,7 @@ def check_opacity_name(opacity_name: str):
             f"\t- must begin with a number (up to 3 digits) or an uppercase letter\n"
             f"\t- must contains a valid chemical formula\n"
             f"\t- can have isotopes, that should be separated with '-'\n"
-            f"\t- can contains '_all_iso' to signal a mix of isotopes "
+            f"\t- can contains '-NatAbund' to signal a mix of isotopes "
             f"(incompatible with providing isotopic information)\n"
             f"\t- can contains '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
             f"signal a ion \n"
@@ -639,14 +650,14 @@ def check_opacity_name(opacity_name: str):
             f"\t- 'H2O.R120'\n"
             f"\t- 'H2O(l)__Mie'\n"
             f"\t- 'H2O(s)_crystalline__Mie'\n"
-            f"\t- 'H2O_all_iso(s)_crystalline_194__DHS.R39_0.1-250mu'\n"
+            f"\t- 'H2O-NatAbund(s)_crystalline_194__DHS.R39_0.1-250mu'\n"
             f"\t- '24Mg2-28Si-16O4(s)_crystalline_068__DHS.R39_0.1-250mu'\n"
         )
 
-    if '_all_iso' in opacity_name and _has_isotope(opacity_name):
+    if '-NatAbund' in opacity_name and _has_isotope(opacity_name):
         raise ValueError(f"invalid opacity name '{opacity_name}'\n"
                          f"Opacity cannot have one of the species isotopologue (e.g. '1H2-16O') "
-                         f"and all of the species isotopologues ('_all_iso') at the same time")
+                         f"and all of the species isotopologues ('-NatAbund') at the same time")
 
 
 def get_cia_aliases(name: str) -> str:
@@ -697,8 +708,8 @@ def get_cloud_aliases(name: str) -> str:
     if name in cloud_directories:
         filename = cloud_directories[name]
     else:
-        # Return all_iso if no isotope information has been provided (override default case returning main isotopologue)
-        if 'all_iso' not in name and not _has_isotope(name):
+        # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
+        if 'NatAbund' not in name and not _has_isotope(name):
             if '(s)' not in name and '(l)' not in name:
                 raise ValueError(f"not a valid cloud name: '{name}'")
 
@@ -714,7 +725,7 @@ def get_cloud_aliases(name: str) -> str:
             else:
                 method = '__' + method
 
-            name = species + '_all_iso(' + info + method + spectral_info
+            name = species + '-NatAbund(' + info + method + spectral_info
 
         return name
 
@@ -777,7 +788,7 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     If no information on the resolution is given, the default resolution for correlated-k or line-by-line is assumed.
     If no or partial isotopic information is given:
         - for line opacities: the main isotope is assumed
-        - for continuum opacities: "all_iso" (a standard mix of all isotopes) is assumed
+        - for continuum opacities: "NatAbund" (a standard mix of all isotopes) is assumed
 
     Args:
         path_input_data:
@@ -797,7 +808,8 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     basename = get_species_basename(species, join=True)
     istopologue_name = get_species_isotopologue_name(species, join=False)
 
-    _, all_iso, ionization, cloud_info, source, spectral_info = _split_species_all_info(species, final_ion_format='pm')
+    _, natural_abundance, ionization, cloud_info, source, spectral_info = (
+        _split_species_all_info(species, final_ion_format='pm'))
     filename = join_species_all_info(
         name=istopologue_name,
         ionization=ionization,
@@ -846,7 +858,7 @@ def get_resolving_power_string(resolving_power: [int, float]) -> str:
 
 
 def get_species_basename(species: str, join: bool = False) -> str:
-    name, all_iso, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
 
     # Remove isotopic numbers
     name = _rebuild_isotope_numbers(name, mode='remove')
@@ -858,9 +870,9 @@ def get_species_basename(species: str, join: bool = False) -> str:
 
 
 def get_species_isotopologue_name(species: str, join: bool = False) -> str:
-    name, all_iso, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
 
-    name = join_species_all_info(name, all_iso)
+    name = join_species_all_info(name, natural_abundance)
     name = _rebuild_isotope_numbers(name, mode='add')
 
     if join:
@@ -869,9 +881,9 @@ def get_species_isotopologue_name(species: str, join: bool = False) -> str:
         return name
 
 
-def join_species_all_info(name, all_iso='', ionization='', cloud_info='', source='', spectral_info=''):
-    if all_iso != '':
-        name += '_' + all_iso
+def join_species_all_info(name, natural_abundance='', ionization='', cloud_info='', source='', spectral_info=''):
+    if natural_abundance != '':
+        name += '-' + natural_abundance
 
     name += ionization + cloud_info
 

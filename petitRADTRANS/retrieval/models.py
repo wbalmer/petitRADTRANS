@@ -1751,7 +1751,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
     if parameters["H2O_Exomol"].value < parameters["CO2"].value:
         return None, None
 
-    if parameters["CO_all_iso_HITEMP"].value < parameters["CO2"].value:
+    if parameters["CO-NatAbund_HITEMP"].value < parameters["CO2"].value:
         return None, None
 
     temperatures = temperature_profile_function_guillot_global(

@@ -31,7 +31,7 @@ class Param:
 # TODO replace these private functions by a nice object doing everything needed
 def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     print('Initialization...')
-    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
+    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO-NatAbund']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
     temperature = temperature_profile_function_guillot_global(
@@ -92,7 +92,7 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
 
 def _init_model_old(planet, w_bords, line_species_str, p0=1e-2):
     print('Initialization...')
-    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO_all_iso']  # 'H2O_Exomol'
+    #line_species_str = ['H2O_main_iso']  # ['H2O_main_iso', 'CO-NatAbund']  # 'H2O_Exomol'
 
     pressures = np.logspace(-6, 2, 100)
     temperature = temperature_profile_function_guillot_global(

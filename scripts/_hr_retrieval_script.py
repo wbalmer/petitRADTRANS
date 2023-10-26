@@ -28,7 +28,7 @@ def main(sim_id=0):
     planet_name = 'HD 209458 b'
     planet = Planet.get(planet_name)
 
-    line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f'METIS_t{sim_id}l2_vttta_p_t_kp_vr_CO_H2O_86-87'
     retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
@@ -180,7 +180,7 @@ def main(sim_id=0):
 #         planet_name = 'HD 209458 b'
 #         n_live_points = 100
 #         mode = 'transit'
-#         line_species = ['CO_all_iso', 'H2O_main_iso']
+#         line_species = ['CO-NatAbund', 'H2O_main_iso']
 #
 #         retrieval_name = f't{sim_id}n_vttt_p_kp_vr_CO_H2O_79-80'
 #         retrieval_name += f'_{mode}'

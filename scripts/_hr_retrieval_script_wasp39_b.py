@@ -48,7 +48,7 @@ def main(sim_id=0):
     planet.radius *= 6
 
     line_species_str = ['CO_main_iso', 'CO_36', 'CO2_main_iso', 'H2O_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_tt_p_kp_vr_CO_13CO_CO2_H2O_t_79-80'
     retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
@@ -335,9 +335,9 @@ def maintoi(sim_id=0):
 
     planet.orbit_semi_major_axis /= 3
 
-    line_species_str = ['CH4_main_iso', 'CO_all_iso', 'H2O_main_iso', 'NH3_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso', 'NH3_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    line_species_str = ['CH4_main_iso', 'CO-NatAbund', 'H2O_main_iso', 'NH3_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso', 'NH3_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_p_kp_vr_CH4_CO_CO2_H2O_t_K2192-25-26-27-28_4transits_nn'
     retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))
@@ -595,9 +595,9 @@ def maintic(sim_id=0):
     planet_name = 'TIC 237913194 b'
     planet = Planet.get(planet_name)
 
-    line_species_str = ['CH4_main_iso', 'CO_all_iso', 'H2O_main_iso', 'NH3_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso', 'NH3_main_iso']
-    # line_species_str = ['CO_all_iso', 'H2O_main_iso']
+    line_species_str = ['CH4_main_iso', 'CO-NatAbund', 'H2O_main_iso', 'NH3_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso', 'NH3_main_iso']
+    # line_species_str = ['CO-NatAbund', 'H2O_main_iso']
 
     retrieval_name = f't{planet_name}{sim_id}_tt_p_kp_vr_CO_CO2_H2O_t_79-80_nn'
     retrieval_directory = os.path.abspath(os.path.join(module_dir, '../petitRADTRANS', '__tmp', 'test_retrieval', retrieval_name))

@@ -932,7 +932,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'figure_label': r'$\log_{10}$(MMR) CH$_4$',
             'retrieval_name': 'CH4'
         },
-        'CO_all_iso': {
+        'CO-NatAbund': {
             'prior_parameters': [-12, 0],
             'prior_type': 'uniform',
             'figure_title': r'[CO]',
@@ -1308,7 +1308,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             pressures=np.logspace(-10, 2, 100),  # bar
             line_species=[
                 'CH4_hargreaves_main_iso',
-                'CO_all_iso',
+                'CO-NatAbund',
                 'H2O_main_iso',
                 'H2S_main_iso',
                 'HCN_main_iso',
@@ -1325,7 +1325,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             use_equilibrium_chemistry=False,
             imposed_mass_fractions={
                 'CH4_hargreaves_main_iso': 1e-12,
-                'CO_all_iso': 1e-12,
+                'CO-NatAbund': 1e-12,
                 'H2O_main_iso': 1e-12,  # TODO 1e-12
                 'H2S_main_iso': 1e-12,
                 'HCN_main_iso': 1e-12,
@@ -1553,7 +1553,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
         else:
             simulated_data_model.model_parameters['imposed_mass_fractions'] = {
                 'CH4_hargreaves_main_iso': 3.4e-5,
-                'CO_all_iso': 1.8e-2,
+                'CO-NatAbund': 1.8e-2,
                 'H2O_main_iso': 5.4e-3,
                 'H2S_main_iso': 1.0e-3,
                 'HCN_main_iso': 2.7e-7,

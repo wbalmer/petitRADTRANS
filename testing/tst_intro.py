@@ -7,7 +7,7 @@ import os
 Chubb = False
 
 if not Chubb:
-    atmosphere = Radtrans(line_species = ['H2O', 'CO_all_iso', 'CH4', 'CO2', 'Na', 'K'],
+    atmosphere = Radtrans(line_species = ['H2O', 'CO-NatAbund', 'CH4', 'CO2', 'Na', 'K'],
                           rayleigh_species = ['H2', 'He'],
                           continuum_opacities = ['H2-H2', 'H2-He'],
                           wlen_bords_micron = [0.3, 15],
@@ -33,7 +33,7 @@ else:
     abundances['K'] = 0.000001 * np.ones_like(temperature)
 
     
-abundances['CO_all_iso'] = 0.01 * np.ones_like(temperature)
+abundances['CO-NatAbund'] = 0.01 * np.ones_like(temperature)
 abundances['CO2'] = 0.00001 * np.ones_like(temperature)
 abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 

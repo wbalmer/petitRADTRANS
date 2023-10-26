@@ -20,6 +20,12 @@ def get_species_molar_mass(species):
     Returns:
         The molar mass of the compound in atomic mass units.
     """
+    if "-NatAbund" in species:
+        species = species.split('-NatAbund', 1)[0]
+        natural_abundance = True
+    else:
+        natural_abundance = False
+
     if species == 'e-':
         return cst.e_molar_mass
 
@@ -63,7 +69,7 @@ def get_species_molar_mass(species):
     name = name.split(',')[0]
     f = Formula(name)
 
-    if "all_iso" in species:
+    if natural_abundance:
         return f.mass
 
     return f.isotope.massnumber

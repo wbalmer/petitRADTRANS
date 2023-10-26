@@ -498,7 +498,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         line_species=[
             'H2O_main_iso',
             'CH4_hargreaves_main_iso',
-            'CO_all_iso',
+            'CO-NatAbund',
             'H2S_main_iso',
             'HCN_main_iso',
             'NH3_main_iso'
@@ -511,7 +511,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         temperature=planet.equilibrium_temperature,
         imposed_mass_fractions={
             'CH4_hargreaves_main_iso': 3.4e-5,
-            'CO_all_iso': 1.8e-2,
+            'CO-NatAbund': 1.8e-2,
             'H2O_main_iso': 5.4e-3,
             'H2S_main_iso': 1.0e-3,
             'HCN_main_iso': 2.7e-7,

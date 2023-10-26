@@ -51,7 +51,7 @@ def main():
     p_cloud = [1e2]  # [1e2, 1e1, 1e0, 1e-1, 1e-2, 1e-3, 1e-4]
     species_list = ['all', 'H2O', 'CO', 'CO2', 'CO_36']
 
-    co_all_iso_mmr = {
+    co-NatAbund_mmr = {
         1: np.array([0.04963663, 0.04963663, 0.04963663, 0.04963663, 0.04963663,
            0.04963663, 0.04963663, 0.04963663, 0.04963663, 0.04963663,
            0.04963663, 0.04963663, 0.04963663, 0.04963663, 0.04963663,
@@ -109,7 +109,7 @@ def main():
 
     line_species_list = [
         # 'CH4_main_iso',
-        # 'CO_all_iso',
+        # 'CO-NatAbund',
         'CO_main_iso',
         'CO_36',
         'CO2_main_iso',
@@ -186,7 +186,7 @@ def main():
                 continuum_opacities='default',
                 model_suffix=model_suffix,
                 atmosphere=atmosphere,
-                mass_fractions={'CO_main_iso': co_all_iso_mmr[1] * 0.97, 'CO_36': co_all_iso_mmr[1] * 0.03},
+                mass_fractions={'CO_main_iso': co-NatAbund_mmr[1] * 0.97, 'CO_36': co-NatAbund_mmr[1] * 0.03},
                 calculate_transmission_spectrum=True,
                 calculate_eclipse_depth=False,
                 rewrite=True,
@@ -298,7 +298,7 @@ def main_tic():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         # 'CO_main_iso',
         # 'CO_36',
         'CO2_main_iso',
@@ -313,7 +313,7 @@ def main_tic():
 
     molecular_w = {
         'CH4_main_iso': 16,
-        'CO_all_iso': 28,
+        'CO-NatAbund': 28,
         'CO2_main_iso': 44,
         'H2O_main_iso': 18,
         'H2S_main_iso': 34.1,
@@ -538,7 +538,7 @@ def main_wasp():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         # 'CO_main_iso',
         # 'CO_36',
         'CO2_main_iso',
@@ -553,7 +553,7 @@ def main_wasp():
 
     molecular_w = {
         'CH4_main_iso': 16,
-        'CO_all_iso': 28,
+        'CO-NatAbund': 28,
         'CO2_main_iso': 44,
         'H2O_main_iso': 18,
         'H2S_main_iso': 34.1,
@@ -784,7 +784,7 @@ def main_lp():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -984,7 +984,7 @@ def main_ltt2():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -1209,7 +1209,7 @@ def main_toi270():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -1434,7 +1434,7 @@ def main_ltt():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -1447,7 +1447,7 @@ def main_ltt():
 
     molecular_w = {
         'CH4_main_iso': 16,
-        'CO_all_iso': 28,
+        'CO-NatAbund': 28,
         'CO2_main_iso': 44,
         'H2O_main_iso': 18,
         'H2S_main_iso': 34.1,
@@ -1777,7 +1777,7 @@ def main_aumicc():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -1790,7 +1790,7 @@ def main_aumicc():
 
     molecular_w = {
         'CH4_main_iso': 16,
-        'CO_all_iso': 28,
+        'CO-NatAbund': 28,
         'CO2_main_iso': 44,
         'H2O_main_iso': 18,
         'H2S_main_iso': 34.1,
@@ -2010,7 +2010,7 @@ def main_hd():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
@@ -2023,7 +2023,7 @@ def main_hd():
 
     molecular_w = {
         'CH4_main_iso': 16,
-        'CO_all_iso': 28,
+        'CO-NatAbund': 28,
         'CO2_main_iso': 44,
         'H2O_main_iso': 18,
         'H2S_main_iso': 34.1,
@@ -2338,7 +2338,7 @@ def main_toi776():
 
     line_species_list = [
         'CH4_main_iso',
-        'CO_all_iso',
+        'CO-NatAbund',
         'CO2_main_iso',
         'H2O_main_iso',
         'H2S_main_iso',
