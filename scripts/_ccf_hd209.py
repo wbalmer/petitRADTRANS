@@ -501,20 +501,20 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         detector_selection=detector_selection
     )
 
-    retrieval_velocities = spectral_model.get_retrieval_velocities(
+    retrieval_velocities = spectral_model.compute_velocity_range(
         planet_radial_velocity_amplitude_range=kp_range,
         planet_rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities)),
         mid_transit_times_range=(0, 0)
     )
 
-    spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
+    spectral_model.wavelengths_boundaries = spectral_model.calculate_optimal_wavelength_boundaries(
         relative_velocities=retrieval_velocities
     )
     print(kp_range, (np.min(ccf_velocities), np.max(ccf_velocities)), spectral_model.wavelengths_boundaries)
 
     radtrans = spectral_model.get_radtrans()
 
-    wavelengths, model = spectral_model.get_spectrum_model(
+    wavelengths, model = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -957,7 +957,7 @@ def main():
             size=uncertainties.shape
         )
 
-        _, mock_observations = spectral_model.get_spectrum_model(
+        _, mock_observations = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=True,

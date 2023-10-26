@@ -61,8 +61,8 @@ def _init_model(planet, w_bords, line_species_str, p0=1e-2):
     rayleigh_species = ['H2', 'He']
     continuum_species = ['H2-H2', 'H2-He', 'H-']
 
-    metallicity = SpectralModel.calculate_scaled_metallicity(planet.mass, 10 ** planet.star_metallicity, 1.0)
-    mass_fractions = SpectralModel.calculate_mass_mixing_ratios(
+    metallicity = SpectralModel.compute_scaled_metallicity(planet.mass, 10 ** planet.star_metallicity, 1.0)
+    mass_fractions = SpectralModel.compute_mass_fractions(
         pressures=pressures,
         line_species=line_species,
         included_line_species='all',
@@ -145,7 +145,7 @@ def _init_retrieval_model(prt_object, parameters):
             spec = spec.split('_', 1)[0]
             abundances[spec] = 10 ** parameters[species].value * np.ones_like(pressures)
 
-    abundances = SpectralModel.calculate_mass_mixing_ratios(
+    abundances = SpectralModel.compute_mass_fractions(
         pressures=pressures,
         line_species=prt_object.line_species,
         included_line_species='all',

@@ -114,9 +114,9 @@ def init_spectral_model_line_by_line():
         }
 
     # Test custom function
-    spectral_model.calculate_mass_mixing_ratios = \
+    spectral_model.compute_mass_fractions = \
         calculate_mass_mixing_ratios
-    spectral_model.calculate_mean_molar_masses = \
+    spectral_model.compute_mean_molar_masses = \
         calculate_mean_molar_masses
 
     return spectral_model
@@ -175,7 +175,7 @@ def test_line_by_line_spectral_model_emission():
     spectral_model = copy.deepcopy(spectral_model_lbl)
     spectral_model.model_parameters['is_orbiting'] = False
 
-    wavelengths, spectral_radiosities = spectral_model.get_spectrum_model(
+    wavelengths, spectral_radiosities = spectral_model.calculate_spectrum(
         mode='emission',
         parameters=None,
         update_parameters=True,
@@ -231,7 +231,7 @@ def test_line_by_line_spectral_model_transmission():
     spectral_model.model_parameters['temperature_profile_mode'] = 'isothermal'
     spectral_model.model_parameters['temperature'] = temperature_isothermal
 
-    wavelengths, transit_radii = spectral_model.get_spectrum_model(
+    wavelengths, transit_radii = spectral_model.calculate_spectrum(
         mode='transmission',
         parameters=None,
         update_parameters=True,
@@ -284,7 +284,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
     spectral_model.model_parameters['temperature_profile_mode'] = 'isothermal'
     spectral_model.model_parameters['temperature'] = temperature_isothermal
 
-    wavelengths, mock_transmission_data = spectral_model.get_spectrum_model(
+    wavelengths, mock_transmission_data = spectral_model.calculate_spectrum(
         mode='transmission',
         parameters=None,
         update_parameters=True,
@@ -332,7 +332,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
     )
 
     # Get models
-    wavelengths_model, model = spectral_model.get_spectrum_model(
+    wavelengths_model, model = spectral_model.calculate_spectrum(
         mode='transmission',
         parameters=None,
         update_parameters=True,

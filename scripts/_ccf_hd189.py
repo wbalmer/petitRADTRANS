@@ -539,7 +539,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         apply_throughput_removal=True,
         apply_telluric_lines_removal=True
     )
-    spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
+    spectral_model.wavelengths_boundaries = spectral_model.calculate_optimal_wavelength_boundaries(
         relative_velocities=ccf_velocities
     )
 
@@ -578,7 +578,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
     print('----\n')
     if generate_mock_obs:
         radtrans = spectral_model.get_radtrans()
-        model_wavelengths, ccf_model = spectral_model.get_spectrum_model(
+        model_wavelengths, ccf_model = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=True,
@@ -600,7 +600,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
     print('Data reduction...')
     if use_alex_detector_selection:
         print("Adding model with negative kp to observations for Alex's detector selection")
-        _, ccf_model_alex = spectral_model.get_spectrum_model(
+        _, ccf_model_alex = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=True,
@@ -684,7 +684,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
                 deformation_matrix[i, :, k] = telluric_transmittance[i, :, k] * variable_throughput
 
         print('Generating mock observations...')
-        _, mock_observations = spectral_model.get_spectrum_model(
+        _, mock_observations = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=False,
@@ -698,7 +698,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         )
 
         print('Generating noiseless mock observations...')
-        _, mock_observations_nn = spectral_model.get_spectrum_model(
+        _, mock_observations_nn = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=False,
@@ -715,7 +715,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         mock_observations_nn = None
 
     print('Generating reference model...')
-    _, ccf_model_red = spectral_model_ref.get_spectrum_model(
+    _, ccf_model_red = spectral_model_ref.calculate_spectrum(
         radtrans=radtrans_ref,
         mode='transmission',
         update_parameters=True,
@@ -1449,7 +1449,7 @@ def figure_slide():
 
     wh_0 = np.where(np.abs(orbital_phases) == np.min(np.abs(orbital_phases)))[0][0]
     relative_velocities = spectral_model_ref.model_parameters['relative_velocities'][wh_0]
-    _, ccf_model_red = spectral_model_ref.get_spectrum_model(
+    _, ccf_model_red = spectral_model_ref.calculate_spectrum(
         radtrans=radtrans,
         mode='transmission',
         update_parameters=True,

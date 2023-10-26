@@ -290,7 +290,7 @@ def calculate_transit_fractional_light_loss_box_car(spectrum, **kwargs):
     planet_radius_normalized_squared = 1 - spectrum
     planet_radius_normalized = np.sqrt(planet_radius_normalized_squared)
 
-    planet_star_centers_distance = SpectralModel._calculate_planet_star_centers_distance(
+    planet_star_centers_distance = SpectralModel._compute_planet_star_centers_distance(
         planet_radius_normalized=planet_radius_normalized,
         **kwargs
     )
@@ -362,7 +362,7 @@ def load_additional_data(data_dir, wavelengths_instrument, airmasses, resolving_
         os.path.join(data_dir, f"transmission_carmenes.npz")
 
     print(f"Loading transmittance from file '{telluric_transmittance_file}'...")
-    wavelength_range_rebin = SpectralModel.calculate_optimal_wavelengths_boundaries(
+    wavelength_range_rebin = SpectralModel.compute_optimal_wavelengths_boundaries(
         output_wavelengths=wavelengths_instrument,
         shift_wavelengths_function=SpectralModel.shift_wavelengths,
         relative_velocities=None  # telluric lines are not shifted
@@ -525,7 +525,7 @@ def load_orange_tellurics(data_dir, wavelengths_instrument, airmasses, resolving
         os.path.join(data_dir, f"transmission_carmenes_orange.npz")
 
     print(f"Loading transmittance from file '{telluric_transmittance_file}'...")
-    wavelength_range_rebin = SpectralModel.calculate_optimal_wavelengths_boundaries(
+    wavelength_range_rebin = SpectralModel.compute_optimal_wavelengths_boundaries(
         output_wavelengths=wavelengths_instrument,
         shift_wavelengths_function=SpectralModel.shift_wavelengths,
         relative_velocities=None  # telluric lines are not shifted
@@ -614,7 +614,7 @@ def get_orange_simulation_model(directory, base_name,
         spectrum=data,
         scale_function=spectral_model.scale_spectrum,
         shift_wavelengths_function=spectral_model.shift_wavelengths,
-        transit_fractional_light_loss_function=spectral_model.calculate_transit_fractional_light_loss,
+        transit_fractional_light_loss_function=spectral_model.compute_transit_fractional_light_loss,
         convolve_function=spectral_model.convolve,
         rebin_spectrum_function=spectral_model.rebin_spectrum,
         **kwargs_
@@ -1387,7 +1387,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
         else:
             mid_transit_time_range = [0, 0]
 
-        retrieval_velocities = spectral_model.get_retrieval_velocities(
+        retrieval_velocities = spectral_model.compute_velocity_range(
             planet_radial_velocity_amplitude_range=retrieved_parameters[
                 'planet_radial_velocity_amplitude']['prior_parameters'],
             planet_rest_frame_velocity_shift_range=np.array([retrieved_parameters[
@@ -1400,7 +1400,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             mid_transit_times_range=mid_transit_time_range
         )
 
-        spectral_model.wavelengths_boundaries = spectral_model.get_optimal_wavelength_boundaries(
+        spectral_model.wavelengths_boundaries = spectral_model.calculate_optimal_wavelength_boundaries(
             relative_velocities=retrieval_velocities
         )
 
@@ -1423,7 +1423,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             spectral_model.model_parameters['preparing'] = 'Polyfit'
 
         if use_boxcar_tlloss:
-            spectral_model.calculate_transit_fractional_light_loss = calculate_transit_fractional_light_loss_box_car
+            spectral_model.compute_transit_fractional_light_loss = calculate_transit_fractional_light_loss_box_car
 
     else:
         print(f"Rank {rank} waiting for main process to finish...")
@@ -1560,7 +1560,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
                 'NH3_main_iso': 7.9e-6
             }
 
-            wavelengths_instrument, simulated_data = simulated_data_model.get_spectrum_model(
+            wavelengths_instrument, simulated_data = simulated_data_model.calculate_spectrum(
                 radtrans=radtrans,
                 mode=mode,
                 update_parameters=True,

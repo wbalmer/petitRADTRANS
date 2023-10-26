@@ -131,7 +131,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) #- 1  # -1 to get OOT
 
     # Step 1-3
-    true_wavelengths_instrument, true_spectrum_instrument = spectral_model.get_spectrum_model(
+    true_wavelengths_instrument, true_spectrum_instrument = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -149,7 +149,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 4
-    _, spectra_scale = spectral_model.get_spectrum_model(
+    _, spectra_scale = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -168,7 +168,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 5
-    w_shift, spectra_shift = spectral_model.get_spectrum_model(
+    w_shift, spectra_shift = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -186,7 +186,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 6
-    _, spectra_tlloss = spectral_model.get_spectrum_model(
+    _, spectra_tlloss = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -205,7 +205,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 7
-    _, spectra_convolve = spectral_model.get_spectrum_model(
+    _, spectra_convolve = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -223,7 +223,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 8
-    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
+    wavelengths_instrument, spectra_final = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -432,7 +432,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
     phase_t1 = np.argmin(np.abs(t_to_t0 + spectral_model.model_parameters['transit_duration'] / 2)) #- 1  # -1 to get OOT
 
     # Step 6 bis
-    w_shift, spectra_shift = spectral_model.get_spectrum_model(
+    w_shift, spectra_shift = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -449,7 +449,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 7
-    _, spectra_convolve = spectral_model.get_spectrum_model(
+    _, spectra_convolve = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -468,7 +468,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 8
-    wavelengths_instrument, spectra_final = spectral_model.get_spectrum_model(
+    wavelengths_instrument, spectra_final = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode=mode,
             update_parameters=True,
@@ -485,7 +485,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         )
 
     # Step 9
-    _, spectra_tt = spectral_model.get_spectrum_model(
+    _, spectra_tt = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -502,7 +502,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
     )
 
     # Step 10
-    _, spectra_n = spectral_model.get_spectrum_model(
+    _, spectra_n = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -600,7 +600,7 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
                                 ccd_id, orbital_phase_id,
                                 path_outputs, xlim=None, figure_name='preparing_steps', image_format='pdf'):
     # Ref
-    wavelengths_ref, spectra_ref = spectral_model.get_spectrum_model(
+    wavelengths_ref, spectra_ref = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -619,7 +619,7 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
     )
 
     # Start
-    _, spectra_start = spectral_model.get_spectrum_model(
+    _, spectra_start = spectral_model.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -734,7 +734,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
 
     orbital_phases = spectral_model_.model_parameters['orbital_longitudes'] / 360
 
-    wavelengths, data_noiseless = spectral_model_.get_spectrum_model(
+    wavelengths, data_noiseless = spectral_model_.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -751,7 +751,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
     )
 
     if add_prepared_model:
-        _, model = spectral_model_.get_spectrum_model(
+        _, model = spectral_model_.calculate_spectrum(
             radtrans=radtrans,
             mode=mode,
             update_parameters=True,
@@ -798,7 +798,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
 
     for n_p in n_passes:
         spectral_model_.model_parameters['n_passes'] = n_p
-        _, reprocessed_data_noiseless_ = spectral_model_.get_spectrum_model(
+        _, reprocessed_data_noiseless_ = spectral_model_.calculate_spectrum(
             radtrans=radtrans,
             mode=mode,
             update_parameters=True,
@@ -816,7 +816,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         reprocessed_data_noiseless.append(reprocessed_data_noiseless_)
 
         if side_by_side:
-            _, _model = spectral_model_.get_spectrum_model(
+            _, _model = spectral_model_.calculate_spectrum(
                 radtrans=radtrans,
                 mode=mode,
                 update_parameters=True,
@@ -839,7 +839,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         else:
             spectral_model_.model_parameters['n_passes'] = n_passes[0]
 
-    _, reprocessed_data_noisy = spectral_model_.get_spectrum_model(
+    _, reprocessed_data_noisy = spectral_model_.calculate_spectrum(
         radtrans=radtrans,
         mode=mode,
         update_parameters=True,
@@ -1350,7 +1350,7 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
                     if resolving_power is not None:
                         sm_set.model_parameters['new_resolving_power'] = resolving_power
 
-                    w, s = sm_set.get_spectrum_model(
+                    w, s = sm_set.calculate_spectrum(
                         radtrans,
                         'transmission',
                         update_parameters=True,
@@ -1394,7 +1394,7 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
                         **kwargs
                     )
 
-        w, s = sm_best_fit.get_spectrum_model(
+        w, s = sm_best_fit.calculate_spectrum(
             radtrans,
             'transmission',
             update_parameters=True,
@@ -2681,7 +2681,7 @@ def get_contribution_density(spectral_model: SpectralModel, radtrans, wavelength
     if contribution is None:
         sm.model_parameters['calculate_contribution'] = True
 
-        wavelengths, _ = spectral_model.get_spectrum_model(
+        wavelengths, _ = spectral_model.calculate_spectrum(
             radtrans=radtrans,
             mode='transmission',
             update_parameters=True
@@ -4775,7 +4775,7 @@ def plot_all_figures(retrieved_parameters,
     )
 
     # 3D comparison figure
-    base_wavelengths, base_spectrum = sm.get_spectrum_model(
+    base_wavelengths, base_spectrum = sm.calculate_spectrum(
         radtrans=radtrans,
         mode='transmission',
         update_parameters=True,

@@ -321,7 +321,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
     spectral_model.model_parameters['temperature_profile_mode'] = 'isothermal'
     spectral_model.model_parameters['temperature'] = temperature_isothermal
 
-    wavelengths, mock_transmission_data = spectral_model.get_spectrum_model(
+    wavelengths, mock_transmission_data = spectral_model.calculate_spectrum(
         radtrans=radtrans_spectral_model_lbl,
         mode='transmission',
         parameters=None,
@@ -346,7 +346,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
     )
 
     # Get models
-    wavelengths_model, model = spectral_model.get_spectrum_model(
+    wavelengths_model, model = spectral_model.calculate_spectrum(
         radtrans=radtrans_spectral_model_lbl,
         mode='transmission',
         parameters=None,
