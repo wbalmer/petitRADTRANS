@@ -962,7 +962,7 @@ class SpectralModel(Radtrans):
                                included_line_species='all', temperatures=None, co_ratio=0.55,
                                metallicity=None, carbon_pressure_quench=None,
                                imposed_mass_fractions=None, heh2_ratio=12/37, c13c12_ratio=0.01,
-                               planet_mass=None, planet_radius=None, planet_surface_gravity=None,
+                               planet_mass=None,
                                star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                use_equilibrium_chemistry=False, fill_atmosphere=False, verbose=False, **kwargs):
         """Initialize a model mass mixing ratios.
@@ -998,8 +998,6 @@ class SpectralModel(Radtrans):
             c13c12_ratio: 13C over 12C mass mixing ratio in equilibrium chemistry
             planet_mass: (g) mass of the planet; if None, planet mass is calculated from planet radius and surface
                 gravity, used to calulate metallicity
-            planet_radius: (cm) radius of the planet, used to calculate the mass
-            planet_surface_gravity: (cm.s-2) surface gravity of the planet, used to calculate the mass
             star_metallicity: (solar metallicity) metallicity of the planet's star, used to calulate metallicity
             atmospheric_mixing: scaling factor [0, 1] representing how well metals are mixed in the atmosphere, used to
                 calulate metallicity
@@ -1209,7 +1207,7 @@ class SpectralModel(Radtrans):
                         mass_mixing_ratios['H2'][i] += (1 - m_sum_total[i]) / (1 + heh2_ratio)
                         mass_mixing_ratios['He'][i] = mass_mixing_ratios['H2'][i] * heh2_ratio
                     else:
-                        # Remove H2 and He mass mixing ratios from total for correct mass mixing ratio calculation
+                        # Remove H2 and He mass fractions from total for correct mass mixing ratio calculation
                         if h2_in_mass_mixing_ratios:
                             m_sum_total[i] -= mass_mixing_ratios['H2'][i]
                         elif he_in_mass_mixing_ratios:
@@ -1811,7 +1809,6 @@ class SpectralModel(Radtrans):
         Args:
             pressures:
             wavelengths:
-            line_species:
 
         Returns:
 
@@ -2030,7 +2027,7 @@ class SpectralModel(Radtrans):
                         output_wavelengths=None, relative_velocities=None, radial_velocities=None,
                         planet_radius=None,
                         star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
-                        orbit_semi_major_axis=None, is_observed=False, star_radius=None, system_distance=None,
+                        is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None,
                         transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
