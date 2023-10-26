@@ -489,9 +489,9 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         kp *= alex_k_factor
 
     if use_5kms_shift:
-        planet_rest_frame_velocity_shift = -5e5
+        rest_frame_velocity_shift = -5e5
     else:
-        planet_rest_frame_velocity_shift = 0.0
+        rest_frame_velocity_shift = 0.0
 
     spectral_model = SpectralModel(
         pressures=np.logspace(-10, 2, 100),
@@ -509,7 +509,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         reference_pressure=1e-2,
         temperature_profile_mode='isothermal',
         temperature=planet.equilibrium_temperature,
-        imposed_mass_mixing_ratios={
+        imposed_mass_fractions={
             'CH4_hargreaves_main_iso': 3.4e-5,
             'CO_all_iso': 1.8e-2,
             'H2O_main_iso': 5.4e-3,
@@ -526,9 +526,9 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         star_radius=planet.star_radius,
         semi_major_axis=planet.orbit_semi_major_axis,
         planet_orbital_inclination=planet.orbital_inclination,
-        planet_radial_velocity_amplitude=kp,
+        radial_velocity_semi_amplitude=kp,
         system_observer_radial_velocities=v_sys,
-        planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+        rest_frame_velocity_shift=rest_frame_velocity_shift,
         orbital_phases=orbital_phases,
         airmass=airmass,
         new_resolving_power=8.04e4,
@@ -897,10 +897,10 @@ def simple_co_added_ccf(ccf, velocities_ccf, orbital_phases_ccf, system_radial_v
 
     for i in range(ccf.shape[0]):
         for ikp in range(kps.size):
-            planet_radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
+            radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
 
             for j in range(ccf.shape[1]):
-                radial_velocities_interp = v_rest + planet_radial_velocities[j]
+                radial_velocities_interp = v_rest + radial_velocities[j]
                 ccf_interp = interp1d(velocities_ccf, ccf[i, j, :])
 
                 ccf_tot[i, ikp, :] += ccf_interp(radial_velocities_interp)
@@ -1229,8 +1229,8 @@ def main():
             planet_radius=planet.radius,
             star_radius=planet.star_radius,
             impact_parameter=planet.calculate_impact_parameter(
-                planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-                planet_orbital_inclination=planet.orbital_inclination,
+                orbit_semi_major_axis=planet.orbit_semi_major_axis,
+                orbital_inclination=planet.orbital_inclination,
                 star_radius=planet.star_radius
             )
         )

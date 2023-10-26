@@ -34,13 +34,13 @@ def __save_2d_transmission_spectrum(filename, wavelengths, relative_velocities, 
 
 
 def __save_co_added_cross_correlation(filename,
-                                      rest_velocities, orbital_radial_velocity_amplitudes, co_added_cross_correlations,
+                                      rest_velocities, orbital_radial_velocity_semi_amplitudes, co_added_cross_correlations,
                                       co_added_cross_correlations_max, max_kp, max_v_rest, n_around_peak,
                                       plot_figure=False, figure_title=None, prt_version=version):
     np.savez_compressed(
         os.path.join(filename),
         rest_velocities=rest_velocities,
-        orbital_radial_velocity_amplitudes=orbital_radial_velocity_amplitudes,
+        orbital_radial_velocity_semi_amplitudes=orbital_radial_velocity_semi_amplitudes,
         co_added_cross_correlations=co_added_cross_correlations,
         co_added_cross_correlations_max=co_added_cross_correlations_max,
         max_kp=max_kp,
@@ -53,7 +53,7 @@ def __save_co_added_cross_correlation(filename,
 
     if plot_figure:
         plt.figure()
-        plt.pcolormesh(rest_velocities * 1e-5, orbital_radial_velocity_amplitudes * 1e-5, co_added_cross_correlations)
+        plt.pcolormesh(rest_velocities * 1e-5, orbital_radial_velocity_semi_amplitudes * 1e-5, co_added_cross_correlations)
         plt.colorbar(label=r'Co-added CCF')
         plt.xlabel(r'$V_\mathrm{rest}$ (km$\cdot$s$^{-1}$)')
         plt.ylabel(r'$K_p$ (km$\cdot$s$^{-1}$)')
@@ -376,10 +376,10 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
             normalize_ccf=radtrans_parameters['ccf_analysis_parameters']['normalize_ccf'],
             calculate_ccf_snr=radtrans_parameters['ccf_analysis_parameters']['calculate_ccf_snr'],
             ccf_sum_axes=radtrans_parameters['ccf_analysis_parameters']['ccf_sum_axes'],
-            planet_radial_velocity_amplitude=spectral_model.model_parameters['planet_radial_velocity_amplitude'],
+            radial_velocity_semi_amplitude=spectral_model.model_parameters['radial_velocity_semi_amplitude'],
             system_observer_radial_velocities=spectral_model.model_parameters['system_observer_radial_velocities'],
             orbital_phases=spectral_model.model_parameters['orbital_phases'],
-            planet_orbital_inclination=spectral_model.model_parameters['planet_orbital_inclination'],
+            orbital_inclination=spectral_model.model_parameters['planet_orbital_inclination'],
             line_spread_function_fwhm=line_spread_function_fwhm,
             pixels_per_resolution_element=radtrans_parameters['ccf_analysis_parameters'][
                 'pixels_per_resolution_element'],
@@ -390,7 +390,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
             kp_factor=radtrans_parameters['ccf_analysis_parameters']['kp_factor'],
             n_kp=None,
             n_vr=None,
-            planet_radial_velocity_function=None
+            radial_velocity_function=None
         )
 
     co_added_cross_correlations_max, max_kp, max_v_rest, n_around_peak \
@@ -404,7 +404,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
     __save_co_added_cross_correlation(
         filename=reference_filenames['co_added_cross_correlation'],
         rest_velocities=v_rest,
-        orbital_radial_velocity_amplitudes=kps,
+        orbital_radial_velocity_semi_amplitudes=kps,
         co_added_cross_correlations=co_added_cross_correlations,
         co_added_cross_correlations_max=co_added_cross_correlations_max,
         max_kp=max_kp,

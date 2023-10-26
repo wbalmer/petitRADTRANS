@@ -689,13 +689,13 @@ def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_unce
     print(f"correct uncertainties with k_sigma: {correct_uncertainties}")
 
     for lag in v_rest:
-        p['planet_rest_frame_velocity_shift'] = lag
+        p['rest_frame_velocity_shift'] = lag
         logls.append([])
         wavelengths.append([])
         retrieval_models.append([])
 
         for kp_ in kps:
-            p['planet_radial_velocity_amplitude'] = kp_
+            p['radial_velocity_semi_amplitude'] = kp_
 
             w, s, _ = retrieval_model(prt_object, p)
             wavelengths[-1].append(w)
@@ -727,7 +727,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
     print('Initializing spectra...')
     p = copy.deepcopy(simulated_data_model.model_parameters)
 
-    for key, value in simulated_data_model.model_parameters['imposed_mass_mixing_ratios'].items():
+    for key, value in simulated_data_model.model_parameters['imposed_mass_fractions'].items():
         p[key] = np.log10(value)
 
     print(' True spectrum...')
@@ -846,8 +846,8 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         true_log_l, retrieval_models = pseudo_retrieval(
             prt_object=radtrans,
             parameters=p,
-            kps=[simulated_data_model.model_parameters['planet_radial_velocity_amplitude']],
-            v_rest=[simulated_data_model.model_parameters['planet_rest_frame_velocity_shift']],
+            kps=[simulated_data_model.model_parameters['radial_velocity_semi_amplitude']],
+            v_rest=[simulated_data_model.model_parameters['rest_frame_velocity_shift']],
             model=simulated_data_model,
             data=reprocessed_spectrum,
             data_uncertainties=simulated_data_model.model_parameters['reduced_uncertainties'],
@@ -1016,7 +1016,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
             'retrieval_name': 'g'
         },
-        'planet_radial_velocity_amplitude': {
+        'radial_velocity_semi_amplitude': {
             'prior_parameters': np.array([0.4589, 1.6388]),  # Kp must be close to the true value to help the retrieval
             'prior_type': 'uniform',
             'figure_title': r'$K_p$',
@@ -1024,7 +1024,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             'figure_coefficient': 1e-5,
             'retrieval_name': 'Kp'
         },
-        'planet_rest_frame_velocity_shift': {
+        'rest_frame_velocity_shift': {
             'prior_parameters': [-20e5, 20e5],
             'prior_type': 'uniform',
             'figure_title': r'$V_\mathrm{rest}$',
@@ -1094,8 +1094,8 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             0.03
         ]
 
-        retrieved_parameters_ref['planet_radial_velocity_amplitude']['prior_type'] = 'gaussian'
-        retrieved_parameters_ref['planet_radial_velocity_amplitude']['prior_parameters'] = [
+        retrieved_parameters_ref['radial_velocity_semi_amplitude']['prior_type'] = 'gaussian'
+        retrieved_parameters_ref['radial_velocity_semi_amplitude']['prior_parameters'] = [
             152.1e5,
             2.9e5
         ]
@@ -1241,8 +1241,8 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
                 planet_radius=planet.radius,
                 star_radius=planet.star_radius,
                 impact_parameter=planet.calculate_impact_parameter(
-                    planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-                    planet_orbital_inclination=planet.orbital_inclination,
+                    orbit_semi_major_axis=planet.orbit_semi_major_axis,
+                    orbital_inclination=planet.orbital_inclination,
                     star_radius=planet.star_radius
                 )
             )
@@ -1323,7 +1323,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             temperature=planet.equilibrium_temperature,  # K
             # Chemical parameters
             use_equilibrium_chemistry=False,
-            imposed_mass_mixing_ratios={
+            imposed_mass_fractions={
                 'CH4_hargreaves_main_iso': 1e-12,
                 'CO_all_iso': 1e-12,
                 'H2O_main_iso': 1e-12,  # TODO 1e-12
@@ -1354,7 +1354,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             orbital_inclination=planet.orbital_inclination,
             transit_duration=planet.transit_duration,
             system_observer_radial_velocities=planet.star_radial_velocity - barycentric_velocities * 1e5,  # cm.s-1
-            planet_rest_frame_velocity_shift=0.0,  # cm.s-1
+            rest_frame_velocity_shift=0.0,  # cm.s-1
             planet_orbital_inclination=planet.orbital_inclination,
             # Reprocessing parameters
             uncertainties=model_uncertainties,
@@ -1372,9 +1372,9 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             use_boxcar_tlloss=use_boxcar_tlloss
         )
 
-        if 'planet_radial_velocity_amplitude' in retrieved_parameters and not use_gaussian_priors:
-            retrieved_parameters['planet_radial_velocity_amplitude']['prior_parameters'] *= \
-                spectral_model.model_parameters['planet_radial_velocity_amplitude']
+        if 'radial_velocity_semi_amplitude' in retrieved_parameters and not use_gaussian_priors:
+            retrieved_parameters['radial_velocity_semi_amplitude']['prior_parameters'] *= \
+                spectral_model.model_parameters['radial_velocity_semi_amplitude']
 
         if 'planet_radius' in retrieved_parameters:
             retrieved_parameters['planet_radius']['prior_parameters'] *= \
@@ -1388,13 +1388,13 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
             mid_transit_time_range = [0, 0]
 
         retrieval_velocities = spectral_model.compute_velocity_range(
-            planet_radial_velocity_amplitude_range=retrieved_parameters[
-                'planet_radial_velocity_amplitude']['prior_parameters'],
-            planet_rest_frame_velocity_shift_range=np.array([retrieved_parameters[
-                                                                 'planet_rest_frame_velocity_shift'][
+            radial_velocity_semi_amplitude_range=retrieved_parameters[
+                'radial_velocity_semi_amplitude']['prior_parameters'],
+            rest_frame_velocity_shift_range=np.array([retrieved_parameters[
+                                                                 'rest_frame_velocity_shift'][
                                                                  'prior_parameters'][0],
                                                              retrieved_parameters[
-                                                                 'planet_rest_frame_velocity_shift'][
+                                                                 'rest_frame_velocity_shift'][
                                                                  'prior_parameters'][1]
                                                              ]),
             mid_transit_times_range=mid_transit_time_range
@@ -1551,7 +1551,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
                     mask=prepared_data.mask
                 )
         else:
-            simulated_data_model.model_parameters['imposed_mass_mixing_ratios'] = {
+            simulated_data_model.model_parameters['imposed_mass_fractions'] = {
                 'CH4_hargreaves_main_iso': 3.4e-5,
                 'CO_all_iso': 1.8e-2,
                 'H2O_main_iso': 5.4e-3,
@@ -1711,7 +1711,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
                 for p in parameter_dict[retrieval_name]:
                     if p not in spectral_model.model_parameters and 'log10_' not in p:
                         true_values[retrieval_name].append(
-                            np.mean(np.log10(spectral_model.model_parameters['imposed_mass_mixing_ratios'][p]))
+                            np.mean(np.log10(spectral_model.model_parameters['imposed_mass_fractions'][p]))
                         )
                     elif p not in spectral_model.model_parameters and 'log10_' in p:
                         p = p.split('log10_', 1)[1]

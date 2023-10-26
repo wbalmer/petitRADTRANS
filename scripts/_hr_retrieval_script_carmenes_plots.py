@@ -114,8 +114,8 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         planet_radius=spectral_model.model_parameters['planet_radius'],
         star_radius=spectral_model.model_parameters['star_radius'],
         impact_parameter=Planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
-            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
+            orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
+            orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
             star_radius=spectral_model.model_parameters['star_radius']
         )
     )
@@ -415,8 +415,8 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         planet_radius=spectral_model.model_parameters['planet_radius'],
         star_radius=spectral_model.model_parameters['star_radius'],
         impact_parameter=Planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
-            planet_orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
+            orbit_semi_major_axis=spectral_model.model_parameters['orbit_semi_major_axis'],
+            orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
             star_radius=spectral_model.model_parameters['star_radius']
         )
     )
@@ -1047,7 +1047,7 @@ def plot_init(retrieved_parameters, expected_retrieval_directory, sm):
     for p in sd:
         if p not in sm.model_parameters and 'log10_' not in p:
             true_values.append(
-                np.mean(np.log10(sm.model_parameters['imposed_mass_mixing_ratios'][p]))
+                np.mean(np.log10(sm.model_parameters['imposed_mass_fractions'][p]))
             )
         elif p not in sm.model_parameters and 'log10_' in p:
             p = p.split('log10_', 1)[1]
@@ -2354,8 +2354,8 @@ def all_best_fit_models(directories, additional_data_directory, resolving_power,
                 planet_radius=planet.radius,
                 star_radius=planet.star_radius,
                 impact_parameter=planet.calculate_impact_parameter(
-                    planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-                    planet_orbital_inclination=planet.orbital_inclination,
+                    orbit_semi_major_axis=planet.orbit_semi_major_axis,
+                    orbital_inclination=planet.orbital_inclination,
                     star_radius=planet.star_radius
                 )
             )
@@ -2642,8 +2642,8 @@ def get_model_from_parameters(spectral_model, parameters):
 
     for parameter, value in parameters.items():
         if parameter not in new_spectral_model.model_parameters:
-            if parameter in new_spectral_model.model_parameters['imposed_mass_mixing_ratios']:
-                new_spectral_model.model_parameters['imposed_mass_mixing_ratios'][parameter] = 10 ** value
+            if parameter in new_spectral_model.model_parameters['imposed_mass_fractions']:
+                new_spectral_model.model_parameters['imposed_mass_fractions'][parameter] = 10 ** value
             else:
                 if parameter.split('log10_', 1)[1] in new_spectral_model.model_parameters:
                     parameter = parameter.split('log10_', 1)[1]
@@ -2813,8 +2813,8 @@ def get_parameter_range(sd, retrieved_parameters, sm=None):
 
         if 'figure_coefficient' in dictionary:
             if sm is not None:
-                if key == 'planet_radial_velocity_amplitude':
-                    figure_coefficient = sm.model_parameters['planet_radial_velocity_amplitude']
+                if key == 'radial_velocity_semi_amplitude':
+                    figure_coefficient = sm.model_parameters['radial_velocity_semi_amplitude']
                 elif key == 'planet_radius':
                     figure_coefficient = sm.model_parameters['planet_radius']
                 else:
@@ -3038,8 +3038,8 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
 
         if sigmas is None:
             ys = np.asarray([spectral_model.get_relative_velocities(
-                planet_radial_velocity_amplitude=sd['planet_radial_velocity_amplitude'][i],
-                planet_rest_frame_velocity_shift=sd['planet_rest_frame_velocity_shift'][i],
+                radial_velocity_semi_amplitude=sd['radial_velocity_semi_amplitude'][i],
+                rest_frame_velocity_shift=sd['rest_frame_velocity_shift'][i],
                 mid_transit_time=sd['mid_transit_time'][i]) * 1e-5 for i in range(sd['log_likelihood'].size)])
 
             if add_best_fit:
@@ -3047,14 +3047,14 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
             else:
                 log_likelihood = None
         else:
-            kps = sd['planet_radial_velocity_amplitude'][np.nonzero(np.logical_and(
+            kps = sd['radial_velocity_semi_amplitude'][np.nonzero(np.logical_and(
                 np.greater_equal(
-                    sd['planet_radial_velocity_amplitude'],
-                    np.quantile(sd['planet_radial_velocity_amplitude'], quantile_min)
+                    sd['radial_velocity_semi_amplitude'],
+                    np.quantile(sd['radial_velocity_semi_amplitude'], quantile_min)
                 ),
                 np.less_equal(
-                    sd['planet_radial_velocity_amplitude'],
-                    np.quantile(sd['planet_radial_velocity_amplitude'], quantile_max)
+                    sd['radial_velocity_semi_amplitude'],
+                    np.quantile(sd['radial_velocity_semi_amplitude'], quantile_max)
                 ),
             ))]
 
@@ -3063,14 +3063,14 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
                 np.max(kps)
             ])
 
-            vrs = sd['planet_rest_frame_velocity_shift'][np.nonzero(np.logical_and(
+            vrs = sd['rest_frame_velocity_shift'][np.nonzero(np.logical_and(
                 np.greater_equal(
-                    sd['planet_rest_frame_velocity_shift'],
-                    np.quantile(sd['planet_rest_frame_velocity_shift'], quantile_min)
+                    sd['rest_frame_velocity_shift'],
+                    np.quantile(sd['rest_frame_velocity_shift'], quantile_min)
                 ),
                 np.less_equal(
-                    sd['planet_rest_frame_velocity_shift'],
-                    np.quantile(sd['planet_rest_frame_velocity_shift'], quantile_max)
+                    sd['rest_frame_velocity_shift'],
+                    np.quantile(sd['rest_frame_velocity_shift'], quantile_max)
                 ),
             ))]
 
@@ -3102,8 +3102,8 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
                 for vr in vrs:
                     for t0_ in t0s:
                         ys.append(spectral_model.get_relative_velocities(
-                            planet_radial_velocity_amplitude=kp,
-                            planet_rest_frame_velocity_shift=vr,
+                            radial_velocity_semi_amplitude=kp,
+                            rest_frame_velocity_shift=vr,
                             mid_transit_time=t0_) * 1e-5
                         )
 
@@ -3170,19 +3170,19 @@ def plot_relative_velocities_envelope(directories_dict, mid_transit_time=0, plan
             for vr in vrs:
                 for t0__ in t0s:
                     ys.append(spectral_model.get_relative_velocities(
-                        planet_radial_velocity_amplitude=kp,
-                        planet_rest_frame_velocity_shift=vr,
+                        radial_velocity_semi_amplitude=kp,
+                        rest_frame_velocity_shift=vr,
                         mid_transit_time=t0__) * 1e-5
                     )
 
                     log_likelihood.append(-np.inf)
 
         ys.append(spectral_model.get_relative_velocities(
-            planet_radial_velocity_amplitude=planet.calculate_orbital_velocity(
+            radial_velocity_semi_amplitude=planet.calculate_orbital_velocity(
                 planet.star_mass,
                 planet.orbit_semi_major_axis
             ),
-            planet_rest_frame_velocity_shift=0,
+            rest_frame_velocity_shift=0,
             mid_transit_time=t0_) * 1e-5
         )
 
@@ -3716,11 +3716,11 @@ def quick_ccf(rebined_model, wavelengths_instrument, prepared_data, sm):
     co_added_cross_correlations_snr, co_added_cross_correlations, \
         v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths = ccf_analysis(
             wavelengths_instrument[1:-1], prepared_data[1:-1], wvlx, rdbxi,
-            planet_radial_velocity_amplitude=sm.model_parameters['planet_radial_velocity_amplitude'],
+            radial_velocity_semi_amplitude=sm.model_parameters['radial_velocity_semi_amplitude'],
             model_velocities=sm.model_parameters['relative_velocities'],
             system_observer_radial_velocities=sm.model_parameters['system_observer_radial_velocities'],
             orbital_longitudes=sm.model_parameters['orbital_longitudes'],
-            planet_orbital_inclination=sm.model_parameters['planet_orbital_inclination'],
+            orbital_inclination=sm.model_parameters['planet_orbital_inclination'],
             line_spread_function_fwhm=2.6e5, velocity_interval_extension_factor=-0.0, ccf_sum_axes=[0])
 
     return co_added_cross_correlations_snr, co_added_cross_correlations, \
@@ -3760,11 +3760,11 @@ def quick_ccf2(shifted_model, shifted_model_wavelengths, wavelengths_instrument,
     co_added_cross_correlations_snr, co_added_cross_correlations, \
         v_rest, kps, ccf_sum, ccfs, velocities_ccf, ccf_models, ccf_model_wavelengths = ccf_analysis(
             wavelengths_instrument[1:-1], prepared_data[1:-1], wvlx, rdbxi,
-            planet_radial_velocity_amplitude=sm.model_parameters['planet_radial_velocity_amplitude'],
+            radial_velocity_semi_amplitude=sm.model_parameters['radial_velocity_semi_amplitude'],
             model_velocities=sm.model_parameters['relative_velocities'],
             system_observer_radial_velocities=sm.model_parameters['system_observer_radial_velocities'],
             orbital_longitudes=sm.model_parameters['orbital_longitudes'],
-            planet_orbital_inclination=sm.model_parameters['planet_orbital_inclination'],
+            orbital_inclination=sm.model_parameters['planet_orbital_inclination'],
             line_spread_function_fwhm=2.6e5, velocity_interval_extension_factor=-0.0, ccf_sum_axes=[0])
 
     return co_added_cross_correlations_snr, co_added_cross_correlations, \
@@ -3872,7 +3872,7 @@ def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_tra
             'figure_label': r'$\log_{10}(g)$ ([cm$\cdot$s$^{-2}$])',
             'retrieval_name': 'g'
         },
-        'planet_radial_velocity_amplitude': {
+        'radial_velocity_semi_amplitude': {
             'prior_parameters': np.array([0.4589, 1.6388]) * 15254766.005394705,  # Kp must be close to the true value to help the retrieval
             'prior_type': 'uniform',
             'figure_title': r'$K_p$',
@@ -3880,7 +3880,7 @@ def init_retrieved_parameters(retrieval_parameters, mid_transit_time_jd, mid_tra
             'figure_coefficient': 1e-5,
             'retrieval_name': 'Kp'
         },
-        'planet_rest_frame_velocity_shift': {
+        'rest_frame_velocity_shift': {
             'prior_parameters': [-20e5, 20e5],
             'prior_type': 'uniform',
             'figure_title': r'$V_\mathrm{rest}$',
@@ -4002,8 +4002,8 @@ def quick_figure_setup(external_parameters_ref=None):
 
     retrieval_parameters = [
         'new_resolving_power',
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
+        'radial_velocity_semi_amplitude',
+        'rest_frame_velocity_shift',
         'mid_transit_time',
         'planet_radius',
         'log10_planet_surface_gravity',
@@ -4054,7 +4054,7 @@ def plot_all_figures(retrieved_parameters,
     )
     radtrans = sm.get_radtrans()
 
-    sm.model_parameters['imposed_mass_mixing_ratios'] = {
+    sm.model_parameters['imposed_mass_fractions'] = {
         'CH4_hargreaves_main_iso': 3.4e-5,
         'CO_all_iso': 1.8e-2,
         'H2O_main_iso': 5.4e-3,
@@ -4311,8 +4311,8 @@ def plot_all_figures(retrieved_parameters,
         'log10_scattering_opacity_350nm',
         'scattering_opacity_coefficient',
         'log10_planet_surface_gravity',
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
+        'radial_velocity_semi_amplitude',
+        'rest_frame_velocity_shift',
         'new_resolving_power',
         'mid_transit_time'
     ]
@@ -4634,8 +4634,8 @@ def plot_all_figures(retrieved_parameters,
 
     # A00: exp_CCD_param
     parameter_names_ref = [
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
+        'radial_velocity_semi_amplitude',
+        'rest_frame_velocity_shift',
         'temperature',
         'H2O_main_iso',
         'mid_transit_time',

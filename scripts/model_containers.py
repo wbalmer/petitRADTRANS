@@ -326,7 +326,7 @@ class SpectralModelLegacy:
     def _init_mass_mixing_ratios(pressures, line_species,
                                  included_line_species='all', temperatures=None, co_ratio=0.55, log10_metallicity=0,
                                  carbon_pressure_quench=None,
-                                 imposed_mass_mixing_ratios=None, heh2_ratio=0.324324, use_equilibrium_chemistry=False):
+                                 imposed_mass_fractions=None, heh2_ratio=0.324324, use_equilibrium_chemistry=False):
         """Initialize a model mass mixing ratios.
         Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
         their value as much as possible.
@@ -346,7 +346,7 @@ class SpectralModelLegacy:
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
             log10_metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
             carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium chemistry
-            imposed_mass_mixing_ratios: imposed mass mixing ratios
+            imposed_mass_fractions: imposed mass mixing ratios
             heh2_ratio: H2 over He mass mixing ratio
             use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
 
@@ -359,17 +359,17 @@ class SpectralModelLegacy:
         m_sum_species = np.zeros(np.shape(pressures))
 
         # Initialize imposed mass mixing ratios
-        if imposed_mass_mixing_ratios is not None:
-            for species, mass_mixing_ratio in imposed_mass_mixing_ratios.items():
+        if imposed_mass_fractions is not None:
+            for species, mass_mixing_ratio in imposed_mass_fractions.items():
                 if np.size(mass_mixing_ratio) == 1:
-                    imposed_mass_mixing_ratios[species] = np.ones(np.shape(pressures)) * mass_mixing_ratio
+                    imposed_mass_fractions[species] = np.ones(np.shape(pressures)) * mass_mixing_ratio
                 elif np.size(mass_mixing_ratio) != np.size(pressures):
                     raise ValueError(f"mass mixing ratio for species '{species}' must be a scalar or an array of the"
                                      f"size of the pressure array ({np.size(pressures)}), "
                                      f"but is of size ({np.size(mass_mixing_ratio)})")
         else:
             # Nothing is imposed
-            imposed_mass_mixing_ratios = {}
+            imposed_mass_fractions = {}
 
         # Chemical equilibrium
         if use_equilibrium_chemistry:
@@ -381,23 +381,23 @@ class SpectralModelLegacy:
                 line_species=line_species,
                 included_line_species=included_line_species,
                 carbon_pressure_quench=carbon_pressure_quench,
-                mass_mixing_ratios=imposed_mass_mixing_ratios
+                mass_mixing_ratios=imposed_mass_fractions
             )
 
-            if imposed_mass_mixing_ratios == {}:
-                imposed_mass_mixing_ratios = copy.copy(mass_mixing_ratios_equilibrium)
+            if imposed_mass_fractions == {}:
+                imposed_mass_fractions = copy.copy(mass_mixing_ratios_equilibrium)
         else:
             mass_mixing_ratios_equilibrium = None
 
         # Ensure that the sum of mass mixing ratios of imposed species is <= 1
-        for species in imposed_mass_mixing_ratios:
+        for species in imposed_mass_fractions:
             # Ignore the non-abundances coming from the chemistry module
             if species == 'nabla_ad' or species == 'MMW':
                 continue
 
             spec = species.split('_R_')[0]  # deal with the naming scheme for binned down opacities
-            mass_mixing_ratios[species] = imposed_mass_mixing_ratios[spec]
-            m_sum_imposed_species += imposed_mass_mixing_ratios[spec]
+            mass_mixing_ratios[species] = imposed_mass_fractions[spec]
+            m_sum_imposed_species += imposed_mass_fractions[spec]
 
         for i in range(np.size(m_sum_imposed_species)):
             if m_sum_imposed_species[i] > 1:
@@ -405,7 +405,7 @@ class SpectralModelLegacy:
                 print(f"Warning: sum of mass mixing ratios of imposed species ({m_sum_imposed_species}) is > 1, "
                       f"correcting...")
 
-                for species in imposed_mass_mixing_ratios:
+                for species in imposed_mass_fractions:
                     mass_mixing_ratios[species][i] /= m_sum_imposed_species[i]
 
         m_sum_imposed_species = np.sum(list(mass_mixing_ratios.values()), axis=0)
@@ -425,7 +425,7 @@ class SpectralModelLegacy:
             # Search for imposed species
             found = False
 
-            for key in imposed_mass_mixing_ratios:
+            for key in imposed_mass_fractions:
                 spec = key.split('_R_')[0]  # deal with the naming scheme for binned down opacities
 
                 if species == spec:
@@ -448,7 +448,7 @@ class SpectralModelLegacy:
             h2_found_in_abundances = False
             he_found_in_abundances = False
 
-            for key in imposed_mass_mixing_ratios:
+            for key in imposed_mass_fractions:
                 if key == 'H2':
                     h2_found_in_mass_mixing_ratios = True
                 elif key == 'He':
@@ -475,7 +475,7 @@ class SpectralModelLegacy:
                     for species in mass_mixing_ratios:
                         found = False
 
-                        for key in imposed_mass_mixing_ratios:
+                        for key in imposed_mass_fractions:
                             if species == key:
                                 found = True
 
@@ -489,7 +489,7 @@ class SpectralModelLegacy:
                     # TODO there might be a better filling species, N2?
                     if h2_found_in_mass_mixing_ratios and he_found_in_mass_mixing_ratios:
                         # Use imposed He/H2 ratio
-                        heh2_ratio = 10 ** imposed_mass_mixing_ratios['He'][i] / 10 ** imposed_mass_mixing_ratios['H2'][i]
+                        heh2_ratio = 10 ** imposed_mass_fractions['He'][i] / 10 ** imposed_mass_fractions['H2'][i]
 
                     if h2_found_in_abundances and he_found_in_abundances:
                         # Use calculated He/H2 ratio
@@ -542,13 +542,13 @@ class SpectralModelLegacy:
                              f"possible inputs are float, int, "
                              f"or a 1-D array of the same size of parameter 'pressures' ({np.size(atmosphere.pressures)})")
 
-        imposed_mass_mixing_ratios = {}
+        imposed_mass_fractions = {}
 
         for species in atmosphere.line_species:
             # TODO mass mixing ratio dict initialization more general
             spec = species.split('_R_')[0]  # deal with the naming scheme for binned down opacities
             # Convert from log-abundance
-            imposed_mass_mixing_ratios[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
+            imposed_mass_fractions[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
 
         mass_mixing_ratios = SpectralModelLegacy._init_mass_mixing_ratios(
             pressures=pressures,
@@ -558,7 +558,7 @@ class SpectralModelLegacy:
             co_ratio=parameters['co_ratio'].value,
             log10_metallicity=parameters['log10_metallicity'].value,
             carbon_pressure_quench=parameters['carbon_pressure_quench'].value,
-            imposed_mass_mixing_ratios=imposed_mass_mixing_ratios,
+            imposed_mass_fractions=imposed_mass_fractions,
             heh2_ratio=parameters['heh2_ratio'].value,
             use_equilibrium_chemistry=parameters['use_equilibrium_chemistry'].value
         )
@@ -576,9 +576,9 @@ class SpectralModelLegacy:
                              use_equilibrium_chemistry=False,
                              co_ratio=0.55, metallicity=1.0, carbon_pressure_quench=None,
                              star_effective_temperature=None, star_radius=None, star_spectral_radiosity=None,
-                             planet_radial_velocity_amplitude=None, planet_orbital_inclination=None,
+                             radial_velocity_semi_amplitude=None, planet_orbital_inclination=None,
                              semi_major_axis=None,
-                             planet_rest_frame_velocity_shift=0.0, orbital_phases=None, system_observer_radial_velocities=None,
+                             rest_frame_velocity_shift=0.0, orbital_phases=None, system_observer_radial_velocities=None,
                              wavelengths_instrument=None, instrument_resolving_power=None,
                              data=None, data_uncertainties=None,
                              reduced_data=None, reduced_data_uncertainties=None, reduction_matrix=None,
@@ -611,9 +611,9 @@ class SpectralModelLegacy:
             'log10_metallicity': Param(metallicity),
             'log10_surface_gravity': Param(surface_gravity),
             'orbital_phases': Param(orbital_phases),
-            'planet_radial_velocity_amplitude': Param(planet_radial_velocity_amplitude),
+            'radial_velocity_semi_amplitude': Param(radial_velocity_semi_amplitude),
             'planet_radius': Param(planet_radius),
-            'planet_rest_frame_velocity_shift': Param(planet_rest_frame_velocity_shift),
+            'rest_frame_velocity_shift': Param(rest_frame_velocity_shift),
             'planet_orbital_inclination': Param(planet_orbital_inclination),
             'reduced_data': Param(reduced_data),
             'reduction_matrix': Param(reduction_matrix),
@@ -872,7 +872,7 @@ class SpectralModelLegacy:
 
     def get_parameters_dict(self, planet: Planet, included_line_species='all'):
         # star_spectral_radiosity = self.get_phoenix_star_spectral_radiosity(planet)
-        planet_radial_velocity_amplitude = planet.calculate_orbital_velocity(
+        radial_velocity_semi_amplitude = planet.calculate_orbital_velocity(
             planet.star_mass, planet.orbit_semi_major_axis
         )
 
@@ -895,10 +895,10 @@ class SpectralModelLegacy:
             star_effective_temperature=planet.star_effective_temperature,
             star_radius=planet.star_radius,
             # star_spectral_radiosity=star_spectral_radiosity,
-            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+            radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
             planet_orbital_inclination=planet.orbital_inclination,
             semi_major_axis=planet.orbit_semi_major_axis,
-            planet_rest_frame_velocity_shift=0.0,
+            rest_frame_velocity_shift=0.0,
             orbital_phases=None,
             system_observer_radial_velocities=None,
             wavelengths_instrument=None,

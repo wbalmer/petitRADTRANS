@@ -49,7 +49,7 @@ def init_spectral_model_line_by_line():
             'infrared_mean_opacity'],
         # Chemical parameters
         use_equilibrium_chemistry=False,
-        imposed_mass_mixing_ratios=radtrans_parameters['mass_fractions'],
+        imposed_mass_fractions=radtrans_parameters['mass_fractions'],
         # Transmission spectrum parameters (radtrans.calc_transm)
         planet_radius=radtrans_parameters['planetary_parameters']['radius']
         * petitRADTRANS.physical_constants.r_jup_mean,  # cm
@@ -80,8 +80,8 @@ def init_spectral_model_line_by_line():
             radtrans_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][1],
             radtrans_parameters['mock_observation_parameters']['n_exposures']
         ),  # cm.s-1
-        planet_rest_frame_velocity_shift=radtrans_parameters['mock_observation_parameters'][
-            "planet_rest_frame_velocity_shift"],  # cm.s-1
+        rest_frame_velocity_shift=radtrans_parameters['mock_observation_parameters'][
+            "rest_frame_velocity_shift"],  # cm.s-1
         # Reprocessing parameters
         # uncertainties=model_uncertainties,
         # airmass=airmasses,
@@ -110,7 +110,7 @@ def init_spectral_model_line_by_line():
         """
         return {
             species: mass_mixing_ratio * np.ones(np.size(pressures))
-            for species, mass_mixing_ratio in kwargs['imposed_mass_mixing_ratios'].items()
+            for species, mass_mixing_ratio in kwargs['imposed_mass_fractions'].items()
         }
 
     # Test custom function
@@ -362,10 +362,10 @@ def test_line_by_line_spectral_model_transmission_ccf():
             normalize_ccf=radtrans_parameters['ccf_analysis_parameters']['normalize_ccf'],
             calculate_ccf_snr=radtrans_parameters['ccf_analysis_parameters']['calculate_ccf_snr'],
             ccf_sum_axes=radtrans_parameters['ccf_analysis_parameters']['ccf_sum_axes'],
-            planet_radial_velocity_amplitude=spectral_model.model_parameters['planet_radial_velocity_amplitude'],
+            radial_velocity_semi_amplitude=spectral_model.model_parameters['radial_velocity_semi_amplitude'],
             system_observer_radial_velocities=spectral_model.model_parameters['system_observer_radial_velocities'],
             orbital_longitudes=spectral_model.model_parameters['orbital_longitudes'],
-            planet_orbital_inclination=spectral_model.model_parameters['planet_orbital_inclination'],
+            orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
             line_spread_function_fwhm=line_spread_function_fwhm,
             pixels_per_resolution_element=radtrans_parameters['ccf_analysis_parameters'][
                 'pixels_per_resolution_element'],
@@ -376,7 +376,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
             kp_factor=radtrans_parameters['ccf_analysis_parameters']['kp_factor'],
             n_kp=None,
             n_vr=None,
-            planet_radial_velocity_function=None
+            radial_velocity_function=None
         )
 
     co_added_cross_correlations_max, max_kp, max_v_rest, n_around_peak \

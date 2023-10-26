@@ -47,8 +47,8 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
-            radial_velocity_amplitude_function: callable = None,
-            planet_radial_velocities_function: callable = None,
+            radial_velocity_semi_amplitude_function: callable = None,
+            radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
@@ -68,12 +68,12 @@ class SpectralModel(Radtrans):
         account Doppler shift if necessary, using the following model parameters:
             - relative_velocities: (cm.s-1) array of relative velocities between the target and the observer
             - system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
-            - is_orbiting: if True, planet_radial_velocity_amplitude is calculated and relative velocities depends on
+            - is_orbiting: if True, radial_velocity_semi_amplitude is calculated and relative velocities depends on
                 orbital position parameters, listed below.
             - orbital_longitudes (deg) array of orbital longitudes
             - orbital_phases: array of orbital phases
-            - planet_rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
-            - planet_radial_velocity_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
+            - rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
+            - radial_velocity_semi_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
         The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
         orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
         velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
@@ -132,11 +132,11 @@ class SpectralModel(Radtrans):
             **model_parameters:
                 dictionary of parameters. The keys can match arguments of functions used to generate the model.
         """
-        if radial_velocity_amplitude_function is None:
-            radial_velocity_amplitude_function = self.compute_radial_velocity_amplitude
+        if radial_velocity_semi_amplitude_function is None:
+            radial_velocity_semi_amplitude_function = self.compute_radial_velocity_semi_amplitude
 
-        if planet_radial_velocities_function is None:
-            planet_radial_velocities_function = self.compute_planet_radial_velocities
+        if radial_velocities_function is None:
+            radial_velocities_function = self.compute_radial_velocities
 
         if relative_velocities_function is None:
             relative_velocities_function = self.compute_relative_velocities
@@ -150,13 +150,13 @@ class SpectralModel(Radtrans):
         # Velocities
         self.model_parameters['relative_velocities'], \
             self.model_parameters['system_observer_radial_velocities'], \
-            self.model_parameters['planet_radial_velocity_amplitude'], \
-            self.model_parameters['planet_radial_velocities'], \
+            self.model_parameters['radial_velocity_semi_amplitude'], \
+            self.model_parameters['radial_velocities'], \
             self.model_parameters['orbital_longitudes'], \
             self.model_parameters['is_orbiting'] = \
             self.__init_velocities(
-                radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-                planet_radial_velocities_function=planet_radial_velocities_function,
+                radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+                radial_velocities_function=radial_velocities_function,
                 relative_velocities_function=relative_velocities_function,
                 orbital_longitudes_function=orbital_longitudes_function,
                 **self.model_parameters
@@ -202,10 +202,40 @@ class SpectralModel(Radtrans):
         self.fluxes = spectral_radiosities
 
     @staticmethod
-    def __init_velocities(radial_velocity_amplitude_function, planet_radial_velocities_function,
+    def __check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
+        missing = []
+
+        for parameter_name in args:
+            if parameter_name not in model_parameters:
+                missing.append(parameter_name)
+
+        if len(missing) >= 1:
+            joint = "', '".join(missing)
+
+            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
+
+            raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
+
+    @staticmethod
+    def __check_none_model_parameters(explanation_message_=None, **kwargs):
+        missing = []
+
+        for parameter_name, value in kwargs.items():
+            if value is None:
+                missing.append(parameter_name)
+
+        if len(missing) >= 1:
+            joint = "', '".join(missing)
+
+            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
+
+            raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
+
+    @staticmethod
+    def __init_velocities(radial_velocity_semi_amplitude_function, radial_velocities_function,
                           relative_velocities_function, orbital_longitudes_function,
                           relative_velocities=None, system_observer_radial_velocities=None,
-                          planet_radial_velocities=None, planet_rest_frame_velocity_shift=0.0,
+                          radial_velocities=None, rest_frame_velocity_shift=0.0,
                           orbital_longitudes=None, orbital_phases=None, orbital_period=None,
                           times=None, mid_transit_time=None, is_orbiting=None, **kwargs):
         if system_observer_radial_velocities is None:
@@ -237,18 +267,18 @@ class SpectralModel(Radtrans):
 
             orbital_longitudes = np.zeros(1)
 
-        planet_radial_velocity_amplitude = None
+        radial_velocity_semi_amplitude = None
 
         # Calculate relative velocities if needed
         if relative_velocities is None:
-            relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes = \
+            relative_velocities, radial_velocities, radial_velocity_semi_amplitude, orbital_longitudes = \
                 SpectralModel._compute_relative_velocities_wrap(
-                    radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-                    planet_radial_velocities_function=planet_radial_velocities_function,
+                    radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+                    radial_velocities_function=radial_velocities_function,
                     relative_velocities_function=relative_velocities_function,
                     orbital_longitudes_function=orbital_longitudes_function,
                     system_observer_radial_velocities=system_observer_radial_velocities,
-                    planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+                    rest_frame_velocity_shift=rest_frame_velocity_shift,
                     orbital_period=orbital_period,
                     times=times,
                     mid_transit_time=mid_transit_time,
@@ -256,45 +286,15 @@ class SpectralModel(Radtrans):
                     is_orbiting=is_orbiting,
                     **kwargs
                 )
-        elif is_orbiting and planet_radial_velocity_amplitude is None:
+        elif is_orbiting and radial_velocity_semi_amplitude is None:
             raise TypeError("Modelled object is orbiting and 'relative_velocities' was set, "
-                            "but not 'planet_radial_velocity_amplitude'; "
-                            "set model parameter 'planet_radial_velocity_amplitude', "
+                            "but not 'radial_velocity_semi_amplitude'; "
+                            "set model parameter 'radial_velocity_semi_amplitude', "
                             "or remove model parameter 'relative_velocities' to calculate both "
-                            "'planet_radial_velocity_amplitude' and 'relative_velocities'")
+                            "'radial_velocity_semi_amplitude' and 'relative_velocities'")
 
-        return relative_velocities, system_observer_radial_velocities, planet_radial_velocity_amplitude, \
-            planet_radial_velocities, orbital_longitudes, is_orbiting
-
-    @staticmethod
-    def _check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
-        missing = []
-
-        for parameter_name in args:
-            if parameter_name not in model_parameters:
-                missing.append(parameter_name)
-
-        if len(missing) >= 1:
-            joint = "', '".join(missing)
-
-            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
-
-            raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
-
-    @staticmethod
-    def _check_none_model_parameters(explanation_message_=None, **kwargs):
-        missing = []
-
-        for parameter_name, value in kwargs.items():
-            if value is None:
-                missing.append(parameter_name)
-
-        if len(missing) >= 1:
-            joint = "', '".join(missing)
-
-            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
-
-            raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
+        return relative_velocities, system_observer_radial_velocities, radial_velocity_semi_amplitude, \
+            radial_velocities, orbital_longitudes, is_orbiting
 
     @staticmethod
     def _compute_metallicity_wrap(planet_mass=None,
@@ -320,9 +320,9 @@ class SpectralModel(Radtrans):
     @staticmethod
     def _compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
                                             line_species, included_line_species,
-                                            carbon_pressure_quench=None, imposed_mass_mixing_ratios=None):
-        if imposed_mass_mixing_ratios is None:
-            imposed_mass_mixing_ratios = {}
+                                            carbon_pressure_quench=None, imposed_mass_fractions=None):
+        if imposed_mass_fractions is None:
+            imposed_mass_fractions = {}
 
         if np.size(co_ratio) == 1:
             co_ratios = np.ones_like(pressures) * co_ratio
@@ -348,7 +348,7 @@ class SpectralModel(Radtrans):
         )
 
         # Check imposed mass mixing ratios keys
-        for key in imposed_mass_mixing_ratios:
+        for key in imposed_mass_fractions:
             if key not in line_species and key not in equilibrium_mass_mixing_ratios:
                 raise KeyError(f"key '{key}' not in retrieved species list or "
                                f"standard petitRADTRANS mass fractions dict")
@@ -368,9 +368,9 @@ class SpectralModel(Radtrans):
             # Set line species mass mixing ratios into to their imposed one
             for line_species_name_ in line_species:
                 if line_species_name_ == 'CO_36':  # CO_36 special case
-                    if line_species_name_ in imposed_mass_mixing_ratios:
+                    if line_species_name_ in imposed_mass_fractions:
                         # Use imposed mass mixing ratio
-                        mass_mixing_ratios[line_species_name_] = imposed_mass_mixing_ratios[line_species_name_]
+                        mass_mixing_ratios[line_species_name_] = imposed_mass_fractions[line_species_name_]
 
                     continue
 
@@ -381,9 +381,9 @@ class SpectralModel(Radtrans):
                     if key not in included_line_species:
                         # Species not included, set mass mixing ratio to 0
                         mass_mixing_ratios[line_species_name] = np.zeros(np.shape(temperatures))
-                    elif line_species_name_ in imposed_mass_mixing_ratios:
+                    elif line_species_name_ in imposed_mass_fractions:
                         # Use imposed mass mixing ratio
-                        mass_mixing_ratios[line_species_name_] = imposed_mass_mixing_ratios[line_species_name_]
+                        mass_mixing_ratios[line_species_name_] = imposed_mass_fractions[line_species_name_]
                     else:
                         # Use calculated mass mixing ratio
                         mass_mixing_ratios[line_species_name_] = equilibrium_mass_mixing_ratios[line_species_name]
@@ -394,9 +394,9 @@ class SpectralModel(Radtrans):
 
             # Set species mass mixing ratio to their imposed one
             if not found:
-                if key in imposed_mass_mixing_ratios:
+                if key in imposed_mass_fractions:
                     # Use imposed mass mixing ratio
-                    mass_mixing_ratios[key] = imposed_mass_mixing_ratios[key]
+                    mass_mixing_ratios[key] = imposed_mass_fractions[key]
                 else:
                     # Use calculated mass mixing ratio
                     mass_mixing_ratios[key] = equilibrium_mass_mixing_ratios[key]
@@ -423,8 +423,8 @@ class SpectralModel(Radtrans):
             orbital_period: period of the planet orbit
         """
         impact_parameter_squared = Planet.calculate_impact_parameter(
-            planet_orbit_semi_major_axis=orbit_semi_major_axis,
-            planet_orbital_inclination=orbital_inclination,
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            orbital_inclination=orbital_inclination,
             star_radius=star_radius
         ) ** 2
 
@@ -445,11 +445,11 @@ class SpectralModel(Radtrans):
         return np.moveaxis(planet_star_centers_distance, 0, -1)
 
     @staticmethod
-    def _compute_relative_velocities_wrap(radial_velocity_amplitude_function, planet_radial_velocities_function,
+    def _compute_relative_velocities_wrap(radial_velocity_semi_amplitude_function, radial_velocities_function,
                                           relative_velocities_function, orbital_longitudes_function,
-                                          system_observer_radial_velocities, planet_rest_frame_velocity_shift,
+                                          system_observer_radial_velocities, rest_frame_velocity_shift,
                                           orbital_period=None, times=None, mid_transit_time=None,
-                                          orbital_longitudes=None, is_orbiting=False, planet_radial_velocities=None,
+                                          orbital_longitudes=None, is_orbiting=False, radial_velocities=None,
                                           **kwargs):
         # Calculate planet radial velocities if needed
         if is_orbiting:
@@ -470,41 +470,41 @@ class SpectralModel(Radtrans):
                 )
                 kwargs['orbital_longitudes'] = orbital_longitudes
 
-            if 'planet_radial_velocity_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
-                planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+            if 'radial_velocity_semi_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
+                radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function(
                     **kwargs
                 )
-                kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
+                kwargs['radial_velocity_semi_amplitude'] = radial_velocity_semi_amplitude
             else:
-                if kwargs['planet_radial_velocity_amplitude'] is None:
-                    planet_radial_velocity_amplitude = radial_velocity_amplitude_function(
+                if kwargs['radial_velocity_semi_amplitude'] is None:
+                    radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function(
                         **kwargs
                     )
-                    kwargs['planet_radial_velocity_amplitude'] = planet_radial_velocity_amplitude
+                    kwargs['radial_velocity_semi_amplitude'] = radial_velocity_semi_amplitude
                 else:
-                    planet_radial_velocity_amplitude = kwargs['planet_radial_velocity_amplitude']
+                    radial_velocity_semi_amplitude = kwargs['radial_velocity_semi_amplitude']
 
             # Use the above calculated orbital longitudes and planet radial velocity amplitude
-            planet_radial_velocities = planet_radial_velocities_function(
+            radial_velocities = radial_velocities_function(
                 **kwargs
             )
         else:
             # Object is not orbiting, it has 0 orbit radial velocity
             orbital_longitudes = None
-            planet_radial_velocity_amplitude = None
+            radial_velocity_semi_amplitude = None
 
-            if planet_radial_velocities is None:
-                planet_radial_velocities = np.zeros(1)
+            if radial_velocities is None:
+                radial_velocities = np.zeros(1)
 
         # Calculate the relative velocities from the above calculated orbit radial velocity
         relative_velocities = relative_velocities_function(
-            planet_radial_velocities=planet_radial_velocities,
+            radial_velocities=radial_velocities,
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+            rest_frame_velocity_shift=rest_frame_velocity_shift,
             **kwargs
         )
 
-        return relative_velocities, planet_radial_velocities, planet_radial_velocity_amplitude, orbital_longitudes
+        return relative_velocities, radial_velocities, radial_velocity_semi_amplitude, orbital_longitudes
 
     @staticmethod
     def _compute_transit_fractional_light_loss_uniform(planet_radius_normalized, planet_star_centers_distance,
@@ -787,7 +787,6 @@ class SpectralModel(Radtrans):
         Returns:
             optimal_wavelengths_boundaries: (um) the optimal wavelengths boundaries for the spectrum
         """
-        # TODO fix automatic wavelengths boundaries being sometimes not wide enough by a very small amount
         if output_wavelengths is None:
             output_wavelengths = self.model_parameters['output_wavelengths']
 
@@ -962,7 +961,7 @@ class SpectralModel(Radtrans):
     def compute_mass_fractions(pressures, line_species=None,
                                included_line_species='all', temperatures=None, co_ratio=0.55,
                                metallicity=None, carbon_pressure_quench=None,
-                               imposed_mass_mixing_ratios=None, heh2_ratio=12/37, c13c12_ratio=0.01,
+                               imposed_mass_fractions=None, heh2_ratio=12/37, c13c12_ratio=0.01,
                                planet_mass=None, planet_radius=None, planet_surface_gravity=None,
                                star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                use_equilibrium_chemistry=False, fill_atmosphere=False, verbose=False, **kwargs):
@@ -994,7 +993,7 @@ class SpectralModel(Radtrans):
             metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
             carbon_pressure_quench: (bar) pressure where the carbon species are quenched, used with equilibrium
                 chemistry
-            imposed_mass_mixing_ratios: imposed mass mixing ratios
+            imposed_mass_fractions: imposed mass mixing ratios
             heh2_ratio: H2 over He mass mixing ratio
             c13c12_ratio: 13C over 12C mass mixing ratio in equilibrium chemistry
             planet_mass: (g) mass of the planet; if None, planet mass is calculated from planet radius and surface
@@ -1024,17 +1023,17 @@ class SpectralModel(Radtrans):
             line_species = []
 
         # Initialize imposed mass mixing ratios
-        if imposed_mass_mixing_ratios is not None:
-            for species, mass_mixing_ratio in imposed_mass_mixing_ratios.items():
+        if imposed_mass_fractions is not None:
+            for species, mass_mixing_ratio in imposed_mass_fractions.items():
                 if np.size(mass_mixing_ratio) == 1:
-                    imposed_mass_mixing_ratios[species] = np.ones(np.shape(pressures)) * mass_mixing_ratio
+                    imposed_mass_fractions[species] = np.ones(np.shape(pressures)) * mass_mixing_ratio
                 elif np.size(mass_mixing_ratio) != np.size(pressures):
                     raise ValueError(f"mass mixing ratio for species '{species}' must be a scalar or an array of the"
                                      f"size of the pressure array ({np.size(pressures)}), "
                                      f"but is of size ({np.size(mass_mixing_ratio)})")
         else:
             # Nothing is imposed
-            imposed_mass_mixing_ratios = {}
+            imposed_mass_fractions = {}
 
         # Chemical equilibrium mass mixing ratios
         # TODO fix bug when all line species are imposed species
@@ -1060,14 +1059,14 @@ class SpectralModel(Radtrans):
                 line_species=line_species,
                 included_line_species=included_line_species,
                 carbon_pressure_quench=carbon_pressure_quench,
-                imposed_mass_mixing_ratios=imposed_mass_mixing_ratios
+                imposed_mass_fractions=imposed_mass_fractions
             )
 
             # TODO more general handling of isotopologues (use smarter species names)
             if 'CO_main_iso' in line_species and 'CO_all_iso' in line_species:
                 raise ValueError("cannot add main isotopologue and all isotopologues of CO at the same time")
 
-            if 'CO_main_iso' not in imposed_mass_mixing_ratios and 'CO_36' not in imposed_mass_mixing_ratios:
+            if 'CO_main_iso' not in imposed_mass_fractions and 'CO_36' not in imposed_mass_fractions:
                 if 'CO_all_iso' not in line_species:
                     if 'CO_main_iso' in mass_mixing_ratios_equilibrium:
                         co_mass_mixing_ratio = copy.copy(mass_mixing_ratios_equilibrium['CO_main_iso'])
@@ -1087,9 +1086,9 @@ class SpectralModel(Radtrans):
 
         # Imposed mass mixing ratios
         # Ensure that the sum of mass mixing ratios of imposed species is <= 1
-        for species in imposed_mass_mixing_ratios:
-            mass_mixing_ratios[species] = imposed_mass_mixing_ratios[species]
-            m_sum_imposed_species += imposed_mass_mixing_ratios[species]
+        for species in imposed_mass_fractions:
+            mass_mixing_ratios[species] = imposed_mass_fractions[species]
+            m_sum_imposed_species += imposed_mass_fractions[species]
 
         for i in range(np.size(m_sum_imposed_species)):
             if m_sum_imposed_species[i] > 1:
@@ -1098,7 +1097,7 @@ class SpectralModel(Radtrans):
                     warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum_imposed_species}) is > 1, "
                                   f"correcting...")
 
-                for species in imposed_mass_mixing_ratios:
+                for species in imposed_mass_fractions:
                     mass_mixing_ratios[species][i] /= m_sum_imposed_species[i]
 
         m_sum_imposed_species = np.sum(list(mass_mixing_ratios.values()), axis=0)
@@ -1118,7 +1117,7 @@ class SpectralModel(Radtrans):
             # Search for imposed species
             found = False
 
-            for key in imposed_mass_mixing_ratios:
+            for key in imposed_mass_fractions:
                 spec = key.split('_R_')[0]  # deal with the naming scheme for binned down opacities
 
                 if species == spec:
@@ -1133,7 +1132,7 @@ class SpectralModel(Radtrans):
                         warnings.warn(
                             f"line species '{species}' initialised to {sys.float_info.min} ; "
                             f"to remove this warning set use_equilibrium_chemistry to True "
-                            f"or add '{species}' and the desired mass mixing ratio to imposed_mass_mixing_ratios"
+                            f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
                         )
 
                     mass_mixing_ratios[species] = sys.float_info.min
@@ -1146,16 +1145,16 @@ class SpectralModel(Radtrans):
 
         if np.any(np.logical_or(m_sum_total > 1, m_sum_total < 1)):
             # Search for H2 and He in both imposed and non-imposed species
-            h2_in_imposed_mass_mixing_ratios = False
-            he_in_imposed_mass_mixing_ratios = False
+            h2_in_imposed_mass_fractions = False
+            he_in_imposed_mass_fractions = False
             h2_in_mass_mixing_ratios = False
             he_in_mass_mixing_ratios = False
 
-            if 'H2' in imposed_mass_mixing_ratios:
-                h2_in_imposed_mass_mixing_ratios = True
+            if 'H2' in imposed_mass_fractions:
+                h2_in_imposed_mass_fractions = True
 
-            if 'He' in imposed_mass_mixing_ratios:
-                he_in_imposed_mass_mixing_ratios = True
+            if 'He' in imposed_mass_fractions:
+                he_in_imposed_mass_fractions = True
 
             if 'H2' in mass_mixing_ratios:
                 h2_in_mass_mixing_ratios = True
@@ -1177,7 +1176,7 @@ class SpectralModel(Radtrans):
                                       f"is > 1, correcting...")
 
                     for species in mass_mixing_ratios:
-                        if species not in imposed_mass_mixing_ratios:
+                        if species not in imposed_mass_fractions:
                             if m_sum_species[i] > 0:
                                 mass_mixing_ratios[species][i] = \
                                     mass_mixing_ratios[species][i] * (1 - m_sum_imposed_species[i]) / m_sum_species[i]
@@ -1196,10 +1195,10 @@ class SpectralModel(Radtrans):
                                       f"with H2 and He (with He MMR / H2 MMR = heh2_ratio), "
                                       f"or manually adjust the imposed mass mixing ratios")
 
-                    if h2_in_imposed_mass_mixing_ratios and he_in_imposed_mass_mixing_ratios:
-                        if imposed_mass_mixing_ratios['H2'][i] > 0:
+                    if h2_in_imposed_mass_fractions and he_in_imposed_mass_fractions:
+                        if imposed_mass_fractions['H2'][i] > 0:
                             # Use imposed He/H2 ratio
-                            heh2_ratio = imposed_mass_mixing_ratios['He'][i] / imposed_mass_mixing_ratios['H2'][i]
+                            heh2_ratio = imposed_mass_fractions['He'][i] / imposed_mass_fractions['H2'][i]
                         else:
                             heh2_ratio = None
 
@@ -1223,10 +1222,10 @@ class SpectralModel(Radtrans):
                     mass_mixing_ratios['H2'] = np.zeros(np.shape(pressures))
                     mass_mixing_ratios['He'] = np.zeros(np.shape(pressures))
         else:
-            if 'H2' not in imposed_mass_mixing_ratios:
+            if 'H2' not in imposed_mass_fractions:
                 mass_mixing_ratios['H2'] = np.zeros(np.shape(pressures))
 
-            if 'He' not in imposed_mass_mixing_ratios:
+            if 'He' not in imposed_mass_fractions:
                 mass_mixing_ratios['He'] = np.zeros(np.shape(pressures))
 
         return mass_mixing_ratios
@@ -1246,7 +1245,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function=None,
-                                               relative_velocities=None, rebin_range_margin_power=6, **kwargs):
+                                               relative_velocities=None, rebin_range_margin_power=15, **kwargs):
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(output_wavelengths, 'dtype'):
             if output_wavelengths.dtype != 'O':
@@ -1313,11 +1312,11 @@ class SpectralModel(Radtrans):
         ) * 360  # degrees
 
     @staticmethod
-    def compute_planet_radial_velocities(orbital_longitudes, planet_radial_velocity_amplitude,
-                                         planet_orbital_inclination=90.0, **kwargs):
-        return Planet.calculate_planet_radial_velocity(
-                planet_radial_velocity_semi_amplitude=planet_radial_velocity_amplitude,
-                planet_orbital_inclination=planet_orbital_inclination,
+    def compute_radial_velocities(orbital_longitudes, radial_velocity_semi_amplitude,
+                                  orbital_inclination=90.0, **kwargs):
+        return Planet.calculate_radial_velocity(
+                radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
+                orbital_inclination=orbital_inclination,
                 orbital_longitude=orbital_longitudes
             )
 
@@ -1342,7 +1341,7 @@ class SpectralModel(Radtrans):
         return planet_star_spectral_radiances
 
     @staticmethod
-    def compute_radial_velocity_amplitude(star_mass, orbit_semi_major_axis, **kwargs):
+    def compute_radial_velocity_semi_amplitude(star_mass, orbit_semi_major_axis, **kwargs):
         """
         Calculate the planet orbital radial velocity semi-amplitude (aka K_p).
 
@@ -1360,9 +1359,9 @@ class SpectralModel(Radtrans):
         )
 
     @staticmethod
-    def compute_relative_velocities(planet_radial_velocities, system_observer_radial_velocities=0.0,
-                                    planet_rest_frame_velocity_shift=0.0, **kwargs):
-        return planet_radial_velocities + system_observer_radial_velocities + planet_rest_frame_velocity_shift
+    def compute_relative_velocities(radial_velocities, system_observer_radial_velocities=0.0,
+                                    rest_frame_velocity_shift=0.0, **kwargs):
+        return radial_velocities + system_observer_radial_velocities + rest_frame_velocity_shift
 
     @staticmethod
     def compute_scaled_metallicity(planet_mass, star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2):
@@ -1387,7 +1386,7 @@ class SpectralModel(Radtrans):
     def compute_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
                                     mean_molar_masses_function,
                                     star_spectral_radiosities_function, planet_star_spectral_radiances_function,
-                                    radial_velocity_amplitude_function, planet_radial_velocities_function,
+                                    radial_velocity_semi_amplitude_function, radial_velocities_function,
                                     relative_velocities_function, orbital_longitudes_function,
                                     wavelengths=None, pressures=None, line_species=None,
                                     metallicity_function=None,
@@ -1437,12 +1436,12 @@ class SpectralModel(Radtrans):
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
-                kwargs['planet_radial_velocities'], \
-                kwargs['planet_radial_velocity_amplitude'], \
+                kwargs['radial_velocities'], \
+                kwargs['radial_velocity_semi_amplitude'], \
                 kwargs['orbital_longitudes'] = \
                 SpectralModel._compute_relative_velocities_wrap(
-                    radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-                    planet_radial_velocities_function=planet_radial_velocities_function,
+                    radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+                    radial_velocities_function=radial_velocities_function,
                     relative_velocities_function=relative_velocities_function,
                     orbital_longitudes_function=orbital_longitudes_function,
                     **kwargs
@@ -1506,7 +1505,7 @@ class SpectralModel(Radtrans):
 
         """
         if is_observed:
-            SpectralModel._check_none_model_parameters(
+            SpectralModel.__check_none_model_parameters(
                 explanation_message_="These model parameters are required to calculate "
                                      "the observed irradiance of the planet ; "
                                      "set model parameter 'is_observed' to False if the planet is not observed",
@@ -1568,7 +1567,7 @@ class SpectralModel(Radtrans):
                                     intrinsic_temperature=None, planet_surface_gravity=None, metallicity=None,
                                     guillot_temperature_profile_gamma=0.4,
                                     guillot_temperature_profile_kappa_ir_z0=0.01, **kwargs):
-        SpectralModel._check_none_model_parameters(
+        SpectralModel.__check_none_model_parameters(
             explanation_message_="Required for calculating the temperature profile",
             temperature=temperature
         )
@@ -1701,29 +1700,29 @@ class SpectralModel(Radtrans):
         return wavelengths, planet_transit_radius, additional_outputs
 
     @staticmethod
-    def compute_velocity_range(planet_radial_velocity_amplitude_range,
-                               planet_rest_frame_velocity_shift_range,
+    def compute_velocity_range(radial_velocity_semi_amplitude_range,
+                               rest_frame_velocity_shift_range,
                                mid_transit_times_range,
                                system_observer_radial_velocities=None, orbital_period=None,
-                               planet_orbital_inclination=None,
-                               radial_velocity_amplitude_function=None, planet_radial_velocities_function=None,
+                               orbital_inclination=None,
+                               radial_velocity_semi_amplitude_function=None, radial_velocities_function=None,
                                relative_velocities_function=None, orbital_longitudes_function=None,
                                times=None,
                                **kwargs):
-        if planet_radial_velocity_amplitude_range is None:
-            planet_radial_velocity_amplitude_range = 0
+        if radial_velocity_semi_amplitude_range is None:
+            radial_velocity_semi_amplitude_range = 0
 
-        if planet_rest_frame_velocity_shift_range is None:
-            planet_rest_frame_velocity_shift_range = 0
+        if rest_frame_velocity_shift_range is None:
+            rest_frame_velocity_shift_range = 0
 
         if mid_transit_times_range is None:
             mid_transit_times_range = 0
 
-        if radial_velocity_amplitude_function is None:
-            radial_velocity_amplitude_function = SpectralModel.compute_radial_velocity_amplitude
+        if radial_velocity_semi_amplitude_function is None:
+            radial_velocity_semi_amplitude_function = SpectralModel.compute_radial_velocity_semi_amplitude
 
-        if planet_radial_velocities_function is None:
-            planet_radial_velocities_function = SpectralModel.compute_planet_radial_velocities
+        if radial_velocities_function is None:
+            radial_velocities_function = SpectralModel.compute_radial_velocities
 
         if relative_velocities_function is None:
             relative_velocities_function = SpectralModel.compute_relative_velocities
@@ -1732,38 +1731,38 @@ class SpectralModel(Radtrans):
             orbital_longitudes_function = SpectralModel.compute_orbital_longitudes
 
         velocities, _, _, _ = SpectralModel._compute_relative_velocities_wrap(
-            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-            planet_radial_velocities_function=planet_radial_velocities_function,
+            radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+            radial_velocities_function=radial_velocities_function,
             relative_velocities_function=relative_velocities_function,
             orbital_longitudes_function=orbital_longitudes_function,
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_rest_frame_velocity_shift=np.min(planet_rest_frame_velocity_shift_range),
-            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
+            rest_frame_velocity_shift=np.min(rest_frame_velocity_shift_range),
+            radial_velocity_semi_amplitude=np.max(np.abs(radial_velocity_semi_amplitude_range)),
             orbital_period=orbital_period,
             times=times,
             mid_transit_time=np.min(mid_transit_times_range),  # the transit happens sooner, spectrum is more r-shifted
-            planet_orbital_inclination=planet_orbital_inclination,
+            orbital_inclination=orbital_inclination,
             orbital_longitudes=None,
             is_orbiting=True,
-            planet_radial_velocities=None,
+            radial_velocities=None,
             **kwargs
         )
         velocity_min = np.min(velocities)
 
         velocities, _, _, _ = SpectralModel._compute_relative_velocities_wrap(
-            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-            planet_radial_velocities_function=planet_radial_velocities_function,
+            radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+            radial_velocities_function=radial_velocities_function,
             relative_velocities_function=relative_velocities_function,
             orbital_longitudes_function=orbital_longitudes_function,
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_rest_frame_velocity_shift=np.max(planet_rest_frame_velocity_shift_range),
-            planet_radial_velocity_amplitude=np.max(np.abs(planet_radial_velocity_amplitude_range)),
+            rest_frame_velocity_shift=np.max(rest_frame_velocity_shift_range),
+            radial_velocity_semi_amplitude=np.max(np.abs(radial_velocity_semi_amplitude_range)),
             orbital_period=orbital_period,
             times=times,
             mid_transit_time=np.max(mid_transit_times_range),  # the transit happens later, spectrum is more b-shifted
             orbital_longitudes=None,
             is_orbiting=True,
-            planet_radial_velocities=None,
+            radial_velocities=None,
             **kwargs
         )
         velocity_max = np.max(velocities)
@@ -1829,8 +1828,8 @@ class SpectralModel(Radtrans):
             'mean_molar_masses_function': self.compute_mean_molar_masses,
             'star_spectral_radiosities_function': self.compute_star_flux,
             'planet_star_spectral_radiances_function': self.compute_planet_star_spectral_radiances,
-            'radial_velocity_amplitude_function': self.compute_radial_velocity_amplitude,
-            'planet_radial_velocities_function': self.compute_planet_radial_velocities,
+            'radial_velocity_semi_amplitude_function': self.compute_radial_velocity_semi_amplitude,
+            'radial_velocities_function': self.compute_radial_velocities,
             'relative_velocities_function': self.compute_relative_velocities,
             'orbital_longitudes_function': self.compute_orbital_longitudes,
             'metallicity_function': self._compute_metallicity_wrap,  # TODO should not be protected
@@ -2028,7 +2027,7 @@ class SpectralModel(Radtrans):
                         scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                         telluric_transmittances_wavelengths=None, telluric_transmittances=None, airmass=None,
                         instrumental_deformations=None, noise_matrix=None,
-                        output_wavelengths=None, relative_velocities=None, planet_radial_velocities=None,
+                        output_wavelengths=None, relative_velocities=None, radial_velocities=None,
                         planet_radius=None,
                         star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
                         orbit_semi_major_axis=None, is_observed=False, star_radius=None, system_distance=None,
@@ -2077,7 +2076,7 @@ class SpectralModel(Radtrans):
         if shift and star_spectral_radiosities is not None and mode == 'emission':
             wavelengths_shift_system = shift_wavelengths_function(
                 wavelengths_rest=wavelengths,
-                relative_velocities=planet_radial_velocities,
+                relative_velocities=radial_velocities,
                 **kwargs
             )
 
@@ -2389,39 +2388,39 @@ class SpectralModel(Radtrans):
             beta = None
 
         # Put retrieved species into imposed mass mixing ratio
-        imposed_mass_mixing_ratios = {}
+        imposed_mass_fractions = {}
 
         for species in prt_object.line_species:
             if species in p:
                 if species == 'CO_36':
-                    imposed_mass_mixing_ratios[species] = 10 ** p[species] \
+                    imposed_mass_fractions[species] = 10 ** p[species] \
                                                           * np.ones(prt_object.pressures.shape)
                 else:
                     # spec = species.split('.')[
                     #     0]  # deal with the naming scheme for binned down opacities (see below)
                     spec = species
-                    imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
+                    imposed_mass_fractions[spec] = 10 ** p[species] \
                         * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
         # TODO add cloud MMR model(s)
 
-        for species in p['imposed_mass_mixing_ratios']:
+        for species in p['imposed_mass_fractions']:
             if species in p and species not in prt_object.line_species:
                 if species == 'CO_36':
-                    imposed_mass_mixing_ratios[species] = 10 ** p[species] \
+                    imposed_mass_fractions[species] = 10 ** p[species] \
                                                           * np.ones(prt_object.pressures.shape)
                 else:
                     spec = species.split('_R_')[
                         0]  # deal with the naming scheme for binned down opacities (see below)
-                    imposed_mass_mixing_ratios[spec] = 10 ** p[species] \
+                    imposed_mass_fractions[spec] = 10 ** p[species] \
                         * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
-        for key, value in imposed_mass_mixing_ratios.items():
-            p['imposed_mass_mixing_ratios'][key] = value
+        for key, value in imposed_mass_fractions.items():
+            p['imposed_mass_fractions'][key] = value
 
         wavelengths, model = spectrum_model.calculate_spectrum(
             radtrans=prt_object,
@@ -2546,7 +2545,7 @@ class SpectralModel(Radtrans):
     def update_spectral_calculation_parameters(self, **parameters):
         pressures = self.pressures * 1e-6  # cgs to bar
 
-        kwargs = {'imposed_mass_mixing_ratios': {}}
+        kwargs = {'imposed_mass_fractions': {}}
 
         for parameter, value in parameters.items():
             if 'log10_' in parameter and value is not None:
@@ -2559,13 +2558,13 @@ class SpectralModel(Radtrans):
 
                 kwargs[parameter.split('log10_', 1)[-1]] = 10 ** value
             else:
-                if parameter == 'imposed_mass_mixing_ratios':
+                if parameter == 'imposed_mass_fractions':
                     if parameter is None:
-                        imposed_mass_mixing_ratios = {}
+                        imposed_mass_fractions = {}
                     else:
-                        imposed_mass_mixing_ratios = parameters[parameter]
+                        imposed_mass_fractions = parameters[parameter]
 
-                    for species, mass_mixing_ratios in imposed_mass_mixing_ratios.items():
+                    for species, mass_mixing_ratios in imposed_mass_fractions.items():
                         if species not in kwargs[parameter]:
                             kwargs[parameter][species] = copy.copy(mass_mixing_ratios)
                 elif parameter in kwargs:
@@ -2595,18 +2594,18 @@ class SpectralModel(Radtrans):
     def with_velocity_range(
             cls,
             times: np.ndarray[float],
-            planet_radial_velocity_amplitude_range: np.ndarray[float],
-            planet_rest_frame_velocity_shift_range: np.ndarray[float],
+            radial_velocity_semi_amplitude_range: np.ndarray[float],
+            rest_frame_velocity_shift_range: np.ndarray[float],
             mid_transit_times_range: np.ndarray[float],
             system_observer_radial_velocities: np.ndarray[float],
             orbital_period: float,
             star_mass: float,
             orbit_semi_major_axis: float,
             output_wavelengths: np.ndarray,
-            planet_orbital_inclination: float = 90.0,
+            orbital_inclination: float = 90.0,
             mid_transit_time: float = None,
-            planet_radial_velocity_amplitude: float = None,
-            planet_rest_frame_velocity_shift: float = None,
+            radial_velocity_semi_amplitude: float = None,
+            rest_frame_velocity_shift: float = None,
             shift_wavelengths_function: callable = None,
             pressures: np.ndarray[float] = None,
             line_species: list[str] = None,
@@ -2620,8 +2619,8 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
-            radial_velocity_amplitude_function: callable = None,
-            planet_radial_velocities_function: callable = None,
+            radial_velocity_semi_amplitude_function: callable = None,
+            radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
@@ -2639,39 +2638,39 @@ class SpectralModel(Radtrans):
                                  f"({mid_transit_times_range}), "
                                  f"but was {mid_transit_time}")
 
-        if planet_radial_velocity_amplitude is None:
-            planet_radial_velocity_amplitude = np.mean(planet_radial_velocity_amplitude_range)
+        if radial_velocity_semi_amplitude is None:
+            radial_velocity_semi_amplitude = np.mean(radial_velocity_semi_amplitude_range)
         else:
-            if (planet_radial_velocity_amplitude > np.max(planet_radial_velocity_amplitude_range)
-                    or planet_radial_velocity_amplitude < np.min(planet_radial_velocity_amplitude_range)):
-                raise ValueError(f"planet_radial_velocity_amplitude must be within "
-                                 f"planet_radial_velocity_amplitude_range "
-                                 f"({planet_radial_velocity_amplitude_range}), "
-                                 f"but was {planet_radial_velocity_amplitude}")
+            if (radial_velocity_semi_amplitude > np.max(radial_velocity_semi_amplitude_range)
+                    or radial_velocity_semi_amplitude < np.min(radial_velocity_semi_amplitude_range)):
+                raise ValueError(f"radial_velocity_semi_amplitude must be within "
+                                 f"radial_velocity_semi_amplitude_range "
+                                 f"({radial_velocity_semi_amplitude_range}), "
+                                 f"but was {radial_velocity_semi_amplitude}")
 
-        if planet_rest_frame_velocity_shift is None:
-            planet_rest_frame_velocity_shift = np.mean(planet_rest_frame_velocity_shift_range)
+        if rest_frame_velocity_shift is None:
+            rest_frame_velocity_shift = np.mean(rest_frame_velocity_shift_range)
         else:
-            if (planet_rest_frame_velocity_shift > np.max(planet_rest_frame_velocity_shift_range)
-                    or planet_rest_frame_velocity_shift < np.min(planet_rest_frame_velocity_shift_range)):
-                raise ValueError(f"planet_rest_frame_velocity_shift must be within "
-                                 f"planet_rest_frame_velocity_shift_range "
-                                 f"({planet_rest_frame_velocity_shift_range}), "
-                                 f"but was {planet_rest_frame_velocity_shift}")
+            if (rest_frame_velocity_shift > np.max(rest_frame_velocity_shift_range)
+                    or rest_frame_velocity_shift < np.min(rest_frame_velocity_shift_range)):
+                raise ValueError(f"rest_frame_velocity_shift must be within "
+                                 f"rest_frame_velocity_shift_range "
+                                 f"({rest_frame_velocity_shift_range}), "
+                                 f"but was {rest_frame_velocity_shift}")
 
         # Get the velocity range
         retrieval_velocities = SpectralModel.compute_velocity_range(
-            planet_radial_velocity_amplitude_range=planet_radial_velocity_amplitude_range,
-            planet_rest_frame_velocity_shift_range=planet_rest_frame_velocity_shift_range,
+            radial_velocity_semi_amplitude_range=radial_velocity_semi_amplitude_range,
+            rest_frame_velocity_shift_range=rest_frame_velocity_shift_range,
             mid_transit_times_range=mid_transit_times_range,
             system_observer_radial_velocities=system_observer_radial_velocities,
             orbital_period=orbital_period,
-            planet_orbital_inclination=planet_orbital_inclination,
+            orbital_inclination=orbital_inclination,
             star_mass=star_mass,
             orbit_semi_major_axis=orbit_semi_major_axis,
             times=times,
-            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-            planet_radial_velocities_function=planet_radial_velocities_function,
+            radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+            radial_velocities_function=radial_velocities_function,
             relative_velocities_function=relative_velocities_function,
             orbital_longitudes_function=orbital_longitudes_function,
             **model_parameters
@@ -2700,8 +2699,8 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights=emission_cos_angle_grid_weights,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             path_input_data=path_input_data,
-            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
-            planet_radial_velocities_function=planet_radial_velocities_function,
+            radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+            radial_velocities_function=radial_velocities_function,
             relative_velocities_function=relative_velocities_function,
             orbital_longitudes_function=orbital_longitudes_function,
             temperatures=temperatures,
@@ -2712,13 +2711,13 @@ class SpectralModel(Radtrans):
             spectral_radiosities=spectral_radiosities,
             orbital_period=orbital_period,
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_orbital_inclination=planet_orbital_inclination,
+            orbital_inclination=orbital_inclination,
             star_mass=star_mass,
             orbit_semi_major_axis=orbit_semi_major_axis,
             times=times,
             mid_transit_time=mid_transit_time,
-            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
-            planet_rest_frame_velocity_shift=planet_rest_frame_velocity_shift,
+            radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
+            rest_frame_velocity_shift=rest_frame_velocity_shift,
             output_wavelengths=output_wavelengths,
             **model_parameters
         )

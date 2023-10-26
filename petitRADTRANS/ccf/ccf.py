@@ -158,11 +158,11 @@ def calculate_co_added_ccf_snr(co_added_cross_correlation, rest_velocities, vr_p
 
 def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_ccf=None,
                  model_velocities=None, normalize_ccf=True, calculate_ccf_snr=True, ccf_sum_axes=None,
-                 planet_radial_velocity_amplitude=None, system_observer_radial_velocities=None, orbital_longitudes=None,
-                 planet_orbital_inclination=90.0, line_spread_function_fwhm=None, pixels_per_resolution_element=2,
+                 radial_velocity_semi_amplitude=None, system_observer_radial_velocities=None, orbital_longitudes=None,
+                 orbital_inclination=90.0, line_spread_function_fwhm=None, pixels_per_resolution_element=2,
                  co_added_ccf_peak_width=None,
                  velocity_interval_extension_factor=0.25, kp_factor=2.0, n_kp=None, n_vr=None,
-                 planet_radial_velocity_function=None, **kwargs):
+                 radial_velocity_function=None, **kwargs):
     """Calculate the co-added CCF map of the data against the provided models.
     If velocities_ccf is not provided, one will be calculated using planetary and instrumental parameters.
 
@@ -178,8 +178,8 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         ccf_sum_axes: iterable listing the axes on which to sum the CCF before computing the co-added CCF
         system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
         orbital_longitudes: 1D array containing the orbital longitudes of the data
-        planet_orbital_inclination: (deg) orbital inclination of the planet
-        planet_radial_velocity_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
+        orbital_inclination: (deg) orbital inclination of the planet
+        radial_velocity_semi_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
         line_spread_function_fwhm: (cm.s-1) Full Width at Half-Maximum of the instrument line spread function (LSF)
         co_added_ccf_peak_width: (cm.s-1) width of the CCF peak, for the SNR, 3 times the LSF px size by default
         pixels_per_resolution_element: number of spectral pixels per resolution element for the instrument
@@ -188,9 +188,9 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         kp_factor: used to set the boundaries of the Kp space relative to the planet Kp (2 -> boundaries at 2 times Kp)
         n_kp: length of the Kp space, same as the size of velocities_ccf by default
         n_vr: length of the rest velocity space, same as the size of velocities_ccf by default
-        planet_radial_velocity_function: function to calculate the planet radial velocity with respect to the observer,
+        radial_velocity_function: function to calculate the planet radial velocity with respect to the observer,
             must have at least the following arguments:
-                - planet_radial_velocity_amplitude,
+                - radial_velocity_semi_amplitude,
                 - planet_orbital_inclination,
                 - orbital_longitude=orbital_longitudes
             the Planet.calculate_radial_velocity function is used by default
@@ -210,7 +210,7 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
     if velocities_ccf is None:
         velocities_ccf = get_ccf_velocity_space(
             system_observer_radial_velocities=system_observer_radial_velocities,
-            planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+            radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
             line_spread_function_fwhm=line_spread_function_fwhm,
             pixels_per_resolution_element=pixels_per_resolution_element,
             velocity_interval_extension_factor=velocity_interval_extension_factor,
@@ -251,15 +251,15 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
                          f"(CCF sum axes were {ccf_sum_axes} on CCF of shape {ccfs.shape})")
 
     co_added_velocities, kps, v_rest = get_co_added_ccf_velocity_space(
-        planet_radial_velocity_amplitude=planet_radial_velocity_amplitude,
+        radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
         velocities_ccf=velocities_ccf,
         system_observer_radial_velocities=system_observer_radial_velocities,
         orbital_longitudes=orbital_longitudes,
-        planet_orbital_inclination=planet_orbital_inclination,
+        orbital_inclination=orbital_inclination,
         kp_factor=kp_factor,
         n_kp=n_kp,
         n_vr=n_vr,
-        planet_radial_velocity_function=planet_radial_velocity_function,
+        radial_velocity_function=radial_velocity_function,
         **kwargs
     )
 
@@ -588,13 +588,13 @@ def get_ccf_model_wavelengths(wavelengths_model, velocities_ccf, relative_veloci
     return wavelengths_model_shifted
 
 
-def get_ccf_velocity_space(system_observer_radial_velocities, planet_radial_velocity_amplitude,
+def get_ccf_velocity_space(system_observer_radial_velocities, radial_velocity_semi_amplitude,
                            line_spread_function_fwhm, pixels_per_resolution_element,
                            velocity_interval_extension_factor=0.25):
     """Get a velocity space of for CCF calculations."""
     # Get min and max velocities based on the planet parameters
-    velocity_min = np.min(system_observer_radial_velocities) - planet_radial_velocity_amplitude
-    velocity_max = np.max(system_observer_radial_velocities) + planet_radial_velocity_amplitude
+    velocity_min = np.min(system_observer_radial_velocities) - radial_velocity_semi_amplitude
+    velocity_max = np.max(system_observer_radial_velocities) + radial_velocity_semi_amplitude
 
     # Add a margin to the boundaries
     velocity_interval = velocity_max - velocity_min
@@ -641,10 +641,10 @@ def get_co_added_ccf_peak_properties(co_added_cross_correlation, kp_space, vr_sp
     return ccf_tot_max, max_kp, max_v_rest, n_around_peak
 
 
-def get_co_added_ccf_velocity_space(planet_radial_velocity_amplitude, velocities_ccf,
+def get_co_added_ccf_velocity_space(radial_velocity_semi_amplitude, velocities_ccf,
                                     system_observer_radial_velocities, orbital_longitudes,
-                                    planet_orbital_inclination=90.0, kp_factor=2.0,
-                                    n_kp=None, n_vr=None, planet_radial_velocity_function=None, **kwargs):
+                                    orbital_inclination=90.0, kp_factor=2.0,
+                                    n_kp=None, n_vr=None, radial_velocity_function=None, **kwargs):
     # Initializations
     if n_kp is None:
         n_kp = np.size(velocities_ccf)
@@ -652,23 +652,23 @@ def get_co_added_ccf_velocity_space(planet_radial_velocity_amplitude, velocities
     if n_vr is None:
         n_vr = np.size(velocities_ccf)
 
-    if planet_radial_velocity_function is None:
-        planet_radial_velocity_function = Planet.calculate_planet_radial_velocity
+    if radial_velocity_function is None:
+        radial_velocity_function = Planet.calculate_radial_velocity
 
     n_exposures = np.size(orbital_longitudes)
 
     # Get Kp space
     kps = np.linspace(
-        -planet_radial_velocity_amplitude * kp_factor,
-        planet_radial_velocity_amplitude * kp_factor,
+        -radial_velocity_semi_amplitude * kp_factor,
+        radial_velocity_semi_amplitude * kp_factor,
         n_kp
     )
 
     # Calculate the planet relative velocities in the Kp space
     planet_observer_radial_velocities = system_observer_radial_velocities + np.array([
-        planet_radial_velocity_function(
-            planet_radial_velocity_semi_amplitude=kp,
-            planet_orbital_inclination=planet_orbital_inclination,
+        radial_velocity_function(
+            radial_velocity_semi_amplitude=kp,
+            orbital_inclination=orbital_inclination,
             orbital_longitude=orbital_longitudes,  # phase to longitude (deg)
             **kwargs
         ) for kp in kps
@@ -679,11 +679,11 @@ def get_co_added_ccf_velocity_space(planet_radial_velocity_amplitude, velocities
     v_planet_max = np.max(planet_observer_radial_velocities)
 
     v_rest_min = np.max((
-        -planet_radial_velocity_amplitude * kp_factor,
+        -radial_velocity_semi_amplitude * kp_factor,
         np.min(velocities_ccf) - v_planet_min
     ))
     v_rest_max = np.min((
-        planet_radial_velocity_amplitude * kp_factor,
+        radial_velocity_semi_amplitude * kp_factor,
         np.max(velocities_ccf) - v_planet_max
     ))
     v_rest = np.linspace(v_rest_min, v_rest_max, n_vr)

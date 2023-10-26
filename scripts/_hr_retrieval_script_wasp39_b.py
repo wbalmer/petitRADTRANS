@@ -1297,7 +1297,7 @@ def main_hd2(sim_id=0):
 
         for p in parameter_dict[retrieval_name]:
             if p not in retrieval_parameters['parameters']:
-                if p not in retrieval_parameters['parameters']['imposed_mass_mixing_ratios']:
+                if p not in retrieval_parameters['parameters']['imposed_mass_fractions']:
                     if p not in model.mass_mixing_ratios:
                         raise KeyError(f"'{p}' from parameter dict not found in retrieval parameters")
                     else:
@@ -1306,7 +1306,7 @@ def main_hd2(sim_id=0):
                         )
                 else:
                     true_values[retrieval_name].append(
-                        np.mean(np.log10(retrieval_parameters['parameters']['imposed_mass_mixing_ratios'][p]))
+                        np.mean(np.log10(retrieval_parameters['parameters']['imposed_mass_fractions'][p]))
                     )
             else:
                 true_values[retrieval_name].append(
@@ -1655,7 +1655,7 @@ def main_hd3(sim_id=0):
 
         for p in parameter_dict[retrieval_name]:
             if p not in retrieval_parameters['parameters']:
-                if p not in retrieval_parameters['parameters']['imposed_mass_mixing_ratios']:
+                if p not in retrieval_parameters['parameters']['imposed_mass_fractions']:
                     if p not in model.mass_mixing_ratios:
                         raise KeyError(f"'{p}' from parameter dict not found in retrieval parameters")
                     else:
@@ -1664,7 +1664,7 @@ def main_hd3(sim_id=0):
                         )
                 else:
                     true_values[retrieval_name].append(
-                        np.mean(np.log10(retrieval_parameters['parameters']['imposed_mass_mixing_ratios'][p]))
+                        np.mean(np.log10(retrieval_parameters['parameters']['imposed_mass_fractions'][p]))
                     )
             else:
                 true_values[retrieval_name].append(

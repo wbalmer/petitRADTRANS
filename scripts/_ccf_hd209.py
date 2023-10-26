@@ -219,10 +219,10 @@ def _test_rico(node='B'):
             normalize_ccf=True,
             calculate_ccf_snr=True,
             ccf_sum_axes=None,
-            planet_radial_velocity_amplitude=kp,
+            radial_velocity_semi_amplitude=kp,
             system_observer_radial_velocities=v_sys,
             orbital_longitudes=np.rad2deg(orbital_phases * 2 * np.pi),
-            planet_orbital_inclination=planet.orbital_inclination,
+            orbital_inclination=planet.orbital_inclination,
             line_spread_function_fwhm=lsf_fwhm,
             pixels_per_resolution_element=pixels_per_resolution_element,
             co_added_ccf_peak_width=None,
@@ -455,7 +455,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         temperature=planet.equilibrium_temperature,  # K
         # Chemical parameters
         use_equilibrium_chemistry=False,
-        imposed_mass_mixing_ratios={
+        imposed_mass_fractions={
             'CH4_hargreaves_main_iso': 3.4e-5,
             'CO_all_iso': 1.8e-2,
             'H2O_main_iso': 5.4e-3,
@@ -486,7 +486,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         orbital_inclination=planet.orbital_inclination,
         transit_duration=planet.transit_duration,
         system_observer_radial_velocities=system_observer_radial_velocities,  # cm.s-1
-        planet_rest_frame_velocity_shift=0.0,  # cm.s-1
+        rest_frame_velocity_shift=0.0,  # cm.s-1
         planet_orbital_inclination=planet.orbital_inclination,
         # Reprocessing parameters
         uncertainties=uncertainties,
@@ -502,8 +502,8 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
     )
 
     retrieval_velocities = spectral_model.compute_velocity_range(
-        planet_radial_velocity_amplitude_range=kp_range,
-        planet_rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities)),
+        radial_velocity_semi_amplitude_range=kp_range,
+        rest_frame_velocity_shift_range=(np.min(ccf_velocities), np.max(ccf_velocities)),
         mid_transit_times_range=(0, 0)
     )
 
@@ -834,8 +834,8 @@ def main():
             planet_radius=planet.radius,
             star_radius=planet.star_radius,
             impact_parameter=planet.calculate_impact_parameter(
-                planet_orbit_semi_major_axis=planet.orbit_semi_major_axis,
-                planet_orbital_inclination=planet.orbital_inclination,
+                orbit_semi_major_axis=planet.orbit_semi_major_axis,
+                orbital_inclination=planet.orbital_inclination,
                 star_radius=planet.star_radius
             )
         )
@@ -1020,10 +1020,10 @@ def main():
             normalize_ccf=True,
             calculate_ccf_snr=True,
             ccf_sum_axes=None,
-            planet_radial_velocity_amplitude=kp,
+            radial_velocity_semi_amplitude=kp,
             system_observer_radial_velocities=v_sys,
             orbital_longitudes=np.rad2deg(orbital_phases * 2 * np.pi),
-            planet_orbital_inclination=planet.orbital_inclination,
+            orbital_inclination=planet.orbital_inclination,
             line_spread_function_fwhm=lsf_fwhm,
             pixels_per_resolution_element=pixels_per_resolution_element,
             co_added_ccf_peak_width=None,
@@ -1033,11 +1033,11 @@ def main():
 
     #
     co_added_velocities, kps, v_rest = get_co_added_ccf_velocity_space(
-        planet_radial_velocity_amplitude=kp,
+        radial_velocity_semi_amplitude=kp,
         velocities_ccf=velocities_ccf,
         system_observer_radial_velocities=v_sys,
         orbital_longitudes=orbital_phases * 360,  # phase to deg
-        planet_orbital_inclination=planet.orbital_inclination,
+        orbital_inclination=planet.orbital_inclination,
         kp_factor=kp_factor
     )
 
@@ -1182,16 +1182,16 @@ def simple_co_added_ccf(ccf, velocities_ccf, orbital_phases_ccf, system_radial_v
 
     for i in range(ccf.shape[0]):
         for ikp in range(kps.size):
-            planet_radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
+            radial_velocities = system_radial_velocities + kps[ikp] * np.sin(2.0 * np.pi * orbital_phases_ccf)
 
             for j in range(ccf.shape[1]):
-                radial_velocities_interp = v_rest + planet_radial_velocities[j]
+                radial_velocities_interp = v_rest + radial_velocities[j]
                 ccf_interp = interp1d(velocities_ccf, ccf[i, j, :])
 
                 try:
                     ccf_tot[i, ikp, :] += ccf_interp(radial_velocities_interp)
                 except ValueError as err:
-                    print(planet_radial_velocities[j], np.min(v_rest), np.max(v_rest), kps[ikp], np.max(kps), np.min(kps))
+                    print(radial_velocities[j], np.min(v_rest), np.max(v_rest), kps[ikp], np.max(kps), np.min(kps))
                     print(np.min(radial_velocities_interp), np.min(velocities_ccf))
                     print(np.max(radial_velocities_interp), np.max(velocities_ccf))
                     raise ValueError(err)

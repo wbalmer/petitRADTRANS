@@ -53,12 +53,12 @@ def co_added_retrieval(wavelength_instrument, reduced_mock_observations, true_wa
         pixels_per_resolution_element=2,
         instrument_resolving_power=true_parameters['instrument_resolving_power'].value,
         radial_velocity=radial_velocity,
-        kp=true_parameters['planet_radial_velocity_amplitude'].value,
+        kp=true_parameters['radial_velocity_semi_amplitude'].value,
         error=error[0, 0, :]
     )
 
     log_l_tot, v_rest, kps = simple_co_added_ccf(
-        log_ls, orbital_phases, radial_velocity, true_parameters['planet_radial_velocity_amplitude'].value,
+        log_ls, orbital_phases, radial_velocity, true_parameters['radial_velocity_semi_amplitude'].value,
         true_parameters['planet_orbital_inclination'].value, 3e5, 2
     )
 
@@ -70,7 +70,7 @@ def co_added_retrieval(wavelength_instrument, reduced_mock_observations, true_wa
         plt.plot([v_rest[0], v_rest[-1]], [kps[i_peak[0]], kps[i_peak[0]]], color='r')
         plt.vlines([v_rest[i_peak[1]]], ymin=[kps[0]], ymax=[kps[-1]], color='r')
         plt.title(f"Best Kp = {kps[i_peak[0]][0]:.3e} "
-                  f"(true = {true_parameters['planet_radial_velocity_amplitude'].value:.3e}), "
+                  f"(true = {true_parameters['radial_velocity_semi_amplitude'].value:.3e}), "
                   f"best V_rest = {v_rest[i_peak[1]][0]:.3e} "
                   f"(true = {np.mean(radial_velocity):.3e})")
         plt.xlabel('V_rest (cm.s-1)')
@@ -110,8 +110,8 @@ def get_radial_velocity_lag(radial_velocity, kp, lsf_fwhm, pixels_per_resolution
 def get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
     wlen_model, planet_radiosity = radiosity_model(prt_object, parameters)
 
-    planet_velocities = Planet.calculate_planet_radial_velocity(
-        parameters['planet_radial_velocity_amplitude'].value,
+    planet_velocities = Planet.calculate_radial_velocity(
+        parameters['radial_velocity_semi_amplitude'].value,
         parameters['planet_orbital_inclination'].value,
         np.rad2deg(2 * np.pi * parameters['orbital_phases'].value)
     )
@@ -126,7 +126,7 @@ def get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=N
         instrument_resolving_power=parameters['instrument_resolving_power'].value,
         planet_velocities=planet_velocities,
         system_observer_radial_velocities=parameters['system_observer_radial_velocities'].value,
-        planet_rest_frame_velocity_shift=parameters['planet_rest_frame_velocity_shift'].value
+        rest_frame_velocity_shift=parameters['rest_frame_velocity_shift'].value
     )
 
     # TODO generation of multiple-detector models
@@ -168,8 +168,8 @@ def get_secondary_eclipse_retrieval_model(prt_object, parameters, pt_plot_mode=N
 def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=False):
     wlen_model, transit_radius = transit_radius_model(prt_object, parameters)
 
-    planet_velocities = Planet.calculate_planet_radial_velocity(
-        parameters['planet_radial_velocity_amplitude'].value,
+    planet_velocities = Planet.calculate_radial_velocity(
+        parameters['radial_velocity_semi_amplitude'].value,
         parameters['planet_orbital_inclination'].value,
         np.rad2deg(2 * np.pi * parameters['orbital_phases'].value)
     )
@@ -182,7 +182,7 @@ def get_transit_retrieval_model(prt_object, parameters, pt_plot_mode=None, AMR=F
         instrument_resolving_power=parameters['instrument_resolving_power'].value,
         planet_velocities=planet_velocities,
         system_observer_radial_velocities=parameters['system_observer_radial_velocities'].value,
-        planet_rest_frame_velocity_shift=parameters['planet_rest_frame_velocity_shift'].value
+        rest_frame_velocity_shift=parameters['rest_frame_velocity_shift'].value
     )
 
     # TODO generation of multiple-detector models
@@ -450,9 +450,9 @@ def init_parameters(planet, line_species_str, mode,
             'star_effective_temperature': Param(star_effective_temperature),
             'Rstar': Param(star_radius),
             'semi_major_axis': Param(planet.orbit_semi_major_axis),
-            'planet_radial_velocity_amplitude': Param(kp),
+            'radial_velocity_semi_amplitude': Param(kp),
             'system_observer_radial_velocities': Param(v_sys),
-            'planet_rest_frame_velocity_shift': Param(0.0),
+            'rest_frame_velocity_shift': Param(0.0),
             'planet_orbital_inclination': Param(planet.orbital_inclination),
             'orbital_phases': Param(orbital_phases),
             'times': Param(times),
@@ -501,7 +501,7 @@ def init_parameters(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
+            radial_velocity_semi_amplitude=true_parameters['radial_velocity_semi_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -587,7 +587,7 @@ def init_parameters(planet, line_species_str, mode,
             orbital_phases=true_parameters['orbital_phases'].value,
             system_observer_radial_velocities=true_parameters['system_observer_radial_velocities'].value,
             # TODO set to 0 for now since SNR data from Roy is at 0, but find RV source eventually
-            planet_radial_velocity_amplitude=true_parameters['planet_radial_velocity_amplitude'].value,
+            radial_velocity_semi_amplitude=true_parameters['radial_velocity_semi_amplitude'].value,
             planet_orbital_inclination=true_parameters['planet_orbital_inclination'].value,
             mode=mode,
             add_noise=add_noise,
@@ -829,8 +829,8 @@ def init_parameters(planet, line_species_str, mode,
     print('Calculating true log L...')
     true_log_l, w2, r2 = pseudo_retrieval(
         parameters=true_parameters,
-        kps=[true_parameters['planet_radial_velocity_amplitude'].value],
-        v_rest=[true_parameters['planet_rest_frame_velocity_shift'].value],
+        kps=[true_parameters['radial_velocity_semi_amplitude'].value],
+        v_rest=[true_parameters['rest_frame_velocity_shift'].value],
         model=model, reduced_mock_observations=reduced_mock_observations, error=error,
         true_parameters=true_parameters, radial_velocity=true_parameters['system_observer_radial_velocities'].value,
         plot=False, output_dir=retrieval_directory, mode=mode
@@ -1043,8 +1043,8 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
 
     # retrieved_parameters = []
     retrieved_parameters = [
-        'planet_radial_velocity_amplitude',
-        'planet_rest_frame_velocity_shift',
+        'radial_velocity_semi_amplitude',
+        'rest_frame_velocity_shift',
         # 'variable_throughput_coefficient'
     ]
 
@@ -1062,8 +1062,8 @@ def init_run(retrieval_name, prt_object, pressures, parameters, line_species, ra
     def prior_kp(x):
         return uniform_prior(
             cube=x,
-            x1=0.75 * parameters['planet_radial_velocity_amplitude'].value,
-            x2=1.25 * parameters['planet_radial_velocity_amplitude'].value,
+            x1=0.75 * parameters['radial_velocity_semi_amplitude'].value,
+            x2=1.25 * parameters['radial_velocity_semi_amplitude'].value,
         )
 
     def prior_vr(x):
@@ -1524,13 +1524,13 @@ def pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations, 
         raise ValueError(f"mode must be 'eclipse' or 'transit', but is '{mode}'")
 
     for lag in v_rest:
-        ppp['planet_rest_frame_velocity_shift'].value = lag
+        ppp['rest_frame_velocity_shift'].value = lag
         logls.append([])
         wavelengths.append([])
         retrieval_models.append([])
 
         for kp_ in kps:
-            ppp['planet_radial_velocity_amplitude'].value = kp_
+            ppp['radial_velocity_semi_amplitude'].value = kp_
 
             w, s = retrieval_model(model, ppp)
             wavelengths[-1].append(w)
@@ -1560,7 +1560,7 @@ def pseudo_retrieval(parameters, kps, v_rest, model, reduced_mock_observations, 
         plt.plot([v_rest[0], v_rest[-1]], [kps[i_peak[0]], kps[i_peak[0]]], color='r')
         plt.vlines([v_rest[i_peak[1]]], ymin=[kps[0]], ymax=[kps[-1]], color='r')
         plt.title(f"Best Kp = {kps[i_peak[0]][0]:.3e} "
-                  f"(true = {true_parameters['planet_radial_velocity_amplitude'].value:.3e}), "
+                  f"(true = {true_parameters['radial_velocity_semi_amplitude'].value:.3e}), "
                   f"best V_rest = {v_rest[i_peak[1]][0]:.3e} "
                   f"(true = {np.mean(radial_velocity):.3e})")
         plt.xlabel('V_rest (cm.s-1)')
@@ -1766,7 +1766,7 @@ def simple_co_added_ccf(
 
     for i in range(evaluation.shape[0]):
         for ikp in range(n_kp):
-            rv_pl = radial_velocity + Planet.calculate_planet_radial_velocity(
+            rv_pl = radial_velocity + Planet.calculate_radial_velocity(
                 kps[ikp], planet_orbital_inclination, orbital_phases
             )
 

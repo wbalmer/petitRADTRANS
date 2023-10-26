@@ -94,8 +94,8 @@ def _get_parameter_range(sample_dict, retrieved_parameters, spectral_model=None)
 
         if 'figure_coefficient' in dictionary:
             if spectral_model is not None:
-                if key == 'planet_radial_velocity_amplitude':
-                    figure_coefficient = spectral_model.model_parameters['planet_radial_velocity_amplitude']
+                if key == 'radial_velocity_semi_amplitude':
+                    figure_coefficient = spectral_model.model_parameters['radial_velocity_semi_amplitude']
                 elif key == 'planet_radius':
                     figure_coefficient = spectral_model.model_parameters['planet_radius']
                 else:

@@ -136,7 +136,7 @@
             -4.85e5
         ],
         "n_exposures": 20,
-        "planet_rest_frame_velocity_shift": -1.5e5,
+        "rest_frame_velocity_shift": -1.5e5,
         "relative_error": 0.01
     },
     "ccf_analysis_parameters": {

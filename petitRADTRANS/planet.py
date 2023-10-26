@@ -966,8 +966,8 @@ class Planet:
         )
 
     @staticmethod
-    def calculate_impact_parameter(planet_orbit_semi_major_axis, planet_orbital_inclination, star_radius):
-        return planet_orbit_semi_major_axis * np.cos(np.deg2rad(planet_orbital_inclination)) / star_radius
+    def calculate_impact_parameter(orbit_semi_major_axis, orbital_inclination, star_radius):
+        return orbit_semi_major_axis * np.cos(np.deg2rad(orbital_inclination)) / star_radius
 
     @staticmethod
     def calculate_mid_transit_time_from_source(observation_day,
@@ -998,13 +998,13 @@ class Planet:
         return observation_mid_transit_time, errors[1], -errors[0], n_orbits
 
     @staticmethod
-    def calculate_planet_radial_velocity(planet_radial_velocity_semi_amplitude, planet_orbital_inclination,
-                                         orbital_longitude, **kwargs):
+    def calculate_radial_velocity(radial_velocity_semi_amplitude, orbital_inclination,
+                                  orbital_longitude, **kwargs):
         """Calculate the planet radial velocity as seen by an observer.
 
         Args:
-            planet_radial_velocity_semi_amplitude: maximum radial velocity for an inclination angle of 90 degree
-            planet_orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
+            radial_velocity_semi_amplitude: maximum radial velocity for an inclination angle of 90 degree
+            orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
                 observation, i.e. 90 degree: edge view, 0 degree: top view
             orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
                 planet position, i.e. if the planet orbital inclination is 0 degree, 0 degree: mid-primary transit
@@ -1013,7 +1013,7 @@ class Planet:
         Returns:
 
         """
-        kp = planet_radial_velocity_semi_amplitude * np.sin(np.deg2rad(planet_orbital_inclination))  # (cm.s-1)
+        kp = radial_velocity_semi_amplitude * np.sin(np.deg2rad(orbital_inclination))  # (cm.s-1)
 
         return kp * np.sin(np.deg2rad(orbital_longitude))
 

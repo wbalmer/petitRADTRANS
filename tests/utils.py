@@ -209,7 +209,7 @@ def create_test_radtrans_config_file(filename):
                     'orbital_phase_range': (-1e-2, 1e-2),
                     'system_observer_radial_velocities_range': (-5.0e5, -4.85e5),
                     'n_exposures': 20,
-                    'planet_rest_frame_velocity_shift': -1.5e5,
+                    'rest_frame_velocity_shift': -1.5e5,
                     'relative_error': 1e-2
                 },
                 'ccf_analysis_parameters': {
