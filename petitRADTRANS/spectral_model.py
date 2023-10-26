@@ -47,6 +47,10 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
+            radial_velocity_amplitude_function: callable = None,
+            planet_radial_velocities_function: callable = None,
+            relative_velocities_function: callable = None,
+            orbital_longitudes_function: callable = None,
             temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
     ):
@@ -128,6 +132,18 @@ class SpectralModel(Radtrans):
             **model_parameters:
                 dictionary of parameters. The keys can match arguments of functions used to generate the model.
         """
+        if radial_velocity_amplitude_function is None:
+            radial_velocity_amplitude_function = self.calculate_radial_velocity_amplitude
+
+        if planet_radial_velocities_function is None:
+            planet_radial_velocities_function = self.calculate_planet_radial_velocities
+
+        if relative_velocities_function is None:
+            relative_velocities_function = self.calculate_relative_velocities
+
+        if orbital_longitudes_function is None:
+            orbital_longitudes_function = self.calculate_orbital_longitudes
+
         # Other model parameters
         self.model_parameters = model_parameters
 
@@ -139,10 +155,10 @@ class SpectralModel(Radtrans):
             self.model_parameters['orbital_longitudes'], \
             self.model_parameters['is_orbiting'] = \
             self.__init_velocities(
-                radial_velocity_amplitude_function=self.calculate_radial_velocity_amplitude,
-                planet_radial_velocities_function=self.calculate_planet_radial_velocities,
-                relative_velocities_function=self.calculate_relative_velocities,
-                orbital_longitudes_function=self.calculate_orbital_longitudes,
+                radial_velocity_amplitude_function=radial_velocity_amplitude_function,
+                planet_radial_velocities_function=planet_radial_velocities_function,
+                relative_velocities_function=relative_velocities_function,
+                orbital_longitudes_function=orbital_longitudes_function,
                 **self.model_parameters
             )
 
@@ -2626,10 +2642,6 @@ class SpectralModel(Radtrans):
             planet_radial_velocity_amplitude: float = None,
             planet_rest_frame_velocity_shift: float = None,
             shift_wavelengths_function: callable = None,
-            radial_velocity_amplitude_function: callable = None,
-            planet_radial_velocities_function: callable = None,
-            relative_velocities_function: callable = None,
-            orbital_longitudes_function: callable = None,
             pressures: np.ndarray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
@@ -2642,9 +2654,14 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
+            radial_velocity_amplitude_function: callable = None,
+            planet_radial_velocities_function: callable = None,
+            relative_velocities_function: callable = None,
+            orbital_longitudes_function: callable = None,
             temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
     ):
+        # Initialization
         if shift_wavelengths_function is None:
             shift_wavelengths_function = SpectralModel.shift_wavelengths
 
@@ -2676,6 +2693,7 @@ class SpectralModel(Radtrans):
                                  f"({planet_rest_frame_velocity_shift_range}), "
                                  f"but was {planet_rest_frame_velocity_shift}")
 
+        # Get the velocity range
         retrieval_velocities = SpectralModel.get_retrieval_velocities(
             planet_radial_velocity_amplitude_range=planet_radial_velocity_amplitude_range,
             planet_rest_frame_velocity_shift_range=planet_rest_frame_velocity_shift_range,
@@ -2693,6 +2711,7 @@ class SpectralModel(Radtrans):
             **model_parameters
         )
 
+        # Get the wavelengths boundaries from the velocity range
         wavelengths_boundaries = SpectralModel.calculate_optimal_wavelengths_boundaries(
             output_wavelengths=output_wavelengths,
             shift_wavelengths_function=shift_wavelengths_function,
@@ -2700,6 +2719,7 @@ class SpectralModel(Radtrans):
             **model_parameters
         )
 
+        # Generate a SpectralModel using the calculated wavelength boundaries
         new_spectral_model = cls(
             pressures=pressures,
             wavelengths_boundaries=wavelengths_boundaries,
@@ -2714,6 +2734,10 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid_weights=emission_cos_angle_grid_weights,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             path_input_data=path_input_data,
+            radial_velocity_amplitude_function=radial_velocity_amplitude_function,
+            planet_radial_velocities_function=planet_radial_velocities_function,
+            relative_velocities_function=relative_velocities_function,
+            orbital_longitudes_function=orbital_longitudes_function,
             temperatures=temperatures,
             mass_mixing_ratios=mass_mixing_ratios,
             mean_molar_masses=mean_molar_masses,
@@ -2733,19 +2757,7 @@ class SpectralModel(Radtrans):
             **model_parameters
         )
 
-        if shift_wavelengths_function is not None:
-            new_spectral_model.shift_wavelengths = shift_wavelengths_function
-
-        if radial_velocity_amplitude_function is not None:
-            new_spectral_model.calculate_radial_velocity_amplitude = radial_velocity_amplitude_function
-
-        if planet_radial_velocities_function is not None:
-            new_spectral_model.calculate_planet_radial_velocities = planet_radial_velocities_function
-
-        if relative_velocities_function is not None:
-            new_spectral_model.calculate_relative_velocities = relative_velocities_function
-
-        if orbital_longitudes_function is not None:
-            new_spectral_model.calculate_orbital_longitudes = orbital_longitudes_function
+        # Save the shift function used
+        new_spectral_model.shift_wavelengths = shift_wavelengths_function
 
         return new_spectral_model
