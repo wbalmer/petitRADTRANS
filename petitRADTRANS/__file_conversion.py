@@ -109,11 +109,11 @@ def _get_prt2_cloud_names():
         'H2O(c)_cm': 'H2O(s)_crystalline',  # TODO not in the docs
         'H2O(c)_cd': 'H2O(s)_crystalline',  # TODO not in the docs
         'H2OL(c)_am': 'H2O(l)',  # TODO not in the docs
-        'H2OSO425(c)_am': 'H2OSO425(s)_amorphous',  # TODO not in the docs
-        'H2OSO450(c)_am': 'H2OSO450(s)_amorphous',  # TODO not in the docs
-        'H2OSO475(c)_am': 'H2OSO475(s)_amorphous',  # TODO not in the docs
-        'H2OSO484(c)_am': 'H2OSO484(s)_amorphous',  # TODO not in the docs
-        'H2OSO495(c)_am': 'H2OSO495(s)_amorphous',  # TODO not in the docs
+        'H2OSO425(c)_am': 'H2OSO425(l)',  # TODO not in the docs
+        'H2OSO450(c)_am': 'H2OSO450(l)',  # TODO not in the docs
+        'H2OSO475(c)_am': 'H2OSO475(l)',  # TODO not in the docs
+        'H2OSO484(c)_am': 'H2OSO484(l)',  # TODO not in the docs
+        'H2OSO495(c)_am': 'H2OSO495(l)',  # TODO not in the docs
         'KCL(c)_cm': 'KCl(s)_crystalline',
         'KCL(c)_cd': 'KCl(s)_crystalline',
         'Mg2SiO4(c)_am': 'Mg2SiO4(s)_amorphous',
@@ -752,11 +752,11 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
         'H2O(c)_cm': molliere2019_doi,
         'H2O(c)_cd': molliere2019_doi,
         'H2OL(c)_am': molliere2019_doi,  # TODO not in docs
-        'H2OSO425(c)_am': None,  # TODO not in docs
-        'H2OSO450(c)_am': None,  # TODO not in docs
-        'H2OSO475(c)_am': None,  # TODO not in docs
-        'H2OSO484(c)_am': None,  # TODO not in docs
-        'H2OSO495(c)_am': None,  # TODO not in docs
+        'H2OSO425(c)_am': molliere2019_doi,  # TODO not in docs
+        'H2OSO450(c)_am': molliere2019_doi,  # TODO not in docs
+        'H2OSO475(c)_am': molliere2019_doi,  # TODO not in docs
+        'H2OSO484(c)_am': molliere2019_doi,  # TODO not in docs
+        'H2OSO495(c)_am': molliere2019_doi,  # TODO not in docs
         'KCL(c)_cm': molliere2019_doi,
         'KCL(c)_cd': molliere2019_doi,
         'Mg05Fe05SiO3(c)_am': molliere2019_doi,
@@ -851,6 +851,11 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
         'H2O(c)_cm': get_species_molar_mass('H2O'),
         'H2O(c)_cd': get_species_molar_mass('H2O'),
         'H2OL(c)_am': get_species_molar_mass('H2O'),
+        'H2OSO425(c)_am': get_species_molar_mass('H2O') * 0.75 + get_species_molar_mass('SO4') * 0.25,
+        'H2OSO450(c)_am': get_species_molar_mass('H2O') * 0.50 + get_species_molar_mass('SO4') * 0.50,
+        'H2OSO475(c)_am': get_species_molar_mass('H2O') * 0.25 + get_species_molar_mass('SO4') * 0.75,
+        'H2OSO484(c)_am': get_species_molar_mass('H2O') * 0.16 + get_species_molar_mass('SO4') * 0.84,
+        'H2OSO495(c)_am': get_species_molar_mass('H2O') * 0.05 + get_species_molar_mass('SO4') * 0.95,
         'KCL(c)_cm': get_species_molar_mass('H2O'),
         'KCL(c)_cd': get_species_molar_mass('H2O'),
         'Mg05Fe05SiO3(c)_am': (
@@ -1053,6 +1058,8 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
             new_key = 'H2O(l)'
         elif key in ['KCL(c)_cm', 'KCL(c)_cd']:
             new_key = 'KCl(s)_crystalline'
+        elif key in ['H2OSO425(c)_am', 'H2OSO450(c)_am', 'H2OSO475(c)_am', 'H2OSO484(c)_am', 'H2OSO495(c)_am']:
+            new_key = 'H2OSO4(l)'
         else:
             new_key = key.replace('(c)', '(s)')
 
@@ -1074,6 +1081,10 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
             method = 'Mie'
         else:
             raise ValueError(f"invalid particle mode '{particle_mode}'")
+
+        if key in ['H2OSO425(c)_am', 'H2OSO450(c)_am', 'H2OSO475(c)_am', 'H2OSO484(c)_am', 'H2OSO495(c)_am']:
+            percentage = key.split('(', 1)[0][-2:]
+            method = f"aq{percentage}" + method
 
         new_cloud_file = new_cloud_files[new_key]
         species, spectral_info = new_cloud_file.split('.', 1)
