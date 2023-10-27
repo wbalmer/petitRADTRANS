@@ -235,7 +235,8 @@ class SpectralModel(Radtrans):
     def __init_velocities(radial_velocity_semi_amplitude_function, radial_velocities_function,
                           relative_velocities_function, orbital_longitudes_function,
                           relative_velocities=None, system_observer_radial_velocities=None,
-                          radial_velocities=None, rest_frame_velocity_shift=0.0,
+                          radial_velocities=None,
+                          radial_velocity_semi_amplitude=None, rest_frame_velocity_shift=0.0,
                           orbital_longitudes=None, orbital_phases=None, orbital_period=None,
                           times=None, mid_transit_time=None, is_orbiting=None, **kwargs):
         if system_observer_radial_velocities is None:
@@ -266,8 +267,6 @@ class SpectralModel(Radtrans):
                           "or set model parameter 'is_orbiting' to False")
 
             orbital_longitudes = np.zeros(1)
-
-        radial_velocity_semi_amplitude = None
 
         # Calculate relative velocities if needed
         if relative_velocities is None:
@@ -985,7 +984,7 @@ class SpectralModel(Radtrans):
         imposed value regardless of chemical equilibrium consistency.
 
         Args:
-            pressures: (bar) pressures of the mass mixing ratios
+            pressures: (cgs) pressures of the mass mixing ratios
             line_species: list of line species, required to manage naming differences between opacities and chemistry
             included_line_species: which line species of the list to include, mass mixing ratio set to 0 otherwise
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
@@ -1581,7 +1580,7 @@ class SpectralModel(Radtrans):
                                  f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)})")
         elif temperature_profile_mode == 'guillot':
             temperatures = temperature_profile_function_guillot_metallic(
-                pressures=pressures,
+                pressures=pressures,  # TODO change TP pressure to CGS
                 gamma=guillot_temperature_profile_gamma,
                 surface_gravity=planet_surface_gravity,
                 intrinsic_temperature=intrinsic_temperature,
@@ -1956,7 +1955,6 @@ class SpectralModel(Radtrans):
                 parameters=parameters,
                 pt_plot_mode=pt_plot_mode,
                 AMR=AMR,
-                spectrum_model=self,
                 mode=mode,
                 update_parameters=update_parameters,
                 telluric_transmittances=telluric_transmittances,
@@ -2363,7 +2361,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
-                                            spectrum_model=None, mode='emission', update_parameters=False,
+                                            mode='emission', update_parameters=False,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
@@ -2419,8 +2417,7 @@ class SpectralModel(Radtrans):
         for key, value in imposed_mass_fractions.items():
             p['imposed_mass_fractions'][key] = value
 
-        wavelengths, model = spectrum_model.calculate_spectrum(
-            radtrans=prt_object,
+        wavelengths, model = prt_object.calculate_spectrum(
             mode=mode,
             parameters=p,
             update_parameters=update_parameters,
@@ -2489,8 +2486,7 @@ class SpectralModel(Radtrans):
             )
             f.create_dataset(
                 name='units',
-                data='pressures are in bar, radiosities are in erg.s-1.cm-2.sr-1/cm, wavelengths are in um, '
-                     'otherwise all other units are in CGS'
+                data='all units are in CGS'
             )
 
     @staticmethod
