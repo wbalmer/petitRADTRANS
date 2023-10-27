@@ -2423,7 +2423,7 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_da
     else:
         path = os.path.join(path_input_data, get_input_data_subpaths()['stellar_spectra'], 'phoenix')
 
-    hdf5_file = phoenix_star_table.get_default_file()
+    hdf5_file = phoenix_star_table.get_default_file(path_input_data=path_input_data)
 
     if os.path.isfile(hdf5_file) and not rewrite:
         __print_skipping_message(hdf5_file)
