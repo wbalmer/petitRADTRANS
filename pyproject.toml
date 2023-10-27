@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.0.0a86"
+version = "3.0.0a87"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"
@@ -32,6 +32,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy"
 ]
 dependencies = [
+    "meson-python",
+    "ninja",
     "numpy",
     "scipy",
     "astropy",
@@ -44,6 +46,7 @@ dependencies = [
     "pyvo",
     "seaborn"
 ]
+# TODO optional dependencies? (seaborn, exo_k)
 
 [tool.flake8]
 max-line-length = 120

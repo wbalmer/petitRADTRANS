@@ -176,7 +176,7 @@ class SpectralModel(Radtrans):
         # Atmosphere/Radtrans parameters
         super().__init__(
             pressures=pressures,
-            wavelengths_boundaries=wavelengths_boundaries,
+            wavelength_boundaries=wavelengths_boundaries,
             line_species=line_species,
             gas_continuum_contributors=gas_continuum_contributors,
             rayleigh_species=rayleigh_species,
@@ -1884,7 +1884,7 @@ class SpectralModel(Radtrans):
             mean_molar_masses=self.mean_molar_masses
         )
 
-    def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties, retrieval_directory,
+    def init_retrieval(self, data, data_wavelengths, data_uncertainties, retrieval_directory,
                        retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
                        mode='emission', uncertainties_mode='default', update_parameters=False,
                        telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
@@ -1975,7 +1975,7 @@ class SpectralModel(Radtrans):
             name=dataset_name,
             path=None,
             model_generating_function=model_generating_function,
-            prt_object=radtrans,
+            prt_object=self,
             wlen=data_wavelengths,
             flux=data,
             flux_error=data_uncertainties,

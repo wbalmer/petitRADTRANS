@@ -41,7 +41,7 @@ from petitRADTRANS.physics import (
     dtdp_temperature_profile,
     madhu_seager_2009
 )
-from petitRADTRANS.chemistry import condensation as fc
+from petitRADTRANS.chemistry import clouds as fc
 
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)

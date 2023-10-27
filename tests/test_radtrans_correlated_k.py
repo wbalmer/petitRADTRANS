@@ -24,7 +24,7 @@ def init_radtrans_correlated_k():
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
         cloud_species=list(radtrans_parameters['cloud_parameters']['cloud_species'].keys()),
-        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
         line_opacity_mode='c-k'
     )
 

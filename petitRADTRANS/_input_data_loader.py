@@ -280,7 +280,7 @@ def _get_input_file(path_input_data, sub_path, filename=None, find_all=False):
             print(
                 f"More than one file detected in '{full_path}', and no default file set for this path "
                 f"in petitRADTRANS' configuration\n"
-                f"The list of available files is:\n"
+                f"Please select one of the files in the list below by typing the corresponding integer:\n"
                 f"{files_str}"
             )
 

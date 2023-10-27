@@ -9,7 +9,7 @@ except ModuleNotFoundError:
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, fixed_length_amr
-from petitRADTRANS.chemistry import condensation as fc
+from petitRADTRANS.chemistry import clouds as fc
 
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):

@@ -641,7 +641,7 @@ class Retrieval:
                     gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                     cloud_species=cp.copy(self.rd.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
-                    wavelengths_boundaries=dd.wlen_range_pRT,
+                    wavelength_boundaries=dd.wlen_range_pRT,
                     scattering_in_emission=self.rd.scattering,
                     line_by_line_opacity_sampling=lbl_samp
                 )
@@ -1193,7 +1193,7 @@ class Retrieval:
                 gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                 cloud_species=cp.copy(self.rd.cloud_species),
                 line_opacity_mode=self.data[self.rd.plot_kwargs["take_PTs_from"]].opacity_mode,
-                wavelengths_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
+                wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.rd.scattering
             )
         if self.rd.AMR:
@@ -1852,7 +1852,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=np.array([0.85, 250]),
+            wavelength_boundaries=np.array([0.85, 250]),
             scattering_in_emission=self.rd.scattering
         )  # TODO this prt_object is never used
         if self.rd.AMR:
@@ -1867,7 +1867,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=np.array([0.5, 28]),
             scattering_in_emission=self.rd.scattering
         )
 
@@ -2481,7 +2481,7 @@ class Retrieval:
                                   gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                                   cloud_species=cp.copy(self.rd.cloud_species),
                                   line_opacity_mode='c-k',
-                                  wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
+                                  wavelength_boundaries=[wmin * 0.98, wmax * 1.02],
                                   scattering_in_emission=self.rd.scattering)
             fig, ax = plt.subplots(figsize=(16, 10))
             nsamp = nsample

@@ -44,7 +44,7 @@ class Radtrans:
     def __init__(
             self,
             pressures: np.ndarray[float] = None,
-            wavelengths_boundaries: np.ndarray[float] = None,
+            wavelength_boundaries: np.ndarray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -62,7 +62,7 @@ class Radtrans:
         Args:
             pressures (Optional):
                 (bar) Array defining the pressure grid to be used for the spectral calculations.
-            wavelengths_boundaries (Optional):
+            wavelength_boundaries (Optional):
                 list containing left and right border of wavelength region to be considered, in micron. If nothing else
                 is specified, it will be equal to ``[0.05, 300]``, hence using the full petitRADTRANS wavelength range
                 (0.11 to 250 microns for ``'c-k'`` mode, 0.3 to 30 microns for the ``'lbl'`` mode). The larger the
@@ -110,7 +110,7 @@ class Radtrans:
         """
         # Inputs checks
         self.__check_line_opacity_mode(line_opacity_mode)
-        self.__check_wavelengths_boundaries(wavelengths_boundaries)
+        self.__check_wavelengths_boundaries(wavelength_boundaries)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
 
@@ -145,10 +145,10 @@ class Radtrans:
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
         self._scattering_in_emission = scattering_in_emission
 
-        if wavelengths_boundaries is None:
+        if wavelength_boundaries is None:
             self._wavelengths_boundaries = np.array([0.05, 300.])  # um
         else:
-            self._wavelengths_boundaries = wavelengths_boundaries
+            self._wavelengths_boundaries = wavelength_boundaries
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
