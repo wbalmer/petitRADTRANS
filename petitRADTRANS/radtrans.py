@@ -110,7 +110,7 @@ class Radtrans:
         """
         # Inputs checks
         self.__check_line_opacity_mode(line_opacity_mode)
-        self.__check_wavelengths_boundaries(wavelength_boundaries)
+        self.__check_wavelength_boundaries(wavelength_boundaries)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
 
@@ -146,9 +146,9 @@ class Radtrans:
         self._scattering_in_emission = scattering_in_emission
 
         if wavelength_boundaries is None:
-            self._wavelengths_boundaries = np.array([0.05, 300.])  # um
+            self._wavelength_boundaries = np.array([0.05, 300.])  # um
         else:
-            self._wavelengths_boundaries = wavelength_boundaries
+            self._wavelength_boundaries = wavelength_boundaries
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
 
@@ -410,14 +410,14 @@ class Radtrans:
         self._scattering_in_emission = value
 
     @property
-    def wavelengths_boundaries(self):
-        return self._wavelengths_boundaries
+    def wavelength_boundaries(self):
+        return self._wavelength_boundaries
 
-    @wavelengths_boundaries.setter
-    def wavelengths_boundaries(self, array: np.ndarray[float]):
+    @wavelength_boundaries.setter
+    def wavelength_boundaries(self, array: np.ndarray[float]):
         warnings.warn(self.__property_setting_warning_message)
-        self.__check_wavelengths_boundaries(array)
-        self._wavelengths_boundaries = array
+        self.__check_wavelength_boundaries(array)
+        self._wavelength_boundaries = array
 
     @staticmethod
     def __check_anisotropic_cloud_scattering(mode):
@@ -465,7 +465,7 @@ class Radtrans:
             )
 
     @staticmethod
-    def __check_wavelengths_boundaries(boundaries):
+    def __check_wavelength_boundaries(boundaries):
         if np.size(boundaries) != 2:
             raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
 
@@ -1941,20 +1941,20 @@ class Radtrans:
             # Extend the wavelength range if user requests larger range than what first line opa species contains
             wavelengths = cst.c / frequency_bins_edges * 1e4  # Hz to um
 
-            if wavelengths[-1] < self._wavelengths_boundaries[1]:
+            if wavelengths[-1] < self._wavelength_boundaries[1]:
                 delta_log_wavelength = np.diff(np.log10(wavelengths))[-1]
                 add_high = 1e1 ** np.arange(
                     np.log10(wavelengths[-1]),
-                    np.log10(self._wavelengths_boundaries[-1]) + delta_log_wavelength,
+                    np.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
                     delta_log_wavelength
                 )[1:]
                 wavelengths = np.concatenate((wavelengths, add_high))
 
-            if wavelengths[0] > self._wavelengths_boundaries[0]:
+            if wavelengths[0] > self._wavelength_boundaries[0]:
                 delta_log_wavelength = np.diff(np.log10(wavelengths))[0]
                 add_low = 1e1 ** (-np.arange(
                     -np.log10(wavelengths[0]),
-                    -np.log10(self._wavelengths_boundaries[0]) + delta_log_wavelength,
+                    -np.log10(self._wavelength_boundaries[0]) + delta_log_wavelength,
                     delta_log_wavelength
                 )[1:][::-1])
                 wavelengths = np.concatenate((add_low, wavelengths))
@@ -1964,8 +1964,8 @@ class Radtrans:
 
             # Cut the wavelength range if user requests smaller range than what first line opa species contains
             indices_within_boundaries = np.nonzero(np.logical_and(
-                np.greater(cst.c / frequencies, self._wavelengths_boundaries[0] * 1e-4),
-                np.less(cst.c / frequencies, self._wavelengths_boundaries[1] * 1e-4)
+                np.greater(cst.c / frequencies, self._wavelength_boundaries[0] * 1e-4),
+                np.less(cst.c / frequencies, self._wavelength_boundaries[1] * 1e-4)
             ))[0]
 
             frequencies = np.array(frequencies[indices_within_boundaries], dtype='d', order='F')
@@ -1987,8 +1987,8 @@ class Radtrans:
             with h5py.File(opacities_file, 'r') as f:
                 frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to Hz
 
-            frequency_min = cst.c / self._wavelengths_boundaries[1] * 1e4  # um to cm
-            frequency_max = cst.c / self._wavelengths_boundaries[0] * 1e4  # um to cm
+            frequency_min = cst.c / self._wavelength_boundaries[1] * 1e4  # um to cm
+            frequency_max = cst.c / self._wavelength_boundaries[0] * 1e4  # um to cm
 
             # Check if the requested wavelengths boundaries are within the file boundaries
             bad_boundaries = False
@@ -2001,7 +2001,7 @@ class Radtrans:
 
             if bad_boundaries:
                 raise ValueError(f"Requested wavelength interval "
-                                 f"({self._wavelengths_boundaries[0]}--{self._wavelengths_boundaries[1]}) "
+                                 f"({self._wavelength_boundaries[0]}--{self._wavelength_boundaries[1]}) "
                                  f"is out of opacities table wavelength grid "
                                  f"({1e-4 * cst.c / frequency_grid[-1]}--{1e-4 * cst.c / frequency_grid[0]})")
 
@@ -2236,7 +2236,7 @@ class Radtrans:
                     Gray opacity value, to be added to the opacity at all pressures and wavelengths
                     (units :math:`\\rm cm^2/g`)
                 cloud_photosphere_median_optical_depth (Optional[float]):
-                    Median optical depth (across ``wavelengths_boundaries``) of the clouds from the top of the
+                    Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
                     atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
                     of clouds in the photospheric region.
                 emission_geometry (Optional[string]):
@@ -2807,6 +2807,7 @@ class Radtrans:
 
         if self._anisotropic_cloud_scattering == 'auto':
             self._anisotropic_cloud_scattering = False
+            auto_anisotropic_cloud_scattering = True
         elif self._anisotropic_cloud_scattering:
             warnings.warn(f"anisotropic cloud scattering is not recommended for transmission spectra, "
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
