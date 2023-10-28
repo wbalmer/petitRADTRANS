@@ -134,15 +134,23 @@ class SpectralModel(Radtrans):
         """
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = self.compute_radial_velocity_semi_amplitude
+        else:
+            self.compute_radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function
 
         if radial_velocities_function is None:
             radial_velocities_function = self.compute_radial_velocities
+        else:
+            self.compute_radial_velocity = radial_velocities_function
 
         if relative_velocities_function is None:
             relative_velocities_function = self.compute_relative_velocities
+        else:
+            self.compute_relative_velocities = relative_velocities_function
 
         if orbital_longitudes_function is None:
             orbital_longitudes_function = self.compute_orbital_longitudes
+        else:
+            self.compute_orbital_longitudes = orbital_longitudes_function
 
         # Other model parameters
         self.model_parameters = model_parameters
