@@ -37,16 +37,47 @@ dependencies = [
     "numpy",
     "scipy",
     "astropy",
-    "corner",
-    "exo_k",
-    "h5py",
-    "matplotlib",
     "molmass",
+    "h5py",
     "pymultinest",
-    "pyvo",
+    "pyvo"
+]
+
+[project.optional-dependencies]
+retrieval = [
+    "mpi4py",
+    "exo_k",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner"
+]
+full = [
+    "mpi4py",
+    "exo_k",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner",
+    "seaborn",  # only used in nice_corner
+    "species",  # only used in RetrievalConfig.add_photometry
+    "ultranest"  # alternative to pymultinest
+]
+test = [
+    "build",
+    "wheel",
+    "pytest",
+    "pytest-cov",
+    "mpi4py",
+    "exo_k",
+    "ultranest",
+    "requests",
+    "skycalc-cli",
+    "species",
+    "matplotlib",
+    "corner",
     "seaborn"
 ]
-# TODO optional dependencies? (seaborn, exo_k)
 
 [tool.flake8]
 max-line-length = 120
