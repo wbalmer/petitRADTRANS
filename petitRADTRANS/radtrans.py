@@ -310,7 +310,7 @@ class Radtrans:
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
             "and is inter-dependent with other line opacities parameters, that also need to be updated\n"
-            "It is recommended to create a new Radtrans instance with e.g. different wavelengths boundaries instead"
+            "It is recommended to create a new Radtrans instance with e.g. different wavelength boundaries instead"
         )
         self._frequencies = array
 

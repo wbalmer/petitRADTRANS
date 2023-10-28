@@ -106,7 +106,7 @@ def __sysrem_iteration2(spectrum_uncertainties_squared, uncertainties_squared_in
     Args:
         spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
         uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
-        c: 2-D matrix (..., exposures, wavelengths) containing the a-priori "extinction coefficients"
+        a: 2-D matrix (..., exposures, wavelengths) containing the a-priori "airmass"
         shape_a: intermediate shape for "airmass" estimation (wavelength, ..., exposure)
         shape_c: intermediate shape for "extinction coefficients" estimation (exposure, ..., wavelength)
 
