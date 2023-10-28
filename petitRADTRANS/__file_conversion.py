@@ -665,7 +665,7 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_d
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
@@ -1113,7 +1113,7 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
@@ -1702,7 +1702,7 @@ def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
@@ -2343,7 +2343,7 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.utcnow().isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
