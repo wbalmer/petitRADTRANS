@@ -83,296 +83,8 @@ def __print_skipping_message(hdf5_opacity_file):
     print(f"File '{hdf5_opacity_file}' already exists, skipping conversion...")
 
 
-def _get_prt2_cia_names():
-    return LockedDict.build_and_lock({
-        'H2-H2': 'H2--H2',
-        'H2-He': 'H2--He',
-        'H2O-H2O': 'H2O--H2O',  # TODO not in default input_data
-        'H2O-N2': 'H2O--N2',  # TODO not in default input_data
-        'N2-H2': 'N2--H2',
-        'N2-He': 'N2--He',
-        'N2-N2': 'N2--N2',
-        'O2-O2': 'O2--O2',
-        'N2-O2': 'N2--O2',
-        'CO2-CO2': 'CO2--CO2',
-    })
-
-
-def _get_prt2_cloud_names():
-    return LockedDict.build_and_lock({
-        'Al2O3(c)_cm': 'Al2O3(s)_crystalline',
-        'Al2O3(c)_cd': 'Al2O3(s)_crystalline',
-        'Fe(c)_am': 'Fe(s)_amorphous',
-        'Fe(c)_ad': 'Fe(s)_amorphous',
-        'Fe(c)_cm': 'Fe(s)_crystalline',
-        'Fe(c)_cd': 'Fe(s)_crystalline',
-        'H2O(c)_cm': 'H2O(s)_crystalline',  # TODO not in the docs
-        'H2O(c)_cd': 'H2O(s)_crystalline',  # TODO not in the docs
-        'H2OL(c)_am': 'H2O(l)',  # TODO not in the docs
-        'H2OSO425(c)_am': 'H2OSO425(l)',  # TODO not in the docs
-        'H2OSO450(c)_am': 'H2OSO450(l)',  # TODO not in the docs
-        'H2OSO475(c)_am': 'H2OSO475(l)',  # TODO not in the docs
-        'H2OSO484(c)_am': 'H2OSO484(l)',  # TODO not in the docs
-        'H2OSO495(c)_am': 'H2OSO495(l)',  # TODO not in the docs
-        'KCL(c)_cm': 'KCl(s)_crystalline',
-        'KCL(c)_cd': 'KCl(s)_crystalline',
-        'Mg2SiO4(c)_am': 'Mg2SiO4(s)_amorphous',
-        'Mg2SiO4(c)_ad': 'Mg2SiO4(s)_amorphous',
-        'Mg2SiO4(c)_cm': 'Mg2SiO4(s)_crystalline',
-        'Mg2SiO4(c)_cd': 'Mg2SiO4(s)_crystalline',
-        'Mg05Fe05SiO3(c)_am': 'Mg05Fe05SiO3(s)_amorphous',
-        'Mg05Fe05SiO3(c)_ad': 'Mg05Fe05SiO3(s)_amorphous',
-        'MgAl2O4(c)_cm': 'MgAl2O4(s)_crystalline',
-        'MgAl2O4(c)_cd': 'MgAl2O4(s)_crystalline',
-        'MgFeSiO4(c)_am': 'MgFeSiO4(s)_amorphous',
-        'MgFeSiO4(c)_ad': 'MgFeSiO4(s)_amorphous',
-        'MgSiO3(c)_am': 'MgSiO3(s)_amorphous',
-        'MgSiO3(c)_ad': 'MgSiO3(s)_amorphous',
-        'MgSiO3(c)_cm': 'MgSiO3(s)_crystalline',
-        'MgSiO3(c)_cd': 'MgSiO3(s)_crystalline',
-        'Na2S(c)_cm': 'Na2S(s)_crystalline',
-        'Na2S(c)_cd': 'Na2S(s)_crystalline',
-        'SiC(c)_cm': 'SiC(s)_crystalline',
-        'SiC(c)_cd': 'SiC(s)_crystalline'
-    })
-
-
-def _get_prt2_correlated_k_names():
-    return LockedDict.build_and_lock({
-        'Al': None,
-        'Al+': None,
-        'AlH': None,
-        'AlO': None,
-        'C2H2': None,
-        'C2H4': None,
-        'Ca': None,
-        'Ca+': None,
-        'CaH': None,
-        'CH4': None,
-        'CO_12_HITEMP': '12C-16O__HITEMP.R1000_0.1-250mu',
-        'CO_13_HITEMP': '13C-16O__HITEMP.R1000_0.1-250mu',
-        'CO_13_Chubb': '13C-16O__Li2015.R1000_0.3-50mu',
-        'CO_all_iso_Chubb': 'C-O-NatAbund__Chubb.R1000_0.3-50mu',
-        'CO_all_iso_HITEMP': 'C-O-NatAbund__HITEMP.R1000_0.1-250mu',
-        'CO2': None,
-        'CrH': None,
-        'Fe': None,
-        'Fe+': None,
-        'FeH': None,
-        'H2O_Exomol': '1H2-16O__POKAZATEL.R1000_0.3-50mu',
-        'H2O_HITEMP': '1H2-16O__HITEMP.R1000_0.1-250mu',
-        'H2S': None,
-        'HCN': None,
-        'K_allard': '39K__Allard.R1000_0.1-250mu',
-        'K_burrows': '39K__Burrows.R1000_0.1-250mu',
-        'K_lor_cut': '39K__LorCut.R1000_0.1-250mu',
-        'Li': None,
-        'Mg': None,
-        'Mg+': None,
-        'MgH': None,
-        'MgO': None,
-        'Na_allard': '23Na__Allard.R1000_0.1-250mu',
-        'Na_burrows': '23Na__Burrows.R1000_0.1-250mu',
-        'Na_lor_cut': '23Na__LorCut.R1000_0.1-250mu',
-        'NaH': None,
-        'NH3': None,
-        'O': None,
-        'O+': None,  # TODO not in the docs
-        'O2': None,
-        'O3': None,
-        'OH': None,
-        'PH3': None,
-        'SH': None,
-        'Si': None,
-        'Si+': None,
-        'SiO': None,
-        'SiO2': None,
-        'Ti': None,
-        'Ti+': None,
-        'TiO_48_Exomol': '48Ti-16O__McKemmish.R1000_0.1-250mu',
-        'TiO_48_Plez': '48Ti-16O__Plez.R1000_0.1-250mu',
-        'TiO_all_Exomol': 'Ti-O-NatAbund__McKemmish.R1000_0.1-250mu',
-        'TiO_all_Plez': 'Ti-O-NatAbund__Plez.R1000_0.1-250mu',
-        'V': None,
-        'V+': None,
-        'VO': None,
-        'VO_Plez': '51V-16O__Plez.R1000_0.1-250mu'
-    })
-
-
-def _get_prt2_line_by_line_names():
-    return LockedDict.build_and_lock({
-        'Al': None,
-        'B': None,
-        'Be': None,
-        'C2H2_main_iso': '12C2-1H2__HITRAN.R1e6_0.3-28mu',
-        'Ca': None,
-        'Ca+': None,
-        'CaH': None,
-        'CH4_212': '12C-1H3-2H__HITRAN.R1e6_0.3-28mu',
-        'CH4_Hargreaves_main_iso': '12C-1H4__Hargreaves.R1e6_0.3-28mu',
-        'CH4_main_iso': '12C-1H4__Molliere.R1e6_0.3-28mu',  # TODO not in docs
-        'CO2_main_iso': '12C-16O2__HITEMP.R1e6_0.3-28mu',
-        'CO_27': '12C-17O__HITRAN.R1e6_0.3-28mu',
-        'CO_28': '12C-18O__HITRAN.R1e6_0.3-28mu',
-        'CO_36': '13C-16O__HITRAN.R1e6_0.3-28mu',
-        'CO_37': '13C-17O__HITRAN.R1e6_0.3-28mu',
-        'CO_38': '13C-18O__HITRAN.R1e6_0.3-28mu',
-        'CO_all_iso': None,
-        'CO_main_iso': '12C-16O__HITRAN.R1e6_0.3-28mu',
-        'Cr': None,
-        'Fe': None,
-        'Fe+': None,
-        'FeH_main_iso': '56Fe-1H__MoLLIST.R1e6_0.3-28mu',
-        'H2_12': '1H-2H__HITRAN.R1e6_0.3-28mu',
-        'H2_main_iso': '1H2__HITRAN.R1e6_0.3-28mu',
-        'H2O_162': '1H-2H-16O__HITEMP.R1e6_0.3-28mu',
-        'H2O_171': '1H2-17O__HITEMP.R1e6_0.3-28mu',
-        'H2O_172': '1H-2H-17O__HITEMP.R1e6_0.3-28mu',
-        'H2O_181': '1H2-18O__HITEMP.R1e6_0.3-28mu',
-        'H2O_182': '1H-2H-18O__HITEMP.R1e6_0.3-28mu',
-        'H2O_main_iso': '1H2-16O__HITEMP.R1e6_0.3-28mu',
-        'H2O_pokazatel_main_iso': '1H2-16O__POKAZATEL.R1e6_0.3-28mu',
-        'H2S_main_iso': '1H2-32S__HITRAN.R1e6_0.3-28mu',
-        'HCN_main_iso': '1H-12C-14N__Harris.R1e6_0.3-28mu',
-        'K': '39K__Allard.R1e6_0.3-28mu',
-        'K_allard_cold': '39K__AllardCold.R1e6_0.3-28mu',
-        'Li': None,
-        'Mg': None,
-        'Mg+': None,
-        'N': None,
-        'Na_allard': '23Na__AllardOld.R1e6_0.3-28mu',
-        'Na_allard_new': '23Na__Allard.R1e6_0.3-28mu',
-        'NH3_main_iso': '14N-1H3__BYTe.R1e6_0.3-28mu',
-        'NH3_Coles_main_iso': '14N-1H3__CoYuTe.R1e6_0.3-28mu',
-        'O3_main_iso': None,
-        'OH_main_iso': None,
-        'PH3_main_iso': None,
-        'Si': None,
-        'SiO_main_iso': None,
-        'Ti': None,
-        'TiO_46_Exomol_McKemmish': '46Ti-16O__Toto.R1e6_0.3-28mu',
-        'TiO_46_Plez': '46Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_47_Exomol_McKemmish': '47Ti-16O__Toto.R1e6_0.3-28mu',
-        'TiO_47_Plez': '47Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_48_Exomol_McKemmish': '48Ti-16O__Toto.R1e6_0.3-28mu',
-        'TiO_48_Plez': '48Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_49_Exomol_McKemmish': '49Ti-16O__Toto.R1e6_0.3-28mu',
-        'TiO_49_Plez': '49Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_50_Exomol_McKemmish': '50Ti-16O__Toto.R1e6_0.3-28mu',
-        'TiO_50_Plez': '50Ti-16O__Plez.R1e6_0.3-28mu',
-        'TiO_all_iso_Plez': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
-        'TiO_all_iso_exo': 'Ti-O-NatAbund__Toto.R1e6_0.3-28mu',
-        'V': None,
-        'V+': None,
-        'VO': '51V-16O__Plez.R1e6_0.3-28mu',
-        'VO_ExoMol_McKemmish': '51V-16O__VOMYT.R1e6_0.3-28mu',
-        'VO_ExoMol_Specific_Transitions': '51V-16O__VOMYTSpe.R1e6_0.3-28mu',
-        'Y': None
-    })
-
-
-def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
-    # Read the Ps and Ts
-    pressure_temperature_grid = np.genfromtxt(pressure_temperature_grid_file)
-
-    # Read the file names
-    with open(pressure_temperature_grid_file, 'r') as f:
-        lines = f.readlines()
-
-    n_lines = len(lines)
-
-    # Prepare the array to contain the pressures, temperatures, indices in the unsorted list.
-    # Also prepare the list of unsorted names
-    sorted_grid = np.ones((n_lines, 3))
-    names = []
-
-    # Fill the array and name list
-    for i in range(n_lines):
-        columns = lines[i].split(' ')
-
-        sorted_grid[i, 0] = pressure_temperature_grid[i, 0]
-        sorted_grid[i, 1] = pressure_temperature_grid[i, 1]
-        sorted_grid[i, 2] = i
-
-        if columns[-1][-1] == '\n':
-            names.append(columns[-1][:-1])
-        else:
-            names.append(columns[-1])
-
-    # Sort the array by temperature
-    sorted_indices = np.argsort(sorted_grid[:, 1])
-    sorted_grid = sorted_grid[sorted_indices, :]
-
-    # Sort the array entries with constant temperatures by pressure
-    n_pressures = 0
-
-    for i in range(n_lines):
-        if np.abs(sorted_grid[i, 1] - sorted_grid[0, 1]) > 1e-10:
-            break
-
-        n_pressures = n_pressures + 1
-
-    n_temperatures = int(n_lines / n_pressures)
-
-    for i in range(n_temperatures):
-        sorted_grid_ = sorted_grid[i * n_pressures:(i + 1) * n_pressures, :]
-        sorted_indices = np.argsort(sorted_grid_[:, 0])
-        sorted_grid_ = sorted_grid_[sorted_indices, :]
-        sorted_grid[i * n_pressures:(i + 1) * n_pressures, :] = sorted_grid_
-
-    names_sorted = []
-
-    for i in range(n_lines):
-        names_sorted.append(names[int(sorted_grid[i, 2] + 0.01)])
-
-    # Convert from bar to cgs
-    sorted_grid[:, 0] = sorted_grid[:, 0] * 1e6
-
-    return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
-
-
-def get_default_rebinning_wavelength_range():
-    return np.array([0.1, 251.0])  # um
-
-
-def bin_species_exok(species, resolution):
-    """
-    This function uses exo-k to bin the c-k table of a
-    single species to a desired (lower) spectral resolution.
-
-    Args:
-        species : string
-            The name of the species
-        resolution : int
-            The desired spectral resolving power.
-    """
-    from petitRADTRANS.config import petitradtrans_config_parser
-
-    prt_path = petitradtrans_config_parser.get_input_data_path()
-
-    ck_paths = []
-
-    print(f"Resolving power: {resolution}")
-
-    for s in species:
-        ck_paths.append(get_opacity_input_file(
-            path_input_data=prt_path,
-            category='correlated_k_opacities',
-            species=s
-        ))
-
-        print(f" Re-binned opacities: '{ck_paths[-1]}'")
-
-    rebin_ck_line_opacities(
-        resolution=int(resolution),
-        paths=ck_paths,
-        species=species
-    )
-
-
-def chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False,
-                          old_paths=False, clean=False):
+def _chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False,
+                           old_paths=False, clean=False):
     from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
 
     # Read in parameters of chemistry grid
@@ -497,8 +209,8 @@ def chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
         __remove_files([os.path.join(path, 'abunds_python.dat')])
 
 
-def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                         rewrite=False, output_directory=None, old_paths=False, clean=False):
+def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                          rewrite=False, output_directory=None, old_paths=False, clean=False):
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
@@ -728,8 +440,8 @@ def continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_d
     print("Successfully converted CIA opacities")
 
 
-def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                      rewrite=False, old_paths=False, clean=False):
+def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                                       rewrite=False, old_paths=False, clean=False):
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     """Using ExoMol units for HDF5 files."""
@@ -1208,8 +920,8 @@ def continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_parse
     print("Successfully converted cloud opacities")
 
 
-def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                  rewrite=False, old_paths=False, clean=False):
+def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                                   rewrite=False, old_paths=False, clean=False):
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
 
@@ -1814,56 +1526,197 @@ def correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
     print("Successfully converted correlated-k line opacities")
 
 
-def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
-                correlation=None):
-    """
-    Generate a fits file that can be used as an input to a pRT retrieval.
-
-    Args:
-        wavelength : numpy.ndarray
-            The wavelength bin centers in micron. dim(N)
-        spectrum : numpy.ndarray
-            The flux density in W/m2/micron at each wavelength bin. dim(N)
-        covariance : numpy.ndarray
-            The covariance of the flux in (W/m2/micron)^2 dim(N,N)
-        object_name : string
-            The name of the object, used for file naming.
-        output_dir : string
-            The parent directory of the output file.
-        correlation : numpy.ndarray
-            The correlation matrix of the flux points (See Brogi & Line 2018, https://arxiv.org/pdf/1811.01681.pdf)
-
-    Returns:
-        hdul : astropy.fits.HDUlist
-            The HDUlist object storing the spectrum.
-    """
-
-    from astropy.io import fits
-
-    primary_hdu = fits.PrimaryHDU([])
-    primary_hdu.header['OBJECT'] = object_name
-
-    c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
-    c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
-    c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
-
-    if correlation is not None:
-        c4 = fits.Column(name="CORRELATION", array=correlation, format=str(correlation.shape[0]) + 'D', unit=" - ")
-    else:
-        c4 = None
-
-    columns = [c1, c2, c3, c4]
-
-    table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
-    hdul = fits.HDUList([primary_hdu, table_hdu])
-    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
-    hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
-
-    return hdul
+def _get_prt2_cia_names():
+    return LockedDict.build_and_lock({
+        'H2-H2': 'H2--H2',
+        'H2-He': 'H2--He',
+        'H2O-H2O': 'H2O--H2O',  # TODO not in default input_data
+        'H2O-N2': 'H2O--N2',  # TODO not in default input_data
+        'N2-H2': 'N2--H2',
+        'N2-He': 'N2--He',
+        'N2-N2': 'N2--N2',
+        'O2-O2': 'O2--O2',
+        'N2-O2': 'N2--O2',
+        'CO2-CO2': 'CO2--CO2',
+    })
 
 
-def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                  rewrite=False, old_paths=False, clean=False):
+def _get_prt2_cloud_names():
+    return LockedDict.build_and_lock({
+        'Al2O3(c)_cm': 'Al2O3(s)_crystalline',
+        'Al2O3(c)_cd': 'Al2O3(s)_crystalline',
+        'Fe(c)_am': 'Fe(s)_amorphous',
+        'Fe(c)_ad': 'Fe(s)_amorphous',
+        'Fe(c)_cm': 'Fe(s)_crystalline',
+        'Fe(c)_cd': 'Fe(s)_crystalline',
+        'H2O(c)_cm': 'H2O(s)_crystalline',  # TODO not in the docs
+        'H2O(c)_cd': 'H2O(s)_crystalline',  # TODO not in the docs
+        'H2OL(c)_am': 'H2O(l)',  # TODO not in the docs
+        'H2OSO425(c)_am': 'H2OSO425(l)',  # TODO not in the docs
+        'H2OSO450(c)_am': 'H2OSO450(l)',  # TODO not in the docs
+        'H2OSO475(c)_am': 'H2OSO475(l)',  # TODO not in the docs
+        'H2OSO484(c)_am': 'H2OSO484(l)',  # TODO not in the docs
+        'H2OSO495(c)_am': 'H2OSO495(l)',  # TODO not in the docs
+        'KCL(c)_cm': 'KCl(s)_crystalline',
+        'KCL(c)_cd': 'KCl(s)_crystalline',
+        'Mg2SiO4(c)_am': 'Mg2SiO4(s)_amorphous',
+        'Mg2SiO4(c)_ad': 'Mg2SiO4(s)_amorphous',
+        'Mg2SiO4(c)_cm': 'Mg2SiO4(s)_crystalline',
+        'Mg2SiO4(c)_cd': 'Mg2SiO4(s)_crystalline',
+        'Mg05Fe05SiO3(c)_am': 'Mg05Fe05SiO3(s)_amorphous',
+        'Mg05Fe05SiO3(c)_ad': 'Mg05Fe05SiO3(s)_amorphous',
+        'MgAl2O4(c)_cm': 'MgAl2O4(s)_crystalline',
+        'MgAl2O4(c)_cd': 'MgAl2O4(s)_crystalline',
+        'MgFeSiO4(c)_am': 'MgFeSiO4(s)_amorphous',
+        'MgFeSiO4(c)_ad': 'MgFeSiO4(s)_amorphous',
+        'MgSiO3(c)_am': 'MgSiO3(s)_amorphous',
+        'MgSiO3(c)_ad': 'MgSiO3(s)_amorphous',
+        'MgSiO3(c)_cm': 'MgSiO3(s)_crystalline',
+        'MgSiO3(c)_cd': 'MgSiO3(s)_crystalline',
+        'Na2S(c)_cm': 'Na2S(s)_crystalline',
+        'Na2S(c)_cd': 'Na2S(s)_crystalline',
+        'SiC(c)_cm': 'SiC(s)_crystalline',
+        'SiC(c)_cd': 'SiC(s)_crystalline'
+    })
+
+
+def _get_prt2_correlated_k_names():
+    return LockedDict.build_and_lock({
+        'Al': None,
+        'Al+': None,
+        'AlH': None,
+        'AlO': None,
+        'C2H2': None,
+        'C2H4': None,
+        'Ca': None,
+        'Ca+': None,
+        'CaH': None,
+        'CH4': None,
+        'CO_12_HITEMP': '12C-16O__HITEMP.R1000_0.1-250mu',
+        'CO_13_HITEMP': '13C-16O__HITEMP.R1000_0.1-250mu',
+        'CO_13_Chubb': '13C-16O__Li2015.R1000_0.3-50mu',
+        'CO_all_iso_Chubb': 'C-O-NatAbund__Chubb.R1000_0.3-50mu',
+        'CO_all_iso_HITEMP': 'C-O-NatAbund__HITEMP.R1000_0.1-250mu',
+        'CO2': None,
+        'CrH': None,
+        'Fe': None,
+        'Fe+': None,
+        'FeH': None,
+        'H2O_Exomol': '1H2-16O__POKAZATEL.R1000_0.3-50mu',
+        'H2O_HITEMP': '1H2-16O__HITEMP.R1000_0.1-250mu',
+        'H2S': None,
+        'HCN': None,
+        'K_allard': '39K__Allard.R1000_0.1-250mu',
+        'K_burrows': '39K__Burrows.R1000_0.1-250mu',
+        'K_lor_cut': '39K__LorCut.R1000_0.1-250mu',
+        'Li': None,
+        'Mg': None,
+        'Mg+': None,
+        'MgH': None,
+        'MgO': None,
+        'Na_allard': '23Na__Allard.R1000_0.1-250mu',
+        'Na_burrows': '23Na__Burrows.R1000_0.1-250mu',
+        'Na_lor_cut': '23Na__LorCut.R1000_0.1-250mu',
+        'NaH': None,
+        'NH3': None,
+        'O': None,
+        'O+': None,  # TODO not in the docs
+        'O2': None,
+        'O3': None,
+        'OH': None,
+        'PH3': None,
+        'SH': None,
+        'Si': None,
+        'Si+': None,
+        'SiO': None,
+        'SiO2': None,
+        'Ti': None,
+        'Ti+': None,
+        'TiO_48_Exomol': '48Ti-16O__McKemmish.R1000_0.1-250mu',
+        'TiO_48_Plez': '48Ti-16O__Plez.R1000_0.1-250mu',
+        'TiO_all_Exomol': 'Ti-O-NatAbund__McKemmish.R1000_0.1-250mu',
+        'TiO_all_Plez': 'Ti-O-NatAbund__Plez.R1000_0.1-250mu',
+        'V': None,
+        'V+': None,
+        'VO': None,
+        'VO_Plez': '51V-16O__Plez.R1000_0.1-250mu'
+    })
+
+
+def _get_prt2_line_by_line_names():
+    return LockedDict.build_and_lock({
+        'Al': None,
+        'B': None,
+        'Be': None,
+        'C2H2_main_iso': '12C2-1H2__HITRAN.R1e6_0.3-28mu',
+        'Ca': None,
+        'Ca+': None,
+        'CaH': None,
+        'CH4_212': '12C-1H3-2H__HITRAN.R1e6_0.3-28mu',
+        'CH4_Hargreaves_main_iso': '12C-1H4__Hargreaves.R1e6_0.3-28mu',
+        'CH4_main_iso': '12C-1H4__Molliere.R1e6_0.3-28mu',  # TODO not in docs
+        'CO2_main_iso': '12C-16O2__HITEMP.R1e6_0.3-28mu',
+        'CO_27': '12C-17O__HITRAN.R1e6_0.3-28mu',
+        'CO_28': '12C-18O__HITRAN.R1e6_0.3-28mu',
+        'CO_36': '13C-16O__HITRAN.R1e6_0.3-28mu',
+        'CO_37': '13C-17O__HITRAN.R1e6_0.3-28mu',
+        'CO_38': '13C-18O__HITRAN.R1e6_0.3-28mu',
+        'CO_all_iso': None,
+        'CO_main_iso': '12C-16O__HITRAN.R1e6_0.3-28mu',
+        'Cr': None,
+        'Fe': None,
+        'Fe+': None,
+        'FeH_main_iso': '56Fe-1H__MoLLIST.R1e6_0.3-28mu',
+        'H2_12': '1H-2H__HITRAN.R1e6_0.3-28mu',
+        'H2_main_iso': '1H2__HITRAN.R1e6_0.3-28mu',
+        'H2O_162': '1H-2H-16O__HITEMP.R1e6_0.3-28mu',
+        'H2O_171': '1H2-17O__HITEMP.R1e6_0.3-28mu',
+        'H2O_172': '1H-2H-17O__HITEMP.R1e6_0.3-28mu',
+        'H2O_181': '1H2-18O__HITEMP.R1e6_0.3-28mu',
+        'H2O_182': '1H-2H-18O__HITEMP.R1e6_0.3-28mu',
+        'H2O_main_iso': '1H2-16O__HITEMP.R1e6_0.3-28mu',
+        'H2O_pokazatel_main_iso': '1H2-16O__POKAZATEL.R1e6_0.3-28mu',
+        'H2S_main_iso': '1H2-32S__HITRAN.R1e6_0.3-28mu',
+        'HCN_main_iso': '1H-12C-14N__Harris.R1e6_0.3-28mu',
+        'K': '39K__Allard.R1e6_0.3-28mu',
+        'K_allard_cold': '39K__AllardCold.R1e6_0.3-28mu',
+        'Li': None,
+        'Mg': None,
+        'Mg+': None,
+        'N': None,
+        'Na_allard': '23Na__AllardOld.R1e6_0.3-28mu',
+        'Na_allard_new': '23Na__Allard.R1e6_0.3-28mu',
+        'NH3_main_iso': '14N-1H3__BYTe.R1e6_0.3-28mu',
+        'NH3_Coles_main_iso': '14N-1H3__CoYuTe.R1e6_0.3-28mu',
+        'O3_main_iso': None,
+        'OH_main_iso': None,
+        'PH3_main_iso': None,
+        'Si': None,
+        'SiO_main_iso': None,
+        'Ti': None,
+        'TiO_46_Exomol_McKemmish': '46Ti-16O__Toto.R1e6_0.3-28mu',
+        'TiO_46_Plez': '46Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_47_Exomol_McKemmish': '47Ti-16O__Toto.R1e6_0.3-28mu',
+        'TiO_47_Plez': '47Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_48_Exomol_McKemmish': '48Ti-16O__Toto.R1e6_0.3-28mu',
+        'TiO_48_Plez': '48Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_49_Exomol_McKemmish': '49Ti-16O__Toto.R1e6_0.3-28mu',
+        'TiO_49_Plez': '49Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_50_Exomol_McKemmish': '50Ti-16O__Toto.R1e6_0.3-28mu',
+        'TiO_50_Plez': '50Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso_Plez': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso_exo': 'Ti-O-NatAbund__Toto.R1e6_0.3-28mu',
+        'V': None,
+        'V+': None,
+        'VO': '51V-16O__Plez.R1e6_0.3-28mu',
+        'VO_ExoMol_McKemmish': '51V-16O__VOMYT.R1e6_0.3-28mu',
+        'VO_ExoMol_Specific_Transitions': '51V-16O__VOMYTSpe.R1e6_0.3-28mu',
+        'Y': None
+    })
+
+
+def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                                   rewrite=False, old_paths=False, clean=False):
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
@@ -2422,8 +2275,8 @@ def line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.ge
     print("Successfully converted line-by-line line opacities")
 
 
-def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False,
-                        old_paths=False, clean=False):
+def _phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False,
+                         old_paths=False, clean=False):
     """
     Convert a PHOENIX stellar spectrum in .dat format to HDF5 format.
     """
@@ -2509,55 +2362,7 @@ def phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_da
         __remove_files(old_files)
 
 
-def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False):
-    import exo_k
-
-    if species is None:
-        species = []
-
-    if paths is None:
-        paths = []
-
-    # Define own wavenumber grid, make sure that log spacing is constant everywhere
-    wavelengths_boundaries = get_default_rebinning_wavelength_range()
-    n_spectral_points = int(
-        resolution * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
-    )
-
-    wavenumber_grid = np.logspace(
-        np.log10(1 / wavelengths_boundaries[1] * 1e4),
-        np.log10(1 / wavelengths_boundaries[0] * 1e4),
-        n_spectral_points
-    )
-
-    # Do the rebinning, loop through species
-    for i, s in enumerate(species):
-        # Output files
-        hdf5_opacity_file_input = paths[i]
-        hdf5_opacity_file = paths[i].replace(
-            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
-            join_species_all_info('', spectral_info=get_resolving_power_string(resolution))
-        )
-
-        if os.path.isfile(hdf5_opacity_file) and not rewrite:
-            print(f"Skipping already re-binned species '{s}' (file '{hdf5_opacity_file}' already exists)...")
-            continue
-
-        print(f"Rebinning species {s}...")
-        # Use Exo-k to rebin to low-res
-        print(f" Binning down to R = {resolution}...", end=' ')
-        tab = exo_k.Ktable(filename=hdf5_opacity_file_input)
-        tab.bin_down(wavenumber_grid)
-
-        print(f" Writing binned down file '{hdf5_opacity_file}'...")
-        tab.write_hdf5(hdf5_opacity_file)
-
-        print(f" Successfully binned down k-table of species '{s}' \n")
-
-    print("Successfully binned down all k-tables\n")
-
-
-def refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_input_data_path()):
+def _refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_input_data_path()):
     old_input_data_subpaths = __get_prt2_input_data_subpaths()
     directories_to_create = copy.deepcopy(old_input_data_subpaths)
 
@@ -2813,33 +2618,228 @@ def refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_i
                     continue
 
 
+def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
+    # Read the Ps and Ts
+    pressure_temperature_grid = np.genfromtxt(pressure_temperature_grid_file)
+
+    # Read the file names
+    with open(pressure_temperature_grid_file, 'r') as f:
+        lines = f.readlines()
+
+    n_lines = len(lines)
+
+    # Prepare the array to contain the pressures, temperatures, indices in the unsorted list.
+    # Also prepare the list of unsorted names
+    sorted_grid = np.ones((n_lines, 3))
+    names = []
+
+    # Fill the array and name list
+    for i in range(n_lines):
+        columns = lines[i].split(' ')
+
+        sorted_grid[i, 0] = pressure_temperature_grid[i, 0]
+        sorted_grid[i, 1] = pressure_temperature_grid[i, 1]
+        sorted_grid[i, 2] = i
+
+        if columns[-1][-1] == '\n':
+            names.append(columns[-1][:-1])
+        else:
+            names.append(columns[-1])
+
+    # Sort the array by temperature
+    sorted_indices = np.argsort(sorted_grid[:, 1])
+    sorted_grid = sorted_grid[sorted_indices, :]
+
+    # Sort the array entries with constant temperatures by pressure
+    n_pressures = 0
+
+    for i in range(n_lines):
+        if np.abs(sorted_grid[i, 1] - sorted_grid[0, 1]) > 1e-10:
+            break
+
+        n_pressures = n_pressures + 1
+
+    n_temperatures = int(n_lines / n_pressures)
+
+    for i in range(n_temperatures):
+        sorted_grid_ = sorted_grid[i * n_pressures:(i + 1) * n_pressures, :]
+        sorted_indices = np.argsort(sorted_grid_[:, 0])
+        sorted_grid_ = sorted_grid_[sorted_indices, :]
+        sorted_grid[i * n_pressures:(i + 1) * n_pressures, :] = sorted_grid_
+
+    names_sorted = []
+
+    for i in range(n_lines):
+        names_sorted.append(names[int(sorted_grid[i, 2] + 0.01)])
+
+    # Convert from bar to cgs
+    sorted_grid[:, 0] = sorted_grid[:, 0] * 1e6
+
+    return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
+
+
+def get_default_rebinning_wavelength_range():
+    return np.array([0.1, 251.0])  # um
+
+
+def bin_species_exok(species, resolution):
+    """
+    This function uses exo-k to bin the c-k table of a
+    single species to a desired (lower) spectral resolution.
+
+    Args:
+        species : string
+            The name of the species
+        resolution : int
+            The desired spectral resolving power.
+    """
+    from petitRADTRANS.config import petitradtrans_config_parser
+
+    prt_path = petitradtrans_config_parser.get_input_data_path()
+
+    ck_paths = []
+
+    print(f"Resolving power: {resolution}")
+
+    for s in species:
+        ck_paths.append(get_opacity_input_file(
+            path_input_data=prt_path,
+            category='correlated_k_opacities',
+            species=s
+        ))
+
+        print(f" Re-binned opacities: '{ck_paths[-1]}'")
+
+    rebin_ck_line_opacities(
+        resolution=int(resolution),
+        paths=ck_paths,
+        species=species
+    )
+
+
+def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
+                correlation=None):
+    """
+    Generate a fits file that can be used as an input to a pRT retrieval.
+
+    Args:
+        wavelength : numpy.ndarray
+            The wavelength bin centers in micron. dim(N)
+        spectrum : numpy.ndarray
+            The flux density in W/m2/micron at each wavelength bin. dim(N)
+        covariance : numpy.ndarray
+            The covariance of the flux in (W/m2/micron)^2 dim(N,N)
+        object_name : string
+            The name of the object, used for file naming.
+        output_dir : string
+            The parent directory of the output file.
+        correlation : numpy.ndarray
+            The correlation matrix of the flux points (See Brogi & Line 2018, https://arxiv.org/pdf/1811.01681.pdf)
+
+    Returns:
+        hdul : astropy.fits.HDUlist
+            The HDUlist object storing the spectrum.
+    """
+
+    from astropy.io import fits
+
+    primary_hdu = fits.PrimaryHDU([])
+    primary_hdu.header['OBJECT'] = object_name
+
+    c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
+    c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
+    c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
+
+    if correlation is not None:
+        c4 = fits.Column(name="CORRELATION", array=correlation, format=str(correlation.shape[0]) + 'D', unit=" - ")
+    else:
+        c4 = None
+
+    columns = [c1, c2, c3, c4]
+
+    table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
+    hdul = fits.HDUList([primary_hdu, table_hdu])
+    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
+    hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
+
+    return hdul
+
+
+def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False):
+    import exo_k
+
+    if species is None:
+        species = []
+
+    if paths is None:
+        paths = []
+
+    # Define own wavenumber grid, make sure that log spacing is constant everywhere
+    wavelengths_boundaries = get_default_rebinning_wavelength_range()
+    n_spectral_points = int(
+        resolution * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
+    )
+
+    wavenumber_grid = np.logspace(
+        np.log10(1 / wavelengths_boundaries[1] * 1e4),
+        np.log10(1 / wavelengths_boundaries[0] * 1e4),
+        n_spectral_points
+    )
+
+    # Do the rebinning, loop through species
+    for i, s in enumerate(species):
+        # Output files
+        hdf5_opacity_file_input = paths[i]
+        hdf5_opacity_file = paths[i].replace(
+            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
+            join_species_all_info('', spectral_info=get_resolving_power_string(resolution))
+        )
+
+        if os.path.isfile(hdf5_opacity_file) and not rewrite:
+            print(f"Skipping already re-binned species '{s}' (file '{hdf5_opacity_file}' already exists)...")
+            continue
+
+        print(f"Rebinning species {s}...")
+        # Use Exo-k to rebin to low-res
+        print(f" Binning down to R = {resolution}...", end=' ')
+        tab = exo_k.Ktable(filename=hdf5_opacity_file_input)
+        tab.bin_down(wavenumber_grid)
+
+        print(f" Writing binned down file '{hdf5_opacity_file}'...")
+        tab.write_hdf5(hdf5_opacity_file)
+
+        print(f" Successfully binned down k-table of species '{s}' \n")
+
+    print("Successfully binned down all k-tables\n")
+
+
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                 rewrite=False, old_paths=False, clean=False):
     if not old_paths:
         print("Refactoring input data folder...")
-        refactor_input_data_folder(path_input_data=path_input_data)
+        _refactor_input_data_folder(path_input_data=path_input_data)
         print("Refactoring done\n----")
 
     print("Starting all conversions...")
 
     print("Stellar spectra...")
-    phoenix_spec_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _phoenix_spec_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Chemical tables...")
-    chemical_table_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _chemical_table_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("CIA...")
-    continuum_cia_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _continuum_cia_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Clouds continuum...")
-    continuum_clouds_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite,
-                                      old_paths=old_paths, clean=clean)
+    _continuum_clouds_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite,
+                                       old_paths=old_paths, clean=clean)
 
     print("Correlated-k opacities")
-    correlated_k_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _correlated_k_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Line-by-line opacities...")
-    line_by_line_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _line_by_line_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Successfully converted all .dat files into HDF5")
 
