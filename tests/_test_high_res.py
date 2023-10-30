@@ -10,7 +10,7 @@ atmosphere = Radtrans(line_species = ['H2O_main_iso',
                                       'K'],
                       rayleigh_species = ['H2', 'He'],
                       gas_continuum_contributors= ['H2-H2', 'H2-He'],
-                      wavelengths_boundaries= [2.2, 2.4],
+                      wavelength_boundaries= [2.2, 2.4],
                       line_opacity_mode='lbl')
 
 pressures = np.logspace(-10, 2, 130)

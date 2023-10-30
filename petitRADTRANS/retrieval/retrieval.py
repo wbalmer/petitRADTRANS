@@ -7,9 +7,7 @@ import sys
 import traceback
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 from scipy.stats import binned_statistic
 
 from petitRADTRANS import physical_constants as cst
@@ -641,7 +639,7 @@ class Retrieval:
                     gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                     cloud_species=cp.copy(self.rd.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
-                    wavelengths_boundaries=dd.wlen_range_pRT,
+                    wavelength_boundaries=dd.wlen_range_pRT,
                     scattering_in_emission=self.rd.scattering,
                     line_by_line_opacity_sampling=lbl_samp
                 )
@@ -1193,7 +1191,7 @@ class Retrieval:
                 gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                 cloud_species=cp.copy(self.rd.cloud_species),
                 line_opacity_mode=self.data[self.rd.plot_kwargs["take_PTs_from"]].opacity_mode,
-                wavelengths_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
+                wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.rd.scattering
             )
         if self.rd.AMR:
@@ -1852,7 +1850,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=np.array([0.85, 250]),
+            wavelength_boundaries=np.array([0.85, 250]),
             scattering_in_emission=self.rd.scattering
         )  # TODO this prt_object is never used
         if self.rd.AMR:
@@ -1867,7 +1865,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
             cloud_species=cp.copy(self.rd.cloud_species),
             line_opacity_mode='c-k',
-            wavelengths_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=np.array([0.5, 28]),
             scattering_in_emission=self.rd.scattering
         )
 
@@ -2091,6 +2089,9 @@ class Retrieval:
             ax_r : matplotlib.axes
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
+
         if not self.use_MPI or rank == 0:
             # Avoiding saving the model spectrum to the sampled spectrum dictionary.
             check = self.evaluate_sample_spectra
@@ -2452,6 +2453,7 @@ class Retrieval:
                 retrieval that is still running. If False no new spectrum will be calculated and the plot will
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
         """
+        import matplotlib.pyplot as plt
         from petitRADTRANS.plotlib.plotlib import plot_data
 
         if not self.use_MPI or rank == 0:
@@ -2481,7 +2483,7 @@ class Retrieval:
                                   gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                                   cloud_species=cp.copy(self.rd.cloud_species),
                                   line_opacity_mode='c-k',
-                                  wavelengths_boundaries=[wmin * 0.98, wmax * 1.02],
+                                  wavelength_boundaries=[wmin * 0.98, wmax * 1.02],
                                   scattering_in_emission=self.rd.scattering)
             fig, ax = plt.subplots(figsize=(16, 10))
             nsamp = nsample
@@ -2599,6 +2601,8 @@ class Retrieval:
             fig : matplotlib.figure
             ax : matplotlib.axes
         """
+        import matplotlib.pyplot as plt
+
         if not self.use_MPI or rank == 0:
 
             print("\nPlotting PT profiles")
@@ -2902,6 +2906,8 @@ class Retrieval:
         """
         Plot the data used in the retrieval.
         """
+        import matplotlib.pyplot as plt
+
         if not self.use_MPI or rank == 0:
             fig, ax = plt.subplots(figsize=(10, 6))
             for name, dd in self.rd.data.items():
@@ -2954,6 +2960,8 @@ class Retrieval:
             ax_r : matplotlib.axes
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
+        import matplotlib.pyplot as plt
+
         if not self.use_MPI or rank == 0:
 
             self.evaluate_sample_spectra = False
@@ -3106,6 +3114,8 @@ class Retrieval:
             ax_r : matplotlib.axes
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
+        import matplotlib.pyplot as plt
+
         if not self.use_MPI or rank == 0:
             print("\nPlotting Abundances profiles")
             # if self.prt_plot_style:

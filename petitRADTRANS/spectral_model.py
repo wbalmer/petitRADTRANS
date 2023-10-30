@@ -59,8 +59,7 @@ class SpectralModel(Radtrans):
 
         Initialised like a Radtrans object. Additional parameters, that are used to generate the spectrum, are stored
         into the attribute model_parameters.
-        The corresponding Radtrans object must be generated with the init_radtrans function.
-        The spectrum is generated with the get_spectrum_model function.
+        The spectrum is generated with the calculate_spectrum function.
         A retrieval object can be initialised with the init_retrieval function.
         The generated Retrieval can be run using the run_retrieval function.
 
@@ -134,15 +133,23 @@ class SpectralModel(Radtrans):
         """
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = self.compute_radial_velocity_semi_amplitude
+        else:
+            self.compute_radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function
 
         if radial_velocities_function is None:
             radial_velocities_function = self.compute_radial_velocities
+        else:
+            self.compute_radial_velocity = radial_velocities_function
 
         if relative_velocities_function is None:
             relative_velocities_function = self.compute_relative_velocities
+        else:
+            self.compute_relative_velocities = relative_velocities_function
 
         if orbital_longitudes_function is None:
             orbital_longitudes_function = self.compute_orbital_longitudes
+        else:
+            self.compute_orbital_longitudes = orbital_longitudes_function
 
         # Other model parameters
         self.model_parameters = model_parameters
@@ -176,7 +183,7 @@ class SpectralModel(Radtrans):
         # Atmosphere/Radtrans parameters
         super().__init__(
             pressures=pressures,
-            wavelengths_boundaries=wavelengths_boundaries,
+            wavelength_boundaries=wavelengths_boundaries,
             line_species=line_species,
             gas_continuum_contributors=gas_continuum_contributors,
             rayleigh_species=rayleigh_species,
@@ -235,7 +242,8 @@ class SpectralModel(Radtrans):
     def __init_velocities(radial_velocity_semi_amplitude_function, radial_velocities_function,
                           relative_velocities_function, orbital_longitudes_function,
                           relative_velocities=None, system_observer_radial_velocities=None,
-                          radial_velocities=None, rest_frame_velocity_shift=0.0,
+                          radial_velocities=None,
+                          radial_velocity_semi_amplitude=None, rest_frame_velocity_shift=0.0,
                           orbital_longitudes=None, orbital_phases=None, orbital_period=None,
                           times=None, mid_transit_time=None, is_orbiting=None, **kwargs):
         if system_observer_radial_velocities is None:
@@ -266,8 +274,6 @@ class SpectralModel(Radtrans):
                           "or set model parameter 'is_orbiting' to False")
 
             orbital_longitudes = np.zeros(1)
-
-        radial_velocity_semi_amplitude = None
 
         # Calculate relative velocities if needed
         if relative_velocities is None:
@@ -761,11 +767,10 @@ class SpectralModel(Radtrans):
         return wavelengths_tmp, spectrum
 
     def calculate_emission_spectrum(self, parameters):
-        self.wavelengths, self.fluxes, additional_outputs = self.compute_flux(
-            radtrans=self,
+        self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
-            mass_mixing_ratios=self.mass_fractions,
-            mean_molar_mass=self.mean_molar_masses,
+            mass_fractions=self.mass_fractions,
+            mean_molar_masses=self.mean_molar_masses,
             **parameters
         )
 
@@ -915,10 +920,9 @@ class SpectralModel(Radtrans):
         return wavelengths, spectrum
 
     def calculate_transmission_spectrum(self, parameters):
-        self.wavelengths, self.transit_radii, additional_outputs = self.compute_transit_spectrum(
-            radtrans=self,
+        self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_radii(
             temperatures=self.temperatures,
-            mass_mixing_ratios=self.mass_fractions,
+            mass_fractions=self.mass_fractions,
             mean_molar_masses=self.mean_molar_masses,
             **parameters
         )
@@ -985,7 +989,7 @@ class SpectralModel(Radtrans):
         imposed value regardless of chemical equilibrium consistency.
 
         Args:
-            pressures: (bar) pressures of the mass mixing ratios
+            pressures: (cgs) pressures of the mass mixing ratios
             line_species: list of line species, required to manage naming differences between opacities and chemistry
             included_line_species: which line species of the list to include, mass mixing ratio set to 0 otherwise
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
@@ -1448,110 +1452,6 @@ class SpectralModel(Radtrans):
         return temperatures, mass_mixing_ratios, mean_molar_mass, kwargs
 
     @staticmethod
-    def compute_flux(radtrans: Radtrans, temperatures, mass_mixing_ratios,
-                     planet_surface_gravity, mean_molar_mass,
-                     planet_star_spectral_radiances=None,
-                     star_effective_temperature=None, star_radius=None,
-                     orbit_semi_major_axis=None,
-                     cloud_pressure=None, cloud_sigma=None, cloud_sedimentation_factor=None,
-                     cloud_particle_radii=None, cloud_particle_size_distribution='lognormal',
-                     cloud_hansen_a=None, cloud_hansen_b=None, eddy_diffusion_coefficient=None,
-                     scattering_opacity_350nm=None, scattering_opacity_coefficient=None,
-                     cloud_photospheric_optical_depth=None,
-                     cloud_photospheric_wavelengths_boundaries=None, uniform_gray_opacity=None,
-                     irradiation_geometry='dayside_ave', irradiation_inclination=0.0,
-                     planet_radius=None, system_distance=None, is_observed=False,
-                     calculate_contribution=False, add_cloud_scattering_as_absorption=False,
-                     absorption_opacity_function=None, scattering_opacity_function=None,
-                     **kwargs):
-        """Wrapper of Radtrans.calc_flux that output wavelengths in um and spectral radiosity in W.m-2/um.
-        Args:
-            radtrans:
-            temperatures:
-            mass_mixing_ratios:
-            planet_surface_gravity:
-            mean_molar_mass:
-            star_effective_temperature:
-            star_radius:
-            orbit_semi_major_axis:
-            planet_star_spectral_radiances:
-            cloud_pressure:
-            cloud_sigma:
-            cloud_sedimentation_factor:
-            cloud_particle_radii:
-            cloud_particle_size_distribution:
-            cloud_hansen_a:
-            cloud_hansen_b:
-            eddy_diffusion_coefficient:
-            scattering_opacity_350nm:
-            scattering_opacity_coefficient:
-            cloud_photospheric_optical_depth:
-            cloud_photospheric_wavelengths_boundaries:
-            uniform_gray_opacity:
-            irradiation_geometry:
-            irradiation_inclination:
-            planet_radius:
-            system_distance:
-            is_observed:
-            calculate_contribution:
-            add_cloud_scattering_as_absorption:
-            absorption_opacity_function:
-            scattering_opacity_function:
-            scattering_opacity_function:
-
-        Returns:
-
-        """
-        if is_observed:
-            SpectralModel.__check_none_model_parameters(
-                explanation_message_="These model parameters are required to calculate "
-                                     "the observed irradiance of the planet ; "
-                                     "set model parameter 'is_observed' to False if the planet is not observed",
-                planet_radius=planet_radius,
-                system_distance=system_distance
-            )
-
-        # Calculate the spectrum
-        wavelengths, spectral_radiosity, additional_outputs = radtrans.calculate_flux(
-            temperatures=temperatures,
-            mass_fractions=mass_mixing_ratios,
-            reference_gravity=planet_surface_gravity,
-            mean_molar_masses=mean_molar_mass,
-            planet_radius=planet_radius,
-            cloud_particle_radius_distribution_std=cloud_sigma,
-            cloud_f_sed=cloud_sedimentation_factor,
-            eddy_diffusion_coefficients=eddy_diffusion_coefficient,
-            clouds_particles_mean_radii=cloud_particle_radii,
-            return_contribution=calculate_contribution,
-            gray_opacity=uniform_gray_opacity,
-            opaque_cloud_top_pressure=cloud_pressure,
-            power_law_opacity_350nm=scattering_opacity_350nm,
-            power_law_opacity_coefficient=scattering_opacity_coefficient,
-            star_effective_temperature=star_effective_temperature,
-            star_radius=star_radius,
-            orbit_semi_major_axis=orbit_semi_major_axis,
-            emission_geometry=irradiation_geometry,
-            star_irradiation_angle=irradiation_inclination,
-            cloud_photosphere_median_optical_depth=cloud_photospheric_optical_depth,
-            cloud_particles_radius_distribution=cloud_particle_size_distribution,
-            cloud_hansen_a=cloud_hansen_a,
-            cloud_hansen_b=cloud_hansen_b,
-            stellar_intensities=planet_star_spectral_radiances,
-            additional_absorption_opacities_function=absorption_opacity_function,
-            additional_scattering_opacities_function=scattering_opacity_function,
-            frequencies_to_wavelengths=True
-            # **kwargs  # TODO add kwargs once arguments names are made unambiguous
-            # TODO add the other arguments
-        )
-
-        # TODO unit change as an option?
-        # Transform the outputs into the units of our data
-        spectral_radiosity *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-        wavelengths *= 1e4  # cm to um
-
-        return wavelengths, spectral_radiosity, additional_outputs
-
-    @staticmethod
     def compute_star_flux(star_effective_temperature, **kwargs):
         star_data, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
 
@@ -1581,7 +1481,7 @@ class SpectralModel(Radtrans):
                                  f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)})")
         elif temperature_profile_mode == 'guillot':
             temperatures = temperature_profile_function_guillot_metallic(
-                pressures=pressures,
+                pressures=pressures,  # TODO change TP pressure to CGS
                 gamma=guillot_temperature_profile_gamma,
                 surface_gravity=planet_surface_gravity,
                 intrinsic_temperature=intrinsic_temperature,
@@ -1620,82 +1520,6 @@ class SpectralModel(Radtrans):
         )
 
         return 1 - spectrum_transit_fractional_light_loss
-
-    @staticmethod
-    def compute_transit_spectrum(radtrans, temperatures, mass_mixing_ratios, mean_molar_masses,
-                                 planet_surface_gravity, reference_pressure, planet_radius,
-                                 cloud_pressure=None, haze_factor=1.0, cloud_particle_size_distribution='lognormal',
-                                 cloud_particle_radii=None, cloud_particle_log_normal_width=None,
-                                 cloud_hansen_a=None, cloud_hansen_b=None,
-                                 cloud_sedimentation_factor=None, eddy_diffusion_coefficient=None,
-                                 scattering_opacity_350nm=None, scattering_opacity_coefficient=None,
-                                 uniform_gray_opacity=None,
-                                 absorption_opacity_function=None, scattering_opacity_function=None,
-                                 gravity_is_variable=True, calculate_contribution=False,
-                                 **kwargs):
-        """Wrapper of Radtrans.calc_transm that output wavelengths in um and transit radius in cm.
-        # TODO move to Radtrans or outside of object
-
-        Args:
-            radtrans:
-            temperatures:
-            mass_mixing_ratios:
-            planet_surface_gravity:
-            mean_molar_masses:
-            reference_pressure:
-            planet_radius:
-            cloud_pressure:
-            haze_factor:
-            cloud_particle_size_distribution:
-            cloud_particle_radii:
-            cloud_particle_log_normal_width:
-            cloud_hansen_a:
-            cloud_hansen_b:
-            cloud_sedimentation_factor:
-            eddy_diffusion_coefficient:
-            scattering_opacity_350nm:
-            scattering_opacity_coefficient:
-            uniform_gray_opacity:
-            absorption_opacity_function:
-            scattering_opacity_function:
-            gravity_is_variable:
-            calculate_contribution:
-
-        Returns:
-
-        """
-        # Calculate the spectrum
-        wavelengths, planet_transit_radius, additional_outputs = radtrans.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=mass_mixing_ratios,
-            reference_gravity=planet_surface_gravity,
-            mean_molar_masses=mean_molar_masses,
-            reference_pressure=reference_pressure,
-            planet_radius=planet_radius,
-            cloud_particle_radius_distribution_std=cloud_particle_log_normal_width,
-            cloud_f_sed=cloud_sedimentation_factor,
-            eddy_diffusion_coefficient=eddy_diffusion_coefficient,
-            clouds_particles_mean_radii=cloud_particle_radii,
-            opaque_cloud_top_pressure=cloud_pressure,
-            power_law_opacity_350nm=scattering_opacity_350nm,
-            power_law_opacity_coefficient=scattering_opacity_coefficient,
-            return_contribution=calculate_contribution,
-            haze_factor=haze_factor,
-            gray_opacity=uniform_gray_opacity,
-            variable_gravity=gravity_is_variable,
-            cloud_particles_radius_distribution=cloud_particle_size_distribution,
-            cloud_hansen_b=cloud_hansen_b,
-            cloud_hansen_a=cloud_hansen_a,
-            additional_absorption_opacities_function=absorption_opacity_function,
-            additional_scattering_opacities_function=scattering_opacity_function,
-            frequencies_to_wavelengths=True
-        )
-
-        # Convert into more useful units
-        wavelengths *= 1e4  # cm to um
-        # TODO add an option to convert into stellar flux during transit by adding a star spectrum?
-
-        return wavelengths, planet_transit_radius, additional_outputs
 
     @staticmethod
     def compute_velocity_range(radial_velocity_semi_amplitude_range,
@@ -1884,7 +1708,7 @@ class SpectralModel(Radtrans):
             mean_molar_masses=self.mean_molar_masses
         )
 
-    def init_retrieval(self, radtrans: Radtrans, data, data_wavelengths, data_uncertainties, retrieval_directory,
+    def init_retrieval(self, data, data_wavelengths, data_uncertainties, retrieval_directory,
                        retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
                        mode='emission', uncertainties_mode='default', update_parameters=False,
                        telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
@@ -1956,7 +1780,6 @@ class SpectralModel(Radtrans):
                 parameters=parameters,
                 pt_plot_mode=pt_plot_mode,
                 AMR=AMR,
-                spectrum_model=self,
                 mode=mode,
                 update_parameters=update_parameters,
                 telluric_transmittances=telluric_transmittances,
@@ -1975,7 +1798,7 @@ class SpectralModel(Radtrans):
             name=dataset_name,
             path=None,
             model_generating_function=model_generating_function,
-            prt_object=radtrans,
+            prt_object=self,
             wlen=data_wavelengths,
             flux=data,
             flux_error=data_uncertainties,
@@ -2363,7 +2186,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
-                                            spectrum_model=None, mode='emission', update_parameters=False,
+                                            mode='emission', update_parameters=False,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
@@ -2419,8 +2242,7 @@ class SpectralModel(Radtrans):
         for key, value in imposed_mass_fractions.items():
             p['imposed_mass_fractions'][key] = value
 
-        wavelengths, model = spectrum_model.calculate_spectrum(
-            radtrans=prt_object,
+        wavelengths, model = prt_object.calculate_spectrum(
             mode=mode,
             parameters=p,
             update_parameters=update_parameters,
@@ -2489,8 +2311,7 @@ class SpectralModel(Radtrans):
             )
             f.create_dataset(
                 name='units',
-                data='pressures are in bar, radiosities are in erg.s-1.cm-2.sr-1/cm, wavelengths are in um, '
-                     'otherwise all other units are in CGS'
+                data='all units are in CGS'
             )
 
     @staticmethod

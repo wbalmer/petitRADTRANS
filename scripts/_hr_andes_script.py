@@ -414,7 +414,7 @@ def init_and_run_retrieval(comm, rank, planet, line_species_str, mode, retrieval
             'observed_spectra': None,
             'observations_uncertainties': None,
             'prt_object': Radtrans(
-                line_species=['H2O_main_iso'], line_opacity_mode='lbl', pressures=np.array([1e2]), wavelengths_boundaries=[1.0, 1.00001]
+                line_species=['H2O_main_iso'], line_opacity_mode='lbl', pressures=np.array([1e2]), wavelength_boundaries=[1.0, 1.00001]
             ),  # initializing here because Radtrans cannot be an empty instance
             'parameters': {}
         }
@@ -453,7 +453,7 @@ def init_and_run_retrieval(comm, rank, planet, line_species_str, mode, retrieval
                     line_species=init_dict['line_species'],
                     rayleigh_species=init_dict['rayleigh_species'],
                     gas_continuum_contributors=init_dict['continuum_opacities'],
-                    wavelengths_boundaries=init_dict['wlen_bords_micron'],
+                    wavelength_boundaries=init_dict['wlen_bords_micron'],
                     line_opacity_mode=init_dict['mode'],
                     scattering_in_emission=init_dict['do_scat_emis'],
                     line_by_line_opacity_sampling=init_dict['lbl_opacity_sampling']

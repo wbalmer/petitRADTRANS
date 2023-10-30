@@ -8,7 +8,7 @@ from matplotlib.lines import Line2D
 from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.chemistry.condensation import (
+from petitRADTRANS.chemistry.clouds import (
     return_t_cond_fe, return_t_cond_fe_l, return_t_cond_fe_comb, return_t_cond_kcl, return_t_cond_mgsio3,
     return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
 )

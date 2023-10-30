@@ -1345,7 +1345,7 @@ class SpectralModelLegacy:
             line_species=line_species_list,
             rayleigh_species=rayleigh_species,
             gas_continuum_contributors=continuum_opacities,
-            wavelengths_boundaries=wlen_bords_micron,
+            wavelength_boundaries=wlen_bords_micron,
             line_opacity_mode=mode,
             scattering_in_emission=do_scat_emis,
             line_by_line_opacity_sampling=lbl_opacity_sampling

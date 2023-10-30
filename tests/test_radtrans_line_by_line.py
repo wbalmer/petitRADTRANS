@@ -23,7 +23,7 @@ def init_radtrans_line_by_line():
         line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
         gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
-        wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
+        wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
         line_opacity_mode='lbl'
     )
 

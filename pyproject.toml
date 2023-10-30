@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.0.0a86"
+version = "3.0.0a88"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"
@@ -32,16 +32,50 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy"
 ]
 dependencies = [
+    "meson-python",
+    "ninja",
     "numpy",
     "scipy",
     "astropy",
-    "corner",
-    "exo_k",
-    "h5py",
-    "matplotlib",
     "molmass",
+    "h5py",
     "pymultinest",
-    "pyvo",
+    "pyvo"
+]
+
+[project.optional-dependencies]
+retrieval = [
+    "mpi4py",
+    "exo_k",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner"
+]
+full = [
+    "mpi4py",
+    "exo_k",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner",
+    "seaborn",  # only used in nice_corner
+    "species",  # only used in RetrievalConfig.add_photometry
+    "ultranest"  # alternative to pymultinest
+]
+test = [
+    "build",
+    "wheel",
+    "pytest",
+    "pytest-cov",
+    "mpi4py",
+    "exo_k",
+    "ultranest",
+    "requests",
+    "skycalc-cli",
+    "species",
+    "matplotlib",
+    "corner",
     "seaborn"
 ]
 
