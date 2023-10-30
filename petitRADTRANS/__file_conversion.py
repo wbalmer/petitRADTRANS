@@ -15,7 +15,8 @@ import numpy as np
 
 import petitRADTRANS
 from petitRADTRANS._input_data_loader import (_get_base_cia_names, _get_base_cloud_names, _get_base_correlated_k_names,
-                                              _get_base_line_by_line_names, get_default_correlated_k_resolution,
+                                              _get_base_line_by_line_names, check_opacity_name,
+                                              get_default_correlated_k_resolution,
                                               get_species_basename, get_species_isotopologue_name,
                                               get_opacity_input_file, get_resolving_power_string, join_species_all_info)
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
@@ -813,7 +814,6 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
         print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
 
         with h5py.File(hdf5_opacity_file, "w") as fh5:
-            print(key, doi_dict[key])
             dataset = fh5.create_dataset(
                 name='DOI',
                 shape=(1,),
@@ -2600,6 +2600,177 @@ def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
     return hdul
 
 
+def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_species, doi, molmass,
+                                      cloud_species_mode=None,
+                                      path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                                      description=None,
+                                      cloud_path=None, path_input_files=None, path_reference_files=None,
+                                      rewrite=False, clean=False):
+    from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+
+    """Using ExoMol units for HDF5 files."""
+    check_opacity_name(output_name)
+
+    if cloud_species_mode is None:
+        cloud_species_mode = ''
+
+    all_cloud_species = cloud_species + ','
+    all_cloud_isos = input_directory.rsplit(os.path.sep, 2)[1] + ','
+    all_cloud_species_mode = cloud_species_mode + ','
+
+    reference_file = os.path.join(
+        path_input_data,
+        get_input_data_subpaths()['clouds_opacities'],
+        'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie', 'opa_0001.dat'
+    )
+
+    if not os.path.isfile(reference_file):
+        raise FileNotFoundError(
+            f"reference file for loading .dat cloud opacities ('{reference_file}') not found, "
+            f"it must be downloaded "
+            f"(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
+        )
+
+    n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
+
+    if cloud_path is None:
+        cloud_path = os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities'])
+
+    if path_input_files is None:
+        path_input_files = os.path.join(path_input_data, 'opa_input_files')
+
+    if path_reference_files is None:
+        path_reference_files = os.path.join(cloud_path, 'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie')
+
+    # Load .dat files
+    print("Loading dat file...")
+    cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        = finput.load_cloud_opacities(
+            cloud_path, path_input_files, path_reference_files,
+            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+            1, n_cloud_wavelength_bins
+        )
+
+    wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
+
+    output_directory = os.path.join(input_directory, '..')
+
+    hdf5_opacity_file = os.path.join(
+        output_directory, f"{output_name}.cotable.petitRADTRANS.h5"
+    )
+
+    if os.path.isfile(hdf5_opacity_file) and not rewrite:
+        __print_skipping_message(hdf5_opacity_file)
+        return
+
+    # Write HDF5 file
+    print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
+
+    i = 0  # only one cloud
+
+    with h5py.File(hdf5_opacity_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='wavenumbers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Opacities wavenumbers'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='absorption_opacities',
+            data=cloud_absorption_opacities[:, ::-1, i]
+        )
+        dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='scattering_opacities',
+            data=cloud_scattering_opacities[:, ::-1, i]
+        )
+        dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='asymmetry_parameters',
+            data=cloud_asymmetry_parameter[:, ::-1, i]
+        )
+        dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'None'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            shape=(1,),
+            data=float(molmass)
+        )
+        dataset.attrs['long_name'] = 'Mass of the species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='particles_density',
+            data=cloud_particles_densities[i]
+        )
+        dataset.attrs['long_name'] = 'Average density of the cloud particles'
+        dataset.attrs['units'] = 'g.cm^-3'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=cloud_species[i]
+        )
+        dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
+
+        dataset = fh5.create_dataset(
+            name='particles_radii',
+            data=cloud_particles_radii
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='particle_radius_bins',
+            data=cloud_particles_radius_bins
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid bins'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+
+    print("Done.")
+
+    if clean:
+        __remove_files([input_directory])
+
+
 def line_by_line_opacities_dat2h5(directory, molmass, doi,
                                   path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   contributor=None, description=None, output_name=None,
@@ -2608,6 +2779,8 @@ def line_by_line_opacities_dat2h5(directory, molmass, doi,
     """Using ExoMol units for HDF5 files."""
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
+
+    check_opacity_name(output_name)
 
     if output_name is None:
         output_name = directory.rsplit(os.path.sep, 1)[1]
@@ -2728,7 +2901,7 @@ def line_by_line_opacities_dat2h5(directory, molmass, doi,
         )
         dataset.attrs['long_name'] = 'Data object identifier linked to the data'
         dataset.attrs['contributor'] = contributor
-        dataset.attrs['additional_description'] = description
+        dataset.attrs['additional_description'] = str(description)
 
         dataset = fh5.create_dataset(
             name='Date_ID',
