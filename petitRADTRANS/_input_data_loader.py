@@ -3,7 +3,8 @@ import os
 import re
 import warnings
 
-from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+from molmass import Formula
+
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict
 
@@ -418,7 +419,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
                 # Update isotope number
                 if mode == 'add':
                     if groups[0] == '':
-                        groups[0] = f"{get_species_molar_mass(groups[1])}"
+                        groups[0] = f"{Formula(groups[1]).isotope.massnumber}"
                 elif mode == 'remove':
                     if groups[0] != '':
                         groups[0] = ''  # remove isotope number
@@ -449,50 +450,50 @@ def _split_species_cloud_info(species):
     return name, cloud_info
 
 
-def _split_species_ion(species, final_ion_format='+-'):
-    # Check for repeated ion symbol, function can work without, but it eases the user's understanding of future error
+def _split_species_charge(species, final_charge_format='+-'):
+    # Check for repeated charge symbol, function can work without, but it eases the user's understanding of future error
     if len(re.findall(r'^.*([+\-pm])([+\-pm])$', species)) > 0:
         raise ValueError(f"invalid species formula '{species}', "
-                         f"multiple consecutive ionization symbols found (+, -, p, m)")
+                         f"multiple consecutive charge symbols found (+, -, p, m)")
 
-    # Extract ion symbol
-    ion_pattern_match = re.findall(r'^.+(_(\d{0,3})[+\-pm])$', species)
-    len_ionization = 0
-    ionization = ''
+    # Extract charge symbol
+    charge_pattern_match = re.findall(r'^.+(_(\d{0,3})[+\-pm])$', species)
+    len_charge = 0
+    charge = ''
     name = copy.deepcopy(species)
 
-    if len(ion_pattern_match) == 1:
-        ionization = ion_pattern_match[0][0]
-        len_ionization = len(ionization)
+    if len(charge_pattern_match) == 1:
+        charge = charge_pattern_match[0][0]
+        len_charge = len(charge)
     else:
-        ion_pattern_match = re.findall(r'^.+([+\-pm])$', species)
+        charge_pattern_match = re.findall(r'^.+([+\-pm])$', species)
 
-        if len(ion_pattern_match) == 1:  # positive or negative ion
-            ionization = ion_pattern_match[0][0]
-            len_ionization = len(ionization)
+        if len(charge_pattern_match) == 1:  # positive or negative charge
+            charge = charge_pattern_match[0][0]
+            len_charge = len(charge)
 
-            ionization = '_' + ionization
+            charge = '_' + charge
         elif species[-1] in ['-', '+']:
             raise ValueError(f"invalid species formula '{species}', "
-                             f"either a symbol used is unknown, or the ion formula "
-                             f"does not respects the pattern '<element_symbol><ionisation_number><+|-|p|m>' "
+                             f"either a symbol used is unknown, or the charge formula "
+                             f"does not respects the pattern '<element_symbol><charge_number><+|-|p|m>' "
                              f"(e.g., 'Ca2+', 'H-', '7Li-1H_p', 'SO4_2m')")
 
-    # Rewrite ion symbol with +/-
-    if final_ion_format == '+-':
-        ionization = ionization.replace('p', '+')
-        ionization = ionization.replace('m', '-')
-    elif final_ion_format == 'pm':
-        ionization = ionization.replace('+', 'p')
-        ionization = ionization.replace('-', 'm')
+    # Rewrite charge symbol with +/-
+    if final_charge_format == '+-':
+        charge = charge.replace('p', '+')
+        charge = charge.replace('m', '-')
+    elif final_charge_format == 'pm':
+        charge = charge.replace('+', 'p')
+        charge = charge.replace('-', 'm')
     else:
-        raise ValueError(f"Final ion format must be '+-'|'pm', but was '{final_ion_format}'")
+        raise ValueError(f"Final charge format must be '+-'|'pm', but was '{final_charge_format}'")
 
-    # Temporarily remove ion symbol to remove isotopic numbers
-    if len_ionization > 0:
-        name = species[:-len_ionization]
+    # Temporarily remove charge symbol to remove isotopic numbers
+    if len_charge > 0:
+        name = species[:-len_charge]
 
-    return name, ionization
+    return name, charge
 
 
 def _split_species_source(species):
@@ -517,30 +518,6 @@ def _split_species_spectral_info(species):
         name, spectral_info = split
 
     return name, spectral_info
-
-
-def _split_species_all_info(species, final_ion_format='+-'):
-    name, spectral_info = _split_species_spectral_info(species)
-    name, source = _split_species_source(name)  # remove resolving power or opacity source information
-
-    # Remove cloud info
-    name, cloud_info = _split_species_cloud_info(name)
-
-    if '-NatAbund' in name:
-        name = name.replace('-NatAbund', '')
-        natural_abundance = 'NatAbund'
-    else:
-        natural_abundance = ''
-
-    # Check for repeated ion symbol, function can work without, but it eases the user's understanding of future error
-    if len(re.findall(r'^.*([+\-pm])([+\-pm])$', name)) > 0:
-        raise ValueError(f"invalid species formula '{name}', "
-                         f"multiple consecutive ionization symbols found (+, -, p, m)")
-
-    # Extract ion symbol
-    name, ionization = _split_species_ion(name, final_ion_format=final_ion_format)
-
-    return name, natural_abundance, ionization, cloud_info, source, spectral_info
 
 
 def check_opacity_name(opacity_name: str):
@@ -601,7 +578,7 @@ def check_opacity_name(opacity_name: str):
             r'(\d{0,3}[A-Z])'  # must start with up to 3 digits or an uppercase character
             r'(\d|[A-Z]|[a-z]|--(?!-)|-(?!-)|\[|])*'  # list of isotopes and their number, can be separated by "-"
             r'(-NatAbund)?'  # indicate if a mix of isotopologues has been used to make the opacities
-            r'(_?(\d{1,3})?[+\-pm])?'  # ionization (+ or p, - or m), can be separated from the isotopes with a "_"
+            r'(_?(\d{1,3})?[+\-pm])?'  # charge (+ or p, - or m), can be separated from the isotopes with a "_"
             r'('  # begin clouds formatting
             r'(\(l\))'  # liquid state, no additional information required
             r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
@@ -768,6 +745,43 @@ def get_input_data_file_not_found_error_message(file: str) -> str:
     )
 
 
+def get_opacity_directory(species: str, category: str,
+                          path_input_data: str = petitradtrans_config_parser.get_input_data_path(), full: bool = False):
+    check_opacity_name(species)
+
+    basename = get_species_basename(species, join=True)
+    istopologue_name = get_species_isotopologue_name(species, join=False)
+
+    _, natural_abundance, charge, cloud_info, source, spectral_info = (
+        split_species_all_info(species, final_ion_format='pm'))
+    filename = join_species_all_info(
+        name=istopologue_name,
+        charge=charge,
+        cloud_info=cloud_info,
+        source=source,
+        spectral_info=spectral_info
+    )
+    directory = join_species_all_info(
+        name=istopologue_name,
+        charge=charge.replace('p', '+').replace('m', '-'),
+        cloud_info=cloud_info
+    )
+
+    sub_paths = get_input_data_subpaths()
+
+    if category not in sub_paths:
+        keys = list(sub_paths.keys())
+        raise KeyError(f"category must be {'|'.join(keys)}, but was '{category}'")
+
+    sub_path = os.path.join(sub_paths[category], basename, directory)
+    full_path = os.path.abspath(os.path.join(path_input_data, sub_path))
+
+    if full:
+        return full_path, sub_path, filename
+
+    return full_path
+
+
 def get_opacity_input_file(path_input_data: str, category: str, species: str, find_all: bool = False) -> str:
     """Return the absolute filename of a species opacity.
     The validity of the given species name is checked.
@@ -799,41 +813,19 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     Returns:
         The absolute opacity filename of the species
     """
-    check_opacity_name(species)
-
-    basename = get_species_basename(species, join=True)
-    istopologue_name = get_species_isotopologue_name(species, join=False)
-
-    _, natural_abundance, ionization, cloud_info, source, spectral_info = (
-        _split_species_all_info(species, final_ion_format='pm'))
-    filename = join_species_all_info(
-        name=istopologue_name,
-        ionization=ionization,
-        cloud_info=cloud_info,
-        source=source,
-        spectral_info=spectral_info
+    full_path, sub_path, filename = get_opacity_directory(
+        species=species,
+        category=category,
+        path_input_data=path_input_data,
+        full=True
     )
-    directory = join_species_all_info(
-        name=istopologue_name,
-        ionization=ionization.replace('p', '+').replace('m', '-'),
-        cloud_info=cloud_info
-    )
-
-    sub_paths = get_input_data_subpaths()
-
-    if category not in sub_paths:
-        keys = list(sub_paths.keys())
-        raise KeyError(f"category must be {'|'.join(keys)}, but was '{category}'")
-
-    category = os.path.join(sub_paths[category], basename, directory)
-    full_path = os.path.abspath(os.path.join(path_input_data, category))
 
     if not os.path.isdir(full_path):
         raise NotADirectoryError(get_input_data_file_not_found_error_message(full_path))
 
     matches = _get_input_file(
         path_input_data=path_input_data,
-        sub_path=category,
+        sub_path=sub_path,
         filename=filename,
         find_all=find_all
     )
@@ -854,34 +846,34 @@ def get_resolving_power_string(resolving_power: [int, float]) -> str:
 
 
 def get_species_basename(species: str, join: bool = False) -> str:
-    name, natural_abundance, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_ion_format='+-')
 
     # Remove isotopic numbers
     name = _rebuild_isotope_numbers(name, mode='remove')
 
     if join:
-        return join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
+        return join_species_all_info(name, charge=charge, cloud_info=cloud_info)
     else:
         return name
 
 
 def get_species_isotopologue_name(species: str, join: bool = False) -> str:
-    name, natural_abundance, ionization, cloud_info, _, _ = _split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_ion_format='+-')
 
     name = join_species_all_info(name, natural_abundance)
     name = _rebuild_isotope_numbers(name, mode='add')
 
     if join:
-        return join_species_all_info(name, ionization=ionization, cloud_info=cloud_info)
+        return join_species_all_info(name, charge=charge, cloud_info=cloud_info)
     else:
         return name
 
 
-def join_species_all_info(name, natural_abundance='', ionization='', cloud_info='', source='', spectral_info=''):
+def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):
     if natural_abundance != '':
         name += '-' + natural_abundance
 
-    name += ionization + cloud_info
+    name += charge + cloud_info
 
     if source != '':
         name += '__' + source
@@ -890,3 +882,27 @@ def join_species_all_info(name, natural_abundance='', ionization='', cloud_info=
         name += '.' + spectral_info
 
     return name
+
+
+def split_species_all_info(species, final_ion_format='+-'):
+    name, spectral_info = _split_species_spectral_info(species)
+    name, source = _split_species_source(name)  # remove resolving power or opacity source information
+
+    # Remove cloud info
+    name, cloud_info = _split_species_cloud_info(name)
+
+    if '-NatAbund' in name:
+        name = name.replace('-NatAbund', '')
+        natural_abundance = 'NatAbund'
+    else:
+        natural_abundance = ''
+
+    # Check for repeated ion symbol, function can work without, but it eases the user's understanding of future error
+    if len(re.findall(r'^.*([+\-pm])([+\-pm])$', name)) > 0:
+        raise ValueError(f"invalid species formula '{name}', "
+                         f"multiple consecutive charge symbols found (+, -, p, m)")
+
+    # Extract ion symbol
+    name, charge = _split_species_charge(name, final_charge_format=final_ion_format)
+
+    return name, natural_abundance, charge, cloud_info, source, spectral_info
