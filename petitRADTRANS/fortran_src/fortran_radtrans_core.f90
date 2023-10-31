@@ -963,7 +963,7 @@ module fortran_radtrans_core
                                                        cloud_particle_radius_distribution_std, &
                                                        eddy_diffusion_coefficients, &
                                                        n_layers, n_clouds, &
-                                                       clouds_particles_mean_radii)
+                                                       cloud_particles_mean_radii)
             use cloud_utils, only: compute_turbulent_settling_speed, particle_radius
             use math, only: linear_fit
             use physics, only: cst_amu, cst_k
@@ -976,7 +976,7 @@ module fortran_radtrans_core
                 temperatures(n_layers), &
                 mean_molar_masses(n_layers), f_seds(n_clouds), &
                 cloud_particle_radius_distribution_std, eddy_diffusion_coefficients(n_layers)
-          double precision, intent(out) :: clouds_particles_mean_radii(n_layers,n_clouds)
+          double precision, intent(out) :: cloud_particles_mean_radii(n_layers,n_clouds)
           ! Internal
           integer, parameter :: N_fit = 100
           integer          :: i_str, i_spec, i_rad
@@ -1028,11 +1028,11 @@ module fortran_radtrans_core
 
                    alpha(i_str,i_spec) = b
                    r_w(i_str,i_spec) = exp(-a/b)
-                   clouds_particles_mean_radii(i_str,i_spec) = &
+                   cloud_particles_mean_radii(i_str,i_spec) = &
                        r_w(i_str,i_spec) * f_seds(i_spec)**(1d0/alpha(i_str,i_spec))&
                        * exp(-(alpha(i_str,i_spec)+6d0)/2d0*log(cloud_particle_radius_distribution_std)**2d0)
                 else
-                   clouds_particles_mean_radii(i_str,i_spec) = 1d-17
+                   cloud_particles_mean_radii(i_str,i_spec) = 1d-17
                    alpha(i_str,i_spec) = 1d0
                 end if
              end do

@@ -762,7 +762,7 @@ def create_radtrans_correlated_k_transmission_spectrum_cloud_fixed_radius_ref(pl
         planet_radius=radtrans_parameters['planetary_parameters']['radius']
         * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
-        clouds_particles_mean_radii={'Mg2SiO4(s)_crystalline__DHS': radtrans_parameters['cloud_parameters'][
+        cloud_particles_mean_radii={'Mg2SiO4(s)_crystalline__DHS': radtrans_parameters['cloud_parameters'][
             'cloud_species']['Mg2SiO4(s)_crystalline__DHS']['radius']},
         cloud_particle_radius_distribution_std=radtrans_parameters['cloud_parameters']['cloud_species'][
             'Mg2SiO4(s)_crystalline__DHS'

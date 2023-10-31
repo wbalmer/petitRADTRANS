@@ -238,7 +238,7 @@ sigma_lnorm = 1.05
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
                                    planet_radius=R_pl, reference_pressure=P0, \
-                                   clouds_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   cloud_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='cloudy', zorder = 2)
 
@@ -246,7 +246,7 @@ mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
                                    planet_radius=R_pl, reference_pressure=P0, \
-                                   clouds_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   cloud_particles_mean_radii= radius, cloud_particle_radius_distribution_std= sigma_lnorm)
 plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='clear', zorder = 1)
 
 plt.xscale('log')
