@@ -2529,20 +2529,20 @@ class Radtrans:
             self,
             temperatures: np.ndarray[float],
             mass_fractions: np.ndarray[float],
-            reference_gravity: float,
             mean_molar_masses: np.ndarray[float],
-            cloud_particle_radius_std: float = None,
-            fsed: float = None,
-            kzz: float = None,
+            reference_gravity: float,
+            opaque_cloud_top_pressure: float = None,
             cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
-            gray_opacity: float = None,
-            opaque_layers_top_pressure: float = None,
+            cloud_particle_radius_distribution_std: float = None,
+            cloud_particles_radius_distribution: str = 'lognormal',
+            cloud_hansen_a: float = None,
+            cloud_hansen_b: float = None,
+            cloud_f_sed: float = None,
+            eddy_diffusion_coefficient: float = None,
+            haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
-            haze_factor: float = 1.0,
-            dist: str = 'lognormal',
-            cloud_hansen_a: float = None,
-            cloud_hansen_b: float = None
+            gray_opacity: float = None
     ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
@@ -2555,46 +2555,23 @@ class Radtrans:
                     Dictionary keys are the species names.
                     Every mass fraction array
                     has same length as pressure array.
-                reference_gravity (float):
-                    Surface gravity in cgs. Vertically constant for emission
-                    spectra.
                 mean_molar_masses:
                     the atmospheric mean molecular weight in amu,
                     at each atmospheric layer
                     (1-d numpy array, same length as pressure array).
-                cloud_particle_radius_std (Optional[float]):
-                    width of the log-normal cloud particle size distribution
-                fsed (Optional[float]):
-                    cloud settling parameter
-                kzz (Optional):
-                    the atmospheric eddy diffusion coefficient in cgs
-                    (i.e. :math:`\\rm cm^2/s`),
-                    at each atmospheric layer
-                    (1-d numpy array, same length as pressure array).
+                reference_gravity (float):
+                    Surface gravity in cgs. Vertically constant for emission
+                    spectra.
+                opaque_cloud_top_pressure (Optional[float]):
+                    Pressure, in bar, where opaque cloud deck is added to the
+                    absorption opacity.
                 cloud_particles_mean_radii (Optional):
                     dictionary of mean particle radii for all cloud species.
                     Dictionary keys are the cloud species names.
                     Every radius array has same length as pressure array.
-                gray_opacity (Optional[float]):
-                    Gray opacity value, to be added to the opacity at all
-                    pressures and wavelengths (units :math:`\\rm cm^2/g`)
-                opaque_layers_top_pressure=None, (Optional[float]):
-                    Pressure, in bar, where opaque cloud deck is added to the
-                    absorption opacity.
-                power_law_opacity_350nm (Optional[float]):
-                    Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
-                power_law_opacity_coefficient (Optional[float]):
-                    Has to be given if kappa_zero is defined, this is the
-                    wavelength powerlaw index of the parametrized scattering
-                    opacity.
-                haze_factor (Optional[float]):
-                    Scalar factor, increasing the gas Rayleigh scattering
-                    cross-section.
-                add_cloud_scat_as_abs (Optional[bool]):
-                    If ``True``, 20 % of the cloud scattering opacity will be
-                    added to the absorption opacity, introduced to test for the
-                    effect of neglecting scattering.
-                dist (Optional[string]):
+                cloud_particle_radius_distribution_std (Optional[float]):
+                    width of the log-normal cloud particle size distribution
+                cloud_particles_radius_distribution (Optional[string]):
                     The cloud particle size distribution to use.
                     Can be either 'lognormal' (default) or 'hansen'.
                     If hansen, the cloud_hansen_b parameters must be used.
@@ -2609,6 +2586,25 @@ class Radtrans:
                     included cloud species and for each atmospheric layer,
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
+                cloud_f_sed (Optional[float]):
+                    cloud settling parameter
+                eddy_diffusion_coefficient (Optional):
+                    the atmospheric eddy diffusion coefficient in cgs
+                    (i.e. :math:`\\rm cm^2/s`),
+                    at each atmospheric layer
+                    (1-d numpy array, same length as pressure array).
+                haze_factor (Optional[float]):
+                    Scalar factor, increasing the gas Rayleigh scattering
+                    cross-section.
+                power_law_opacity_350nm (Optional[float]):
+                    Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
+                power_law_opacity_coefficient (Optional[float]):
+                    Has to be given if kappa_zero is defined, this is the
+                    wavelength powerlaw index of the parametrized scattering
+                    opacity.
+                gray_opacity (Optional[float]):
+                    Gray opacity value, to be added to the opacity at all
+                    pressures and wavelengths (units :math:`\\rm cm^2/g`)
         """
         # TODO should be 2 separated functions
         if not self._scattering_in_emission:
@@ -2635,15 +2631,15 @@ class Radtrans:
                 reference_gravity=reference_gravity,
                 gray_opacity=gray_opacity,
                 haze_factor=haze_factor,
-                opaque_cloud_top_pressure=opaque_layers_top_pressure,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
                 cloud_photosphere_median_optical_depth=None,
-                cloud_particle_radius_distribution_std=cloud_particle_radius_std,
-                cloud_f_sed=fsed,
-                eddy_diffusion_coefficients=kzz,
+                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                cloud_f_sed=cloud_f_sed,
+                eddy_diffusion_coefficients=eddy_diffusion_coefficient,
                 cloud_particles_mean_radii=cloud_particles_mean_radii,
-                cloud_particles_radius_distribution=dist,
+                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b
             )
