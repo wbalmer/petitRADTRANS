@@ -758,6 +758,14 @@ class Radtrans:
                 species: mass_fraction for species, mass_fraction in mass_fractions.items()
                 if species in self._cloud_species
             }
+
+            if len(cloud_species_mass_fractions) != len(self._cloud_species):
+                raise ValueError(f"the number of cloud species mass fractions ({len(cloud_species_mass_fractions)}) "
+                                 f"does not match the number of cloud species ({len(self._cloud_species)}); "
+                                 f"check for inconsistencies between mass_fractions keys "
+                                 f"({list(mass_fractions.keys())}) "
+                                 f"and cloud_species keys ({self._cloud_species})")
+
             self.__scattering_in_transmission = True
 
             (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
