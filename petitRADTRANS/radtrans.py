@@ -625,7 +625,7 @@ class Radtrans:
                              opaque_cloud_top_pressure=None,
                              cloud_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
                              cloud_particles_radius_distribution="lognormal", cloud_hansen_a=None, cloud_hansen_b=None,
-                             cloud_f_sed=None, eddy_diffusion_coefficient=None,
+                             cloud_f_sed=None, eddy_diffusion_coefficients=None,
                              haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
                              gray_opacity=None, cloud_photosphere_median_optical_depth=None,
                              return_cloud_contribution=False,
@@ -642,7 +642,7 @@ class Radtrans:
             reference_gravity:
             cloud_particle_radius_distribution_std:
             cloud_f_sed:
-            eddy_diffusion_coefficient:
+            eddy_diffusion_coefficients:
             cloud_particles_mean_radii:
             cloud_particles_radius_distribution:
             cloud_hansen_a:
@@ -775,7 +775,7 @@ class Radtrans:
                     scattering_in_emission=self._scattering_in_emission,
                     anisotropic_cloud_scattering=self._anisotropic_cloud_scattering,
                     cloud_f_sed=cloud_f_sed,
-                    eddy_diffusion_coefficient=eddy_diffusion_coefficient,
+                    eddy_diffusion_coefficients=eddy_diffusion_coefficients,
                     cloud_particles_mean_radius=cloud_particles_mean_radii,
                     cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                     cloud_hansen_a=cloud_hansen_a,
@@ -1138,7 +1138,7 @@ class Radtrans:
                                  cloud_species_mass_fractions, mean_molar_masses, reference_gravity,
                                  cloud_particle_radius_distribution_std, clouds_loaded_opacities,
                                  scattering_in_emission, anisotropic_cloud_scattering,
-                                 cloud_f_sed=None, eddy_diffusion_coefficient=None,
+                                 cloud_f_sed=None, eddy_diffusion_coefficients=None,
                                  cloud_particles_mean_radius=None,
                                  cloud_particles_radius_distribution="lognormal",
                                  cloud_hansen_a=None, cloud_hansen_b=None,
@@ -1154,7 +1154,7 @@ class Radtrans:
             reference_gravity:
             cloud_particle_radius_distribution_std:
             cloud_f_sed:
-            eddy_diffusion_coefficient:
+            eddy_diffusion_coefficients:
             cloud_particles_mean_radius:
             cloud_particles_radius_distribution:
             cloud_hansen_a:
@@ -1242,7 +1242,7 @@ class Radtrans:
 
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
                 if isinstance(cloud_f_sed, dict):
-                    f_seds[i_spec] = cloud_f_sed[cloud.split('_')[0]]
+                    f_seds[i_spec] = cloud_f_sed[cloud]
                 elif not hasattr(cloud_f_sed, '__iter__'):
                     f_seds[i_spec] = cloud_f_sed
 
@@ -1256,7 +1256,7 @@ class Radtrans:
                     mean_molar_masses,
                     f_seds,
                     cloud_particle_radius_distribution_std,
-                    eddy_diffusion_coefficient
+                    eddy_diffusion_coefficients
                 )
 
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
@@ -1282,7 +1282,7 @@ class Radtrans:
                     mean_molar_masses,
                     f_seds,
                     cloud_hansen_b,
-                    eddy_diffusion_coefficient
+                    eddy_diffusion_coefficients
                 )
 
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
@@ -2352,7 +2352,7 @@ class Radtrans:
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b,
                 cloud_f_sed=cloud_f_sed,
-                eddy_diffusion_coefficient=eddy_diffusion_coefficients,
+                eddy_diffusion_coefficients=eddy_diffusion_coefficients,
                 haze_factor=haze_factor,
                 power_law_opacity_350nm=power_law_opacity_350nm,
                 power_law_opacity_coefficient=power_law_opacity_coefficient,
@@ -2641,7 +2641,7 @@ class Radtrans:
                 cloud_photosphere_median_optical_depth=None,
                 cloud_particle_radius_distribution_std=cloud_particle_radius_std,
                 cloud_f_sed=fsed,
-                eddy_diffusion_coefficient=kzz,
+                eddy_diffusion_coefficients=kzz,
                 cloud_particles_mean_radii=cloud_particles_mean_radii,
                 cloud_particles_radius_distribution=dist,
                 cloud_hansen_a=cloud_hansen_a,
@@ -2690,7 +2690,7 @@ class Radtrans:
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
             cloud_f_sed: float = None,
-            eddy_diffusion_coefficient: float = None,
+            eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
@@ -2757,7 +2757,7 @@ class Radtrans:
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
                 cloud_f_sed (Optional[float]):
                     cloud settling parameter
-                eddy_diffusion_coefficient (Optional):
+                eddy_diffusion_coefficients (Optional):
                     the atmospheric eddy diffusion coefficient in cgs
                     (i.e. :math:`\\rm cm^2/s`),
                     at each atmospheric layer
@@ -2827,7 +2827,7 @@ class Radtrans:
             cloud_photosphere_median_optical_depth=None,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
             cloud_f_sed=cloud_f_sed,
-            eddy_diffusion_coefficient=eddy_diffusion_coefficient,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             cloud_particles_mean_radii=cloud_particles_mean_radii,
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,

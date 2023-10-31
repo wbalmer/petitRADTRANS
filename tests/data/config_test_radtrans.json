@@ -44,7 +44,7 @@
         "reference_pressure": 0.01,
         "radius": 1.838,
         "surface_gravity": 281.8382931264455,
-        "eddy_diffusion_coefficient": 31622776.60168379,
+        "eddy_diffusion_coefficients": 31622776.60168379,
         "orbit_semi_major_axis": 750000000000.0,
         "surface_reflectance": 0.3
     },

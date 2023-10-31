@@ -150,7 +150,7 @@ def create_test_radtrans_config_file(filename):
                     'reference_pressure': 0.01,  # (bar)
                     'radius': 1.838,  # (R_jup)
                     'surface_gravity': 1e1 ** 2.45,  # (cm.s-2)
-                    'eddy_diffusion_coefficient': 10 ** 7.5,
+                    'eddy_diffusion_coefficients': 10 ** 7.5,
                     'orbit_semi_major_axis': 7.5e11,  # (cm)
                     'surface_reflectance': 0.3
                 },
@@ -256,7 +256,7 @@ def init_radtrans_parameters(recreate_parameter_file=False):
         parameters['mass_fractions'][key] *= np.ones_like(parameters['pressures'])
 
     parameters['mean_molar_mass'] *= np.ones_like(parameters['pressures'])
-    parameters['planetary_parameters']['eddy_diffusion_coefficient'] *= np.ones_like(parameters['pressures'])
+    parameters['planetary_parameters']['eddy_diffusion_coefficients'] *= np.ones_like(parameters['pressures'])
 
     return parameters
 

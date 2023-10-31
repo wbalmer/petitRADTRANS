@@ -265,7 +265,7 @@ mass_fractions['Mg2SiO4(c)'] = 0.0000005 * np.ones_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
                                    planet_radius=R_pl, reference_pressure=P0, \
-                                   eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='cloudy', zorder = 2)
 
@@ -273,7 +273,7 @@ mass_fractions['Mg2SiO4(c)'] = np.zeros_like(temperature)
 
 atmosphere.calculate_transit_radii(temperature, mass_fractions, gravity, MMW, \
                                    planet_radius=R_pl, reference_pressure=P0, \
-                                   eddy_diffusion_coefficient= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
+                                   eddy_diffusion_coefficients= Kzz, cloud_f_sed=fsed, cloud_particle_radius_distribution_std= sigma_lnorm)
 
 plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean, label ='clear', zorder = 1)
 
