@@ -766,12 +766,74 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
-    def calculate_emission_spectrum(self, parameters):
+    def calculate_emission_spectrum(
+            self,
+            reference_gravity: float,
+            planet_radius: float = None,
+            opaque_cloud_top_pressure: float = None,
+            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particle_radius_distribution_std: float = None,
+            cloud_particles_radius_distribution: str = 'lognormal',
+            cloud_hansen_a: dict[str, np.ndarray[float]] = None,
+            cloud_hansen_b: dict[str, np.ndarray[float]] = None,
+            cloud_f_sed: float = None,
+            eddy_diffusion_coefficients: np.ndarray[float] = None,
+            haze_factor: float = 1.0,
+            power_law_opacity_350nm: float = None,
+            power_law_opacity_coefficient: float = None,
+            gray_opacity: float = None,
+            cloud_photosphere_median_optical_depth: float = None,
+            emission_geometry: str = 'dayside_ave',
+            stellar_intensities: np.ndarray[float] = None,
+            star_effective_temperature: float = None,
+            star_radius: float = None,
+            orbit_semi_major_axis: float = None,
+            star_irradiation_angle: float = 0.0,
+            reflectances: np.ndarray[float] = None,
+            emissivities: np.ndarray[float] = None,
+            additional_absorption_opacities_function: callable = None,
+            additional_scattering_opacities_function: callable = None,
+            frequencies_to_wavelengths: bool = True,
+            return_contribution: bool = False,
+            return_photosphere_radius: bool = False,
+            return_rosseland_optical_depths: bool = False,
+            return_cloud_contribution: bool = False,
+            **kwargs
+    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
             mean_molar_masses=self.mean_molar_masses,
-            **parameters
+            reference_gravity=reference_gravity,
+            planet_radius=planet_radius,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_hansen_a=cloud_hansen_a,
+            cloud_hansen_b=cloud_hansen_b,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            haze_factor=haze_factor,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            gray_opacity=gray_opacity,
+            cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+            emission_geometry=emission_geometry,
+            stellar_intensities=stellar_intensities,
+            star_effective_temperature=star_effective_temperature,
+            star_radius=star_radius,
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            star_irradiation_angle=star_irradiation_angle,
+            reflectances=reflectances,
+            emissivities=emissivities,
+            additional_absorption_opacities_function=additional_absorption_opacities_function,
+            additional_scattering_opacities_function=additional_scattering_opacities_function,
+            frequencies_to_wavelengths=frequencies_to_wavelengths,
+            return_contribution=return_contribution,
+            return_photosphere_radius=return_photosphere_radius,
+            return_rosseland_optical_depths=return_rosseland_optical_depths,
+            return_cloud_contribution=return_cloud_contribution
         )
 
         return self.wavelengths, self.fluxes, additional_outputs
@@ -861,14 +923,14 @@ class SpectralModel(Radtrans):
         if mode == 'emission':
             self.wavelengths, self.fluxes, additional_outputs = (
                 self.calculate_emission_spectrum(
-                    parameters=parameters
+                    **parameters
                 )
             )
             spectrum = copy.copy(self.fluxes)
         elif mode == 'transmission':
             self.wavelengths, self.transit_radii, additional_outputs = (
                 self.calculate_transmission_spectrum(
-                    parameters=parameters
+                    **parameters
                 )
             )
             spectrum = copy.copy(self.transit_radii)
@@ -919,12 +981,58 @@ class SpectralModel(Radtrans):
 
         return wavelengths, spectrum
 
-    def calculate_transmission_spectrum(self, parameters):
+    def calculate_transmission_spectrum(
+            self,
+            reference_gravity: float,
+            reference_pressure: float,
+            planet_radius: float,
+            variable_gravity: bool = True,
+            opaque_cloud_top_pressure: float = None,
+            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particle_radius_distribution_std: float = None,
+            cloud_particles_radius_distribution: str = 'lognormal',
+            cloud_hansen_a: float = None,
+            cloud_hansen_b: float = None,
+            cloud_f_sed: float = None,
+            eddy_diffusion_coefficients: float = None,
+            haze_factor: float = 1.0,
+            power_law_opacity_350nm: float = None,
+            power_law_opacity_coefficient: float = None,
+            gray_opacity: float = None,
+            additional_absorption_opacities_function: callable = None,
+            additional_scattering_opacities_function: callable = None,
+            frequencies_to_wavelengths: bool = True,
+            return_contribution: bool = False,
+            return_cloud_contribution: bool = False,
+            return_radius_hydrostatic_equilibrium: bool = False,
+            **kwargs
+    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
         self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_radii(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
             mean_molar_masses=self.mean_molar_masses,
-            **parameters
+            reference_gravity=reference_gravity,
+            reference_pressure=reference_pressure,
+            planet_radius=planet_radius,
+            variable_gravity=variable_gravity,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+            cloud_hansen_a=cloud_hansen_a,
+            cloud_hansen_b=cloud_hansen_b,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            haze_factor=haze_factor,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            gray_opacity=gray_opacity,
+            additional_absorption_opacities_function=additional_absorption_opacities_function,
+            additional_scattering_opacities_function=additional_scattering_opacities_function,
+            frequencies_to_wavelengths=frequencies_to_wavelengths,
+            return_contribution=return_contribution,
+            return_cloud_contribution=return_cloud_contribution,
+            return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium
         )
 
         return self.wavelengths, self.transit_radii, additional_outputs
@@ -1396,8 +1504,8 @@ class SpectralModel(Radtrans):
                                     **kwargs):
         if kwargs['planet_mass'] is None:
             kwargs['planet_mass'] = surface_gravity2mass_function(**kwargs)
-        elif kwargs['planet_surface_gravity'] is None:
-            kwargs['planet_surface_gravity'] = mass2surface_gravity_function(**kwargs)
+        elif kwargs['reference_gravity'] is None:
+            kwargs['reference_gravity'] = mass2surface_gravity_function(**kwargs)
 
         if kwargs['metallicity'] is None:
             kwargs['metallicity'] = metallicity_function(**kwargs)
@@ -1462,7 +1570,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_temperature_profile(pressures, temperature_profile_mode='isothermal', temperature=None,
-                                    intrinsic_temperature=None, planet_surface_gravity=None, metallicity=None,
+                                    intrinsic_temperature=None, reference_gravity=None, metallicity=None,
                                     guillot_temperature_profile_gamma=0.4,
                                     guillot_temperature_profile_kappa_ir_z0=0.01, **kwargs):
         SpectralModel.__check_none_model_parameters(
@@ -1483,7 +1591,7 @@ class SpectralModel(Radtrans):
             temperatures = temperature_profile_function_guillot_metallic(
                 pressures=pressures,  # TODO change TP pressure to CGS
                 gamma=guillot_temperature_profile_gamma,
-                surface_gravity=planet_surface_gravity,
+                surface_gravity=reference_gravity,
                 intrinsic_temperature=intrinsic_temperature,
                 equilibrium_temperature=temperature,
                 infrared_mean_opacity_solar_matallicity=guillot_temperature_profile_kappa_ir_z0,
@@ -1828,7 +1936,7 @@ class SpectralModel(Radtrans):
     @staticmethod
     def mass2surface_gravity(planet_mass, planet_radius, verbose=False, **kwargs):
         if verbose:
-            print("planet_surface_gravity set to None, calculating it using surface gravity and radius...")
+            print("reference_gravity set to None, calculating it using surface gravity and radius...")
 
         if planet_radius is None or planet_mass is None:
             raise ValueError(f"both planet radius ({planet_radius}) "
@@ -2344,19 +2452,19 @@ class SpectralModel(Radtrans):
         return wavelengths_shift
 
     @staticmethod
-    def surface_gravity2mass(planet_surface_gravity, planet_radius, verbose=False, **kwargs):
+    def surface_gravity2mass(reference_gravity, planet_radius, verbose=False, **kwargs):
         if verbose:
             print("planet_mass set to None, calculating it using surface gravity and radius...")
 
-        if planet_radius is None or planet_surface_gravity is None:
+        if planet_radius is None or reference_gravity is None:
             raise ValueError(f"both planet radius ({planet_radius}) "
-                             f"and surface gravity ({planet_surface_gravity}) "
+                             f"and surface gravity ({reference_gravity}) "
                              f"are required to calculate planet mass")
         elif planet_radius <= 0:
             raise ValueError("cannot calculate planet mass from surface gravity with a radius <= 0")
 
         return Planet.reference_gravity2mass(
-            reference_gravity=planet_surface_gravity,
+            reference_gravity=reference_gravity,
             radius=planet_radius
         )[0]
 

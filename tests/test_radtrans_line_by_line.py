@@ -53,16 +53,16 @@ def init_spectral_model_line_by_line():
         # Transmission spectrum parameters (radtrans.calc_transm)
         planet_radius=radtrans_parameters['planetary_parameters']['radius']
         * petitRADTRANS.physical_constants.r_jup_mean,  # cm
-        planet_surface_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
         # cloud_pressure=1e-1,
         # Instrument parameters
         new_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
         output_wavelengths=np.arange(
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0],
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1],
+            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0],# * 1e-4,
+            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1],# * 1e-4,
             radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] /
-            radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'] / 2
+            radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'] / 2# * 1e-4
         ),  # um
         wavelengths_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
         # Scaling parameters
@@ -189,6 +189,9 @@ def test_line_by_line_spectral_model_emission():
         reduce=False
     )
 
+    wavelengths *= 1e4
+    spectral_radiosities *= 1e-7
+
     assert np.allclose(
         spectral_model.temperatures,
         temperature_guillot_2010,
@@ -245,6 +248,8 @@ def test_line_by_line_spectral_model_transmission():
         reduce=False
     )
 
+    wavelengths *= 1e4
+
     assert np.allclose(
         spectral_model.temperatures,
         temperature_isothermal,
@@ -298,6 +303,8 @@ def test_line_by_line_spectral_model_transmission_ccf():
         reduce=False
     )
 
+    wavelengths *= 1e4
+
     assert np.allclose(
         spectral_model.temperatures,
         temperature_isothermal,
@@ -345,6 +352,8 @@ def test_line_by_line_spectral_model_transmission_ccf():
         rebin=False,
         reduce=False
     )
+
+    wavelengths_model *= 1e4
 
     # Cross-correlate spectrum with itself
     line_spread_function_fwhm = petitRADTRANS.physical_constants.c /\
@@ -398,5 +407,6 @@ def test_line_by_line_spectral_model_transmission_ccf():
             'max_v_rest': max_v_rest,
             'n_around_peak': n_around_peak
         },
-        relative_tolerance=1e-4  # TODO put back relative_tolerance here (loading from HDF5 add numerical noise (1e-15) to wavelengths, spreading here to create relative difference > 1e-6; reference files should be re-generated for 3.0.0) # noqa: E501
+        relative_tolerance=3e-4  # TODO put back relative_tolerance here (loading from HDF5 add numerical noise (1e-15) to wavelengths, spreading here to create relative difference > 1e-6; reference files should be re-generated for 3.0.0) # noqa: E501
+        # a89: multiplied by 3, caused by the change (*1e-4) in output_wavelengths
     )
