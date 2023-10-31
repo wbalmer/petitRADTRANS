@@ -1,10 +1,25 @@
 """Interface between molmass and petitRADTRANS."""
 
-import re
-
 from molmass import Formula
 
-import petitRADTRANS.physical_constants as cst
+from petitRADTRANS._input_data_loader import get_species_isotopologue_name, split_species_all_info
+from petitRADTRANS.physical_constants import e_molar_mass
+
+
+def get_molmass_name(species):
+    species = get_species_isotopologue_name(species, join=True)
+
+    name, natural_abundance, charge, _, _, _ = split_species_all_info(species)
+
+    # Rearrange isotopes in molmass format
+    isotopes = name.split('-')
+
+    if natural_abundance != '':
+        return [''.join(isotopes) + charge]
+
+    isotopes.append(charge)
+
+    return isotopes
 
 
 def get_species_molar_mass(species):
@@ -21,55 +36,35 @@ def get_species_molar_mass(species):
         The molar mass of the compound in atomic mass units.
     """
     if "-NatAbund" in species:
-        species = species.split('-NatAbund', 1)[0]
         natural_abundance = True
     else:
         natural_abundance = False
 
-    if species == 'e-':
-        return cst.e_molar_mass
+    names = get_molmass_name(species)
 
-    if "(s)" in species or "(l)" in species:
-        return 0  # ignore cloud species
+    molar_mass = None
 
-    if "__" in species:
-        species = species.split("__", 1)[0]  # remove resolving power or opacity source information
+    if natural_abundance and len(names) == 1:
+        return Formula(names[0]).mass
+    elif natural_abundance and len(names) != 1:
+        raise ValueError(f"species '{species}' has the natural abundance flag, "
+                         f"but several isotopes were detected: ({names})")
+    elif not natural_abundance:
+        molar_mass = 0.0
+        charge = None
 
-    if len(re.findall(r'^[A-Z][a-z]?(\d{1,3})?[+|-]$', species)) == 1:  # positive or negative ion
-        # Get the number of electrons lost or gained
-        ionisation = re.findall(r'^.{1,2}(\d{1,3})[+|-]$', species)
+        # molmass cannot manage formulae containing both '[]'-separated isotopes and charges,
+        if names[-1] == '':
+            charge = 0.0
+        elif names[-1][-1] in ['+', '-']:
+            charge = names[-1].replace('_', '')  # get rid of the leading '_'
+            charge = charge[-1] + charge[:-1]  # put sign in front of digits
+            charge = float(charge)
 
-        if len(ionisation) == 0:
-            ionisation_str = ''
-            ionisation = 1
-        else:
-            ionisation_str = ionisation[0]
-            ionisation = int(ionisation_str)
+        for name in names[:-1]:
+            molar_mass += Formula(name).isotope.massnumber
 
-        # Get the corresponding molar mass
-        if '-' in species:
-            return (Formula(species.rsplit(f'{ionisation_str}-', 1)[0]).isotope.massnumber
-                    + ionisation * cst.e_molar_mass)
-        elif '+' in species:
-            return (Formula(species.rsplit(f'{ionisation_str}+', 1)[0]).isotope.massnumber
-                    - ionisation * cst.e_molar_mass)
-    elif species[-1] in ['-', '+']:
-        raise ValueError(f"invalid species formula '{species}', either a symbol used is unknown, or the ion formula "
-                         f"does not respects the pattern '<element_symbol><ionisation_number><+|->' "
-                         f"(e.g., 'Ca2+', 'H-')")
-    elif '-' in species:
-        isotopes = species.split('-')
+        # Change charge sign ('+' means *less* e-, thanks B. Franklin! https://xkcd.com/567/)
+        molar_mass += -charge * e_molar_mass
 
-        for i, isotope in enumerate(isotopes):
-            isotopes[i] = f"[{isotope}]"
-
-        species = "".join(isotopes)
-
-    name = species.split("_")[0]
-    name = name.split(',')[0]
-    f = Formula(name)
-
-    if natural_abundance:
-        return f.mass
-
-    return f.isotope.massnumber
+    return molar_mass
