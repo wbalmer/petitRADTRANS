@@ -437,8 +437,8 @@ class Data:
                 inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
 
-            if bval is not None:
-                cov = np.diag(np.diag(self.covariance) + 10**bval)
+            if b_val is not None:
+                cov = np.diag(np.diag(self.covariance) + 10**b_val)
                 inv_cov = np.linalg.inv(cov)
                 _ , log_covariance_determinant = np.linalg.slogdet(2*np.pi*cov)
 
