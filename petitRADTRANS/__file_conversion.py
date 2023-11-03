@@ -12,13 +12,15 @@ import warnings
 
 import h5py
 import numpy as np
+from scipy.interpolate import interp1d
 
 import petitRADTRANS
 from petitRADTRANS._input_data_loader import (_get_base_cia_names, _get_base_cloud_names, _get_base_correlated_k_names,
                                               _get_base_line_by_line_names, check_opacity_name,
                                               get_default_correlated_k_resolution,
                                               get_species_basename, get_species_isotopologue_name,
-                                              get_opacity_input_file, get_resolving_power_string, join_species_all_info)
+                                              get_opacity_directory, get_opacity_input_file, get_resolving_power_string,
+                                              join_species_all_info)
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict
@@ -2517,6 +2519,97 @@ def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
     return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
 
 
+def _write_line_by_line(hdf5_opacity_file, doi, wavenumbers, opacities, molmass, species,
+                        opacities_pressures_, opacities_temperatures_, wavelengths=None,
+                        contributor=None, description=None):
+    if wavelengths is None:
+        wavelengths = np.array([1 / wavenumbers[0], 1 / wavenumbers[-1]])
+
+    with h5py.File(hdf5_opacity_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['contributor'] = str(contributor)
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='bin_edges',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Wavenumber grid'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='xsecarr',
+            data=opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the cross-sections with axes (pressure, temperature, wavenumber)'
+        dataset.attrs['units'] = 'cm^2/molecule'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            shape=(1,),
+            data=float(molmass)
+        )
+        dataset.attrs['long_name'] = 'Mass of the species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=species.split('_', 1)[0]
+        )
+        dataset.attrs['long_name'] = 'Name of the species described'
+
+        dataset = fh5.create_dataset(
+            name='p',
+            data=opacities_pressures_
+        )
+        dataset.attrs['long_name'] = 'Pressure grid'
+        dataset.attrs['units'] = 'bar'
+
+        dataset = fh5.create_dataset(
+            name='t',
+            data=opacities_temperatures_
+        )
+        dataset.attrs['long_name'] = 'Temperature grid'
+        dataset.attrs['units'] = 'K'
+
+        dataset = fh5.create_dataset(
+            name='temperature_grid_type',
+            shape=(1,),
+            data='regular'
+        )
+        dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
+                                     '(same temperatures for all pressures) or "pressure-dependent"'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+
+
 def bin_species_exok(species, resolution):
     """
     This function uses exo-k to bin the c-k table of a
@@ -2771,6 +2864,184 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
         __remove_files([input_directory])
 
 
+def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
+                           charge='', cloud_info='', contributor=None, description=None,
+                           path_input_data=petitradtrans_config_parser.get_input_data_path(),
+                           write_correlated_k=True, write_line_by_line=True, line_by_line_wavelength_boundaries=None):
+    if line_by_line_wavelength_boundaries is None:
+        line_by_line_wavelength_boundaries = np.array([0.3, 28])  # um
+
+    # Read the fiducial petitRADTRANS wavelength grid
+    wavenumbers_petitradtrans_file = os.path.join(path_input_data, 'opacities', 'wavenumber_grid.petitRADTRANS.h5')
+
+    if not os.path.isfile(wavenumbers_petitradtrans_file):
+        raise FileNotFoundError(f"no such file '{wavenumbers_petitradtrans_file}'")
+
+    print("Loading petitRADTRANS wavenumber grid... ", end='')
+
+    with h5py.File(wavenumbers_petitradtrans_file, 'r') as f:
+        wavenumbers_petitradtrans = f['bin_edges'][:]
+
+    print("Done.")
+
+    if write_line_by_line:
+        selection = np.nonzero(
+            np.logical_and(
+                np.less_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[0]),
+                np.greater_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[1])
+            )
+        )[0]
+        selection = np.array([selection[0] - 1, selection[-1] + 2])  # ensure that the selection contains the bounds
+
+        wavenumbers_line_by_line = wavenumbers_petitradtrans[selection[0]:selection[1]]
+    else:
+        selection = np.array([0, -1])
+        wavenumbers_line_by_line = None
+
+    # Read the opacity file from ExoCross
+    exocross_files = glob.glob(os.path.join(exocross_directory, '*.out.xsec'))
+
+    if len(exocross_files) == 0:
+        raise FileNotFoundError(f"no .out.xsec files found in directory '{exocross_directory}'")
+    elif len(exocross_files) < 130:
+        warnings.warn(f"directory '{exocross_directory}' contains only {len(exocross_files)} files, "
+                      f"the standard petitRADTRANS temperature-pressure grid size is 130; a finer temperature-pressure "
+                      f"grid allows for a more accurate interpolation of the opacities")
+
+    temperatures = []
+    pressures = []
+    sigmas_line_by_line = []
+    sigmas_correlated_k = []
+
+    species = None
+
+    print(f"Starting conversion of directory '{exocross_directory}'...")
+
+    for i, exocross_file in enumerate(exocross_files):
+        if exocross_file.count('_') < 2:
+            raise ValueError(f"ExoCross filename must contains, in that order, the species, temperature, and pressure "
+                             f"of the cross-sections, separated by '_' (e.g., 'NaH_1000K_1em5bar.out.xsec'), but was "
+                             f"'{exocross_file}'")
+
+        species, temperature, pressure = exocross_file.split('_', 2)
+        pressure = pressure.rsplit('.out.xsec', 1)[0]
+
+        if temperature[-1] != 'K':
+            raise ValueError(f"the temperature of the ExoCross filename '{exocross_file}' must be in K, "
+                             f"but was '{temperature}'")
+
+        temperature = float(temperature[:-1])  # pop unit and convert to float
+
+        if pressure[-3:] != 'bar':
+            raise ValueError(f"the pressure of the ExoCross filename '{exocross_file}' must be in bar, "
+                             f"but was '{pressure}'")
+
+        pressure = pressure[:-3]  # pop unit
+        pressure = pressure.replace('m', '-').replace('p', '+')  # convert exponential notation for float conversion
+        pressure = float(pressure)
+
+        print(f" Reading file '{exocross_file}' "
+              f"@{pressure:.1e} bar, {temperature:.0f} K ({i + 1}/{len(exocross_files)})... ", end='')
+
+        dat = np.genfromtxt(exocross_file)
+
+        print("Done.")
+
+        wavenumbers = dat[:, 0]
+        sigma = dat[:, 1]
+
+        # Interpolate the ExoCross calculation to that grid
+        print(" Interpolating...")
+        sig_interp = interp1d(wavenumbers, sigma)
+        sigmas_correlated_k.append(sig_interp(wavenumbers_petitradtrans))
+
+        # Stores values
+        pressures.append(pressure)
+        temperatures.append(temperature)
+
+        if write_line_by_line:
+            sig_interpolated_petit_line_by_line = sigmas_correlated_k[-1][selection[0]:selection[1]]
+            sigmas_line_by_line.append(sig_interpolated_petit_line_by_line)
+
+    pressures = np.array(pressures)
+    temperatures = np.array(temperatures)
+
+    unique_temperatures = np.unique(temperatures)
+    unique_pressures = np.unique(pressures)
+
+    if len(exocross_files) != unique_temperatures.size * unique_pressures.size:
+        raise ValueError(f"temperature-pressure grid used in directory '{exocross_directory}' must be rectangular, "
+                         f"but {len(exocross_files)} files were found instead of "
+                         f"{unique_temperatures.size * unique_pressures.size}\n"
+                         f"Unique temperatures found: {unique_temperatures}\n"
+                         f"Unique pressures found: {unique_pressures.size}")
+
+    pressure_temperature_grid_sorted_id = np.lexsort((temperatures, pressures))
+
+    species_isotopologue_name = copy.deepcopy(species)
+
+    if natural_abundance:
+        species_isotopologue_name = species_isotopologue_name + '-NatAbund'
+        natural_abundance = 'NatAbund'
+
+    species_isotopologue_name = get_species_isotopologue_name(species_isotopologue_name)
+
+    molmass = get_species_molar_mass(species)
+
+    print("Preparation successful")
+
+    if write_line_by_line:
+        sigmas_line_by_line = np.array(sigmas_line_by_line)[pressure_temperature_grid_sorted_id]
+        sigmas_line_by_line = sigmas_line_by_line.reshape(
+            (unique_pressures.size, unique_temperatures.size, wavenumbers_line_by_line.size)
+        )
+
+        output_directory = get_opacity_directory(
+            species=species,
+            category='line_by_line_opacities',
+            path_input_data=path_input_data,
+            full=False
+        )
+
+        resolving_power = np.mean(wavenumbers_petitradtrans[:-1] / np.diff(wavenumbers_petitradtrans) + 0.5)
+        spectral_info = (f"R{resolving_power:.0e}_"
+                         f"{line_by_line_wavelength_boundaries[0]:.1f}-{line_by_line_wavelength_boundaries[1]:.1f}mu")
+        spectral_info = spectral_info.replace('e+0', 'e').replace('e-0', 'e-')
+        spectral_info = spectral_info.replace('.0-', '-').replace('.0mu', 'mu')
+
+        filename = join_species_all_info(
+            name=species_isotopologue_name.replace('-NatAbund', ''),
+            natural_abundance=natural_abundance,
+            charge=charge,
+            cloud_info=cloud_info,
+            source=source,
+            spectral_info=spectral_info
+        )
+
+        hdf5_opacity_file = os.path.join(
+            output_directory,
+            filename
+        )
+
+        print(f"Writing line-by-line file '{hdf5_opacity_file}'...")
+
+        _write_line_by_line(
+            hdf5_opacity_file=hdf5_opacity_file,
+            doi=doi,
+            wavenumbers=wavenumbers_line_by_line,
+            opacities=sigmas_line_by_line,
+            molmass=molmass,
+            species=species,
+            opacities_pressures_=pressures,
+            opacities_temperatures_=temperatures,
+            contributor=str(contributor),
+            description=str(description)
+        )
+
+    if write_correlated_k:
+        pass  # TODO
+
+
 def line_by_line_opacities_dat2h5(directory, molmass, doi,
                                   path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   contributor=None, description=None, output_name=None,
@@ -2893,89 +3164,19 @@ def line_by_line_opacities_dat2h5(directory, molmass, doi,
     # Write converted file
     print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
 
-    with h5py.File(hdf5_opacity_file, "w") as fh5:
-        dataset = fh5.create_dataset(
-            name='DOI',
-            shape=(1,),
-            data=doi
-        )
-        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-        dataset.attrs['contributor'] = contributor
-        dataset.attrs['additional_description'] = str(description)
-
-        dataset = fh5.create_dataset(
-            name='Date_ID',
-            shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
-        )
-        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                     'at which the table has been created, ' \
-                                     'along with the version of petitRADTRANS'
-
-        dataset = fh5.create_dataset(
-            name='bin_edges',
-            data=wavenumbers
-        )
-        dataset.attrs['long_name'] = 'Wavenumber grid'
-        dataset.attrs['units'] = 'cm^-1'
-
-        dataset = fh5.create_dataset(
-            name='xsecarr',
-            data=opacities
-        )
-        dataset.attrs['long_name'] = 'Table of the cross-sections with axes (pressure, temperature, wavenumber)'
-        dataset.attrs['units'] = 'cm^2/molecule'
-
-        dataset = fh5.create_dataset(
-            name='mol_mass',
-            shape=(1,),
-            data=float(molmass)
-        )
-        dataset.attrs['long_name'] = 'Mass of the species'
-        dataset.attrs['units'] = 'AMU'
-
-        dataset = fh5.create_dataset(
-            name='mol_name',
-            shape=(1,),
-            data=species.split('_', 1)[0]
-        )
-        dataset.attrs['long_name'] = 'Name of the species described'
-
-        dataset = fh5.create_dataset(
-            name='p',
-            data=opacities_pressures_
-        )
-        dataset.attrs['long_name'] = 'Pressure grid'
-        dataset.attrs['units'] = 'bar'
-
-        dataset = fh5.create_dataset(
-            name='t',
-            data=opacities_temperatures_
-        )
-        dataset.attrs['long_name'] = 'Temperature grid'
-        dataset.attrs['units'] = 'K'
-
-        dataset = fh5.create_dataset(
-            name='temperature_grid_type',
-            shape=(1,),
-            data='regular'
-        )
-        dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
-                                     '(same temperatures for all pressures) or "pressure-dependent"'
-
-        dataset = fh5.create_dataset(
-            name='wlrange',
-            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
-        )
-        dataset.attrs['long_name'] = 'Wavelength range covered'
-        dataset.attrs['units'] = 'µm'
-
-        dataset = fh5.create_dataset(
-            name='wnrange',
-            data=np.array([wavenumbers.min(), wavenumbers.max()])
-        )
-        dataset.attrs['long_name'] = 'Wavenumber range covered'
-        dataset.attrs['units'] = 'cm^-1'
+    _write_line_by_line(
+        hdf5_opacity_file=hdf5_opacity_file,
+        doi=doi,
+        wavenumbers=wavenumbers,
+        opacities=opacities,
+        molmass=molmass,
+        species=species,
+        opacities_pressures_=opacities_pressures_,
+        opacities_temperatures_=opacities_temperatures_,
+        wavelengths=wavelengths,
+        contributor=contributor,
+        description=description
+    )
 
     print("Done.")
 
