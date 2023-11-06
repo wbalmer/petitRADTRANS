@@ -555,7 +555,7 @@ class Retrieval:
                         if RANK == 0:
                             bin_species_exok(species, dd.model_resolution)
                         if COMM is not None:
-                            comm.barrier()
+                            COMM.barrier()
                     species = []
                     for spec in self.rd.line_species:
                         species.append(spec + "_R_" + str(dd.model_resolution))
@@ -1877,7 +1877,7 @@ class Retrieval:
                                  refresh = False)
             print("Finished generating all plots!")
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return
 
 
@@ -2209,7 +2209,7 @@ class Retrieval:
                 self.output_dir + 'evaluate_' + self.rd.retrieval_name + '/' + self.retrieval_name + '_' + mode + '_spec.pdf')
             self.evaluate_sample_spectra = check
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax, ax_r
 
     def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
@@ -2352,7 +2352,7 @@ class Retrieval:
             plt.tight_layout()
             plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
     def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = False, model_generating_func=None, 
@@ -2586,7 +2586,7 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values = None, **kwargs):
@@ -2670,7 +2670,7 @@ class Retrieval:
                 **kwargs
             )
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig
 
     def plot_data(self):
@@ -2688,7 +2688,7 @@ class Retrieval:
             ax.legend()
             plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
 
     def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, pRT_reference=None,
                           log_scale_contribution=False, n_contour_levels=30, refresh=True, mode = 'bestfit'):
@@ -2822,7 +2822,7 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
     def plot_abundances(self, 
@@ -3083,5 +3083,5 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig,ax
