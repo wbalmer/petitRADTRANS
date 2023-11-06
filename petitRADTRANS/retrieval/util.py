@@ -277,7 +277,7 @@ def bin_species_exok(species, resolution):
     masses = {}
 
     for spec in species:
-        if "(c)" in key: continue
+        if "(c)" in species: continue
         masses[spec.split('_')[0]] = getMM(spec)
 
     atmosphere.write_out_rebin(
