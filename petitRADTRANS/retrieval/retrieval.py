@@ -1970,7 +1970,8 @@ class Retrieval:
                         ratio = resolution_data/self.rd.plot_kwargs["resolution"]
                         flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
                         error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
-                                                    'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
+                                                    'mean',dd.wlen.shape[0]/ratio)
+                        error = error/np.sqrt(ratio)
                         wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
                         wlen_bins = np.zeros_like(wlen)
                         wlen_bins[:-1] = np.diff(wlen)
