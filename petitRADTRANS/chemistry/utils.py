@@ -17,6 +17,9 @@ def compute_mean_molar_masses(abundances):
                          * np.ones_like(abundances[list(abundances.keys())[0]]))  # prevent division by 0
 
     for key in abundances.keys():
+        if '(s)' in key or '(l)' in key:  # ignore clouds
+            continue
+
         # exo_k resolution
         spec = key.split(".R")[0]
         mean_molar_masses += abundances[key] / get_species_molar_mass(spec)

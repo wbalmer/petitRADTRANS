@@ -450,7 +450,6 @@ class Data:
             f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
 
         log_l = 0.0
-        bval = None  # TODO bval in not set anywhere!
 
         if self.covariance is not None:
             inv_cov = self.inv_cov
