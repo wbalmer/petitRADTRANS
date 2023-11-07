@@ -777,7 +777,7 @@ def linear_spline_profile(press, temperature_points, gamma, nnodes=0):
     interpolated_temps = np.interp(np.log10(press),
                                    np.linspace(np.log10(press[0]),
                                                np.log10(press[-1]),
-                                               nnodes + 2),
+                                               int(nnodes) + 2),
                                    temperature_points)
     prior = temperature_curvature_prior(press, interpolated_temps, gamma)
     return interpolated_temps, prior
@@ -827,7 +827,7 @@ def dtdp_temperature_profile(press, num_layer, layer_pt_slopes, t_bottom):
     p_use_sub = press[id_sub]
     num_sub = len(p_use_sub)
     # 1.3 pressures of layers
-    layer_pressures = np.logspace(-3, 3, num_layer)
+    layer_pressures = np.logspace(-3, 3, int(num_layer))
     # 1.4 assemble the P-T slopes for these layers
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value

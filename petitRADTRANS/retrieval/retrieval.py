@@ -2048,7 +2048,6 @@ class Retrieval:
 
         if self.use_MPI and comm is not None:
             comm.barrier()
-
         return
 
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
