@@ -116,11 +116,11 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     abundances = {}
     for cloud in cloud_species:
         cname = cloud.split("_")[0]
+        print(cname)
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
-            abundances[cname] = abundances_interp[cname]
+            clouds[cname] = abundances_interp[cname]
             continue
-
         if "eq_scaling_"+cname in parameters.keys():
             # equilibrium cloud abundance
             Xcloud= fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
@@ -147,7 +147,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             Pbases[cname] = fc.simple_cdf_free(cname,
                                             pressures,
                                             temperatures,
-                                            10**parameters['log_X_cb_'+cname].value,
+                                            clouds[cname],
                                             MMW[0])
     # Find high resolution pressure grid and indices
     if AMR:

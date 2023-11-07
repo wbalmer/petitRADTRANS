@@ -2673,7 +2673,7 @@ class Retrieval:
             COMM.barrier()
         return fig
 
-    def plot_data(self):
+    def plot_data(self, yscale = 'linear'):
         """
         Plot the data used in the retrieval. 
         """
@@ -2685,7 +2685,8 @@ class Retrieval:
                 else:
                     wlen = dd.wlen
                 ax.errorbar(wlen, dd.flux, yerr=dd.flux_error, label=name, marker='o')
-            ax.legend()
+                ax.set_yscale(yscale)
+            ax.legend(fontsize=6)
             plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
         if self.use_MPI and COMM is not None:
             COMM.barrier()
