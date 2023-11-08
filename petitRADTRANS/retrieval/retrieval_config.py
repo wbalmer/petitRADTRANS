@@ -7,6 +7,16 @@ import numpy as np
 from .data import Data
 from .parameter import Parameter
 
+# MPI Multiprocessing
+RANK = 0
+COMM = None
+try:
+    from mpi4py import MPI
+    COMM = MPI.COMM_WORLD
+    RANK = COMM.Get_rank()
+except ImportError:
+    logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
+
 #import species
 #species.SpeciesInit()
 
@@ -577,9 +587,16 @@ class RetrievalConfig:
                 flux = float(vals[3])
                 err = float(vals[4])
 
+                transform = None
                 if photometric_transformation_function is None:
-                    transform = SyntheticPhotometry(name).spectrum_to_flux
-
+                    if RANK == 0:
+                        transform = SyntheticPhotometry(name).spectrum_to_flux
+                        COMM.send(transform, dest=1, tag=11)
+                    else:
+                        transform = COMM.recv(source = 0, tag = 11)
+                    #if COMM is not None:
+                    #    COMM.barrier()
+                        
                 else:
                     transform = photometric_transformation_function
 
