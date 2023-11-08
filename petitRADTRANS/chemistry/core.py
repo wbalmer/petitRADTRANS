@@ -134,7 +134,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         cname = cloud.split("_")[0]
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
-            abundances[cname] = abundances_interp[cname]
+            clouds[cname] = abundances_interp[cname]
             continue
 
         if "eq_scaling_" + cname in parameters.keys():
