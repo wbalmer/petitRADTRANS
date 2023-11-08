@@ -2867,7 +2867,8 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
 def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
                            charge='', cloud_info='', contributor=None, description=None,
                            path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                           write_correlated_k=True, write_line_by_line=True, line_by_line_wavelength_boundaries=None):
+                           write_correlated_k=True, correlated_k_resolving_power=1000, samples=None, weights=None,
+                           write_line_by_line=True, line_by_line_wavelength_boundaries=None):
     if line_by_line_wavelength_boundaries is None:
         line_by_line_wavelength_boundaries = np.array([0.3, 28])  # um
 
@@ -2887,8 +2888,8 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
     if write_line_by_line:
         selection = np.nonzero(
             np.logical_and(
-                np.less_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[0]),
-                np.greater_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[1])
+                np.greater_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[1]),
+                np.less_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[0])
             )
         )[0]
         selection = np.array([selection[0] - 1, selection[-1] + 2])  # ensure that the selection contains the bounds
@@ -2911,9 +2912,10 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
     temperatures = []
     pressures = []
     sigmas_line_by_line = []
-    sigmas_correlated_k = []
+    sigmas = []
 
     species = None
+    wavenumbers = None
 
     print(f"Starting conversion of directory '{exocross_directory}'...")
 
@@ -2947,21 +2949,32 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
 
         print("Done.")
 
-        wavenumbers = dat[:, 0]
-        sigma = dat[:, 1]
+        if i == 0:
+            print(f" Setting ExoCross wavenumber grid...")
+            wavenumbers = dat[:, 0]
+        else:
+            if dat[:, 0].size != wavenumbers.size:
+                raise ValueError(f"all ExoCross files must have the same wavenumbers, "
+                                 f"but the wavenumbers size of file '{exocross_file[0]}' is {wavenumbers.size}, "
+                                 f"and the wavenumbers size of file '{exocross_file}' is {dat[:, 0].size}")
+            elif np.allclose(wavenumbers, dat[:, 0], atol=0, rtol=1e-6):
+                raise ValueError(f"all ExoCross files must have the same wavenumbers, "
+                                 f"but the wavenumbers of file '{exocross_file}' "
+                                 f"is different from the wavenumbers of file '{exocross_file[0]}'")
+
+        sigmas.append(dat[:, 1])
 
         # Interpolate the ExoCross calculation to that grid
         print(" Interpolating...")
-        sig_interp = interp1d(wavenumbers, sigma)
-        sigmas_correlated_k.append(sig_interp(wavenumbers_petitradtrans))
+        sig_interp = interp1d(wavenumbers, sigmas[-1])
+        sigmas_prt = sig_interp(wavenumbers_petitradtrans)
 
         # Stores values
         pressures.append(pressure)
         temperatures.append(temperature)
 
         if write_line_by_line:
-            sig_interpolated_petit_line_by_line = sigmas_correlated_k[-1][selection[0]:selection[1]]
-            sigmas_line_by_line.append(sig_interpolated_petit_line_by_line)
+            sigmas_line_by_line.append(sigmas_prt[-1][selection[0]:selection[1]])
 
     pressures = np.array(pressures)
     temperatures = np.array(temperatures)
@@ -2991,6 +3004,7 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
     print("Preparation successful")
 
     if write_line_by_line:
+        print(f"Starting line-by-line conversion (boundaries: {line_by_line_wavelength_boundaries})...")
         sigmas_line_by_line = np.array(sigmas_line_by_line)[pressure_temperature_grid_sorted_id]
         sigmas_line_by_line = sigmas_line_by_line.reshape(
             (unique_pressures.size, unique_temperatures.size, wavenumbers_line_by_line.size)
@@ -3023,7 +3037,7 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
             filename
         )
 
-        print(f"Writing line-by-line file '{hdf5_opacity_file}'...")
+        print(f" Writing line-by-line file '{hdf5_opacity_file}'...")
 
         _write_line_by_line(
             hdf5_opacity_file=hdf5_opacity_file,
@@ -3038,8 +3052,128 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
             description=str(description)
         )
 
+        print(f"Successfully converted ExoCross files in '{exocross_directory}' to line-by-line pRT files")
+
     if write_correlated_k:
-        pass  # TODO
+        print(f"Starting correlated-k conversion (R = {correlated_k_resolving_power})...")
+        # Initialize the samples grids if necessary
+        if samples is None:
+            samples = np.array([
+                0.0178695646,
+                0.0915000852,
+                0.2135104155,
+                0.3674544109,
+                0.5325455891,
+                0.6864895845,
+                0.8084999148,
+                0.8821304354,
+                0.9019855072,
+                0.9101666761,
+                0.9237233795,
+                0.9408282679,
+                0.9591717321,
+                0.9762766205,
+                0.9898333239,
+                0.9980144928
+            ])
+
+        if weights is None:
+            weights = np.array([
+                0.0455528413,
+                0.1000714655,
+                0.1411679906,
+                0.1632077025,
+                0.1632077025,
+                0.1411679906,
+                0.1000714655,
+                0.0455528413,
+                0.0050614268,
+                0.0111190517,
+                0.0156853323,
+                0.0181341892,
+                0.0181341892,
+                0.0156853323,
+                0.0111190517,
+                0.0050614268
+            ])
+
+        if samples.size != weights.size:
+            raise ValueError(f"correlated-k g and weight arrays must have the same size, "
+                             f"but have sizes {samples.size} and {weights.size}")
+
+        print(" Reshaping...")
+        sigmas = np.array(sigmas)[pressure_temperature_grid_sorted_id]
+        sigmas = sigmas.reshape(
+            (unique_pressures.size, unique_temperatures.size, wavenumbers.size)
+        )
+
+        print(" Initializing correlated-k parameters...")
+        samples_edges = np.zeros(samples.size + 1)
+        samples_edges[-1] = 1.0
+
+        for i in range(samples.size - 1):
+            samples_edges[i + 1] = (samples[i + 1] + samples[i]) / 2
+
+        # _weights = np.diff(samples_edges)
+
+        resolving_power = np.mean(wavenumbers[:-1] / np.diff(wavenumbers) + 0.5)
+        downsampling = int(resolving_power / correlated_k_resolving_power)
+
+        if downsampling > wavenumbers.size:
+            raise ValueError(f"unable to make correlate-k resolving power {correlated_k_resolving_power}"
+                             f"from source with resolving power {resolving_power}")
+
+        bin_edges = wavenumbers[::downsampling]
+
+        if bin_edges[-1] != wavenumbers[-1]:
+            bin_edges = np.append(bin_edges, wavenumbers[-1])
+
+        correlated_k = np.zeros((
+            unique_pressures.size,
+            unique_temperatures.size,
+            bin_edges.size - 1,
+            samples.size)
+        )
+
+        for i in range(bin_edges.size - 1):
+            print(f" Calculating correlated-k ({i + 1}/{bin_edges.size - 1})...")
+            selection = np.nonzero(
+                np.logical_and(
+                    np.greater_equal(wavenumbers, bin_edges[i]),
+                    np.less(wavenumbers, bin_edges[i + 1])
+                )
+            )[0]
+
+            _sigmas = sigmas[:, :, selection[0]:selection[-1]]
+            _sigmas = np.sort(_sigmas, axis=-1)
+            sigmas_g_mean = np.zeros((unique_pressures.size, unique_temperatures.size, samples.size))
+
+            g_sort = np.linspace(0, 1, selection.size)
+
+            for j in range(samples.size):
+                g_selection = np.nonzero(
+                    np.logical_and(
+                        np.greater_equal(g_sort, samples_edges[j]),
+                        np.less_equal(g_sort, samples_edges[j + 1])
+                    )
+                )[0]
+
+                sigmas_g_mean[:, :, j] = np.mean(_sigmas[:, :, g_selection[0]:g_selection[-1]])
+
+            correlated_k[:, :, i, :] = sigmas_g_mean
+
+            # delta_wavenumbers = np.diff(wavenumbers[selection[0]:selection[-1]])
+
+            # correlated_k_integrate = (
+            #     np.sum(
+            #         (_sigmas[:, :, 1:] + _sigmas[:, :, :-1]) * 0.5
+            #         * delta_wavenumbers
+            #     )
+            #     / np.sum(delta_wavenumbers)
+            # )
+        # TODO add correlated-k writing
+
+        print(f"Successfully converted ExoCross files in '{exocross_directory}' to correlated-k pRT files")
 
 
 def line_by_line_opacities_dat2h5(directory, molmass, doi,
