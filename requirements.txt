@@ -13,4 +13,4 @@ scipy>=1.5
 seaborn
 skycalc_cli
 typing;python_version<"3.5"
-species
+species>=0.7.0
