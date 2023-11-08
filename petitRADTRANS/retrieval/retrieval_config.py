@@ -577,7 +577,7 @@ class RetrievalConfig:
                 err = float(vals[4])
 
                 if photometric_transformation_function is None:
-                    transform = sp.SyntheticPhotometry(name).spectrum_to_flux
+                    transform = sp.phot.syn_phot.SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 
