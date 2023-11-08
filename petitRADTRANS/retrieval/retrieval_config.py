@@ -558,6 +558,7 @@ class RetrievalConfig:
             if photometric_transformation_function is None:
                 try:
                     import species as sp
+                    from species.phot.syn_phot import SyntheticPhotometry
                     sp.SpeciesInit()
                 except ModuleNotFoundError:  # TODO find what error is expected here
                     logging.error(
@@ -577,7 +578,7 @@ class RetrievalConfig:
                 err = float(vals[4])
 
                 if photometric_transformation_function is None:
-                    transform = sp.phot.syn_phot.SyntheticPhotometry(name).spectrum_to_flux
+                    transform = SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 
