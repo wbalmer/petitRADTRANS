@@ -14,6 +14,7 @@ try:
     from mpi4py import MPI
     COMM = MPI.COMM_WORLD
     RANK = COMM.Get_rank()
+    print(RANK)
 except ImportError:
     logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
 
@@ -589,14 +590,14 @@ class RetrievalConfig:
 
                 transform = None
                 if photometric_transformation_function is None:
-                    if RANK == 0:
-                        transform = SyntheticPhotometry(name).spectrum_to_flux
-                        COMM.send(transform, dest=1, tag=11)
+                    if COMM.Get_size()>1:
+                        if RANK == 0:
+                            transform = SyntheticPhotometry(name).spectrum_to_flux
+                            COMM.send(transform, dest=1, tag=11)
+                        else:
+                            transform = COMM.recv(source = 0, tag = 11)
                     else:
-                        transform = COMM.recv(source = 0, tag = 11)
-                    #if COMM is not None:
-                    #    COMM.barrier()
-                        
+                        transform = SyntheticPhotometry(name).spectrum_to_flux                        
                 else:
                     transform = photometric_transformation_function
 
