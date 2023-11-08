@@ -1403,122 +1403,23 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         # Write converted file
         print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
 
-        with h5py.File(hdf5_opacity_file, "w") as fh5:
-            dataset = fh5.create_dataset(
-                name='DOI',
-                shape=(1,),
-                data=doi_dict[species]
-            )
-            dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-            dataset.attrs['contributor'] = contributor_dict[species]
-            dataset.attrs['additional_description'] = description_dict[species]
-
-            dataset = fh5.create_dataset(
-                name='Date_ID',
-                shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
-            )
-            dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                         'at which the table has been created, ' \
-                                         'along with the version of petitRADTRANS'
-
-            dataset = fh5.create_dataset(
-                name='bin_centers',
-                data=wavenumbers
-            )
-            dataset.attrs['long_name'] = 'Centers of the wavenumber bins'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='bin_edges',
-                data=wavenumbers_bins_edges
-            )
-            dataset.attrs['long_name'] = 'Separations between the wavenumber bins'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='kcoeff',
-                data=cross_sections
-            )
-            dataset.attrs['long_name'] = ('Table of the k-coefficients with axes '
-                                          '(pressure, temperature, wavenumber, g space)')
-            dataset.attrs['units'] = 'cm^2/molecule'
-
-            dataset = fh5.create_dataset(
-                name='method',
-                shape=(1,),
-                data='petit_samples'
-            )
-            dataset.attrs['long_name'] = 'Name of the method used to sample g-space'
-
-            dataset = fh5.create_dataset(
-                name='mol_mass',
-                shape=(1,),
-                data=float(molmass_dict[species])
-            )
-            dataset.attrs['long_name'] = 'Mass of the species'
-            dataset.attrs['units'] = 'AMU'
-
-            dataset = fh5.create_dataset(
-                name='mol_name',
-                shape=(1,),
-                data=species.split('_', 1)[0]
-            )
-            dataset.attrs['long_name'] = 'Name of the species described'
-
-            dataset = fh5.create_dataset(
-                name='ngauss',
-                data=_n_g
-            )
-            dataset.attrs['long_name'] = 'Number of points used to sample the g-space'
-
-            dataset = fh5.create_dataset(
-                name='p',
-                data=opacities_pressures_
-            )
-            dataset.attrs['long_name'] = 'Pressure grid'
-            dataset.attrs['units'] = 'bar'
-
-            dataset = fh5.create_dataset(
-                name='samples',
-                data=g_gauss
-            )
-            dataset.attrs['long_name'] = 'Abscissas used to sample the k-coefficients in g-space'
-
-            dataset = fh5.create_dataset(
-                name='t',
-                data=opacities_temperatures_
-            )
-            dataset.attrs['long_name'] = 'Temperature grid'
-            dataset.attrs['units'] = 'K'
-
-            dataset = fh5.create_dataset(
-                name='temperature_grid_type',
-                shape=(1,),
-                data='regular'
-            )
-            dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
-                                         '(same temperatures for all pressures) or "pressure-dependent"'
-
-            dataset = fh5.create_dataset(
-                name='weights',
-                data=weights_gauss
-            )
-            dataset.attrs['long_name'] = 'Weights used in the g-space quadrature'
-
-            dataset = fh5.create_dataset(
-                name='wlrange',
-                data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
-            )
-            dataset.attrs['long_name'] = 'Wavelength range covered'
-            dataset.attrs['units'] = 'µm'
-
-            dataset = fh5.create_dataset(
-                name='wnrange',
-                data=np.array([wavenumbers.min(), wavenumbers.max()])
-            )
-            dataset.attrs['long_name'] = 'Wavenumber range covered'
-            dataset.attrs['units'] = 'cm^-1'
+        _write_correlated_k(
+            file=hdf5_opacity_file,
+            doi=doi_dict[species],
+            wavenumbers=wavenumbers,
+            wavenumbers_bins_edges=wavenumbers_bins_edges,
+            cross_sections=cross_sections,
+            mol_mass=molmass_dict[species],
+            species=species,
+            opacities_pressures=opacities_pressures_,
+            opacities_temperatures=opacities_temperatures_,
+            g_gauss=g_gauss,
+            weights_gauss=weights_gauss,
+            wavelengths=wavelengths,
+            n_g=_n_g,
+            contributor=contributor_dict[species],
+            description=description_dict[species]
+        )
 
         print("Done.")
 
@@ -2519,13 +2420,141 @@ def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
     return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
 
 
-def _write_line_by_line(hdf5_opacity_file, doi, wavenumbers, opacities, molmass, species,
-                        opacities_pressures_, opacities_temperatures_, wavelengths=None,
+def _write_correlated_k(file, doi, wavenumbers, wavenumbers_bins_edges, cross_sections, mol_mass, species,
+                        opacities_pressures, opacities_temperatures, g_gauss, weights_gauss,
+                        wavelengths=None, n_g=None,
                         contributor=None, description=None):
     if wavelengths is None:
         wavelengths = np.array([1 / wavenumbers[0], 1 / wavenumbers[-1]])
 
-    with h5py.File(hdf5_opacity_file, "w") as fh5:
+    if n_g is None:
+        n_g = g_gauss.size
+
+    with h5py.File(file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['contributor'] = str(contributor)
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='bin_centers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Centers of the wavenumber bins'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='bin_edges',
+            data=wavenumbers_bins_edges
+        )
+        dataset.attrs['long_name'] = 'Separations between the wavenumber bins'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='kcoeff',
+            data=cross_sections
+        )
+        dataset.attrs['long_name'] = ('Table of the k-coefficients with axes '
+                                      '(pressure, temperature, wavenumber, g space)')
+        dataset.attrs['units'] = 'cm^2/molecule'
+
+        dataset = fh5.create_dataset(
+            name='method',
+            shape=(1,),
+            data='petit_samples'
+        )
+        dataset.attrs['long_name'] = 'Name of the method used to sample g-space'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            shape=(1,),
+            data=float(mol_mass)
+        )
+        dataset.attrs['long_name'] = 'Mass of the species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=species.split('_', 1)[0]
+        )
+        dataset.attrs['long_name'] = 'Name of the species described'
+
+        dataset = fh5.create_dataset(
+            name='ngauss',
+            data=n_g
+        )
+        dataset.attrs['long_name'] = 'Number of points used to sample the g-space'
+
+        dataset = fh5.create_dataset(
+            name='p',
+            data=opacities_pressures
+        )
+        dataset.attrs['long_name'] = 'Pressure grid'
+        dataset.attrs['units'] = 'bar'
+
+        dataset = fh5.create_dataset(
+            name='samples',
+            data=g_gauss
+        )
+        dataset.attrs['long_name'] = 'Abscissas used to sample the k-coefficients in g-space'
+
+        dataset = fh5.create_dataset(
+            name='t',
+            data=opacities_temperatures
+        )
+        dataset.attrs['long_name'] = 'Temperature grid'
+        dataset.attrs['units'] = 'K'
+
+        dataset = fh5.create_dataset(
+            name='temperature_grid_type',
+            shape=(1,),
+            data='regular'
+        )
+        dataset.attrs['long_name'] = 'Whether the temperature grid is "regular" ' \
+                                     '(same temperatures for all pressures) or "pressure-dependent"'
+
+        dataset = fh5.create_dataset(
+            name='weights',
+            data=weights_gauss
+        )
+        dataset.attrs['long_name'] = 'Weights used in the g-space quadrature'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+
+
+def _write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
+                        opacities_pressures, opacities_temperatures, wavelengths=None,
+                        contributor=None, description=None):
+    if wavelengths is None:
+        wavelengths = np.array([1 / wavenumbers[0], 1 / wavenumbers[-1]])
+
+    with h5py.File(file, "w") as fh5:
         dataset = fh5.create_dataset(
             name='DOI',
             shape=(1,),
@@ -2561,7 +2590,7 @@ def _write_line_by_line(hdf5_opacity_file, doi, wavenumbers, opacities, molmass,
         dataset = fh5.create_dataset(
             name='mol_mass',
             shape=(1,),
-            data=float(molmass)
+            data=float(mol_mass)
         )
         dataset.attrs['long_name'] = 'Mass of the species'
         dataset.attrs['units'] = 'AMU'
@@ -2575,14 +2604,14 @@ def _write_line_by_line(hdf5_opacity_file, doi, wavenumbers, opacities, molmass,
 
         dataset = fh5.create_dataset(
             name='p',
-            data=opacities_pressures_
+            data=opacities_pressures
         )
         dataset.attrs['long_name'] = 'Pressure grid'
         dataset.attrs['units'] = 'bar'
 
         dataset = fh5.create_dataset(
             name='t',
-            data=opacities_temperatures_
+            data=opacities_temperatures
         )
         dataset.attrs['long_name'] = 'Temperature grid'
         dataset.attrs['units'] = 'K'
@@ -2864,6 +2893,23 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
         __remove_files([input_directory])
 
 
+def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopologue_name,
+                         source, natural_abundance='', charge='', cloud_info=''):
+    spectral_info = (f"R{resolving_power:.0e}_"
+                     f"{wavelength_boundaries[0]:.1f}-{wavelength_boundaries[1]:.1f}mu")
+    spectral_info = spectral_info.replace('e+0', 'e').replace('e-0', 'e-')
+    spectral_info = spectral_info.replace('.0-', '-').replace('.0mu', 'mu')
+
+    return join_species_all_info(
+        name=species_isotopologue_name.replace('-NatAbund', ''),
+        natural_abundance=natural_abundance,
+        charge=charge,
+        cloud_info=cloud_info,
+        source=source,
+        spectral_info=spectral_info
+    )
+
+
 def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
                            charge='', cloud_info='', contributor=None, description=None,
                            path_input_data=petitradtrans_config_parser.get_input_data_path(),
@@ -3018,18 +3064,15 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
         )
 
         resolving_power = np.mean(wavenumbers_petitradtrans[:-1] / np.diff(wavenumbers_petitradtrans) + 0.5)
-        spectral_info = (f"R{resolving_power:.0e}_"
-                         f"{line_by_line_wavelength_boundaries[0]:.1f}-{line_by_line_wavelength_boundaries[1]:.1f}mu")
-        spectral_info = spectral_info.replace('e+0', 'e').replace('e-0', 'e-')
-        spectral_info = spectral_info.replace('.0-', '-').replace('.0mu', 'mu')
 
-        filename = join_species_all_info(
-            name=species_isotopologue_name.replace('-NatAbund', ''),
+        filename = get_opacity_filename(
+            resolving_power=resolving_power,
+            wavelength_boundaries=line_by_line_wavelength_boundaries,
+            species_isotopologue_name=species_isotopologue_name,
+            source=source,
             natural_abundance=natural_abundance,
             charge=charge,
-            cloud_info=cloud_info,
-            source=source,
-            spectral_info=spectral_info
+            cloud_info=cloud_info
         )
 
         hdf5_opacity_file = os.path.join(
@@ -3040,14 +3083,14 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
         print(f" Writing line-by-line file '{hdf5_opacity_file}'...")
 
         _write_line_by_line(
-            hdf5_opacity_file=hdf5_opacity_file,
+            file=hdf5_opacity_file,
             doi=doi,
             wavenumbers=wavenumbers_line_by_line,
             opacities=sigmas_line_by_line,
-            molmass=molmass,
+            mol_mass=molmass,
             species=species,
-            opacities_pressures_=pressures,
-            opacities_temperatures_=temperatures,
+            opacities_pressures=pressures,
+            opacities_temperatures=temperatures,
             contributor=str(contributor),
             description=str(description)
         )
@@ -3128,12 +3171,14 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
         if bin_edges[-1] != wavenumbers[-1]:
             bin_edges = np.append(bin_edges, wavenumbers[-1])
 
+        bin_centers = bin_edges[:-1] + np.diff(bin_edges) / 2
+
         correlated_k = np.zeros((
             unique_pressures.size,
             unique_temperatures.size,
             bin_edges.size - 1,
-            samples.size)
-        )
+            samples.size
+        ))
 
         for i in range(bin_edges.size - 1):
             print(f" Calculating correlated-k ({i + 1}/{bin_edges.size - 1})...")
@@ -3171,7 +3216,37 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
             #     )
             #     / np.sum(delta_wavenumbers)
             # )
-        # TODO add correlated-k writing
+
+        print(f" Reordering axis...")
+        correlated_k = np.swapaxes(np.swapaxes(correlated_k, 0, -1), 1, -2)
+
+        filename = get_opacity_filename(
+            resolving_power=correlated_k_resolving_power,
+            wavelength_boundaries=line_by_line_wavelength_boundaries,
+            species_isotopologue_name=species_isotopologue_name,
+            source=source,
+            natural_abundance=natural_abundance,
+            charge=charge,
+            cloud_info=cloud_info
+        )
+
+        _write_correlated_k(
+            file=filename,
+            doi=doi,
+            wavenumbers=bin_centers,
+            wavenumbers_bins_edges=bin_edges,
+            cross_sections=correlated_k,
+            mol_mass=molmass,
+            species=species,
+            opacities_pressures=unique_pressures,
+            opacities_temperatures=unique_temperatures,
+            g_gauss=samples,
+            weights_gauss=weights,
+            wavelengths=None,
+            n_g=None,
+            contributor=contributor,
+            description=description
+        )
 
         print(f"Successfully converted ExoCross files in '{exocross_directory}' to correlated-k pRT files")
 
@@ -3299,14 +3374,14 @@ def line_by_line_opacities_dat2h5(directory, molmass, doi,
     print(f" Writing file '{hdf5_opacity_file}'...", end=' ')
 
     _write_line_by_line(
-        hdf5_opacity_file=hdf5_opacity_file,
+        file=hdf5_opacity_file,
         doi=doi,
         wavenumbers=wavenumbers,
         opacities=opacities,
-        molmass=molmass,
+        mol_mass=molmass,
         species=species,
-        opacities_pressures_=opacities_pressures_,
-        opacities_temperatures_=opacities_temperatures_,
+        opacities_pressures=opacities_pressures_,
+        opacities_temperatures=opacities_temperatures_,
         wavelengths=wavelengths,
         contributor=contributor,
         description=description
