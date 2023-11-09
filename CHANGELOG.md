@@ -59,6 +59,46 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
 
+## [2.7.3] - 2023-11-08
+### Changed
+ - New plotting function interface, can pass `pRT_objects` and `model_generating_functions`
+ - New MPI interface for better parallelisation
+ - Fixed binning of spectra errorbars for plotting
+ - Minor typo bug fixes
+
+## [2.7.2] - 2023-11-08
+### Fixed
+ - Incorrect MMW calculation in `chemistry.py`
+
+## [2.7.1] - 2023-11-08
+### Fixed
+ - Tick marks for log plots of spectra
+ - Bugs from 2.7.0 merge
+
+## [2.7.0] - 2023-09-12
+### Added
+ - New model_generating_functions in `models.py`.
+ - New functions in `retrieval.py` to access chemical abundance profiles.
+ - beta: interface retrievals with easychem
+ - Complete implementation of scaling factors for flux errors, line b scaling and offsets.
+ - Mixed equilibrium and free chemistry retrievals
+ - New temperature profiles (spline, gradient), with curvature prior
+ - Can get Teffs from posterior distributions.
+ - Can get volume mixing ratios from posterior distributions
+ - Can retrieve haze scattering slopes.
+
+### Changed
+ - Can now generally set the contribution function, reference pressure, H2 and He abundances as parameters.
+ - Can now plot VMRs as well as mass fractions.
+ - Can use data in the format [wlen, bins, flux, error]
+ - Many small improvements to speed throughout model and plotting routines.
+ - More thorough cloud implementations - hansen, log normal, single radius, and more.
+
+### Fixed
+ - Calculation of chi2 - now automatically outputs normalisation by ndata and dof.
+ - Corrected implementation of free cloud base pressures
+ - Consistent binning and convolution in spectra plots
+
 ## [2.6.0] - 2023-03-27
 ### Added
 - High-resolution retrievals.
@@ -114,7 +154,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when trying to read a nonexistent opacity file.
 - Function `contour_corner` not working when not giving optional arguments `parameter_ranges` and `parameter_plot_indices`.
 - True values not plotted in function `contour_corner`.
-- Function `getMM` not working with e- and H-.
+- Function `get_MM` not working with e- and H-.
 - e- and H- implementation.
 - Hack cloud photospheric tau behaviour.
 - Potential reference before assignment in module `retrieval`.
@@ -127,6 +167,5 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ---
 No changelog before version 2.6.0.
-Fixing updates of versions 2.6.x not tracked.
 Some additions, changes and fixes reported in 2.6.0 may have been implemented in previous versions.
 Test suite added in version 2.4.0.
