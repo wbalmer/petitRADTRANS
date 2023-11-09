@@ -12,7 +12,8 @@ import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, mass_fractions2volume_mixing_ratios
+from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, mass_fractions2volume_mixing_ratios,
+                                           simplify_species_list)
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running
 from petitRADTRANS.physics import (
@@ -292,12 +293,6 @@ class SpectralModel(Radtrans):
                     is_orbiting=is_orbiting,
                     **kwargs
                 )
-        elif is_orbiting and radial_velocity_semi_amplitude is None:
-            raise TypeError("Modelled object is orbiting and 'relative_velocities' was set, "
-                            "but not 'radial_velocity_semi_amplitude'; "
-                            "set model parameter 'radial_velocity_semi_amplitude', "
-                            "or remove model parameter 'relative_velocities' to calculate both "
-                            "'radial_velocity_semi_amplitude' and 'relative_velocities'")
 
         return relative_velocities, system_observer_radial_velocities, radial_velocity_semi_amplitude, \
             radial_velocities, orbital_longitudes, is_orbiting
@@ -322,92 +317,6 @@ class SpectralModel(Radtrans):
             metallicity = sys.float_info.min
 
         return metallicity
-
-    @staticmethod
-    def _compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
-                                            line_species, included_line_species,
-                                            carbon_pressure_quench=None, imposed_mass_fractions=None):
-        if imposed_mass_fractions is None:
-            imposed_mass_fractions = {}
-
-        if np.size(co_ratio) == 1:
-            co_ratios = np.ones_like(pressures) * co_ratio
-        else:
-            co_ratios = co_ratio
-
-        if np.size(metallicity) == 1:
-            log10_metallicities = np.ones_like(pressures) * metallicity
-        else:
-            log10_metallicities = metallicity
-
-        log10_metallicities = np.log10(log10_metallicities)
-
-        equilibrium_mass_mixing_ratios = (
-            pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                co_ratios=co_ratios,
-                log10_metallicities=log10_metallicities,
-                temperatures=temperatures,
-                pressures=pressures,
-                carbon_pressure_quench=carbon_pressure_quench,
-                full=False  # no need for nabla_adiabatic or the mean molar mass
-            )
-        )
-
-        # Check imposed mass mixing ratios keys
-        for key in imposed_mass_fractions:
-            if key not in line_species and key not in equilibrium_mass_mixing_ratios:
-                raise KeyError(f"key '{key}' not in retrieved species list or "
-                               f"standard petitRADTRANS mass fractions dict")
-
-        # Get the right keys for the mass fractions dictionary
-        mass_mixing_ratios = {}
-
-        if included_line_species == 'all':
-            included_line_species = []
-
-            for line_species_name in line_species:
-                included_line_species.append(line_species_name.split('_', 1)[0])
-
-        for key in equilibrium_mass_mixing_ratios:
-            found = False
-
-            # Set line species mass mixing ratios into to their imposed one
-            for line_species_name_ in line_species:
-                if line_species_name_ == 'CO_36':  # CO_36 special case
-                    if line_species_name_ in imposed_mass_fractions:
-                        # Use imposed mass mixing ratio
-                        mass_mixing_ratios[line_species_name_] = imposed_mass_fractions[line_species_name_]
-
-                    continue
-
-                # Correct for line species name to match pRT chemistry name
-                line_species_name = line_species_name_.split('_', 1)[0]
-
-                if key == line_species_name:
-                    if key not in included_line_species:
-                        # Species not included, set mass mixing ratio to 0
-                        mass_mixing_ratios[line_species_name] = np.zeros(np.shape(temperatures))
-                    elif line_species_name_ in imposed_mass_fractions:
-                        # Use imposed mass mixing ratio
-                        mass_mixing_ratios[line_species_name_] = imposed_mass_fractions[line_species_name_]
-                    else:
-                        # Use calculated mass mixing ratio
-                        mass_mixing_ratios[line_species_name_] = equilibrium_mass_mixing_ratios[line_species_name]
-
-                    found = True
-
-                    break
-
-            # Set species mass mixing ratio to their imposed one
-            if not found:
-                if key in imposed_mass_fractions:
-                    # Use imposed mass mixing ratio
-                    mass_mixing_ratios[key] = imposed_mass_fractions[key]
-                else:
-                    # Use calculated mass mixing ratio
-                    mass_mixing_ratios[key] = equilibrium_mass_mixing_ratios[key]
-
-        return mass_mixing_ratios
 
     @staticmethod
     def _compute_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
@@ -1070,13 +979,40 @@ class SpectralModel(Radtrans):
         return resolving_power
 
     @staticmethod
-    def compute_mass_fractions(pressures, line_species=None,
-                               included_line_species='all', temperatures=None, co_ratio=0.55,
-                               metallicity=None, carbon_pressure_quench=None,
-                               imposed_mass_fractions=None, heh2_ratio=12/37, c13c12_ratio=0.01,
-                               planet_mass=None,
-                               star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
-                               use_equilibrium_chemistry=False, fill_atmosphere=False, verbose=False, **kwargs):
+    def compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
+                                           carbon_pressure_quench=None):
+        if np.size(co_ratio) == 1:
+            co_ratios = np.ones_like(pressures) * co_ratio
+        else:
+            co_ratios = co_ratio
+
+        if np.size(metallicity) == 1:
+            log10_metallicities = np.ones_like(pressures) * metallicity
+        else:
+            log10_metallicities = metallicity
+
+        log10_metallicities = np.log10(log10_metallicities)
+
+        equilibrium_mass_fractions = (
+            pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
+                co_ratios=co_ratios,
+                log10_metallicities=log10_metallicities,
+                temperatures=temperatures,
+                pressures=pressures,
+                carbon_pressure_quench=carbon_pressure_quench,
+                full=False  # no need for nabla_adiabatic or the mean molar mass
+            )
+        )
+
+        return equilibrium_mass_fractions
+
+    @staticmethod
+    def compute_mass_fractions(pressures, temperatures=None, imposed_mass_fractions=None, line_species=None,
+                               fill_atmosphere=False, use_equilibrium_chemistry=False,
+                               metallicity=None, co_ratio=0.55, carbon_pressure_quench=None,
+                               heh2_ratio=12/37, c13c12_ratio=0.01,
+                               planet_mass=None, star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
+                               verbose=False, **kwargs):
         """Initialize a model mass mixing ratios.
         Ensure that in any case, the sum of mass mixing ratios is equal to 1. Imposed mass mixing ratios are kept to
         their imposed value as long as the sum of the imposed values is lower or equal to 1. H2 and He are used as
@@ -1099,7 +1035,6 @@ class SpectralModel(Radtrans):
         Args:
             pressures: (cgs) pressures of the mass mixing ratios
             line_species: list of line species, required to manage naming differences between opacities and chemistry
-            included_line_species: which line species of the list to include, mass mixing ratio set to 0 otherwise
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
             metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
@@ -1125,9 +1060,7 @@ class SpectralModel(Radtrans):
         """
         # TODO should fill_atmosphere be True by default? Currently it means more work for the casual user.
         # Initialization
-        mass_mixing_ratios = {}
-        m_sum_imposed_species = np.zeros(np.shape(pressures))
-        m_sum_species = np.zeros(np.shape(pressures))
+        mass_fractions = {}
 
         if line_species is None:
             line_species = []
@@ -1146,7 +1079,8 @@ class SpectralModel(Radtrans):
             imposed_mass_fractions = {}
 
         # Chemical equilibrium mass mixing ratios
-        # TODO fix bug when all line species are imposed species
+        mass_fractions_equilibrium = None
+
         if use_equilibrium_chemistry:
             # Calculate metallicity
             if metallicity is None:
@@ -1161,15 +1095,12 @@ class SpectralModel(Radtrans):
                 )
 
             # Interpolate chemical equilibrium
-            mass_mixing_ratios_equilibrium = SpectralModel._compute_equilibrium_mass_fractions(
+            mass_fractions_equilibrium = SpectralModel.compute_equilibrium_mass_fractions(
                 pressures=pressures,
                 temperatures=temperatures,
                 co_ratio=co_ratio,
                 metallicity=metallicity,
-                line_species=line_species,
-                included_line_species=included_line_species,
-                carbon_pressure_quench=carbon_pressure_quench,
-                imposed_mass_fractions=imposed_mass_fractions
+                carbon_pressure_quench=carbon_pressure_quench
             )
 
             # TODO more general handling of isotopologues (use smarter species names)
@@ -1178,77 +1109,76 @@ class SpectralModel(Radtrans):
 
             if 'CO_main_iso' not in imposed_mass_fractions and 'CO_36' not in imposed_mass_fractions:
                 if 'CO-NatAbund' not in line_species:
-                    if 'CO_main_iso' in mass_mixing_ratios_equilibrium:
-                        co_mass_mixing_ratio = copy.copy(mass_mixing_ratios_equilibrium['CO_main_iso'])
+                    if 'CO_main_iso' in mass_fractions_equilibrium:
+                        co_mass_mixing_ratio = copy.copy(mass_fractions_equilibrium['CO_main_iso'])
                     else:
-                        co_mass_mixing_ratio = copy.copy(mass_mixing_ratios_equilibrium['CO'])
+                        co_mass_mixing_ratio = copy.copy(mass_fractions_equilibrium['CO'])
 
                     if 'CO_main_iso' in line_species:
-                        mass_mixing_ratios_equilibrium['CO_main_iso'] = co_mass_mixing_ratio / (1 + c13c12_ratio)
-                        mass_mixing_ratios_equilibrium['CO_36'] = \
-                            co_mass_mixing_ratio - mass_mixing_ratios_equilibrium['CO_main_iso']
+                        mass_fractions_equilibrium['CO_main_iso'] = co_mass_mixing_ratio / (1 + c13c12_ratio)
+                        mass_fractions_equilibrium['CO_36'] = \
+                            co_mass_mixing_ratio - mass_fractions_equilibrium['CO_main_iso']
                     elif 'CO_36' in line_species:
-                        mass_mixing_ratios_equilibrium['CO_36'] = co_mass_mixing_ratio / (1 + 1 / c13c12_ratio)
-                        mass_mixing_ratios_equilibrium['CO'] = \
-                            co_mass_mixing_ratio - mass_mixing_ratios_equilibrium['CO_36']
-        else:
-            mass_mixing_ratios_equilibrium = None
+                        mass_fractions_equilibrium['CO_36'] = co_mass_mixing_ratio / (1 + 1 / c13c12_ratio)
+                        mass_fractions_equilibrium['CO'] = \
+                            co_mass_mixing_ratio - mass_fractions_equilibrium['CO_36']
 
-        # Imposed mass mixing ratios
-        # Ensure that the sum of mass mixing ratios of imposed species is <= 1
-        for species in imposed_mass_fractions:
-            mass_mixing_ratios[species] = imposed_mass_fractions[species]
-            m_sum_imposed_species += imposed_mass_fractions[species]
+        # Imposed mass fractions
+        m_sum_imposed_species = np.zeros(pressures.shape)
 
+        for species, imposed_mass_fraction in imposed_mass_fractions.items():
+            mass_fractions[species] = imposed_mass_fraction
+            m_sum_imposed_species += imposed_mass_fraction
+
+        # Ensure that the sum of imposed mass fractions is <= 1
         for i in range(np.size(m_sum_imposed_species)):
             if m_sum_imposed_species[i] > 1:
-                # TODO changing retrieved mmr might come problematic in some retrievals (retrieved value not corresponding to actual value in model)  # noqa: E501
                 if verbose:
                     warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum_imposed_species}) is > 1, "
                                   f"correcting...")
 
                 for species in imposed_mass_fractions:
-                    mass_mixing_ratios[species][i] /= m_sum_imposed_species[i]
+                    mass_fractions[species][i] /= m_sum_imposed_species[i]
 
-        m_sum_imposed_species = np.sum(list(mass_mixing_ratios.values()), axis=0)
+        m_sum_imposed_species = np.sum(list(mass_fractions.values()), axis=0)
 
-        # Get the sum of mass mixing ratios of non-imposed species
-        if mass_mixing_ratios_equilibrium is None:
-            # TODO this is assuming an H2-He atmosphere with line species, this could be more general
-            species_list = copy.copy(line_species)
-        else:
-            species_list = list(mass_mixing_ratios_equilibrium.keys())
+        # Non-imposed mass fractions
+        m_sum_species = np.zeros(pressures.shape)
 
-        for species in species_list:
-            # Ignore the non-MMR keys coming from the chemistry module
-            if species == 'nabla_ad' or species == 'MMW':
-                continue
+        if mass_fractions_equilibrium is not None:
+            # Convert chemical table species names to line species names
+            line_species_simple = simplify_species_list(line_species)
 
-            # Search for imposed species
-            found = False
+            for i, simple_species in enumerate(line_species_simple):
+                if simple_species in mass_fractions_equilibrium and simple_species != line_species[i]:
+                    mass_fractions_equilibrium[line_species[i]] = copy.deepcopy(
+                        mass_fractions_equilibrium[simple_species]
+                    )
+                    del mass_fractions_equilibrium[simple_species]
 
-            for key in imposed_mass_fractions:
-                spec = key.split('_R_')[0]  # deal with the naming scheme for binned down opacities
+            # Remove imposed mass fractions names from chemical table species names
+            imposed_species_simple = simplify_species_list(list(imposed_mass_fractions.keys()))
 
-                if species == spec:
-                    found = True
+            for simple_species in imposed_species_simple:
+                if simple_species in mass_fractions_equilibrium:
+                    del mass_fractions_equilibrium[simple_species]
 
-                    break
+            # Get the sum of mass fractions of non-imposed species
+            for species in mass_fractions_equilibrium:
+                if species not in imposed_mass_fractions:
+                    mass_fractions[species] = mass_fractions_equilibrium[species]
+                    m_sum_species += mass_fractions_equilibrium[species]
 
-            # Only take into account non-imposed species and ignore imposed species
-            if not found:
-                if mass_mixing_ratios_equilibrium is None:
-                    if verbose:
-                        warnings.warn(
-                            f"line species '{species}' initialised to {sys.float_info.min} ; "
-                            f"to remove this warning set use_equilibrium_chemistry to True "
-                            f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
-                        )
+        # Ensure that all line species are in mass_fractions
+        for species in line_species:
+            if species not in mass_fractions:
+                warnings.warn(
+                    f"line species '{species}' initialised to {sys.float_info.min} ; "
+                    f"to remove this warning set use_equilibrium_chemistry to True "
+                    f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
+                )
 
-                    mass_mixing_ratios[species] = sys.float_info.min
-                else:
-                    mass_mixing_ratios[species] = mass_mixing_ratios_equilibrium[species]
-                    m_sum_species += mass_mixing_ratios_equilibrium[species]
+                mass_fractions[species] = sys.float_info.min
 
         # Ensure that the sum of mass mixing ratios of all species is = 1
         m_sum_total = m_sum_species + m_sum_imposed_species
@@ -1266,18 +1196,18 @@ class SpectralModel(Radtrans):
             if 'He' in imposed_mass_fractions:
                 he_in_imposed_mass_fractions = True
 
-            if 'H2' in mass_mixing_ratios:
+            if 'H2' in mass_fractions:
                 h2_in_mass_mixing_ratios = True
 
-            if 'He' in mass_mixing_ratios:
+            if 'He' in mass_fractions:
                 he_in_mass_mixing_ratios = True
 
             if not h2_in_mass_mixing_ratios or not he_in_mass_mixing_ratios:
                 if not h2_in_mass_mixing_ratios:
-                    mass_mixing_ratios['H2'] = np.zeros(np.shape(pressures))
+                    mass_fractions['H2'] = np.zeros(np.shape(pressures))
 
                 if not he_in_mass_mixing_ratios:
-                    mass_mixing_ratios['He'] = np.zeros(np.shape(pressures))
+                    mass_fractions['He'] = np.zeros(np.shape(pressures))
 
             for i in range(np.size(m_sum_total)):
                 if m_sum_total[i] > 1:
@@ -1285,13 +1215,13 @@ class SpectralModel(Radtrans):
                         warnings.warn(f"sum of species mass fraction ({m_sum_species[i]} + {m_sum_imposed_species[i]}) "
                                       f"is > 1, correcting...")
 
-                    for species in mass_mixing_ratios:
+                    for species in mass_fractions:
                         if species not in imposed_mass_fractions:
                             if m_sum_species[i] > 0:
-                                mass_mixing_ratios[species][i] = \
-                                    mass_mixing_ratios[species][i] * (1 - m_sum_imposed_species[i]) / m_sum_species[i]
+                                mass_fractions[species][i] = \
+                                    mass_fractions[species][i] * (1 - m_sum_imposed_species[i]) / m_sum_species[i]
                             else:
-                                mass_mixing_ratios[species][i] = mass_mixing_ratios[species][i] / m_sum_total[i]
+                                mass_fractions[species][i] = mass_fractions[species][i] / m_sum_total[i]
                 elif m_sum_total[i] == 0:
                     raise ValueError(f"total mass mixing ratio at pressure level {i} is 0; "
                                      f"add at least one species with non-zero imposed mass mixing ratio "
@@ -1314,31 +1244,31 @@ class SpectralModel(Radtrans):
 
                     if h2_in_mass_mixing_ratios and he_in_mass_mixing_ratios:
                         # Use calculated He/H2 ratio
-                        heh2_ratio = mass_mixing_ratios['He'][i] / mass_mixing_ratios['H2'][i]
+                        heh2_ratio = mass_fractions['He'][i] / mass_fractions['H2'][i]
 
-                        mass_mixing_ratios['H2'][i] += (1 - m_sum_total[i]) / (1 + heh2_ratio)
-                        mass_mixing_ratios['He'][i] = mass_mixing_ratios['H2'][i] * heh2_ratio
+                        mass_fractions['H2'][i] += (1 - m_sum_total[i]) / (1 + heh2_ratio)
+                        mass_fractions['He'][i] = mass_fractions['H2'][i] * heh2_ratio
                     else:
                         # Remove H2 and He mass fractions from total for correct mass mixing ratio calculation
                         if h2_in_mass_mixing_ratios:
-                            m_sum_total[i] -= mass_mixing_ratios['H2'][i]
+                            m_sum_total[i] -= mass_fractions['H2'][i]
                         elif he_in_mass_mixing_ratios:
-                            m_sum_total[i] -= mass_mixing_ratios['He'][i]
+                            m_sum_total[i] -= mass_fractions['He'][i]
 
                         # Use He/H2 ratio in argument
-                        mass_mixing_ratios['H2'][i] = (1 - m_sum_total[i]) / (1 + heh2_ratio)
-                        mass_mixing_ratios['He'][i] = mass_mixing_ratios['H2'][i] * heh2_ratio
+                        mass_fractions['H2'][i] = (1 - m_sum_total[i]) / (1 + heh2_ratio)
+                        mass_fractions['He'][i] = mass_fractions['H2'][i] * heh2_ratio
                 else:
-                    mass_mixing_ratios['H2'] = np.zeros(np.shape(pressures))
-                    mass_mixing_ratios['He'] = np.zeros(np.shape(pressures))
+                    mass_fractions['H2'] = np.zeros(np.shape(pressures))
+                    mass_fractions['He'] = np.zeros(np.shape(pressures))
         else:
             if 'H2' not in imposed_mass_fractions:
-                mass_mixing_ratios['H2'] = np.zeros(np.shape(pressures))
+                mass_fractions['H2'] = np.zeros(np.shape(pressures))
 
             if 'He' not in imposed_mass_fractions:
-                mass_mixing_ratios['He'] = np.zeros(np.shape(pressures))
+                mass_fractions['He'] = np.zeros(np.shape(pressures))
 
-        return mass_mixing_ratios
+        return mass_fractions
 
     @staticmethod
     def compute_mean_molar_masses(mass_mixing_ratios, **kwargs):
@@ -1431,24 +1361,24 @@ class SpectralModel(Radtrans):
             )
 
     @staticmethod
-    def compute_planet_star_spectral_radiances(star_spectral_radiosities, star_radius, orbit_semi_major_axis,
-                                               star_spectrum_wavelengths=None, wavelengths=None, **kwargs):
+    def compute_stellar_intensities(star_flux, star_radius, orbit_semi_major_axis,
+                                    star_spectrum_wavelengths=None, wavelengths=None, **kwargs):
         planet_star_spectral_irradiances = flux2irradiance(
-            flux=star_spectral_radiosities,
+            flux=star_flux,
             source_radius=star_radius,
             target_distance=orbit_semi_major_axis
         )  # ingoing radiosity of the star on the planet
 
-        planet_star_spectral_radiances = planet_star_spectral_irradiances / np.pi  # W.m-2/um to W.m-2.sr-1/um
+        stellar_intensities = planet_star_spectral_irradiances / np.pi  # W.m-2/um to W.m-2.sr-1/um
 
         if star_spectrum_wavelengths is not None:  # otherwise, assume that the star spectral radiosities are re-binned
-            planet_star_spectral_radiances = rebin_spectrum(
-                input_wavelengths=star_spectrum_wavelengths,
-                input_spectrum=planet_star_spectral_radiances,
+            stellar_intensities = rebin_spectrum(
+                input_wavelengths=star_spectrum_wavelengths * 1e4,
+                input_spectrum=stellar_intensities,
                 rebinned_wavelengths=wavelengths
             )
 
-        return planet_star_spectral_radiances
+        return stellar_intensities
 
     @staticmethod
     def compute_radial_velocity_semi_amplitude(star_mass, orbit_semi_major_axis, **kwargs):
@@ -1495,7 +1425,7 @@ class SpectralModel(Radtrans):
     @staticmethod
     def compute_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
                                     mean_molar_masses_function,
-                                    star_spectral_radiosities_function, planet_star_spectral_radiances_function,
+                                    star_flux_function, stellar_intensities_function,
                                     radial_velocity_semi_amplitude_function, radial_velocities_function,
                                     relative_velocities_function, orbital_longitudes_function,
                                     wavelengths=None, pressures=None, line_species=None,
@@ -1531,18 +1461,21 @@ class SpectralModel(Radtrans):
 
         # Calculate star radiosities
         if 'mode' in kwargs:
-            if kwargs['mode'] == 'emission' and 'is_orbiting' in kwargs:
-                if kwargs['is_orbiting']:
-                    if 'star_spectral_radiosities' not in kwargs:
-                        kwargs['star_spectrum_wavelengths'], kwargs['star_spectral_radiosities'] = \
-                            star_spectral_radiosities_function(
+            if kwargs['mode'] == 'emission' and 'is_around_star' in kwargs:
+                if kwargs['is_around_star']:
+                    if 'star_flux' not in kwargs:
+                        kwargs['star_spectrum_wavelengths'], kwargs['star_flux'] = \
+                            star_flux_function(
                                 **kwargs
                             )
 
-                    kwargs['planet_star_spectral_radiances'] = planet_star_spectral_radiances_function(
+                    kwargs['stellar_intensities'] = stellar_intensities_function(
                         wavelengths=wavelengths,
                         **kwargs
                     )
+                else:
+                    kwargs['star_flux'] = None
+                    kwargs['stellar_intensities'] = np.zeros(wavelengths.size)
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
@@ -1564,7 +1497,7 @@ class SpectralModel(Radtrans):
         star_data, _ = phoenix_star_table.compute_spectrum(star_effective_temperature)
 
         star_spectral_radiosities = star_data[:, 1]
-        star_spectrum_wavelengths = star_data[:, 0] * 1e4  # cm to um
+        star_spectrum_wavelengths = star_data[:, 0]
 
         return star_spectrum_wavelengths, star_spectral_radiosities
 
@@ -1755,8 +1688,8 @@ class SpectralModel(Radtrans):
             'temperature_profile_function': self.compute_temperature_profile,
             'mass_mixing_ratios_function': self.compute_mass_fractions,
             'mean_molar_masses_function': self.compute_mean_molar_masses,
-            'star_spectral_radiosities_function': self.compute_star_flux,
-            'planet_star_spectral_radiances_function': self.compute_planet_star_spectral_radiances,
+            'star_flux_function': self.compute_star_flux,
+            'stellar_intensities_function': self.compute_stellar_intensities,
             'radial_velocity_semi_amplitude_function': self.compute_radial_velocity_semi_amplitude,
             'radial_velocities_function': self.compute_radial_velocities,
             'relative_velocities_function': self.compute_relative_velocities,
@@ -1768,11 +1701,18 @@ class SpectralModel(Radtrans):
 
         # Put all used functions arguments default value into the model parameters
         # TODO put that into a separate function that can be used to get all the relevant model parameters
+        spectral_model_attributes = list(self.__dict__.keys())
+
+        # Also include properties
+        for key in self.__dict__:
+            if key in ['_line_species', '_gas_continuum_contributors', '_rayleigh_species', '_cloud_species']:
+                kwargs[key[1:]] = copy.deepcopy(self.__dict__[key])
+
         for function in functions_dict.values():
             signature = inspect.signature(function)
 
             for parameter, value in signature.parameters.items():
-                if parameter not in self.__dict__.keys() \
+                if parameter not in spectral_model_attributes \
                         and parameter not in functions_dict \
                         and parameter not in kwargs \
                         and value.default is not inspect.Parameter.empty:
@@ -1957,7 +1897,7 @@ class SpectralModel(Radtrans):
                         instrumental_deformations=None, noise_matrix=None,
                         output_wavelengths=None, relative_velocities=None, radial_velocities=None,
                         planet_radius=None,
-                        star_spectrum_wavelengths=None, star_spectral_radiosities=None, star_observed_spectrum=None,
+                        star_spectrum_wavelengths=None, star_flux=None, star_observed_spectrum=None,
                         is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None,
                         transit_fractional_light_loss_function=None, convolve_function=None,
@@ -1985,13 +1925,13 @@ class SpectralModel(Radtrans):
             if np.ndim(output_wavelengths) <= 1:
                 output_wavelengths = np.array([output_wavelengths])
 
-        if star_spectral_radiosities is not None and star_spectrum_wavelengths is not None:
-            star_spectral_radiosities = flux_hz2flux_cm(
-                star_spectral_radiosities,
+        if star_flux is not None and star_spectrum_wavelengths is not None:
+            star_flux = flux_hz2flux_cm(
+                star_flux,
                 cst.c / star_spectrum_wavelengths * 1e4  # um to cm
             ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
-        star_spectrum = star_spectral_radiosities
+        star_spectrum = star_flux
 
         if rebin and telluric_transmittances is not None:  # TODO test if it works
             wavelengths_0 = copy.deepcopy(output_wavelengths)
@@ -2001,7 +1941,7 @@ class SpectralModel(Radtrans):
             wavelengths_0 = None
 
         # Shift from the planet rest frame to the star system rest frame
-        if shift and star_spectral_radiosities is not None and mode == 'emission':
+        if shift and star_flux is not None and mode == 'emission':
             wavelengths_shift_system = shift_wavelengths_function(
                 wavelengths_rest=wavelengths,
                 relative_velocities=radial_velocities,
@@ -2014,7 +1954,7 @@ class SpectralModel(Radtrans):
             for i, wavelength_shift in enumerate(wavelengths_shift_system):
                 _, star_spectrum[i] = SpectralModel._rebin_wrap(
                     wavelengths=star_spectrum_wavelengths,
-                    spectrum=star_spectral_radiosities,
+                    spectrum=star_flux,
                     output_wavelengths=wavelength_shift,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
@@ -2037,6 +1977,8 @@ class SpectralModel(Radtrans):
                     source_radius=star_radius,
                     target_distance=system_distance
                 )
+            else:
+                star_observed_spectrum = None
 
             spectrum = flux2irradiance(
                 flux=spectrum,
