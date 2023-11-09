@@ -9,17 +9,17 @@ from .data import Data
 from .parameter import Parameter
 
 # MPI Multiprocessing
-RANK = 0
-COMM = None
+rank = 0
+comm = None
+
 try:
-    from mpi4py import MPI
-    COMM = MPI.COMM_WORLD
-    RANK = COMM.Get_rank()
+    from mpi4py import mpi
+    comm = mpi.COMM_WORLD
+    rank = comm.Get_rank()
 except ImportError:
+    mpi = None
     logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
 
-#import species
-#species.SpeciesInit()
 
 class RetrievalConfig:
     """
@@ -578,16 +578,14 @@ class RetrievalConfig:
                 flux = float(vals[3])
                 err = float(vals[4])
 
-                transform = None
-
                 if photometric_transformation_function is None:
-                    if COMM is not None and COMM.Get_size()>1:
-                        if RANK == 0:
+                    if comm is not None and comm.Get_size() > 1:
+                        if rank == 0:
                             transform = SyntheticPhotometry(name).spectrum_to_flux
                         else:
                             transform = None  # transform still needs to exist in the other processes
 
-                        COMM.bcast(transform, 0)
+                        comm.bcast(transform, 0)
                     else:
                         transform = SyntheticPhotometry(name).spectrum_to_flux
                 else:
