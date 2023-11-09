@@ -2996,7 +2996,7 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
         print("Done.")
 
         if i == 0:
-            print(f" Setting ExoCross wavenumber grid...")
+            print(" Setting ExoCross wavenumber grid...")
             wavenumbers = dat[:, 0]
         else:
             if dat[:, 0].size != wavenumbers.size:
@@ -3217,7 +3217,7 @@ def exocross2petitradtrans(exocross_directory, natural_abundance, source, doi,
             #     / np.sum(delta_wavenumbers)
             # )
 
-        print(f" Reordering axis...")
+        print(" Reordering axis...")
         correlated_k = np.swapaxes(np.swapaxes(correlated_k, 0, -1), 1, -2)
 
         filename = get_opacity_filename(

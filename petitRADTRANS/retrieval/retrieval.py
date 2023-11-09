@@ -2901,7 +2901,7 @@ class Retrieval:
 
         return fig
 
-    def plot_data(self, yscale = 'linear'):
+    def plot_data(self, yscale='linear'):
         """
         Plot the data used in the retrieval.
         """
