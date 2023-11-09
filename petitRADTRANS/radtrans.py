@@ -12,8 +12,7 @@ from petitRADTRANS._input_data_loader import get_cia_aliases, get_cloud_aliases,
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.physics import flux_hz2flux_cm
+from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
 from petitRADTRANS.utils import LockedDict
 
 
@@ -3295,6 +3294,6 @@ class Radtrans:
         wavelengths_interp = np.append(star_wavelengths, add_wavelengths)
         fluxes_interp = np.append(star_spectrum, add_stellar_flux)
 
-        stellar_intensity = frebin.rebin_spectrum(wavelengths_interp, fluxes_interp, wavelengths)
+        stellar_intensity = rebin_spectrum(wavelengths_interp, fluxes_interp, wavelengths)
 
         return stellar_intensity
