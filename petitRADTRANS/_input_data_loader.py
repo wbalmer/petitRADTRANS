@@ -746,7 +746,10 @@ def get_input_data_file_not_found_error_message(file: str) -> str:
 
 
 def get_opacity_directory(species: str, category: str,
-                          path_input_data: str = petitradtrans_config_parser.get_input_data_path(), full: bool = False):
+                          path_input_data: str = None, full: bool = False):
+    if path_input_data is None:
+        path_input_data = petitradtrans_config_parser.get_input_data_path()
+
     check_opacity_name(species)
 
     basename = get_species_basename(species, join=True)

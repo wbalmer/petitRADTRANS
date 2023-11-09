@@ -18,7 +18,7 @@ def test_planet_get():
     # Remove the planet file if it exists
     filename = petitRADTRANS.planet.Planet.generate_filename(
         name=radtrans_parameters['planetary_parameters']['name'],
-        directory=petitRADTRANS.planet.Planet.default_planet_models_directory
+        directory=petitRADTRANS.planet.Planet.get_default_directory()
     )
 
     file_exists = False

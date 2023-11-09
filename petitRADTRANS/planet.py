@@ -17,10 +17,6 @@ from petitRADTRANS.math import calculate_uncertainty
 
 
 class Planet:
-    default_planet_models_directory = os.path.abspath(
-        os.path.join(petitradtrans_config_parser.get_input_data_path(), 'planet_data')
-    )
-
     def __init__(
             self,
             name,
@@ -668,6 +664,13 @@ class Planet:
 
         return cls.get_from(name, filename)
 
+    @staticmethod
+    def get_default_directory(path_input_data=None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+        return os.path.abspath(os.path.join(path_input_data, 'planet_data'))
+
     @classmethod
     def get_from(cls, name, filename):
         if not os.path.exists(filename):
@@ -1032,7 +1035,10 @@ class Planet:
         return np.sqrt(cst.G * star_mass / orbit_semi_major_axis)
 
     @staticmethod
-    def generate_filename(name, directory=default_planet_models_directory):
+    def generate_filename(name, directory=None):
+        if directory is None:
+            directory = Planet.get_default_directory()
+
         return f"{directory}{os.path.sep}planet_{name.replace(' ', '_')}.h5"
 
     @staticmethod

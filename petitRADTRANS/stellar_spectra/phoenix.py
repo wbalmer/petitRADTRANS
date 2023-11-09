@@ -85,7 +85,10 @@ class PhoenixStarTable:
         return spec_dat, radius
 
     @staticmethod
-    def get_default_file(path_input_data=petitradtrans_config_parser.get_input_data_path()):
+    def get_default_file(path_input_data=None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
         return os.path.join(
             path_input_data,
             get_input_data_subpaths()["stellar_spectra"],

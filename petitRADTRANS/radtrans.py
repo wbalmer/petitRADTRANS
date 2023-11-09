@@ -55,7 +55,7 @@ class Radtrans:
             emission_cos_angle_grid: np.ndarray[float] = None,
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
-            path_input_data: str = petitradtrans_config_parser.get_input_data_path()
+            path_input_data: str = None
     ):
         r"""Object for calculating spectra using a given set of opacities.
 
@@ -108,6 +108,9 @@ class Radtrans:
             path_input_data (Optional[str]):
                 Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
         """
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
         # Inputs checks
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_wavelength_boundaries(wavelength_boundaries)

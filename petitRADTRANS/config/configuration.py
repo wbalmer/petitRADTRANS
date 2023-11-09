@@ -9,6 +9,8 @@ from petitRADTRANS.utils import LockedDict
 
 
 class PetitradtransConfigParser(configparser.ConfigParser):
+    _instance = None
+
     _directory = os.path.join(str(Path.home()), '.petitradtrans')
     _config_file = os.path.join(_directory, 'petitradtrans_config_file.ini')
     _default_config = {
@@ -26,6 +28,13 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def __new__(cls):
+        """Singleton pattern."""
+        if cls._instance is None:
+            cls._instance = super(PetitradtransConfigParser, cls).__new__(cls)
+
+        return cls._instance
 
     @classmethod
     def _make(cls):
@@ -148,6 +157,8 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         print(f"Input data path changed to '{path}'")
 
+        self.load()
+
     def set_default_file(self, file: str):
         file = os.path.abspath(file)
         path, filename = file.rsplit(os.path.sep, 1)
@@ -156,6 +167,8 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         print(f"Setting new default file '{file}'")
         self.power_set('Default files', sub_path, filename)
+
+        self.load()
 
     def repair(self):
         repaired = False

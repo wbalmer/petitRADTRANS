@@ -35,7 +35,7 @@ class SpectralModel(Radtrans):
     def __init__(
             self,
             pressures: np.ndarray[float] = None,
-            wavelengths_boundaries: np.ndarray[float] = None,
+            wavelength_boundaries: np.ndarray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -46,7 +46,7 @@ class SpectralModel(Radtrans):
             emission_cos_angle_grid: np.ndarray[float] = None,
             emission_cos_angle_grid_weights: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
-            path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
+            path_input_data: str = None,
             radial_velocity_semi_amplitude_function: callable = None,
             radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
@@ -120,7 +120,7 @@ class SpectralModel(Radtrans):
                 dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
             mean_molar_masses:
                 dictionary containing the mean_molar_masses of the model, at each pressure.
-            wavelengths_boundaries:
+            wavelength_boundaries:
                 (um) list containing the min and max wavelength of the model. Can be automatically determined from
             wavelengths:
                 (um) wavelengths of the model.
@@ -151,6 +151,17 @@ class SpectralModel(Radtrans):
         else:
             self.compute_orbital_longitudes = orbital_longitudes_function
 
+        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
+        # Spectrum generation base parameters
+        self.temperatures = temperatures
+        self.mass_fractions = mass_mixing_ratios
+        self.mean_molar_masses = mean_molar_masses
+
+        # Spectrum parameters
+        self.wavelengths = wavelengths
+        self.transit_radii = transit_radii
+        self.fluxes = spectral_radiosities
+
         # Other model parameters
         self.model_parameters = model_parameters
 
@@ -170,7 +181,7 @@ class SpectralModel(Radtrans):
             )
 
         # Wavelength boundaries
-        if wavelengths_boundaries is None:  # calculate the optimal wavelength boundaries
+        if wavelength_boundaries is None:  # calculate the optimal wavelength boundaries
             if self.wavelengths is not None:
                 self.model_parameters['output_wavelengths'] = copy.deepcopy(self.wavelengths)
             elif 'output_wavelengths' not in self.model_parameters:
@@ -178,12 +189,12 @@ class SpectralModel(Radtrans):
                                 "'wavelengths_boundaries', add this argument to manually set the boundaries or "
                                 "add keyword argument 'output_wavelengths' to set the boundaries automatically")
 
-            wavelengths_boundaries = self.calculate_optimal_wavelength_boundaries()
+            wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
 
         # Atmosphere/Radtrans parameters
         super().__init__(
             pressures=pressures,
-            wavelength_boundaries=wavelengths_boundaries,
+            wavelength_boundaries=wavelength_boundaries,
             line_species=line_species,
             gas_continuum_contributors=gas_continuum_contributors,
             rayleigh_species=rayleigh_species,
@@ -196,17 +207,6 @@ class SpectralModel(Radtrans):
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             path_input_data=path_input_data
         )
-
-        # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
-        # Spectrum generation base parameters
-        self.temperatures = temperatures
-        self.mass_fractions = mass_mixing_ratios
-        self.mean_molar_masses = mean_molar_masses
-
-        # Spectrum parameters
-        self.wavelengths = wavelengths
-        self.transit_radii = transit_radii
-        self.fluxes = spectral_radiosities
 
     @staticmethod
     def __check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
@@ -1925,7 +1925,7 @@ class SpectralModel(Radtrans):
     @classmethod
     def load(cls, filename):
         # Generate an empty SpectralModel
-        new_spectrum_model = cls(pressures=None, wavelengths_boundaries=np.zeros(2))
+        new_spectrum_model = cls(pressures=None, wavelength_boundaries=np.zeros(2))
 
         # Update the SpectralModel attributes from the file
         with h5py.File(filename, 'r') as f:
@@ -2613,7 +2613,7 @@ class SpectralModel(Radtrans):
         # Generate a SpectralModel using the calculated wavelength boundaries
         new_spectral_model = cls(
             pressures=pressures,
-            wavelengths_boundaries=wavelengths_boundaries,
+            wavelength_boundaries=wavelengths_boundaries,
             line_species=line_species,
             gas_continuum_contributors=gas_continuum_contributors,
             rayleigh_species=rayleigh_species,
