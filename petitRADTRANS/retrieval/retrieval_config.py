@@ -594,8 +594,7 @@ class RetrievalConfig:
                             transform = SyntheticPhotometry(name).spectrum_to_flux
                         else:
                             transform = None  # transform still needs to exist in the other processes
-
-                        COMM.bcast(transform, 0)
+                        transform = COMM.bcast(transform, 0)
                     else:
                         transform = SyntheticPhotometry(name).spectrum_to_flux                        
                 else:
