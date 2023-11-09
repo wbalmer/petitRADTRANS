@@ -592,10 +592,10 @@ class RetrievalConfig:
                     if COMM is not None and COMM.Get_size()>1:
                         if RANK == 0:
                             transform = SyntheticPhotometry(name).spectrum_to_flux
-                            for i in range(1,COMM.Get_size()):
-                                COMM.send(transform, dest=i, tag=11)
                         else:
-                            transform = COMM.recv(source = 0, tag = 11)
+                            transform = None  # transform still needs to exist in the other processes
+
+                        COMM.bcast(transform, 0)
                     else:
                         transform = SyntheticPhotometry(name).spectrum_to_flux                        
                 else:
