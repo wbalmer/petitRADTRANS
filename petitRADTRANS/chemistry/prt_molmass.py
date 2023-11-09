@@ -35,6 +35,9 @@ def get_species_molar_mass(species):
     Returns:
         The molar mass of the compound in atomic mass units.
     """
+    if species == 'e-':
+        return e_molar_mass
+
     if "-NatAbund" in species:
         natural_abundance = True
     else:
@@ -59,6 +62,10 @@ def get_species_molar_mass(species):
         elif names[-1][-1] in ['+', '-']:
             charge = names[-1].replace('_', '')  # get rid of the leading '_'
             charge = charge[-1] + charge[:-1]  # put sign in front of digits
+
+            if len(charge) == 1:
+                charge = charge + '1'  # when no charge number is given, assume that it is 1
+
             charge = float(charge)
 
         for name in names[:-1]:
