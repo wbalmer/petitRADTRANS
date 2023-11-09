@@ -2,6 +2,7 @@ import sys
 
 import numpy as np
 
+from petitRADTRANS._input_data_loader import get_species_basename, get_species_isotopologue_name
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
 
@@ -107,6 +108,21 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
         volume_mixing_ratios[species] = mass_fraction / get_species_molar_mass(species) * mean_molar_masses
 
     return volume_mixing_ratios
+
+
+def simplify_species_list(species_list: list, specify_natural_abundance: bool = False) -> list:
+    species_basenames = [get_species_basename(species) for species in species_list]
+    species_isotopologue_names = [get_species_isotopologue_name(species) for species in species_list]
+
+    for i, species in enumerate(species_isotopologue_names):
+        # Use isotopologue name if species is not the main isotopologue
+        species_main_name = get_species_isotopologue_name(species=species_basenames[i])
+        species_natural_abundance_name = get_species_isotopologue_name(species=species_basenames[i] + '-NatAbund')
+
+        if species != species_main_name and species != species_natural_abundance_name:
+            species_basenames[i] = species
+
+    return species_basenames
 
 
 def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=None):
