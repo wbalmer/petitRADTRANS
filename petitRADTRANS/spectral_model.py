@@ -2168,7 +2168,7 @@ class SpectralModel(Radtrans):
             raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
 
         # Get maximum space length
-        size_max = int((stop - start) / (start / resolving_power))
+        size_max = int(np.ceil((stop - start) / (start / resolving_power)))
 
         if not np.isfinite(size_max) or size_max < 0:
             raise ValueError(f"invalid maximum size ({size_max})")
