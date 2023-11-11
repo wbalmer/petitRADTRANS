@@ -124,8 +124,8 @@
         "resolving_power": 60,
         "high_resolution_resolving_power": 1e5,
         "wavelength_range_high_resolution": [
-            2.3005e-4,
-            2.3020e-4
+            2.3005,
+            2.3020
         ],
         "orbital_phase_range": [
             -1e-2,
