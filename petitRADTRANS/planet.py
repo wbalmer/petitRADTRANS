@@ -1234,7 +1234,12 @@ class Planet:
             (cm.s-2) the reference gravity of the planet, and its upper and lower error
         """
         if radius <= 0:
-            warnings.warn(f"unknown or invalid radius ({radius}), surface gravity not calculated")
+            warnings.warn(f"unknown or invalid radius ({radius}), reference gravity not calculated")
+
+            return None, None, None
+
+        if mass <= 0:
+            warnings.warn(f"unknown or invalid mass ({mass}), reference gravity not calculated")
 
             return None, None, None
 
