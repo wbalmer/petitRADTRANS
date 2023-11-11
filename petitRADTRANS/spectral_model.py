@@ -1927,6 +1927,8 @@ class SpectralModel(Radtrans):
             if np.ndim(output_wavelengths) <= 1:
                 output_wavelengths = np.array([output_wavelengths])
 
+            output_wavelengths *= 1e-4  # um to cm
+
         if star_flux is not None and star_spectrum_wavelengths is not None:
             star_flux = flux_hz2flux_cm(
                 star_flux,
