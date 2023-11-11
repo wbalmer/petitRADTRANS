@@ -291,6 +291,7 @@ class SpectralModel(Radtrans):
                     mid_transit_time=mid_transit_time,
                     orbital_longitudes=orbital_longitudes,
                     is_orbiting=is_orbiting,
+                    radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
                     **kwargs
                 )
 
@@ -378,12 +379,15 @@ class SpectralModel(Radtrans):
                 else:
                     kwargs['orbital_longitudes'] = orbital_longitudes
             else:
-                orbital_longitudes = orbital_longitudes_function(
-                    times_to_longitude_start=times - mid_transit_time,
-                    orbital_period=orbital_period,
-                    **kwargs
-                )
-                kwargs['orbital_longitudes'] = orbital_longitudes
+                if orbital_longitudes is None:
+                    orbital_longitudes = orbital_longitudes_function(
+                        times_to_longitude_start=times - mid_transit_time,
+                        orbital_period=orbital_period,
+                        **kwargs
+                    )
+                    kwargs['orbital_longitudes'] = orbital_longitudes
+                else:
+                    kwargs['orbital_longitudes'] = orbital_longitudes
 
             if 'radial_velocity_semi_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
                 radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function(
@@ -1605,7 +1609,6 @@ class SpectralModel(Radtrans):
             times=times,
             mid_transit_time=np.min(mid_transit_times_range),  # the transit happens sooner, spectrum is more r-shifted
             orbital_inclination=orbital_inclination,
-            orbital_longitudes=None,
             is_orbiting=True,
             radial_velocities=None,
             **kwargs
@@ -1623,7 +1626,6 @@ class SpectralModel(Radtrans):
             orbital_period=orbital_period,
             times=times,
             mid_transit_time=np.max(mid_transit_times_range),  # the transit happens later, spectrum is more b-shifted
-            orbital_longitudes=None,
             is_orbiting=True,
             radial_velocities=None,
             **kwargs
@@ -2461,15 +2463,15 @@ class SpectralModel(Radtrans):
     @classmethod
     def with_velocity_range(
             cls,
-            times: np.ndarray[float],
-            radial_velocity_semi_amplitude_range: np.ndarray[float],
-            rest_frame_velocity_shift_range: np.ndarray[float],
-            mid_transit_times_range: np.ndarray[float],
-            system_observer_radial_velocities: np.ndarray[float],
-            orbital_period: float,
-            star_mass: float,
-            orbit_semi_major_axis: float,
-            output_wavelengths: np.ndarray,
+            radial_velocity_semi_amplitude_range: np.ndarray[float] = None,
+            rest_frame_velocity_shift_range: np.ndarray[float] = None,
+            mid_transit_times_range: np.ndarray[float] = None,
+            times: np.ndarray[float] = None,
+            system_observer_radial_velocities: np.ndarray[float] = None,
+            orbital_period: float = None,
+            star_mass: float = None,
+            orbit_semi_major_axis: float = None,
+            output_wavelengths: np.ndarray[float] = None,
             orbital_inclination: float = 90.0,
             mid_transit_time: float = None,
             radial_velocity_semi_amplitude: float = None,
@@ -2498,13 +2500,21 @@ class SpectralModel(Radtrans):
         if shift_wavelengths_function is None:
             shift_wavelengths_function = SpectralModel.shift_wavelengths
 
-        if mid_transit_time is None:
-            mid_transit_time = np.mean(mid_transit_times_range)
+        if times is not None:
+            if mid_transit_time is None:
+                mid_transit_time = np.mean(mid_transit_times_range)
+            else:
+                if (mid_transit_time > np.max(mid_transit_times_range)
+                        or mid_transit_time < np.min(mid_transit_times_range)):
+                    raise ValueError(f"mid_transit_time must be within mid_transit_times_range "
+                                     f"({mid_transit_times_range}), "
+                                     f"but was {mid_transit_time}")
         else:
-            if mid_transit_time > np.max(mid_transit_times_range) or mid_transit_time < np.min(mid_transit_times_range):
-                raise ValueError(f"mid_transit_time must be within mid_transit_times_range "
-                                 f"({mid_transit_times_range}), "
-                                 f"but was {mid_transit_time}")
+            if 'orbital_longitudes' in model_parameters or 'orbital_phases' in model_parameters:
+                if 'orbital_longitudes' not in model_parameters:
+                    model_parameters['orbital_longitudes'] = np.rad2deg(2 * np.pi * model_parameters['orbital_phases'])
+                elif model_parameters['orbital_longitudes'] is None and model_parameters['orbital_phases'] is not None:
+                    model_parameters['orbital_longitudes'] = np.rad2deg(2 * np.pi * model_parameters['orbital_phases'])
 
         if radial_velocity_semi_amplitude is None:
             radial_velocity_semi_amplitude = np.mean(radial_velocity_semi_amplitude_range)
