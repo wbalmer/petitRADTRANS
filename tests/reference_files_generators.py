@@ -333,7 +333,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     __save_2d_transmission_spectrum(
@@ -358,7 +358,7 @@ def create_radtrans_2d_line_by_line_transmission_spectrum_ref(plot_figure=False)
         shift=True,
         convolve=True,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     line_spread_function_fwhm = petitRADTRANS.physical_constants.c /\

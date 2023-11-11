@@ -230,14 +230,14 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
     telluric_lines_fits = np.ma.zeros(spectral_data_corrected.shape)
 
     # Correction
-    for i, det in enumerate(spectrum):
+    for i, order in enumerate(spectrum):
         # Mask wavelength columns where at least one value is lower or equal to 0, to avoid invalid log values
-        masked_det = np.ma.masked_less_equal(det, 0)
-        log_det_t = np.ma.log(np.transpose(masked_det))
-        weights[i][masked_det.mask] = 0  # polyfit doesn't take masks into account, so set weight of masked values to 0
+        masked_order = np.ma.masked_less_equal(order, 0)
+        log_order_t = np.ma.log(np.transpose(masked_order))
+        weights[i][masked_order.mask] = 0  # polyfit doesn't take masks into account so set weight of masked values to 0
 
         # Fit each wavelength column
-        for k, log_wavelength_column in enumerate(log_det_t):
+        for k, log_wavelength_column in enumerate(log_order_t):
             if weights[i, np.nonzero(weights[i, :, k]), k].size > degrees_of_freedom:
                 fit_parameters = np.polynomial.Polynomial.fit(
                     x=airmass, y=log_wavelength_column, deg=polynomial_fit_degree, w=weights[i, :, k]
@@ -258,11 +258,11 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
             telluric_lines_fits[i, :, :]
         )
         telluric_lines_fits[i, :, :] = np.ma.masked_where(
-            masked_det.mask, telluric_lines_fits[i, :, :]
+            masked_order.mask, telluric_lines_fits[i, :, :]
         )
 
         # Apply correction
-        spectral_data_corrected[i, :, :] = det
+        spectral_data_corrected[i, :, :] = order
         spectral_data_corrected[i, :, :] /= telluric_lines_fits[i, :, :]
         reduction_matrix[i, :, :] /= telluric_lines_fits[i, :, :]
 
@@ -587,7 +587,7 @@ def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, 
 def preparing_pipeline(spectrum, uncertainties=None,
                        wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
                        apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
-                       uncertainties_as_weights=True, full=False, **kwargs):
+                       uncertainties_as_weights=False, full=False, **kwargs):
     """Removes the telluric lines and variable throughput of some data.
     If airmass is None, the Earth atmospheric transmittance is assumed to be time-independent, so telluric transmittance
     will be fitted using the weighted arithmetic mean. Otherwise, telluric transmittance are fitted with a polynomial.
@@ -607,23 +607,23 @@ def preparing_pipeline(spectrum, uncertainties=None,
     Returns:
         Reduced spectral data (and reduction matrix and uncertainties after reduction if full is True)
     """
-    reduced_data, reduction_matrix, reduced_data_uncertainties = __init_pipeline(spectrum, uncertainties)
+    prepared_data, preparation_matrix, prepared_data_uncertainties = __init_pipeline(spectrum, uncertainties)
 
     # Apply corrections
     if apply_throughput_removal:
         if wavelengths is None:
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_mean(
+            prepared_data, preparation_matrix, prepared_data_uncertainties = remove_throughput_mean(
                 spectrum=spectrum,
-                reduction_matrix=reduction_matrix,
-                uncertainties=reduced_data_uncertainties,
+                reduction_matrix=preparation_matrix,
+                uncertainties=prepared_data_uncertainties,
                 uncertainties_as_weights=uncertainties_as_weights
             )
         else:
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_fit(
+            prepared_data, preparation_matrix, prepared_data_uncertainties = remove_throughput_fit(
                 spectrum=spectrum,
-                reduction_matrix=reduction_matrix,
+                reduction_matrix=preparation_matrix,
                 wavelengths=wavelengths,
-                uncertainties=reduced_data_uncertainties,
+                uncertainties=prepared_data_uncertainties,
                 mask_threshold=sys.float_info.min,
                 polynomial_fit_degree=2,
                 correct_uncertainties=correct_uncertainties,
@@ -632,19 +632,19 @@ def preparing_pipeline(spectrum, uncertainties=None,
 
     if apply_telluric_lines_removal:
         if airmass is None:
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_telluric_lines_mean(
-                spectrum=reduced_data,
-                reduction_matrix=reduction_matrix,
-                uncertainties=reduced_data_uncertainties,
+            prepared_data, preparation_matrix, prepared_data_uncertainties = remove_telluric_lines_mean(
+                spectrum=prepared_data,
+                reduction_matrix=preparation_matrix,
+                uncertainties=prepared_data_uncertainties,
                 mask_threshold=tellurics_mask_threshold,
                 uncertainties_as_weights=uncertainties_as_weights
             )
         else:
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_telluric_lines_fit(
-                spectrum=reduced_data,
-                reduction_matrix=reduction_matrix,
+            prepared_data, preparation_matrix, prepared_data_uncertainties = remove_telluric_lines_fit(
+                spectrum=prepared_data,
+                reduction_matrix=preparation_matrix,
                 airmass=airmass,
-                uncertainties=reduced_data_uncertainties,
+                uncertainties=prepared_data_uncertainties,
                 mask_threshold=tellurics_mask_threshold,
                 polynomial_fit_degree=polynomial_fit_degree,
                 correct_uncertainties=correct_uncertainties,
@@ -652,9 +652,9 @@ def preparing_pipeline(spectrum, uncertainties=None,
             )
 
     if full:
-        return reduced_data, reduction_matrix, reduced_data_uncertainties
+        return prepared_data, preparation_matrix, prepared_data_uncertainties
     else:
-        return reduced_data
+        return prepared_data
 
 
 def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,

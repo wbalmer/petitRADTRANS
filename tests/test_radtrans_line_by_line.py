@@ -186,7 +186,7 @@ def test_line_by_line_spectral_model_emission():
         shift=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     wavelengths *= 1e4
@@ -245,7 +245,7 @@ def test_line_by_line_spectral_model_transmission():
         shift=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     wavelengths *= 1e4
@@ -300,7 +300,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     wavelengths *= 1e4
@@ -350,7 +350,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
         shift=True,
         convolve=True,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     wavelengths_model *= 1e4

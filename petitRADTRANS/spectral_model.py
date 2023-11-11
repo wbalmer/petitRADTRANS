@@ -805,7 +805,7 @@ class SpectralModel(Radtrans):
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
-                           reduce=False):
+                           prepare=False):
         if parameters is None:
             parameters = self.model_parameters
 
@@ -820,7 +820,7 @@ class SpectralModel(Radtrans):
             parameters['use_transit_light_loss'] = use_transit_light_loss
             parameters['convolve'] = convolve
             parameters['rebin'] = rebin
-            parameters['reduce'] = reduce
+            parameters['prepare'] = prepare
 
             self.update_spectral_calculation_parameters(
                 **parameters
@@ -868,25 +868,25 @@ class SpectralModel(Radtrans):
                 self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
 
         # Prepared spectrum
-        if reduce:  # TODO change to prepare
-            spectrum, parameters['reduction_matrix'], parameters['reduced_uncertainties'] = \
+        if prepare:  # TODO change to prepare
+            spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
                 self.prepare_spectrum(
                     spectrum=spectrum,
                     wavelengths=wavelengths,
                     **parameters
                 )
         else:
-            parameters['reduction_matrix'] = np.ones(spectrum.shape)
+            parameters['preparation_matrix'] = np.ones(spectrum.shape)
 
             if 'data_uncertainties' in parameters:
-                parameters['reduced_uncertainties'] = \
+                parameters['prepared_uncertainties'] = \
                     copy.deepcopy(parameters['data_uncertainties'])
             else:
-                parameters['reduced_uncertainties'] = None
+                parameters['prepared_uncertainties'] = None
 
         if update_parameters:
-            self.model_parameters['reduction_matrix'] = parameters['reduction_matrix']
-            self.model_parameters['reduced_uncertainties'] = parameters['reduced_uncertainties']
+            self.model_parameters['preparation_matrix'] = parameters['preparation_matrix']
+            self.model_parameters['prepared_uncertainties'] = parameters['prepared_uncertainties']
 
         return wavelengths, spectrum
 
@@ -1761,7 +1761,7 @@ class SpectralModel(Radtrans):
                        mode='emission', uncertainties_mode='default', update_parameters=False,
                        telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
                        scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
-                       reduce=False,
+                       prepare=False,
                        run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
                        write_out_spec_sample=False, dataset_name='data', **kwargs):
         if pressures is None:
@@ -1838,7 +1838,7 @@ class SpectralModel(Radtrans):
                 use_transit_light_loss=use_transit_light_loss,
                 convolve=convolve,
                 rebin=rebin,
-                reduce=reduce
+                prepare=prepare
             )
 
         # Set Data object
@@ -2136,11 +2136,11 @@ class SpectralModel(Radtrans):
         """Interface with simple_pipeline.
 
         Args:
-            spectrum: spectrum to reduce
+            spectrum: spectrum to prepare
             **kwargs: simple_pipeline arguments
 
         Returns:
-            The reduced spectrum, matrix, and uncertainties
+            The prepared spectrum, matrix, and uncertainties
         """
         # simple_pipeline interface
         if not hasattr(spectrum, 'mask'):
@@ -2240,7 +2240,7 @@ class SpectralModel(Radtrans):
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
-                                            convolve=False, rebin=False, reduce=False):
+                                            convolve=False, rebin=False, prepare=False):
         # TODO Change model generating function template to not include pt_plot_mode
         # Convert from Parameter object to dictionary
         p = copy.deepcopy(parameters)  # copy to avoid over-writing
@@ -2305,7 +2305,7 @@ class SpectralModel(Radtrans):
             use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin,
-            reduce=reduce
+            prepare=prepare
         )
 
         return wavelengths, model, beta
