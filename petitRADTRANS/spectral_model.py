@@ -187,7 +187,7 @@ class SpectralModel(Radtrans):
                 self.model_parameters['output_wavelengths'] = copy.deepcopy(self.wavelengths)
             elif 'output_wavelengths' not in self.model_parameters:
                 raise TypeError("missing required argument "
-                                "'wavelengths_boundaries', add this argument to manually set the boundaries or "
+                                "'wavelength_boundaries', add this argument to manually set the boundaries or "
                                 "add keyword argument 'output_wavelengths' to set the boundaries automatically")
 
             wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
