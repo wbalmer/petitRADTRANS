@@ -103,7 +103,7 @@ class PhoenixStarTable:
         if not os.path.isfile(file):
             raise FileNotFoundError(get_input_data_file_not_found_error_message(file))
 
-        print(f"Loading PHOENIX star table in file '{file}'...")
+        print(f"Loading PHOENIX star table in file '{file}'... ", end='')
 
         with h5py.File(file, "r") as f:
             self.log10_effective_temperature_grid = f['log10_effective_temperatures'][()]
@@ -112,6 +112,8 @@ class PhoenixStarTable:
             self.wavelength_grid = f['wavelengths'][()]
 
         self._loaded = True
+
+        print("Done.")
 
 
 phoenix_star_table = PhoenixStarTable()

@@ -153,7 +153,7 @@ class PreCalculatedEquilibriumChemistryTable:
         if not os.path.isfile(chemical_table_file):
             raise FileNotFoundError(get_input_data_file_not_found_error_message(chemical_table_file))
 
-        print(f"Loading chemical equilibrium chemistry table from file '{chemical_table_file}'...")
+        print(f"Loading chemical equilibrium chemistry table from file '{chemical_table_file}'... ", end='')
 
         with h5py.File(chemical_table_file, 'r') as f:
             self.log10_metallicities = f['log10_metallicities'][()]
@@ -174,6 +174,8 @@ class PreCalculatedEquilibriumChemistryTable:
         self.nabla_adiabatic = np.array(self.nabla_adiabatic, dtype='d', order='F')
 
         self._loaded = True
+
+        print("Done.")
 
 
 pre_calculated_equilibrium_chemistry_table = PreCalculatedEquilibriumChemistryTable()
