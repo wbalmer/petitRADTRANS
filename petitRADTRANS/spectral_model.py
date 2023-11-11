@@ -192,7 +192,7 @@ class SpectralModel(Radtrans):
 
             wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
 
-        # Atmosphere/Radtrans parameters
+        # Radtrans parameters
         super().__init__(
             pressures=pressures,
             wavelength_boundaries=wavelength_boundaries,
