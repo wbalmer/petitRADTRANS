@@ -442,7 +442,7 @@ class SpectralModel(Radtrans):
 
         partial_transit = np.nonzero(
             np.logical_and(
-                np.less_equal(planet_star_centers_distance, 1 + planet_radius_normalized),
+                np.less(planet_star_centers_distance, 1 + planet_radius_normalized),
                 np.greater(planet_star_centers_distance, np.abs(1 - planet_radius_normalized))
             )
         )
