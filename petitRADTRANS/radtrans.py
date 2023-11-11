@@ -2301,6 +2301,9 @@ class Radtrans:
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated
         """
+        if reference_gravity <= 0:
+            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
         if star_irradiation_cos_angle <= 0.:
@@ -2809,6 +2812,9 @@ class Radtrans:
                 return_radius_hydrostatic_equilibrium (Optional[bool]):
                     if True, the radius at hydrostatic equilibrium of the planet is returned
         """
+        if reference_gravity <= 0:
+            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+
         auto_anisotropic_cloud_scattering = False
 
         if self._anisotropic_cloud_scattering == 'auto':
