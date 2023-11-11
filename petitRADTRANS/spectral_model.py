@@ -1866,12 +1866,22 @@ class SpectralModel(Radtrans):
 
     @classmethod
     def load(cls, filename):
-        # Generate an empty SpectralModel
-        new_spectrum_model = cls(pressures=None, wavelength_boundaries=np.zeros(2))
-
         # Update the SpectralModel attributes from the file
         with h5py.File(filename, 'r') as f:
-            new_spectrum_model.__dict__ = hdf52dict(f)
+            parameters = hdf52dict(f)
+
+        radtrans_attributes = Radtrans.__dict__
+
+        # Convert Radtrans properties to input names
+        for parameter in list(parameters.keys()):
+            if parameter[0] == '_' and parameter[1] != '_':
+                if parameter[1:] in radtrans_attributes:
+                    parameters[parameter[1:]] = parameters.pop(parameter)
+
+        # Generate an empty SpectralModel
+        new_spectrum_model = cls(
+            **parameters
+        )
 
         return new_spectrum_model
 
