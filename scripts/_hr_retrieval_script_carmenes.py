@@ -682,7 +682,7 @@ def pseudo_retrieval(prt_object, parameters, kps, v_rest, model, data, data_unce
             use_transit_light_loss=use_transit_light_loss,
             convolve=convolve,
             rebin=rebin,
-            reduce=reduce
+            prepare=reduce
         )
 
     p['correct_uncertainties'] = correct_uncertainties
@@ -746,7 +746,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
-        reduce=False
+        prepare=False
     )
 
     print(' Deformed spectrum...')
@@ -765,7 +765,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
-        reduce=False
+        prepare=False
     )
 
     print(' Reprocessed spectrum...')
@@ -784,7 +784,7 @@ def validity_checks(simulated_data_model, radtrans, telluric_transmittances_wave
         use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
-        reduce=True
+        prepare=True
     )
 
     deformation_matrix = deformed_spectrum / true_spectrum
@@ -1573,7 +1573,7 @@ def main(planet_name, output_directory, additional_data_directory, mode, uncerta
                 use_transit_light_loss=use_transit_light_loss,
                 convolve=convolve,
                 rebin=rebin,
-                reduce=False
+                prepare=False
             )
 
             prepared_data, preparing_matrix, prepared_data_uncertainties = simulated_data_model.pipeline(

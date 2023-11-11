@@ -145,7 +145,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 4
@@ -164,7 +164,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 5
@@ -182,7 +182,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 6
@@ -201,7 +201,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 7
@@ -219,7 +219,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=True,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 8
@@ -237,7 +237,7 @@ def plot_model_steps(spectral_model, radtrans, mode, ccd_id,
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     # Init
@@ -445,7 +445,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 7
@@ -464,7 +464,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=True,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     # Step 8
@@ -481,7 +481,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
             use_transit_light_loss=True,
             convolve=True,
             rebin=True,
-            reduce=False
+            prepare=False
         )
 
     # Step 9
@@ -498,7 +498,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     # Step 10
@@ -515,7 +515,7 @@ def plot_model_steps_model(spectral_model, radtrans, mode, ccd_id,
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     # Plots
@@ -615,7 +615,7 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     # Start
@@ -634,7 +634,7 @@ def plot_reprocessing_effect_1d(spectral_model, radtrans, uncertainties, mode,
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     spectra_start = np.ma.masked_where(uncertainties.mask, spectra_start)
@@ -747,7 +747,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
 
     if add_prepared_model:
@@ -764,7 +764,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
             use_transit_light_loss=True,
             convolve=True,
             rebin=True,
-            reduce=True
+            prepare=True
         )
     else:
         model = None
@@ -811,7 +811,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
             use_transit_light_loss=True,
             convolve=True,
             rebin=True,
-            reduce=True
+            prepare=True
         )
         reprocessed_data_noiseless.append(reprocessed_data_noiseless_)
 
@@ -829,7 +829,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
                 use_transit_light_loss=True,
                 convolve=True,
                 rebin=True,
-                reduce=True
+                prepare=True
             )
             models.append(_model)
 
@@ -852,7 +852,7 @@ def plot_reprocessing_effect(spectral_model, radtrans, reprocessed_data, mode, s
         use_transit_light_loss=True,
         convolve=True,
         rebin=True,
-        reduce=True
+        prepare=True
     )
 
     def __get_pass_str(n_passes_):
@@ -1359,7 +1359,7 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
                         rebin=rebin,
                         shift=False,
                         use_transit_light_loss=False,
-                        reduce=False
+                        prepare=False
                     )
 
                     if w_env is None:
@@ -1403,7 +1403,7 @@ def plot_best_fit_comparison(exorem_file, model_directories, data=None, radtrans
             rebin=rebin,
             shift=False,
             use_transit_light_loss=False,
-            reduce=False
+            prepare=False
         )
 
         sms_best_fit.append(sm_best_fit)
@@ -2024,7 +2024,7 @@ def plot_param_effect(retrieved_parameters, spectral_model2, radtrans2):
                 shift=True,
                 convolve=True,
                 rebin=True,
-                reduce=True
+                prepare=True
             )
             axes[i].plot(w[0, :200], s[0, 0, :200], label=f'{v:.3e}')
             if j == 0:
@@ -2591,7 +2591,7 @@ def get_best_fit_model(directory, radtrans=None, data=None, data_uncertainties=N
             shift=True,
             convolve=True,
             rebin=True,
-            reduce=True
+            prepare=True
         )
     else:
         sm_best_fit.temperatures, sm_best_fit.mass_fractions, sm_best_fit.mean_molar_masses, \
@@ -2755,7 +2755,7 @@ def get_median_model(directory, radtrans, data=None, data_uncertainties=None, un
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=True
+        prepare=True
     )
 
     if data is not None:
@@ -4787,7 +4787,7 @@ def plot_all_figures(retrieved_parameters,
         shift=False,
         convolve=False,
         rebin=False,
-        reduce=False
+        prepare=False
     )
 
     orange_model_with_rotation = np.load(

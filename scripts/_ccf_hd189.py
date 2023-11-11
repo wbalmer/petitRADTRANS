@@ -588,7 +588,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             shift=False,
             convolve=True,
             rebin=False,
-            reduce=False
+            prepare=False
         )
     else:
         ccf_model = None
@@ -610,7 +610,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             shift=True,
             convolve=True,
             rebin=True,
-            reduce=False
+            prepare=False
         )
 
         ccf_model_alex = np.ma.masked_where(uncertainties.mask, ccf_model_alex)
@@ -694,7 +694,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             shift=True,
             convolve=True,
             rebin=True,
-            reduce=True
+            prepare=True
         )
 
         print('Generating noiseless mock observations...')
@@ -708,7 +708,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
             shift=True,
             convolve=True,
             rebin=True,
-            reduce=True
+            prepare=True
         )
     else:
         mock_observations = None
@@ -725,7 +725,7 @@ def get_model(planet, wavelengths_instrument, kp, v_sys, ccf_velocities,
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=True
+        prepare=True
     )
 
     return reduced_data, ccf_model, model_wavelengths, true_parameters, mock_observations, mock_observations_nn, \
@@ -1459,7 +1459,7 @@ def figure_slide():
         shift=True,
         convolve=True,
         rebin=True,
-        reduce=False
+        prepare=False
     )
     ccf_tots = []
     kpss = []

@@ -523,7 +523,7 @@ def get_model(planet, wavelengths_instrument, system_observer_radial_velocities,
         use_transit_light_loss=use_transit_light_loss,
         convolve=convolve,
         rebin=rebin,
-        reduce=reduce
+        prepare=reduce
     )
 
     return wavelengths, model, spectral_model, radtrans
