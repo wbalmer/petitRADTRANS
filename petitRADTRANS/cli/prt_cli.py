@@ -11,10 +11,53 @@ import urllib.parse
 import urllib.request
 import warnings
 
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
+
 from petitRADTRANS.config import petitradtrans_config_parser
 
 
 __megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
+
+
+def _path2keeper_url(path: str, path_input_data: str = None, url_input_data: str = None) -> str:
+    """Convert an input_data path to its Keeper equivalent."""
+    # Initialization
+    if path_input_data is None:
+        path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+    if url_input_data is None:
+        url_input_data = petitradtrans_config_parser['URLs']['prt_input_data_url']
+
+    # Ensure destination is the absolute path
+    path = os.path.abspath(path)
+
+    # Warn if the given path is not within the user's input_data path
+    if path_input_data != petitradtrans_config_parser.get_input_data_path():
+        warnings.warn(f"path_input_data ('{path}') "
+                      f"is not the configured one ('{petitradtrans_config_parser['Paths']['prt_input_data_path']}'); "
+                      f"the downloaded file will not be loaded by petitRADTRANS\n"
+                      f"Change the destination, move the file manually after download, or re-set the input data path")
+
+    if path[:len(path_input_data)] != path_input_data:
+        warnings.warn(f"destination path ('{path}') "
+                      f"is not within the input data folder ('{path_input_data}')")
+    else:
+        path = path.rsplit(path_input_data, 1)[-1]
+
+    # Ensure that forward slashes are used in the path, else the resulting URL will be invalid
+    url_path = path.replace(os.path.sep, '/')
+
+    # Ensure that the path starts with a forward slash for the concatenation with the Keeper URL
+    if url_path[0] != '/':
+        url_path = '/' + url_path
+
+    # Convert the slashes to their URL-safe equivalent, as it is used by Keeper
+    return url_input_data + urllib.parse.quote(url_path, safe='')
 
 
 def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
@@ -75,8 +118,7 @@ def _reporthook_sys_output(percent: int, progress_size: float, total_size: float
 
 
 def download_input_data(destination, source=None, rewrite=False,
-                        path_input_data=petitradtrans_config_parser['Paths']['prt_input_data_path'],
-                        url_input_data=petitradtrans_config_parser['URLs']['prt_input_data_url'],
+                        path_input_data=None, url_input_data=None,
                         byte_amount=8192) -> [http.client.HTTPResponse, None]:
     """Download a petitRADTRANS input data file.
     If source is None, the source URL is automatically deduced from the destination file.
@@ -92,6 +134,12 @@ def download_input_data(destination, source=None, rewrite=False,
     Returns:
         If a new file has been downloaded, return a HTTPResponse object, and None otherwise.
     """
+    if path_input_data is None:
+        path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+    if url_input_data is None:
+        url_input_data = petitradtrans_config_parser['URLs']['prt_input_data_url']
+
     # Ensure destination is the absolute path
     destination = os.path.abspath(destination)
 
@@ -109,21 +157,24 @@ def download_input_data(destination, source=None, rewrite=False,
     if destination[:len(path_input_data)] != path_input_data:
         warnings.warn(f"destination path ('{destination}') "
                       f"is not within the input data folder ('{path_input_data}')")
+    else:
+        destination = destination.rsplit(path_input_data, 1)[-1]
+
+    download_request = '&dl=1'
 
     # Automatically get the source URL
     if source is None:
-        if path_input_data in destination:
-            destination = destination.rsplit(path_input_data, 1)[-1]
-
         url_path = destination.replace(os.path.sep, '/')
 
         if url_path[0] != '/':
             url_path = '/' + url_path
 
-        source = urllib.parse.quote(url_input_data + url_path, safe='') + '&dl=1'
+        source = url_input_data + urllib.parse.quote(url_path, safe='') + download_request
+    elif source[:-len(download_request)] != download_request:
+        source += download_request
 
     # Start download
-    destination = os.path.join(path_input_data, destination)
+    destination = os.path.join(path_input_data, destination.split(os.path.sep, 1)[1])
 
     print(f"Downloading '{destination}'...")
 
@@ -165,3 +216,65 @@ def download_input_data(destination, source=None, rewrite=False,
     sys.stdout.write("\n")
 
     return response
+
+
+def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, url_input_data=None):
+    url = _path2keeper_url(
+        path=path,
+        path_input_data=path_input_data,
+        url_input_data=url_input_data
+    )
+
+    # Initialize Chrome in headless mode to prevent browser window pop-up
+    options = webdriver.ChromeOptions()
+    options.add_argument("headless")
+
+    print(f"Starting up Chrome driver... ", end='')
+    # Render the Keeper webpage
+    with webdriver.Chrome(options) as driver:
+        print("Done.")
+        print(f"Rendering webpage ({url})... ", end='')
+        
+        driver.get(url)
+        # Wait for the table containing the files to generate
+        try:
+            WebDriverWait(driver, timeout).until(
+                expected_conditions.presence_of_element_located((By.CLASS_NAME, 'table-hover'))
+            )
+        except TimeoutException as error:
+            # Display a more helpful error message than the basic one
+            raise TimeoutException(
+                f"\n{str(error)}\n"
+                f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
+                f"Check the URL ({url}) for the presence of a table, as well as your internet connection.\n"
+                f"Alternatively, increase the delay until timeout."
+            )
+
+        # Get the webpage html source once the table has generated
+        html = driver.page_source
+
+    print("Done.")
+
+    # Only keep the table's content to speed up Beautiful soup finding
+    table = html.split('<table class="table-hover">', 1)[1].rsplit('</table>', 1)[0]
+
+    # Parse the table
+    soup = BeautifulSoup(table, 'html.parser')
+    elements = soup.find_all('a')
+
+    # Find all the files in the table
+    url_path = urllib.parse.urlparse(url).path
+    url_domain = url.split(url_path, 1)[0]
+
+    files = {}
+
+    for node in elements:
+        href = node.get('href')
+
+        if href.endswith(ext):
+            file = href.rsplit(urllib.parse.quote('/', safe=''), 1)[1]
+            files[file] = url_domain + href
+
+    print("Ending...")  # it takes some time to return the result, maybe selenium needs to end some process?
+
+    return files

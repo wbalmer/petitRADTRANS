@@ -5,6 +5,7 @@ import warnings
 
 from molmass import Formula
 
+from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict
 
@@ -186,16 +187,14 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, filename=None, find_all=False):
+def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_all=False, display_other_files=False):
     full_path = os.path.join(path_input_data, sub_path)
 
-    files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
+    if files is None:
+        files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
 
-    if len(files) == 0:  # no file in path, raise error
-        if find_all:
-            return []
-
-        raise FileNotFoundError(get_input_data_file_not_found_error_message(path_input_data))
+    if len(files) == 0:  # no file in path, return empty list
+        return []
     else:  # at least one file detected in path
         if filename is not None:  # check if one of the files matches the given filename
             resolution_filename, range_filename = _get_spectral_information(filename)
@@ -234,20 +233,17 @@ def _get_input_file(path_input_data, sub_path, filename=None, find_all=False):
                             matching_files.append(file)
 
             if len(matching_files) == 0:
-                if find_all:
-                    return matching_files
+                if display_other_files:
+                    files_str = "\n".join(files)
+                    warnings.warn(f"no file matching name '{filename}' found in directory '{full_path}'\n"
+                                  f"Available files are:\n"
+                                  f"{files_str}")
 
-                files_str = "\n".join(files)
-                raise FileNotFoundError(f"no file matching name '{filename}' found in directory '{full_path}'\n"
-                                        f"Available files are:\n"
-                                        f"{files_str}")
+                return []
             elif len(matching_files) == 1:
                 return matching_files[0]
-            else:
-                if find_all:
-                    return matching_files
-
-                # Else, search for default file
+            elif find_all:
+                return matching_files
 
         # No filename given and only one file is in path, return it
         if len(files) == 1:
@@ -315,6 +311,57 @@ def _get_input_file(path_input_data, sub_path, filename=None, find_all=False):
             petitradtrans_config_parser.set_default_file(os.path.join(full_path, new_default_file))
 
             return new_default_file
+
+
+def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, filename=None, find_all=False,
+                                ext='h5', timeout=3, url_input_data=None):
+    if path_input_data is None:
+        path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+        if path_input_data not in full_path:
+            raise ValueError(f"full path '{full_path}' not within default input_data path '{path_input_data}'\n "
+                             f"Set the path_input_data argument in accordance with full_path, "
+                             f"or correct full_path")
+
+    if sub_path is None:
+        sub_path = full_path.split(path_input_data, 1)[1]
+
+    files = get_keeper_files_url_paths(
+        path=full_path,
+        ext=ext,
+        timeout=timeout,
+        path_input_data=path_input_data,
+        url_input_data=url_input_data
+    )
+
+    matches = _get_input_file(
+        path_input_data=path_input_data,
+        sub_path=sub_path,
+        files=list(files.keys()),
+        filename=filename,
+        find_all=find_all,
+        display_other_files=True
+    )
+
+    if len(matches) == 0 and not isinstance(matches, str):
+        _ = _get_input_file(
+            path_input_data=path_input_data,
+            sub_path=sub_path,
+            files=None,
+            filename=filename,
+            find_all=find_all,
+            display_other_files=True
+        )
+    else:
+        download_input_data(
+            destination=os.path.join(full_path, matches),
+            source=files[matches],
+            rewrite=False,
+            path_input_data=path_input_data,
+            url_input_data=url_input_data
+        )
+
+    return matches
 
 
 def _get_spectral_information(filename):
@@ -832,6 +879,21 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
         filename=filename,
         find_all=find_all
     )
+
+    if len(matches) == 0:
+        print(f"no file matching name '{filename}' found in directory '{full_path}'\n"
+              f"Searching in the Keeper library...")
+
+        matches = _get_input_file_from_keeper(
+            full_path=full_path,
+            path_input_data=path_input_data,
+            sub_path=sub_path,
+            filename=filename,
+            find_all=find_all
+        )
+
+    if len(matches) == 0:
+        raise FileNotFoundError(get_input_data_file_not_found_error_message(path_input_data))
 
     if hasattr(matches, '__iter__') and not isinstance(matches, str):
         matches = [os.path.join(full_path, m) for m in matches]
