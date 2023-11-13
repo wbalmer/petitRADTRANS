@@ -4,6 +4,47 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.7.3] - 2023-11-08
+### Changed
+ - New plotting function interface, can pass `pRT_objects` and `model_generating_functions`
+ - New MPI interface for better parallelisation
+ - Fixed binning of spectra errorbars for plotting
+ - Minor typo bug fixes
+
+## [2.7.2] - 2023-11-08
+### Fixed
+ - Fixed incorrect MMW calculation in `chemistry.py`
+
+## [2.7.1] - 2023-11-08
+### Changed
+ - Updated tick marks for log plots of spectra
+ - Fixed bugs from 2.7.0 merge
+
+## [2.7.0] - 2023-09-12
+### Added
+ - New model_generating_functions in `models.py`.
+ - New functions in `retrieval.py` to access chemical abundance profiles.
+ - beta: interface retrievals with easychem
+ - Complete implementation of scaling factors for flux errors, line b scaling and offsets.
+ - Mixed equilibrium and free chemistry retrievals
+ - New temperature profiles (spline, gradient), with curvature prior
+ - Can get Teffs from posterior distributions.
+ - Can get volume mixing ratios from posterior distributions
+ - Can retrieve haze scattering slopes.
+### Changed
+ - Can now generally set the contribution function, reference pressure, H2 and He abundances as parameters.
+ - Can now plot VMRs as well as mass fractions.
+ - Can use data in the format [wlen, bins, flux, error]
+ - Many small improvements to speed throughout model and plotting routines.
+ - More thorough cloud implementations - hansen, log normal, single radius, and more.
+
+### Removed
+### Fixed
+ - Calculation of chi2 - now automatically outputs normalisation by ndata and dof.
+ - Corrected implementation of free cloud base pressures
+ - Consistent binning and convolution in spectra plots
+
+
 ## [2.6.0] - 2023-03-27
 ### Added
 - High-resolution retrievals.

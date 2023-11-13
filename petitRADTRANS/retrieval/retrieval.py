@@ -555,7 +555,7 @@ class Retrieval:
                         if RANK == 0:
                             bin_species_exok(species, dd.model_resolution)
                         if COMM is not None:
-                            comm.barrier()
+                            COMM.barrier()
                     species = []
                     for spec in self.rd.line_species:
                         species.append(spec + "_R_" + str(dd.model_resolution))
@@ -1052,7 +1052,7 @@ class Retrieval:
 
     def get_full_range_model(self,
                              parameters,
-                             model_generating_func=None,
+                             model_generating_function=None,
                              ret_name=None,  # TODO remove unused parameter
                              contribution=False,
                              pRT_object=None,
@@ -1062,7 +1062,7 @@ class Retrieval:
 
         Parameters:
             parameters (dict): A dictionary containing parameters used to generate the model.
-            model_generating_func (callable, optional): A function to generate the model.
+            model_generating_function (callable, optional): A function to generate the model.
                 Defaults to None.
             ret_name (str, optional): Name of the model to be returned.
                 TODO: Remove this parameter as it's currently unused.
@@ -1113,10 +1113,10 @@ class Retrieval:
         atmosphere.setup_opa_structure(p)
 
         # Check what model function we're using
-        if model_generating_func is None:
+        if model_generating_function is None:
             mg_func = self.data[self.rd.plot_kwargs["take_PTs_from"]].model_generating_function
         else:
-            mg_func = model_generating_func
+            mg_func = model_generating_function
 
         # get the spectrum
         return mg_func(atmosphere, parameters, PT_plot_mode=False, AMR=self.rd.AMR)
@@ -1178,7 +1178,7 @@ class Retrieval:
                 return bf_wlen, bf_spectrum, bf_contribution
 
             bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(self.best_fit_params,
-                                                                              model_generating_func=model_generating_function,
+                                                                              model_generating_function=model_generating_function,
                                                                               ret_name=ret_name,
                                                                               contribution=contribution,
                                                                               pRT_reference=pRT_reference)
@@ -1191,7 +1191,7 @@ class Retrieval:
 
             retVal = self.get_full_range_model(
                 self.best_fit_params,
-                model_generating_func=model_generating_func,
+                model_generating_function=model_generating_function,
                 ret_name=ret_name,
                 contribution=contribution,
                 pRT_reference=pRT_reference, 
@@ -1748,7 +1748,7 @@ class Retrieval:
                  output_dir=None, 
                  ret_names=None, 
                  contribution=False, 
-                 model_generating_func=None, 
+                 model_generating_function=None, 
                  pRT_reference=None, 
                  mode = 'bestfit'):
         """
@@ -1839,20 +1839,20 @@ class Retrieval:
             self.plot_spectra(samples_use, 
                               parameters_read, 
                               refresh = True, 
-                              model_generating_func=model_generating_func, 
+                              model_generating_function=model_generating_function, 
                               pRT_reference=pRT_reference,
                               mode = mode)
 
             if self.evaluate_sample_spectra:
                 self.plot_sampled(samples_use, 
                                   parameters_read, 
-                                  model_generating_func=model_generating_func, 
+                                  model_generating_function=model_generating_function, 
                                   pRT_reference=pRT_reference,)
 
             self.plot_PT(sample_dict, 
                          parameters_read, 
                          contribution=contribution, 
-                         model_generating_func=model_generating_func, 
+                         model_generating_function=model_generating_function, 
                          pRT_reference=pRT_reference, 
                          mode = mode, 
                          refresh = False)
@@ -1863,7 +1863,7 @@ class Retrieval:
             if contribution:
                 self.plot_contribution(samples_use, 
                                        parameters_read, 
-                                       model_generating_func=model_generating_func, 
+                                       model_generating_function=model_generating_function, 
                                        pRT_reference=pRT_reference, 
                                        mode = mode,
                                        refresh = False)
@@ -1871,17 +1871,17 @@ class Retrieval:
             self.plot_abundances(samples_use, 
                                  parameters_read, 
                                  contribution=contribution, 
-                                 model_generating_func=model_generating_func, 
+                                 model_generating_function=model_generating_function, 
                                  pRT_reference=pRT_reference, 
                                  mode = mode, 
                                  refresh = False)
             print("Finished generating all plots!")
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return
 
 
-    def plot_spectra(self, samples_use, parameters_read, model_generating_func=None, pRT_reference=None,
+    def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, pRT_reference=None,
                      refresh=True,mode = "bestfit"):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
@@ -1892,7 +1892,7 @@ class Retrieval:
                 An array of the samples from the post_equal_weights file, used to find the best fit sample
             parameters_read : list
                 A list of the free parameters as read from the output files.
-            model_generating_func : method
+            model_generating_function : method
                 A function that will take in the standard 'model' arguments
                 (pRT_object, params, pt_plot_mode, AMR, resolution)
                 and will return the wavlength and flux arrays as calculated by petitRadTrans.
@@ -1953,7 +1953,7 @@ class Retrieval:
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
-                model_generating_func=model_generating_func, 
+                model_generating_function=model_generating_function, 
                 pRT_reference=pRT_reference, 
                 refresh=refresh,
                 mode = mode
@@ -1970,7 +1970,8 @@ class Retrieval:
                         ratio = resolution_data/self.rd.plot_kwargs["resolution"]
                         flux,edges,_ = binned_statistic(dd.wlen,dd.flux,'mean',dd.wlen.shape[0]/ratio)
                         error,_,_ = binned_statistic(dd.wlen,dd.flux_error,\
-                                                    'mean',dd.wlen.shape[0]/ratio)/np.sqrt(ratio)
+                                                    'mean',dd.wlen.shape[0]/ratio)
+                        error = error/np.sqrt(ratio)
                         wlen = np.array([(edges[i]+edges[i+1])/2.0 for i in range(edges.shape[0]-1)])
                         wlen_bins = np.zeros_like(wlen)
                         wlen_bins[:-1] = np.diff(wlen)
@@ -2209,11 +2210,11 @@ class Retrieval:
                 self.output_dir + 'evaluate_' + self.rd.retrieval_name + '/' + self.retrieval_name + '_' + mode + '_spec.pdf')
             self.evaluate_sample_spectra = check
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax, ax_r
 
     def plot_sampled(self, samples_use, parameters_read, downsample_factor=None, save_outputs=False,
-                     nsample = None, model_generating_func=None, pRT_reference=None,  refresh=True):
+                     nsample = None, model_generating_function=None, pRT_reference=None,  refresh=True):
         """
         Plot a set of randomly sampled output spectra for each dataset in
         the retrieval.
@@ -2329,7 +2330,7 @@ class Retrieval:
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 samples_use[best_fit_index, :-1],
                 parameters_read,
-                model_generating_func=model_generating_func, 
+                model_generating_function=model_generating_function, 
                 pRT_reference=pRT_reference, 
                 refresh=refresh
             )
@@ -2352,10 +2353,10 @@ class Retrieval:
             plt.tight_layout()
             plt.savefig(path + self.retrieval_name + '_sampled.pdf', bbox_inches=0.)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
-    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = False, model_generating_func=None, 
+    def plot_PT(self, sample_dict, parameters_read, contribution=False, refresh = False, model_generating_function=None, 
                  pRT_reference=None, mode = 'bestfit'):
         """
         Plot the PT profile with error contours
@@ -2496,7 +2497,7 @@ class Retrieval:
                 bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
-                    model_generating_func=model_generating_func, 
+                    model_generating_function=model_generating_function, 
                     pRT_reference=pRT_reference, 
                     refresh=refresh,
                     contribution = True,
@@ -2586,7 +2587,7 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
     def plot_corner(self, sample_dict, parameter_dict, parameters_read, plot_best_fit=True, true_values = None, **kwargs):
@@ -2670,10 +2671,10 @@ class Retrieval:
                 **kwargs
             )
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig
 
-    def plot_data(self):
+    def plot_data(self, yscale = 'linear'):
         """
         Plot the data used in the retrieval. 
         """
@@ -2685,12 +2686,13 @@ class Retrieval:
                 else:
                     wlen = dd.wlen
                 ax.errorbar(wlen, dd.flux, yerr=dd.flux_error, label=name, marker='o')
-            ax.legend()
+                ax.set_yscale(yscale)
+            ax.legend(fontsize=6)
             plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
 
-    def plot_contribution(self, samples_use, parameters_read, model_generating_func=None, pRT_reference=None,
+    def plot_contribution(self, samples_use, parameters_read, model_generating_function=None, pRT_reference=None,
                           log_scale_contribution=False, n_contour_levels=30, refresh=True, mode = 'bestfit'):
         """
         Plot the contribution function of the bestfit or median model from a retrieval. This plot indicates the
@@ -2771,7 +2773,7 @@ class Retrieval:
             bf_wlen, bf_spectrum, bf_contribution= self.get_best_fit_model(
                                                                         sample_use,
                                                                         parameters_read,
-                                                                        model_generating_func=model_generating_func, 
+                                                                        model_generating_function=model_generating_function, 
                                                                         pRT_reference=pRT_reference, 
                                                                         refresh=refresh,
                                                                         contribution = True,
@@ -2822,7 +2824,7 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig, ax
 
     def plot_abundances(self, 
@@ -2831,7 +2833,7 @@ class Retrieval:
                         species_to_plot=None, 
                         contribution=False, 
                         refresh=True,
-                        model_generating_func=None, 
+                        model_generating_function=None, 
                         pRT_reference=None, 
                         mode = 'bestfit', 
                         sample_posteriors = False, 
@@ -2982,7 +2984,7 @@ class Retrieval:
                 bf_wlen, bf_spectrum,bf_contribution = self.get_best_fit_model(
                                                 sample_use,
                                                 parameters_read,
-                                                model_generating_func=model_generating_func, 
+                                                model_generating_function=model_generating_function, 
                                                 pRT_reference=pRT_reference, 
                                                 refresh=refresh,
                                                 contribution = True
@@ -3083,5 +3085,5 @@ class Retrieval:
                 for name, dd in self.data.items():
                     dd.pRT_object.setup_opa_structure(self.rd.amr_pressure*1e6)
         if self.use_MPI and COMM is not None:
-            comm.barrier()
+            COMM.barrier()
         return fig,ax

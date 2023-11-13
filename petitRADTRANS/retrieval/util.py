@@ -161,6 +161,7 @@ def calc_MMW(abundances):
 
     for key in abundances.keys():
         # exo_k resolution
+        if "(c)" in key: continue
         spec = key.split("_R_")[0]
         mmw += abundances[key] / getMM(spec)
 
@@ -186,6 +187,7 @@ def get_MMW_from_nfrac(n_frac):
     mass = np.zeros_like(n_frac[list(n_frac.keys())[0]])
     for key, value in n_frac.items():
         spec = key.split("_R_")[0]
+        if "(c)" in key: continue
         mass += value * getMM(spec)
     return mass
 
@@ -204,6 +206,7 @@ def mass_to_number(m_frac):
 
     for key, value in m_frac.items():
         spec = key.split("_R_")[0]
+        if "(c)" in key: continue
         n_frac[key] = value / getMM(spec) * mmw
     return n_frac
 
@@ -274,6 +277,7 @@ def bin_species_exok(species, resolution):
     masses = {}
 
     for spec in species:
+        if "(c)" in species: continue
         masses[spec.split('_')[0]] = getMM(spec)
 
     atmosphere.write_out_rebin(

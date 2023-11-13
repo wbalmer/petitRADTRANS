@@ -291,14 +291,14 @@ def simple_cdf_free(name,press, temp, mfrac, MMW = 2.33):
         if "MgSiO3(c)" in name:
             return simple_cdf_MgSiO3_free(press, temp, mfrac, MMW)
         if "Mg2SiO4(c)" in name:
-            return simple_cdf_Mg2SiO4_free(press, temp, FeH, CO, MMW)
+            return simple_cdf_Mg2SiO4_free(press, temp, mfrac, MMW)
         if "Na2S(c)" in name:
             return simple_cdf_Na2S_free(press, temp, mfrac, MMW)
         if "KCL(c)" in name:
             return simple_cdf_KCL_free(press, temp, mfrac, MMW)
         else:
             logging.warn(f"The cloud {name} is not currently implemented.")
-            return np.zeros_like(FeH)
+            return np.zeros_like(press)
 
 def return_XFe(FeH, CO):
 
