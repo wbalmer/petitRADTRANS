@@ -104,11 +104,8 @@ The installation of pRT on Windows machines, just as in the Linux/Mac case, requ
 
 pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl$\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
 
-Apple M1 instructions
-_____________________
-
-Instructions for Apple silicon
-______________________________
+Instructions for Apple silicon (M1/M2/M3)
+_________________________________________
 
 petitRADTRANS should natively install on Apple silicon machines (so M1, M2 or M3 chips).
 Just make sure you have Apple's command line tools and
