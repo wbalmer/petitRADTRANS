@@ -1408,7 +1408,8 @@ class SpectralModel(Radtrans):
         return radial_velocities + system_observer_radial_velocities + rest_frame_velocity_shift
 
     @staticmethod
-    def compute_scaled_metallicity(planet_mass, star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2):
+    def compute_scaled_metallicity(planet_mass, star_metallicity=1.0, atmospheric_mixing=1.0,
+                                   metallicity_mass_coefficient=-0.68, metallicity_mass_scaling=7.2):
         """Calculate the scaled metallicity of a planet.
         The relation used is a power law. Default parameters come from the source.
 
@@ -1418,13 +1419,14 @@ class SpectralModel(Radtrans):
             planet_mass: (g) mass of the planet
             star_metallicity: metallicity of the planet in solar metallicity
             atmospheric_mixing: scaling factor [0, 1] representing how well metals are mixed in the atmosphere
-            alpha: power of the relation
-            beta: scaling factor of the relation
+            metallicity_mass_coefficient: power of the relation
+            metallicity_mass_scaling: scaling factor of the relation
 
         Returns:
             An estimation of the planet atmospheric metallicity in solar metallicity.
         """
-        return beta * (planet_mass / cst.m_jup) ** alpha * star_metallicity * atmospheric_mixing
+        return (metallicity_mass_scaling * (planet_mass / cst.m_jup) ** metallicity_mass_coefficient
+                * star_metallicity * atmospheric_mixing)
 
     @staticmethod
     def compute_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
