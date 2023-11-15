@@ -881,7 +881,7 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     )
 
     if len(matches) == 0:
-        print(f"no file matching name '{filename}' found in directory '{full_path}'\n"
+        print(f"No file matching name '{filename}' found in directory '{full_path}'\n"
               f"Searching in the Keeper library...")
 
         matches = _get_input_file_from_keeper(
