@@ -231,6 +231,8 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
                             matching_files.append(file)
                         elif get_default_line_by_line_resolution() == resolution_file:
                             matching_files.append(file)
+                        elif get_default_cloud_resolution() == resolution_file:
+                            matching_files.append(file)
 
             if len(matching_files) == 0:
                 if display_other_files:
@@ -766,6 +768,10 @@ def get_cloud_aliases(name: str) -> str:
         spectral_info = _spectral_info
 
     return _filename + '__' + method + '.' + spectral_info
+
+
+def get_default_cloud_resolution() -> str:
+    return get_resolving_power_string(39)
 
 
 def get_default_correlated_k_resolution() -> str:
