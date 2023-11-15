@@ -309,8 +309,8 @@ class SpectralModel(Radtrans):
             planet_mass=planet_mass,
             star_metallicity=star_metallicity,
             atmospheric_mixing=atmospheric_mixing,
-            alpha=alpha,
-            beta=beta
+            metallicity_mass_coefficient=alpha,
+            metallicity_mass_scaling=beta
         )
 
         if metallicity <= 0:
