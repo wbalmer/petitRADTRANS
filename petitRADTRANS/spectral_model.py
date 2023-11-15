@@ -1879,6 +1879,9 @@ class SpectralModel(Radtrans):
             if parameter[0] == '_' and parameter[1] != '_':
                 if parameter[1:] in radtrans_attributes:
                     parameters[parameter[1:]] = parameters.pop(parameter)
+            elif parameter == 'model_parameters':
+                for key, value in parameters[parameter].items():
+                    parameters[key] = value
 
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
