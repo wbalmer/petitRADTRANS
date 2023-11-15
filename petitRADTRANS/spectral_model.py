@@ -2329,7 +2329,7 @@ class SpectralModel(Radtrans):
     @staticmethod
     def run_retrieval(retrieval: Retrieval, n_live_points=100, resume=False, sampling_efficiency=0.8,
                       const_efficiency_mode=False, log_z_convergence=0.5, n_iter_before_update=50, max_iterations=0,
-                      save=True, filename='retrieval_parameters', rank=None, **kwargs):
+                      save=True, filename='retrieval_parameters', rank=0, **kwargs):
         if save:
             parameter_dict = {}  # copy.deepcopy(retrieval.__dict__)  # TODO fix issues with objects not stored in HDF5
 
@@ -2340,7 +2340,7 @@ class SpectralModel(Radtrans):
                 if argument in parameter_dict and argument != 'self' and argument != 'kwargs':
                     del parameter_dict[argument]
 
-            if rank is None or rank == 0:
+            if rank == 0:
                 SpectralModel.save_parameters(
                     file=os.path.join(retrieval.output_dir, filename + '.h5'),
                     n_live_points=n_live_points,
