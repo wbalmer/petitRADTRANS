@@ -58,7 +58,7 @@ def _get_base_cloud_names():
         'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
         'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_229.R39_0.1-250mu',
         'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_194.R39_0.1-250mu',
-        'H2O(l)': 'H2O-NatAbund(l).R39_0.1-250mu',
+        'H2O(l)': 'H2-O-NatAbund(l).R39_0.1-250mu',
         'H2OSO4(l)': 'H2-O-S-O4-NatAbund(l).R39_0.1-250mu',
         'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_225.R39_0.1-250mu',
         'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
