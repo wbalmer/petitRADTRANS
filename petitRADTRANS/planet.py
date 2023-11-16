@@ -685,6 +685,11 @@ class Planet:
                     os.mkdir(directory)
 
                 cls.download_from_nasa_exoplanet_archive(name)
+            else:
+                warnings.warn(f"intermediate vot file found ('{filename_vot}') but not the corresponding final file "
+                              f"('{filename}')\n"
+                              f"This may indicate an incomplete or corrupted download. If conversion to HDF5 fails, "
+                              f"consider removing the vot file.")
 
             # Save into HDF5 and remove the VO table
             new_planet = cls.from_votable_file(filename_vot)
