@@ -6,8 +6,9 @@ Preface
 
 petitRADTRANS 3 comes with a lot of quality-of-life features,
 optimization, and code rationalization, but also with breaking
-changes. A list of those breaking changes will be provided in a detailed
-changelog. Hereafter is a short summary of the most notables changes.
+changes. A list of those breaking changes is provided
+[here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
+Hereafter is a short summary of the most notables changes.
 
 Added
 -----
