@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.0.0a96"
+version = "3.0.0a97"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"
@@ -40,7 +40,9 @@ dependencies = [
     "molmass",
     "h5py",
     "pymultinest",
-    "pyvo"
+    "pyvo",
+    "bs4",
+    "selenium"
 ]
 
 [project.optional-dependencies]

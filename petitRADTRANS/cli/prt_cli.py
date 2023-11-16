@@ -229,12 +229,12 @@ def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, 
     options = webdriver.ChromeOptions()
     options.add_argument("headless")
 
-    print(f"Starting up Chrome driver... ", end='')
+    print("Starting up Chrome driver... ", end='')
     # Render the Keeper webpage
     with webdriver.Chrome(options) as driver:
         print("Done.")
         print(f"Rendering webpage ({url})... ", end='')
-        
+
         driver.get(url)
         # Wait for the table containing the files to generate
         try:
