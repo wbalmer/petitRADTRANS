@@ -4,10 +4,9 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a97] - 2023-11-16
+## [3.0.0-a98] - 2023-11-20
 ### Added
 - Automatic download of missing input_data files.
-- SYSREM preparing pipeline.
 - Simple transit light loss modelling for `SpectralModel`.
 - Possibility to retrieve or optimize uncertainties.
 - Trimming preparation function.
@@ -18,6 +17,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `utils.feature_scaling` to normalize arrays.
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
+- Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
 - Constant `e_molar_mass` to physical constants.
 - Some helpful error and warning messages.
 
@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Object `SpectralModel` is now imported using `from petitRADTRANS.spectral_model import SpectralModel`.
 - Object `Planet` is now imported using `from petitRADTRANS.planet import Planet`.
 - Module `nat_cst` renamed `physical_constants`.
+- Module `poor_mans_nonequ_chem` renamed `chemistry.pre_calculated_chemistry` and reworked.
+- Module `phoenix` renamed `stellar_spectra.phoenix` and reworked.
 - Some functions have moved from the module `physical_constants` to another, more specific module.
 - Some functions have moved from the module `Radtrans` to another, more specific module.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
@@ -39,12 +41,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
 - Rules for opacites and species names are now clearly defined, based on the ExoMol format.
 - Structure of directory input_data now is akin to ExoMol.
-- Line-by-line opacities can now be read from HDF5 files.
-- Cloud opacities can now be read from HDF5 files.
-- CIA cross-sections can now be read from HDF5 files.
+- Line-by-line opacities are now read from HDF5 files.
+- Cloud opacities are now read from HDF5 files.
+- CIA cross-sections are now read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`. The installation procedure is mostly unchanged.
 - Various optimisations.
-- Package structure.
+- Updated package structure.
 - Code clean-up.
 
 ### Removed
@@ -58,6 +60,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Fixed
 - Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
+- Importing the chemical table no longer triggers its loading.
+- Importing the PHOENIX stellar spectra table no longer triggers its loading.
 
 ## [2.7.3] - 2023-11-08
 ### Changed
