@@ -661,7 +661,7 @@ class Retrieval:
                 i_p += 1
         return params
 
-    def log_likelihood(self, cube, ndim=0, nparam=0):
+    def log_likelihood(self, cube, ndim=0, nparam=0, logL_per_datapoint_dict=None):
         """
         pyMultiNest required likelihood function.
 
@@ -681,6 +681,9 @@ class Retrieval:
                 The number of dimensions of the problem
             nparam : int
                 The number of parameters in the fit.
+            logL_per_datapoint_dict : dict
+                Dictionary with instrument-entries. If provided, log likelihood
+                per datapoint is appended to existing list. 
 
         Returns:
             log_likelihood : float
@@ -689,6 +692,12 @@ class Retrieval:
         log_likelihood = 0.
         log_prior = 0.
         additional_logl = 0.
+
+        # Store per data-object
+        #log_likelihood_per_datapoint = {}
+        per_datapoint = False
+        if isinstance(logL_per_datapoint_dict, dict):
+            per_datapoint = True
 
         i_p = 0  # parameter count
 
@@ -707,6 +716,11 @@ class Retrieval:
         #    #        dd.scale_factor = self.parameters[name_use + "_scale_factor_multiple"].value
 
         for name, dd in self.data.items():
+            
+            if per_datapoint:
+                # Keep logL's separate per data-object
+                log_likelihood = 0.
+
             # Only calculate spectra within a given
             # wlen range once
             if dd.scale or dd.scale_err:
@@ -785,7 +799,8 @@ class Retrieval:
                             wlen_model,
                             spectrum_model, #[~dd.mask],
                             self.plotting,
-                            self.parameters
+                            self.parameters, 
+                            per_datapoint=per_datapoint, 
                         ) + additional_logl
                 elif np.ndim(dd.flux) == 2:
                     # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -819,6 +834,9 @@ class Retrieval:
                 spectrum_model = None
                 wlen_model = None
 
+            if per_datapoint:
+                logL_per_datapoint_dict[name].append(log_likelihood)
+
             # Check for data using the same pRT object
             # Calculate log likelihood
             for de_name, dede in self.data.items():
@@ -835,9 +853,13 @@ class Retrieval:
                             wlen_model,
                             spectrum_model,
                             self.plotting,
-                            self.parameters
+                            self.parameters, 
+                            per_datapoint=per_datapoint
                         ) + additional_logl
 
+        if per_datapoint:
+            return logL_per_datapoint_dict
+        
         if "log_prior_weight" in self.parameters.keys():
             log_prior += self.parameters["log_prior_weight"].value
 
@@ -1433,7 +1455,73 @@ class Retrieval:
         print(f"Best fit 𝛘^2 = {-log_l - norm:.2f}")
         return (-log_l - norm) * 2
 
+    def get_log_likelihood_per_datapoint(self, samples_use, ret_name=None):
 
+        if ret_name is None:
+            ret_name = self.retrieval_name
+
+        # Set-up the dictionary structure
+        logL_per_datapoint_dict = {}
+        for name in self.data.keys():
+            logL_per_datapoint_dict[name] = []
+
+        for sample_i in samples_use:
+            # Append the logL per datapoint for each posterior sample
+            logL_per_datapoint_dict = self.log_likelihood(
+                cube=sample_i, logL_per_datapoint_dict=logL_per_datapoint_dict
+                )
+
+        # Save the logL's for each instrument
+        for name in self.data.keys():
+            logL_per_datapoint_dict[name] = np.array(logL_per_datapoint_dict[name])
+
+            np.save(
+                f"{self.output_dir}evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{name}", 
+                logL_per_datapoint_dict[name]
+                )
+        
+    def get_elpd_per_datapoint(self, ret_name=None):
+
+        if ret_name is None:
+            ret_name = self.retrieval_name
+
+        if isinstance(ret_name, str):
+            ret_name = [ret_name]
+        assert(len(ret_name) <= 2)
+
+        from .psis import psisloo
+
+        #if len(ret_name) == 2:
+        #    delta_elpd = {}
+
+        elpd_tot, elpd, pareto_k = {}, {}, {}
+        delta_elpd = {}
+
+        for d_name, dd in self.data.items():
+
+            elpd_tot[d_name], elpd[d_name], pareto_k[d_name] = {}, {}, {}
+
+            for ret_name_i in ret_name:
+                logL_per_datapoint_j = np.load(
+                    f"{self.output_dir}evaluate_{ret_name_i}/{ret_name_i}_logL_per_datapoint_{d_name}.npy", 
+                    )
+                
+                # Compute the ELPDs with the PSIS module
+                elpd_tot[d_name][ret_name_i], elpd[d_name][ret_name_i], pareto_k[d_name][ret_name_i] \
+                    = psisloo(logL_per_datapoint_j, Reff=1)
+                
+                if ret_name_i == self.retrieval_name:
+                    dd.elpd_tot = elpd_tot[d_name][ret_name_i]
+                    dd.elpd     = elpd[d_name][ret_name_i]
+                    dd.pareto_k = pareto_k[d_name][ret_name_i]
+                
+            if len(ret_name) == 2:
+                delta_elpd[d_name] = elpd[d_name][ret_name[0]] - elpd[d_name][ret_name[1]]
+                dd.delta_elpd      = delta_elpd[d_name]
+            
+        return elpd_tot, elpd, pareto_k, delta_elpd
+            
+            
     def get_chi2(self,sample):
         """
         Get the 𝛘^2 of the given sample relative to the data - removing normalization term from log L
@@ -1882,7 +1970,8 @@ class Retrieval:
 
 
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, pRT_reference=None,
-                     refresh=True,mode = "bestfit"):
+                     refresh=True, mode = "bestfit", marker_color_type=None, marker_cmap=plt.cm.bwr, marker_label=''
+                     ):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/RETRIEVAL_NAME_MODE_spec.pdf
@@ -1911,6 +2000,12 @@ class Retrieval:
                 be generated from the .npy files in the evaluate_[retrieval_name] folder.
             mode : str
                 Use 'bestfit' (minimum likelihood) parameters, or median parameter values.
+            marker_color_type : str
+                Data-attribute to plot as marker colors. Use 'delta_elpd', 'elpd', or 'pareto_k'.
+            marker_cmap : matplotlib colormap
+                Colormap to use for marker colors.
+            marker_label : str
+                Label to add to colorbar corresponding to marker colors.
         Returns:
             fig : matplotlib.figure
                 The matplotlib figure, containing the data, best fit spectrum and residuals.
@@ -1959,6 +2054,45 @@ class Retrieval:
                 mode = mode
             )
             chi2 = self.get_reduced_chi2_from_model(bf_wlen, bf_spectrum, subtract_n_parameters = True)
+
+            markersize = None
+            if marker_color_type is not None:
+
+                markersize = 10
+                
+                l, b, w, h = ax.get_position().bounds
+                cax = fig.add_axes([l+w+0.015*w, b, 0.025*w, h])
+
+                markerfacecolors = {}
+                vmin, vmax = np.inf, -np.inf
+                for name,dd in self.data.items():
+                    
+                    assert(hasattr(dd,marker_color_type))
+
+                    markerfacecolors[name] = getattr(dd, marker_color_type)
+                    vmin = min([markerfacecolors[name].min(), vmin])
+                    vmax = max([markerfacecolors[name].max(), vmax])
+
+                if marker_color_type.startswith('delta_'):
+                    vmax = np.max(np.abs([vmin,vmax]))
+                    vmin = -1*vmax
+
+                from matplotlib.colors import Normalize
+                norm = Normalize(vmin=vmin, vmax=vmax)
+
+                for name,dd in self.data.items():
+                    markerfacecolors[name] = norm(markerfacecolors[name])
+                    markerfacecolors[name] = marker_cmap(markerfacecolors[name])
+
+                from matplotlib.cm import ScalarMappable
+                fig.colorbar(
+                    ScalarMappable(norm=norm, cmap=marker_cmap), 
+                    ax=ax, cax=cax, orientation='vertical'
+                    )
+                cax.set_ylabel(marker_label)
+
+                if marker_color_type == 'pareto_k':
+                    cax.axhline(0.7, c='k', ls='--')
 
             # Iterate through each dataset, plotting the data and the residuals.
             for name,dd in self.data.items():
@@ -2049,53 +2183,83 @@ class Retrieval:
                     marker = 's'
                 if not dd.photometry:
                     label = dd.name
-                    ax.errorbar(wlen,
-                                (flux * self.rd.plot_kwargs["y_axis_scaling"]),
-                                yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
-                                marker=marker, 
-                                markeredgecolor='k', 
-                                linewidth=0, 
-                                elinewidth=2,
-                                label=label, 
-                                zorder=10, 
-                                alpha=0.9)
+                    for i in range(len(flux)):
+                        color_i = 'C0'
+                        ecolor = 'C0'
+                        if marker_color_type is not None:
+                            color_i = markerfacecolors[name][i]
+                            ecolor = 'k'
+
+                        ax.errorbar(wlen[i],
+                                    (flux[i] * self.rd.plot_kwargs["y_axis_scaling"]),
+                                    yerr=error[i] * self.rd.plot_kwargs["y_axis_scaling"],
+                                    marker=marker, 
+                                    ecolor=ecolor, 
+                                    markersize=markersize, 
+                                    markerfacecolor=color_i, 
+                                    markeredgecolor='k', 
+                                    linewidth=0, 
+                                    elinewidth=2,
+                                    label=label, 
+                                    zorder=10, 
+                                    alpha=0.9)
+                        
+                        # Plot the residuals
+                        ax_r.errorbar(wlen[i],
+                                    ((flux - best_fit_binned) / (error))[i],
+                                    yerr=(error / error)[i],
+                                    marker=marker, 
+                                    ecolor=ecolor,
+                                    markersize=markersize, 
+                                    markerfacecolor=color_i, 
+                                    markeredgecolor='k', 
+                                    linewidth=0, 
+                                    elinewidth=2,
+                                    zorder=10, 
+                                    alpha=0.9)
+                        
+                        label = None
                 else:
                     # Don't label photometry?
-                    ax.errorbar(wlen,
-                                (flux * self.rd.plot_kwargs["y_axis_scaling"]),
-                                yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
-                                xerr=dd.wlen_bins / 2., 
-                                linewidth=0, 
-                                elinewidth=2,
-                                marker=marker, 
-                                markeredgecolor='k', 
-                                color='grey', 
-                                zorder=10,
-                                label=None, 
-                                alpha=0.6)
-                    
-                # Plot the residuals
-                col = ax.get_lines()[-1].get_color()
-                if dd.external_pRT_reference is None:
 
-                    ax_r.errorbar(wlen,
-                                (flux - best_fit_binned) / (error),
-                                yerr=error / error,
-                                color=col,
-                                linewidth=0, elinewidth=2,
-                                marker=marker, markeredgecolor='k', zorder=10,
-                                alpha=0.9)
-                else:
-                    ax_r.errorbar(wlen,
-                                (flux - best_fit_binned) / (error),
-                                yerr= error / error,
-                                color=col,
-                                linewidth=0, 
-                                elinewidth=2,
-                                marker=marker, 
-                                markeredgecolor='k', 
-                                zorder=10,
-                                alpha=0.9)
+                    for i in range(len(flux)):
+                        color_i = 'grey'
+                        ecolor = 'grey'
+                        if marker_color_type is not None:
+                            color_i = markerfacecolors[name][i]
+                            ecolor = 'k'
+
+                        ax.errorbar(wlen[i],
+                                    (flux[i] * self.rd.plot_kwargs["y_axis_scaling"]),
+                                    yerr=error[i] * self.rd.plot_kwargs["y_axis_scaling"],
+                                    xerr=dd.wlen_bins / 2., 
+                                    linewidth=0, 
+                                    elinewidth=2,
+                                    marker=marker, 
+                                    ecolor=ecolor, 
+                                    markersize=markersize, 
+                                    markerfacecolor=color_i, 
+                                    markeredgecolor='k', 
+                                    color='grey', 
+                                    zorder=10,
+                                    label=None, 
+                                    alpha=0.6)
+                    
+                        # Plot the residuals
+                        ax_r.errorbar(wlen[i],
+                                    ((flux - best_fit_binned) / (error))[i],
+                                    yerr=(error / error)[i],
+                                    xerr=dd.wlen_bins / 2., 
+                                    color='grey', 
+                                    marker=marker, 
+                                    ecolor=ecolor,
+                                    markersize=markersize, 
+                                    markerfacecolor=color_i, 
+                                    markeredgecolor='k', 
+                                    linewidth=0, 
+                                    elinewidth=2,
+                                    zorder=10, 
+                                    alpha=0.6)
                     
             # Plot the best fit model
             ax.plot(bf_wlen,
