@@ -148,15 +148,15 @@ def get_bhans(parameters, cloud_species, shape=0):
 
 
 def return_cloud_mass_fraction(name, metallicity, co_ratio):
-    if "Fe(c)" in name:
+    if "Fe(s)" in name:
         return return_x_fe(metallicity, co_ratio)
-    if "MgSiO3(c)" in name:
+    if "MgSiO3(s)" in name:
         return return_x_mgsio3(metallicity, co_ratio)
-    if "Mg2SiO4(c)" in name:
+    if "Mg2SiO4(s)" in name:
         return return_x_mg2sio4(metallicity, co_ratio)
-    if "Na2S(c)" in name:
+    if "Na2S(s)" in name:
         return return_x_na2s(metallicity, co_ratio)
-    if "KCL(c)" in name:
+    if "KCL(s)" in name:
         return return_x_kcl(metallicity, co_ratio)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
@@ -164,15 +164,15 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
 
 
 def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
-    if "Fe(c)" in name:
+    if "Fe(s)" in name:
         return simple_cdf_fe(press, temp, metallicity, co_ratio, mmw)
-    if "MgSiO3(c)" in name:
+    if "MgSiO3(s)" in name:
         return simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw)
-    if "Mg2SiO4(c)" in name:
+    if "Mg2SiO4(s)" in name:
         return simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw)
-    if "Na2S(c)" in name:
+    if "Na2S(s)" in name:
         return simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw)
-    if "KCL(c)" in name:
+    if "KCL(s)" in name:
         return simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
@@ -181,15 +181,15 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
 
 
 def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
-    if "Fe(c)" in name:
+    if "Fe(s)" in name:
         return simple_cdf_fe_free(press, temp, mfrac, mmw)
-    if "MgSiO3(c)" in name:
+    if "MgSiO3(s)" in name:
         return simple_cdf_mgsio3_free(press, temp, mfrac, mmw)
-    if "Mg2SiO4(c)" in name:
+    if "Mg2SiO4(s)" in name:
         return simple_cdf_mg2sio4_free(press, temp, mfrac, mmw)
-    if "Na2S(c)" in name:
+    if "Na2S(s)" in name:
         return simple_cdf_na2s_free(press, temp, mfrac, mmw)
-    if "KCL(c)" in name:
+    if "KCL(s)" in name:
         return simple_cdf_kcl_free(press, temp, mfrac, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
