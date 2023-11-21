@@ -22,12 +22,12 @@ class TestData(unittest.TestCase):
         self.assertEqual(fits_test.path_to_observations, self.test_fits_file)
         self.assertEqual(fits_test.data_resolution,500)
         self.assertEqual(fits_test.model_resolution,500)
-        self.assertEqual(fits_test.distance,40*cst.pc)
+        self.assertEqual(fits_test.system_distance, 40 * cst.pc)
         self.assertEqual(fits_test.calculate_star_radiosity[0], 2.509834381986098e-17)
-        self.assertEqual(fits_test.wlen[0],1.9700000286102295)
+        self.assertEqual(fits_test.wavelengths[0], 1.9700000286102295)
 
         fits_test.scale_to_distance(10*cst.pc)
-        self.assertEqual(fits_test.distance,10*cst.pc)
+        self.assertEqual(fits_test.system_distance, 10 * cst.pc)
         self.assertEqual(fits_test.calculate_star_radiosity[0], 2.509834381986098e-17 * (40. / 10.) ** 2)
 
         self.fits_test = fits_test
@@ -44,13 +44,13 @@ class TestData(unittest.TestCase):
         self.assertEqual(txt_test.path_to_observations, self.test_fits_file)
         self.assertEqual(txt_test.data_resolution,50)
         self.assertEqual(txt_test.model_resolution,50)
-        self.assertEqual(txt_test.distance,40*cst.pc)
+        self.assertEqual(txt_test.system_distance, 40 * cst.pc)
         self.assertEqual(txt_test.calculate_star_radiosity[0], 0.001365)
-        self.assertEqual(txt_test.wlen[0],1.138000)
+        self.assertEqual(txt_test.wavelengths[0], 1.138000)
         self.assertEqual(txt_test.scale,True)
 
         txt_test.scale_to_distance(10*cst.pc)
-        self.assertEqual(txt_test.distance,10*cst.pc)
+        self.assertEqual(txt_test.system_distance, 10 * cst.pc)
         self.assertEqual(txt_test.calculate_star_radiosity[0], 0.001365 * (40. / 10.) ** 2)
         self.txt_test = txt_test
         return self.txt_test

@@ -93,8 +93,8 @@ class Retrieval:
 
         if len(self.rd.line_species) < 1:
             for data_name, d in self.rd.data.items():
-                if d.pRT_object is not None:
-                    if len(d.pRT_object.line_species) < 1:
+                if d.radtrans_object is not None:
+                    if len(d.radtrans_object.line_species) < 1:
                         warnings.warn("there are no line species present in the given Radtrans object")
                         break
                 else:
@@ -128,7 +128,7 @@ class Retrieval:
         self.chi2 = None
         self.posterior_sample_specs = {}
         self.plotting = test_plotting
-        self.PT_plot_mode = False
+        self.pt_plot_mode = False
         self.evaluate_sample_spectra = sample_spec
 
         # Pymultinest stuff
@@ -179,7 +179,6 @@ class Retrieval:
             resume=False,
             max_iters=0,
             frac_remain=0.1,
-            importance_nested_sampling=True,
             l_epsilon=0.3,
             error_checking=True):
         """
@@ -483,8 +482,8 @@ class Retrieval:
                 if dd.offset_bool:
                     summary.write("    offset = True\n")
 
-                if dd.distance is not None:
-                    summary.write(f"    distance = {dd.distance}\n")
+                if dd.system_distance is not None:
+                    summary.write(f"    distance = {dd.system_distance}\n")
 
                 if dd.data_resolution is not None:
                     summary.write(f"    data resolution = {dd.data_resolution}\n")
@@ -492,8 +491,8 @@ class Retrieval:
                 if dd.model_resolution is not None:
                     summary.write(f"    model resolution = {dd.model_resolution}\n")
 
-                if dd.external_pRT_reference is not None:
-                    summary.write(f"    external_pRT_reference = {dd.external_pRT_reference}\n")
+                if dd.external_radtrans_reference is not None:
+                    summary.write(f"    external_pRT_reference = {dd.external_radtrans_reference}\n")
 
                 if dd.photometry:
                     summary.write(f"    photometric width = {dd.photometry_range[0]:.4f}"
@@ -598,12 +597,12 @@ class Retrieval:
                 The number of cells in the low pressure grid to replace with the high resolution grid.
         """
         for name, dd in self.data.items():
-            if dd.pRT_object is not None:
+            if dd.radtrans_object is not None:
                 continue
 
             # Only create if there's no other data
             # object using the same pRT object
-            if dd.external_pRT_reference is None:
+            if dd.external_radtrans_reference is None:
                 if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
                     self._rebin_opacities(resolution=dd.model_resolution)
@@ -626,7 +625,7 @@ class Retrieval:
                     lbl_samp = int(1e6 / dd.model_resolution)
 
                 # Create random P-T profile to create RT arrays of the Radtrans object.
-                if self.rd.AMR:
+                if self.rd.amr:
                     p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
                 else:
                     p = self.rd.p_global
@@ -639,12 +638,12 @@ class Retrieval:
                     gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
                     cloud_species=cp.copy(self.rd.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
-                    wavelength_boundaries=dd.wlen_range_pRT,
+                    wavelength_boundaries=dd.wavelength_boundaries,
                     scattering_in_emission=self.rd.scattering,
                     line_by_line_opacity_sampling=lbl_samp
                 )
 
-                dd.pRT_object = rt_object
+                dd.radtrans_object = rt_object
 
     def _error_check_model_function(self):
         free_params = []
@@ -669,16 +668,16 @@ class Retrieval:
             exc_info = None
 
             try:
-                use_obj = data.pRT_object
+                use_obj = data.radtrans_object
 
-                if data.external_pRT_reference is not None:
-                    use_obj = self.data[data.external_pRT_reference].pRT_object
+                if data.external_radtrans_reference is not None:
+                    use_obj = self.data[data.external_radtrans_reference].radtrans_object
 
                 model_returned_values = data.model_generating_function(
                     use_obj,
                     self.parameters,
                     False,
-                    AMR=self.rd.AMR
+                    amr=self.rd.amr
                 )  # TODO the generating function should always return the same number of values
 
                 if len(model_returned_values) == 3:  # handle case where beta is returned
@@ -804,27 +803,27 @@ class Retrieval:
             if name + "_b" in self.parameters.keys():
                 dd.bval = self.parameters[name + "_b"].value
 
-            if self.PT_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
+            if self.pt_plot_mode and name == self.rd.plot_kwargs['take_PTs_from']:
                 # Get the PT profile
-                use_obj = dd.pRT_object
-                if dd.external_pRT_reference is not None:
-                    use_obj = self.data[dd.external_pRT_reference].pRT_object
+                use_obj = dd.radtrans_object
+                if dd.external_radtrans_reference is not None:
+                    use_obj = self.data[dd.external_radtrans_reference].radtrans_object
                 pressures, temperatures = \
                     dd.model_generating_function(use_obj,
                                                  self.parameters,
-                                                 self.PT_plot_mode,
-                                                 AMR=self.rd.AMR)
+                                                 self.pt_plot_mode,
+                                                 amr=self.rd.amr)
                 return pressures, temperatures
-            elif self.PT_plot_mode:
+            elif self.pt_plot_mode:
                 continue
 
-            if dd.external_pRT_reference is None:
+            if dd.external_radtrans_reference is None:
                 # Compute the model
                 model_returned_values = dd.model_generating_function(
-                    dd.pRT_object,
+                    dd.radtrans_object,
                     self.parameters,
-                    self.PT_plot_mode,
-                    AMR=self.rd.AMR
+                    self.pt_plot_mode,
+                    amr=self.rd.amr
                 )  # TODO the generating function should always return the same number of values
 
                 if retrieve_uncertainties:
@@ -856,41 +855,41 @@ class Retrieval:
 
                 # Calculate log likelihood
                 # TODO uniformize convolve/rebin handling
-                if not isinstance(dd.flux, float) and dd.flux.dtype == 'O':
-                    if np.ndim(dd.flux) == 1:
+                if not isinstance(dd.spectrum, float) and dd.spectrum.dtype == 'O':
+                    if np.ndim(dd.spectrum) == 1:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
-                        for i, data in enumerate(dd.flux):
+                        for i, data in enumerate(dd.spectrum):
                             if np.isnan(spectrum_model[i][~dd.mask[i]]).any():
                                 return invalid_value
 
                             log_likelihood += dd.log_likelihood(
-                                spectrum_model[i][~dd.mask[i]], data, dd.flux_error[i],
+                                spectrum_model[i][~dd.mask[i]], data, dd.uncertainties[i],
                                 beta=beta,
                                 beta_mode=beta_mode
                             )
-                    elif np.ndim(dd.flux) == 2:
+                    elif np.ndim(dd.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Third dimension of data must be a function of wavelength
-                        for i, detector in enumerate(dd.flux):
+                        for i, detector in enumerate(dd.spectrum):
                             for j, data in enumerate(detector):
                                 if np.isnan(spectrum_model[i, j][~dd.mask[i, j]]).any():
                                     return invalid_value
 
                                 log_likelihood += dd.log_likelihood(
-                                    spectrum_model[i, j][~dd.mask[i, j]], data, dd.flux_error[i, j],
+                                    spectrum_model[i, j][~dd.mask[i, j]], data, dd.uncertainties[i, j],
                                     beta=beta,
                                     beta_mode=beta_mode
                                 )
                     else:
                         raise ValueError(f"observation is an array containing object, "
-                                         f"and have {np.ndim(dd.flux)} dimensions, "
+                                         f"and have {np.ndim(dd.spectrum)} dimensions, "
                                          f"but must have 1 to 2")
                 else:
                     if np.isnan(spectrum_model).any():
                         return invalid_value
 
-                    if isinstance(dd.flux, float) or np.ndim(dd.flux) == 1:
+                    if isinstance(dd.spectrum, float) or np.ndim(dd.spectrum) == 1:
                         # Convolution and rebin are cared of in get_chisq
                         log_likelihood += dd.get_chisq(
                             wlen_model,
@@ -898,35 +897,35 @@ class Retrieval:
                             self.plotting,
                             self.parameters
                         ) + additional_logl
-                    elif np.ndim(dd.flux) == 2:
+                    elif np.ndim(dd.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
-                        for i, data in enumerate(dd.flux):
+                        for i, data in enumerate(dd.spectrum):
                             log_likelihood += dd.log_likelihood(
-                                spectrum_model[i, ~dd.mask[i, :]], data, dd.flux_error[i],
+                                spectrum_model[i, ~dd.mask[i, :]], data, dd.uncertainties[i],
                                 beta=beta,
                                 beta_mode=beta_mode
                             )
-                    elif np.ndim(dd.flux) == 3:
+                    elif np.ndim(dd.spectrum) == 3:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Third dimension of data must be a function of wavelength
-                        for i, detector in enumerate(dd.flux):
+                        for i, detector in enumerate(dd.spectrum):
                             for j, data in enumerate(detector):
                                 log_likelihood += dd.log_likelihood(
-                                    spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.flux_error[i, j],
+                                    spectrum_model[i, j, ~dd.mask[i, j, :]], data, dd.uncertainties[i, j],
                                     beta=beta,
                                     beta_mode=beta_mode
                                 )
                     else:
-                        raise ValueError(f"observations have {np.ndim(dd.flux)} dimensions, but must have 1 to 3")
+                        raise ValueError(f"observations have {np.ndim(dd.spectrum)} dimensions, but must have 1 to 3")
             else:
                 # Get the PT profile
                 if name == self.rd.plot_kwargs['take_PTs_from']:
                     pressures, temperatures = \
-                        dd.model_generating_function(dd.pRT_object,
+                        dd.model_generating_function(dd.radtrans_object,
                                                      self.parameters,
-                                                     self.PT_plot_mode,
-                                                     AMR=self.rd.AMR)
+                                                     self.pt_plot_mode,
+                                                     amr=self.rd.amr)
                     return pressures, temperatures
                 else:
                     raise ValueError(f"in PT plot mode data name '{name}' "
@@ -959,11 +958,11 @@ class Retrieval:
             # Check for data using the same pRT object
             # Calculate log likelihood
             for de_name, dede in self.data.items():
-                if dede.external_pRT_reference is not None:
+                if dede.external_radtrans_reference is not None:
                     if dede.scale:
                         dede.scale_factor = self.parameters[de_name + "_scale_factor"].value
 
-                    if dede.external_pRT_reference == name:
+                    if dede.external_radtrans_reference == name:
                         if spectrum_model is None:
                             return invalid_value
 
@@ -1003,25 +1002,25 @@ class Retrieval:
             if name + "_b" in parameters.keys():
                 dd.bval = parameters[name + "_b"].value
 
-            if dd.external_pRT_reference is None:
+            if dd.external_radtrans_reference is None:
                 # Compute the model
                 ret_val = \
-                    dd.model_generating_function(dd.pRT_object,
+                    dd.model_generating_function(dd.radtrans_object,
                                                  parameters,
                                                  False,
-                                                 AMR=self.rd.AMR)
+                                                 amr=self.rd.amr)
                 if len(ret_val) == 3:
                     wlen_model, spectrum_model, additional_logl = ret_val
                 else:
                     wlen_model, spectrum_model = ret_val
             else:
                 # Compute the model
-                prt_obj = self.rd.data[dd.external_pRT_reference].pRT_object
+                prt_obj = self.rd.data[dd.external_radtrans_reference].radtrans_object
                 ret_val = \
-                    self.rd.data[dd.external_pRT_reference].model_generating_function(prt_obj,
-                                                                                      parameters,
-                                                                                      False,
-                                                                                      AMR=self.rd.AMR)
+                    self.rd.data[dd.external_radtrans_reference].model_generating_function(prt_obj,
+                                                                                           parameters,
+                                                                                           False,
+                                                                                           amr=self.rd.amr)
                 if len(ret_val) == 3:
                     wlen_model, spectrum_model, additional_logl = ret_val
                 else:
@@ -1109,8 +1108,6 @@ class Retrieval:
         of each parameter. This will update the best_fit_parameter dictionary!
         # TODO fix docstring
         Args:
-            best_fit_params : numpy.ndarray
-                An array of the best fit parameter values (or any other sample)
             parameters_read : list
                 A list of the free parameter names as read from the output files.
         """
@@ -1133,7 +1130,6 @@ class Retrieval:
     def get_full_range_model(self,
                              parameters,
                              model_generating_function=None,
-                             ret_name=None,  # TODO remove unused parameter
                              contribution=False,
                              prt_object=None,
                              prt_reference=None):
@@ -1143,9 +1139,6 @@ class Retrieval:
         Parameters:
             parameters (dict): A dictionary containing parameters used to generate the model.
             model_generating_function (callable, optional): A function to generate the model.
-                Defaults to None.
-            ret_name (str, optional): Name of the model to be returned.
-                TODO: Remove this parameter as it's currently unused.
                 Defaults to None.
             contribution (bool, optional): Return the emission or transmission contribution function.
                 Defaults to False.
@@ -1162,16 +1155,16 @@ class Retrieval:
         wmin = 99999.0
         wmax = 0.0
         for name, dd in self.data.items():
-            if dd.wlen_range_pRT[0] < wmin:
-                wmin = dd.wlen_range_pRT[0]
-            if dd.wlen_range_pRT[1] > wmax:
-                wmax = dd.wlen_range_pRT[1]
+            if dd.wavelength_boundaries[0] < wmin:
+                wmin = dd.wavelength_boundaries[0]
+            if dd.wavelength_boundaries[1] > wmax:
+                wmax = dd.wavelength_boundaries[1]
         # Set up parameter dictionary
         # parameters = self.build_param_dict(params,parameters_read)
         parameters["contribution"] = Parameter("contribution", False, value=contribution)
 
         # Set up the pRT object
-        if self.rd.AMR:
+        if self.rd.amr:
             p = self.rd._setup_pres()
             parameters["pressure_scaling"] = self.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.parameters["pressure_width"]
@@ -1182,7 +1175,7 @@ class Retrieval:
         if prt_object is not None:
             atmosphere = prt_object
         elif prt_reference is not None:
-            atmosphere = self.data[prt_reference].pRT_object
+            atmosphere = self.data[prt_reference].radtrans_object
         else:
             atmosphere = Radtrans(
                 pressures=p,
@@ -1194,7 +1187,7 @@ class Retrieval:
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.rd.scattering
             )
-        if self.rd.AMR:
+        if self.rd.amr:
             parameters["pressure_scaling"] = self.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.parameters["pressure_width"]
             parameters["pressure_simple"] = self.parameters["pressure_simple"]
@@ -1206,7 +1199,7 @@ class Retrieval:
             mg_func = model_generating_function
 
         # get the spectrum
-        return mg_func(atmosphere, parameters, PT_plot_mode=False, AMR=self.rd.AMR)
+        return mg_func(atmosphere, parameters, pt_plot_mode=False, amr=self.rd.amr)
 
     def get_best_fit_model(self, best_fit_params, parameters_read, ret_name=None, contribution=False,
                            prt_reference=None, model_generating_function=None, refresh=True, mode='bestfit'):
@@ -1249,7 +1242,7 @@ class Retrieval:
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_params = parameters
 
-        if self.rd.AMR:
+        if self.rd.amr:
             _ = self.rd._setup_pres()  # TODO this function should not be private
             self.best_fit_params["pressure_scaling"] = self.parameters["pressure_scaling"]
             self.best_fit_params["pressure_width"] = self.parameters["pressure_width"]
@@ -1268,7 +1261,6 @@ class Retrieval:
             bf_wlen, bf_spectrum, bf_contribution = self.get_full_range_model(
                 self.best_fit_params,
                 model_generating_function=model_generating_function,
-                ret_name=ret_name,
                 contribution=contribution,
                 prt_reference=prt_reference
             )
@@ -1285,7 +1277,6 @@ class Retrieval:
             ret_val = self.get_full_range_model(
                 self.best_fit_params,
                 model_generating_function=model_generating_function,
-                ret_name=ret_name,
                 contribution=contribution,
                 prt_reference=prt_reference
             )
@@ -1330,21 +1321,24 @@ class Retrieval:
         from petitRADTRANS.chemistry.core import get_abundances
         parameters = self.build_param_dict(sample, parameters_read)
 
-        self.PT_plot_mode = True
+        self.pt_plot_mode = True
         pressures, temps = self.log_likelihood(sample, 0, 0)
-        self.PT_plot_mode = False
+        self.pt_plot_mode = False
 
-        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+        if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
             name = self.rd.plot_kwargs["take_PTs_from"]
         else:
-            name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+            name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-        species = [spec.split(self.data.resolving_power_str)[0] for spec in self.data[name].pRT_object.line_species]
+        species = [
+            spec.split(self.data.resolving_power_str)[0] for spec in self.data[name].radtrans_object.line_species
+        ]
+
         abundances, mmw, _, _ = get_abundances(
             self.rd.p_global,
             temps,
             cp.copy(species),
-            cp.copy(self.data[name].pRT_object.cloud_species),
+            cp.copy(self.data[name].radtrans_object.cloud_species),
             parameters,
             amr=False
         )
@@ -1402,12 +1396,12 @@ class Retrieval:
         vmrs = None
 
         for ret in rets:
-            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.rd.plot_kwargs["take_PTs_from"]
             else:
-                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
+            species = [spec.split("_R_")[0] for spec in self.data[name].radtrans_object.line_species]
 
             samples_use = sample_dict[ret]
             parameters_read = parameter_dict[ret]
@@ -1452,17 +1446,19 @@ class Retrieval:
         """
         if rets is None:
             rets = [self.retrieval_name]
+
+        mass_fractions = []
+
         for ret in rets:
-            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is None:
+            if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.rd.plot_kwargs["take_PTs_from"]
             else:
-                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference
+                name = self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split("_R_")[0] for spec in self.data[name].pRT_object.line_species]
+            species = [spec.split("_R_")[0] for spec in self.data[name].radtrans_object.line_species]
 
             samples_use = sample_dict[ret]
             parameters_read = parameter_dict[ret]
-            mass_fractions = []
 
             for sample in samples_use:
                 m_frac, _ = self.get_mass_fraction(sample[:-1], parameters_read)
@@ -1536,7 +1532,7 @@ class Retrieval:
                 _, log_det = np.linalg.slogdet(2 * np.pi * dd.covariance * sf ** 2)
                 add = 0.5 * log_det
             else:
-                f_err = dd.flux_error
+                f_err = dd.uncertainties
                 if dd.scale_err:
                     f_err = f_err * sf
                 if f"{name}_b" in self.parameters.keys():
@@ -1573,7 +1569,7 @@ class Retrieval:
                 _, log_det = np.linalg.slogdet(2 * np.pi * dd.covariance * sf ** 2)
                 add = 0.5 * log_det
             else:
-                f_err = dd.flux_error
+                f_err = dd.uncertainties
                 f_err = flatten_object(f_err)
 
                 if dd.scale_err:
@@ -1613,7 +1609,7 @@ class Retrieval:
                 _, log_det = np.linalg.slogdet(2 * np.pi * dd.covariance * sf ** 2)
                 add = 0.5 * log_det
             else:
-                f_err = dd.flux_error
+                f_err = dd.uncertainties
                 if dd.scale_err:
                     f_err = f_err * sf
                 if f"{name}_b" in self.parameters.keys():
@@ -1642,7 +1638,7 @@ class Retrieval:
         d_o_f = 0
 
         for name, dd in self.data.items():
-            d_o_f += np.size(dd.flux)
+            d_o_f += np.size(dd.spectrum)
 
         if subtract_n_parameters:
             for name, pp in self.parameters.items():
@@ -1685,7 +1681,7 @@ class Retrieval:
         d_o_f = 0
 
         for name, dd in self.data.items():
-            d_o_f += np.size(dd.flux)
+            d_o_f += np.size(dd.spectrum)
             sf = 1
             log_l += dd.get_chisq(
                 wlen_model,
@@ -1706,7 +1702,7 @@ class Retrieval:
                     _, log_det = np.linalg.slogdet(2 * np.pi * dd.covariance * sf ** 2)
                     add = 0.5 * log_det
             else:
-                add = 0.5 * np.sum(np.log(2.0 * np.pi * dd.flux_error ** 2.))
+                add = 0.5 * np.sum(np.log(2.0 * np.pi * dd.uncertainties ** 2.))
             norm += add
 
         if subtract_n_parameters:
@@ -1844,16 +1840,7 @@ class Retrieval:
         for spec in self.rd.line_species:
             species.append(join_species_all_info(spec, spectral_info=get_resolving_power_string(resolution)))
 
-        prt_object = Radtrans(
-            line_species=cp.copy(species),
-            rayleigh_species=cp.copy(self.rd.rayleigh_species),
-            gas_continuum_contributors=cp.copy(self.rd.continuum_opacities),
-            cloud_species=cp.copy(self.rd.cloud_species),
-            line_opacity_mode='c-k',
-            wavelength_boundaries=np.array([0.85, 250]),
-            scattering_in_emission=self.rd.scattering
-        )  # TODO this prt_object is never used
-        if self.rd.AMR:
+        if self.rd.amr:
             p = self.rd._setup_pres()
         else:
             p = self.rd.p_global
@@ -1883,8 +1870,8 @@ class Retrieval:
 
             duse = self.data[self.rd.plot_kwargs["take_PTs_from"]]
 
-            if duse.external_pRT_reference is not None:
-                duse = self.data[duse.external_pRT_reference]
+            if duse.external_radtrans_reference is not None:
+                duse = self.data[duse.external_radtrans_reference]
 
             for rint in rands:
                 samp = samples[int(rint), :-1]
@@ -1893,7 +1880,7 @@ class Retrieval:
                     prt_object,
                     params,
                     False,
-                    self.rd.AMR
+                    self.rd.amr
                 )
 
                 if len(ret_val) == 2:
@@ -2063,7 +2050,7 @@ class Retrieval:
                 A list of the free parameters as read from the output files.
             model_generating_function : method
                 A function that will take in the standard 'model' arguments
-                (pRT_object, params, pt_plot_mode, AMR, resolution)
+                (pRT_object, params, pt_plot_mode, amr, resolution)
                 and will return the wavlength and flux arrays as calculated by petitRadTrans.
                 If no argument is given, it uses the method of the first dataset included in the retrieval.
             prt_reference : str
@@ -2144,14 +2131,16 @@ class Retrieval:
             for name, dd in self.data.items():
                 # If the user has specified a resolution, rebin to that
                 if not dd.photometry:
-                    resolution_data = np.mean(dd.wlen[1:] / np.diff(dd.wlen))
+                    resolution_data = np.mean(dd.wavelengths[1:] / np.diff(dd.wavelengths))
                     if self.rd.plot_kwargs["resolution"] is not None and \
                             self.rd.plot_kwargs["resolution"] < resolution_data:
                         ratio = resolution_data / self.rd.plot_kwargs["resolution"]
-                        flux, edges, _ = binned_statistic(dd.wlen, dd.flux, 'mean', dd.wlen.shape[0] / ratio)
+                        flux, edges, _ = binned_statistic(
+                            dd.wavelengths, dd.spectrum, 'mean', dd.wavelengths.shape[0] / ratio
+                        )
                         error, _, _ = binned_statistic(
-                            dd.wlen, dd.flux_error,
-                            'mean', dd.wlen.shape[0] / ratio
+                            dd.wavelengths, dd.uncertainties,
+                            'mean', dd.wavelengths.shape[0] / ratio
                         ) / np.sqrt(ratio)
 
                         wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
@@ -2159,15 +2148,15 @@ class Retrieval:
                         wlen_bins[:-1] = np.diff(wlen)
                         wlen_bins[-1] = wlen_bins[-2]
                     else:
-                        wlen = dd.wlen
-                        error = dd.flux_error
-                        flux = dd.flux
-                        wlen_bins = dd.wlen_bins
+                        wlen = dd.wavelengths
+                        error = dd.uncertainties
+                        flux = dd.spectrum
+                        wlen_bins = dd.wavelength_bin_widths
                 else:
                     wlen = np.mean(dd.width_photometry)
-                    flux = dd.flux
-                    error = dd.flux_error
-                    wlen_bins = dd.wlen_bins
+                    flux = dd.spectrum
+                    error = dd.uncertainties
+                    wlen_bins = dd.wavelength_bin_widths
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
@@ -2190,7 +2179,7 @@ class Retrieval:
                     # error = np.sqrt(error + 10 ** (self.best_fit_parameters["{dd.name}_b"]))
 
                 if not dd.photometry:
-                    if dd.external_pRT_reference is None:
+                    if dd.external_radtrans_reference is None:
                         spectrum_model = self.best_fit_specs[name][1]
                         if dd.data_resolution is not None:
                             spectrum_model = dd.convolve(self.best_fit_specs[name][0],
@@ -2204,8 +2193,8 @@ class Retrieval:
                         )
                     else:
                         if dd.data_resolution is not None:
-                            spectrum_model = dd.convolve(self.best_fit_specs[dd.external_pRT_reference][0],
-                                                         self.best_fit_specs[dd.external_pRT_reference][1],
+                            spectrum_model = dd.convolve(self.best_fit_specs[dd.external_radtrans_reference][0],
+                                                         self.best_fit_specs[dd.external_radtrans_reference][1],
                                                          dd.data_resolution)
                         else:
                             spectrum_model = None  # TODO prevent reference before assignment
@@ -2217,7 +2206,7 @@ class Retrieval:
                             wlen_bins
                         )
                 else:
-                    if dd.external_pRT_reference is None:
+                    if dd.external_radtrans_reference is None:
                         best_fit_binned = dd.photometric_transformation_function(self.best_fit_specs[name][0],
                                                                                  self.best_fit_specs[name][1])
                         # Species functions give tuples of (flux,error)
@@ -2228,8 +2217,10 @@ class Retrieval:
 
                     else:
                         best_fit_binned = \
-                            dd.photometric_transformation_function(self.best_fit_specs[dd.external_pRT_reference][0],
-                                                                   self.best_fit_specs[dd.external_pRT_reference][1])
+                            dd.photometric_transformation_function(
+                                self.best_fit_specs[dd.external_radtrans_reference][0],
+                                self.best_fit_specs[dd.external_radtrans_reference][1]
+                            )
                         try:
                             best_fit_binned = best_fit_binned[0]
                         except Exception:  # TODO find exception expected here
@@ -2255,7 +2246,7 @@ class Retrieval:
                     ax.errorbar(wlen,
                                 (flux * self.rd.plot_kwargs["y_axis_scaling"]),
                                 yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
-                                xerr=dd.wlen_bins / 2.,
+                                xerr=dd.wavelength_bin_widths / 2.,
                                 linewidth=0,
                                 elinewidth=2,
                                 marker=marker,
@@ -2267,7 +2258,7 @@ class Retrieval:
 
                 # Plot the residuals
                 col = ax.get_lines()[-1].get_color()
-                if dd.external_pRT_reference is None:
+                if dd.external_radtrans_reference is None:
 
                     ax_r.errorbar(wlen,
                                   (flux - best_fit_binned) / error,
@@ -2471,10 +2462,10 @@ class Retrieval:
             wmin = 99999.0
             wmax = 0.0
             for name, dd in self.data.items():
-                if dd.wlen_range_pRT[0] < wmin:
-                    wmin = dd.wlen_range_pRT[0]
-                if dd.wlen_range_pRT[1] > wmax:
-                    wmax = dd.wlen_range_pRT[1]
+                if dd.wavelength_boundaries[0] < wmin:
+                    wmin = dd.wavelength_boundaries[0]
+                if dd.wavelength_boundaries[1] > wmax:
+                    wmax = dd.wavelength_boundaries[1]
 
             # Set up parameter dictionary
             atmosphere = Radtrans(line_species=cp.copy(self.rd.line_species),
@@ -2611,11 +2602,10 @@ class Retrieval:
 
             # Choose what samples we want to use
             samples_use = cp.copy(sample_dict[self.retrieval_name])
-            len_samp = len(samples_use)
 
             # This is probably obsolete
             # i_p = 0
-            self.PT_plot_mode = True
+            self.pt_plot_mode = True
             """for pp in self.parameters:
                 if self.parameters[pp].is_free_parameter:
                     for i_s in range(len(parameters_read)):
@@ -2625,14 +2615,14 @@ class Retrieval:
                     i_p += 1"""
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.rd.AMR
-            self.rd.AMR = False
+            amr = self.rd.amr
+            self.rd.amr = False
             temps = []
 
             pressures = self.rd.p_global  # prevent eventual reference before assignment
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(pressures)
+                    dd.radtrans_object.setup_opa_structure(pressures)
             press_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_pressures"
             temp_file = f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_temps"
 
@@ -2701,7 +2691,7 @@ class Retrieval:
 
             # Check if we're weighting by the contribution function.
             if contribution:
-                self.PT_plot_mode = False
+                self.pt_plot_mode = False
                 if mode.strip('-').strip("_").lower() == "bestfit":
                     # Get best-fit index
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -2800,10 +2790,10 @@ class Retrieval:
             ax.legend(loc='best')
             plt.savefig(f"{self.output_dir}evaluate_{self.retrieval_name}/{self.retrieval_name}_PT_envelopes.pdf",
                         bbox_inches='tight')
-            self.rd.AMR = amr
+            self.rd.amr = amr
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
+                    dd.radtrans_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
@@ -2913,8 +2903,8 @@ class Retrieval:
                 if dd.photometry:
                     wlen = np.mean(dd.width_photometry)
                 else:
-                    wlen = dd.wlen
-                ax.errorbar(wlen, dd.flux, yerr=dd.flux_error, label=name, marker='o')
+                    wlen = dd.wavelengths
+                ax.errorbar(wlen, dd.spectrum, yerr=dd.uncertainties, label=name, marker='o')
                 ax.set_yscale(yscale)
             ax.legend(fontsize=6)
             plt.savefig(self.output_dir + "evaluate_" + self.retrieval_name + "/" + self.retrieval_name + "_Data.pdf")
@@ -2975,20 +2965,20 @@ class Retrieval:
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.rd.AMR
-            self.rd.AMR = False
+            amr = self.rd.amr
+            self.rd.amr = False
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.rd.p_global
             pressures = self.rd.p_global  # prevent eventual reference before assignment
 
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(pressures)
+                    dd.radtrans_object.setup_opa_structure(pressures)
 
             # Calculate the temperature structure
-            self.PT_plot_mode = True
+            self.pt_plot_mode = True
             pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
-            self.PT_plot_mode = False
+            self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
             if mode.strip('-').strip("_").lower() == "bestfit":
@@ -3051,10 +3041,10 @@ class Retrieval:
             # Restore the correct pressure arrays.
             # *1e6 for units (cgs from bar)
             self.rd.p_global = p_global_keep
-            self.rd.AMR = amr
+            self.rd.amr = amr
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
+                    dd.radtrans_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
@@ -3123,16 +3113,16 @@ class Retrieval:
             #     import petitRADTRANS.retrieval.plot_style as ps  # TODO never used
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.rd.AMR
-            self.rd.AMR = False
+            amr = self.rd.amr
+            self.rd.amr = False
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.rd.p_global
             pressures = self.rd.p_global  # prevent eventual reference before assignment
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(pressures)
+                    dd.radtrans_object.setup_opa_structure(pressures)
 
-            self.PT_plot_mode = True
+            self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -3144,15 +3134,16 @@ class Retrieval:
                 sample_use = None  # TODO prevent reference before assignment
 
             pressures, t = self.log_likelihood(sample_use, 0, 0)
-            self.PT_plot_mode = False
+            self.pt_plot_mode = False
 
             # Check if we're only plotting a few species
             if species_to_plot is None:
-                if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference is not None:
+                if self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
                     species_to_plot = self.data[
-                        self.data[self.rd.plot_kwargs["take_PTs_from"]].external_pRT_reference].pRT_object.line_species
+                        self.data[self.rd.plot_kwargs["take_PTs_from"]].external_radtrans_reference
+                    ].radtrans_object.line_species
                 else:
-                    species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].pRT_object.line_species
+                    species_to_plot = self.data[self.rd.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
 
             # Set up colours - abundances usually have a lot of species,
             # so let's use the default matplotlib colour scheme rather
@@ -3328,10 +3319,10 @@ class Retrieval:
                     bbox_inches='tight')
             # Restore the correct pressure arrays.
             self.rd.p_global = p_global_keep
-            self.rd.AMR = amr
+            self.rd.amr = amr
             if amr:
                 for name, dd in self.data.items():
-                    dd.pRT_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
+                    dd.radtrans_object.setup_opa_structure(self.rd.amr_pressure * 1e6)
         else:
             fig = None
             ax = None

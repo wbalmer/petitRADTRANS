@@ -731,26 +731,26 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
-            resolution_data = np.mean(data.wlen[1:] / np.diff(data.wlen))
+            resolution_data = np.mean(data.wavelengths[1:] / np.diff(data.wavelengths))
             ratio = resolution_data / resolution
             if int(ratio) > 1:
-                flux, edges, _ = binned_statistic(data.wlen, data.flux, 'mean',
-                                                  data.wlen.shape[0] / ratio)
-                error, _, _ = np.array(binned_statistic(data.wlen, data.flux_error,
-                                                        'mean', data.wlen.shape[0] / ratio)) / np.sqrt(ratio)
+                flux, edges, _ = binned_statistic(data.wavelengths, data.spectrum, 'mean',
+                                                  data.wavelengths.shape[0] / ratio)
+                error, _, _ = np.array(binned_statistic(data.wavelengths, data.uncertainties,
+                                                        'mean', data.wavelengths.shape[0] / ratio)) / np.sqrt(ratio)
                 wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
             else:
-                wlen = data.wlen
-                error = data.flux_error
-                flux = data.flux
+                wlen = data.wavelengths
+                error = data.uncertainties
+                flux = data.spectrum
         except Exception:  # TODO find what is the error expected here
-            wlen = data.wlen
-            error = data.flux_error
-            flux = data.flux
+            wlen = data.wavelengths
+            error = data.uncertainties
+            flux = data.spectrum
     else:
         wlen = np.mean(data.width_photometry)
-        flux = data.flux
-        error = data.flux_error
+        flux = data.spectrum
+        error = data.uncertainties
 
     marker = 'o'
 
@@ -767,7 +767,7 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
         ax.errorbar(wlen,
                     flux * scaling * scale,
                     yerr=error * scaling * scale,
-                    xerr=data.wlen_bins / 2., linewidth=0, elinewidth=2,
+                    xerr=data.wavelength_bin_widths / 2., linewidth=0, elinewidth=2,
                     marker=marker, markeredgecolor='k', color='grey', zorder=10,
                     label=None, alpha=0.6)
 

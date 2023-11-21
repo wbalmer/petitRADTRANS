@@ -56,8 +56,7 @@ class RetrievalConfig:
                  amr=False,
                  scattering=False,
                  distribution="lognormal",
-                 pressures=None,
-                 write_out_spec_sample=False):
+                 pressures=None):
 
         self.retrieval_name = retrieval_name
 
@@ -69,7 +68,7 @@ class RetrievalConfig:
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
             sys.exit(1)
-        self.AMR = amr
+        self.amr = amr
 
         if pressures is not None:
             self.p_global = pressures
@@ -88,7 +87,6 @@ class RetrievalConfig:
         self.plot_kwargs = {}
 
         self._plot_defaults()
-        self.write_out_spec_sample = write_out_spec_sample
 
         self.add_parameter("pressure_scaling", False, value=1)
         self.add_parameter("pressure_width", False, value=1)
@@ -130,12 +128,12 @@ class RetrievalConfig:
                 The number of cells in the low pressure grid to replace with the high resolution grid.
         """
 
-        print("Setting up amr pressure grid.")
+        print("Setting up AMR pressure grid.")
         self.scaling = scaling
         self.width = width
         nclouds = len(self.cloud_species)
         if nclouds == 0:
-            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up amr")
+            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
         new_len = self.p_global.shape[0] + nclouds * width * (scaling - 1)
         self.amr_pressure = np.logspace(np.log10(self.p_global[0]), np.log10(self.p_global[-1]), new_len)
         self.add_parameter("pressure_scaling", False, value=scaling)
@@ -433,23 +431,26 @@ class RetrievalConfig:
 
     def add_data(self,
                  name,
-                 path,
+                 path_to_observations,
                  model_generating_function,
                  data_resolution=None,
                  model_resolution=None,
-                 distance=None,
+                 system_distance=None,
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
-                 wlen_range_micron=None,
-                 external_prt_reference=None,
-                 opacity_mode='c-k',
-                 wlen_bins=None,
-                 prt_grid=False,
-                 prt_object=None,
-                 wlen=None,
-                 flux=None,
-                 flux_error=None,
+                 photometry=False,
+                 photometric_transformation_function=None,
+                 photometric_bin_edges=None,
+                 wavelength_boundaries=None,
+                 external_radtrans_reference=None,
+                 line_opacity_mode='c-k',
+                 wavelength_bin_widths=None,
+                 radtrans_grid=False,
+                 radtrans_object=None,
+                 wavelengths=None,
+                 spectrum=None,
+                 uncertainties=None,
                  mask=None):
         """
         Create a Data class object.
@@ -457,7 +458,7 @@ class RetrievalConfig:
         Args:
             name : str
                 Identifier for this data set.
-            path : str
+            path_to_observations : str
                 Path to observations file, including filename. This can be a txt or dat file containing the wavelength,
                 flux, transit depth and error, or a fits file containing the wavelength, spectrum and covariance matrix.
             model_generating_function : fnc
@@ -468,45 +469,50 @@ class RetrievalConfig:
                 Spectral resolution of the instrument. Optional, allows convolution of model to instrumental line width.
             model_resolution : float
                 Spectral resolution of the model, allowing for low resolution correlated k tables from exo-k.
-            distance : float
+            system_distance : float
                 The distance to the object in cgs units. Defaults to a 10pc normalized distance. All data must
                 be scaled to the same distance before running the retrieval, which can be done using the
                 scale_to_distance method in the Data class.
             scale : bool
                 Turn on or off scaling the data by a constant factor.
-            wlen_range_micron : Tuple
-                A pair of wavelenths in units of micron that determine the lower and upper boundaries of the
+            wavelength_boundaries : Tuple
+                A pair of wavelengths in units of micron that determine the lower and upper boundaries of the
                 model computation.
-            external_prt_reference : str
+            external_radtrans_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
                 of the new Data object. This is useful when two datasets overlap, as only one model computation is
                 required to compute the log likelihood of both datasets.
-            opacity_mode : str
+            line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
                 recommended to set the model_resolution parameter.
-            prt_grid: bool
+            radtrans_grid: bool
                 Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
-        self.data[name] = Data(name, path,
-                               model_generating_function=model_generating_function,
-                               data_resolution=data_resolution,
-                               model_resolution=model_resolution,
-                               distance=distance,
-                               scale=scale,
-                               scale_err=scale_err,
-                               offset_bool=offset_bool,
-                               wlen_range_micron=wlen_range_micron,
-                               external_radtrans_reference=external_prt_reference,
-                               line_opacity_mode=opacity_mode,
-                               wlen_bins=wlen_bins,
-                               radtrans_grid=prt_grid,
-                               radtrans_object=prt_object,
-                               wlen=wlen,
-                               flux=flux,
-                               flux_error=flux_error,
-                               mask=mask
-                               )
+        self.data[name] = Data(
+            name=name,
+            path_to_observations=path_to_observations,
+            model_generating_function=model_generating_function,
+            data_resolution=data_resolution,
+            model_resolution=model_resolution,
+            system_distance=system_distance,
+            scale=scale,
+            scale_err=scale_err,
+            offset_bool=offset_bool,
+            photometry=photometry,
+            photometric_transformation_function=photometric_transformation_function,
+            photometric_bin_edges=photometric_bin_edges,
+            wavelength_boundaries=wavelength_boundaries,
+            external_radtrans_reference=external_radtrans_reference,
+            line_opacity_mode=line_opacity_mode,
+            wavelength_bin_widths=wavelength_bin_widths,
+            radtrans_grid=radtrans_grid,
+            radtrans_object=radtrans_object,
+            wavelengths=wavelengths,
+            spectrum=spectrum,
+            uncertainties=uncertainties,
+            mask=mask
+        )
 
     def add_photometry(self, path,
                        model_generating_function,
@@ -602,9 +608,9 @@ class RetrievalConfig:
                     name,
                     path,
                     model_generating_function=model_generating_function,
-                    distance=distance,
+                    system_distance=distance,
                     photometry=True,
-                    wlen_range_micron=wbins,
+                    wavelength_boundaries=wbins,
                     photometric_bin_edges=[wlow, whigh],
                     data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
                     model_resolution=model_resolution,
@@ -613,5 +619,5 @@ class RetrievalConfig:
                     external_radtrans_reference=external_prt_reference,
                     line_opacity_mode=opacity_mode
                 )
-                self.data[name].flux = flux
-                self.data[name].flux_error = err
+                self.data[name].spectrum = flux
+                self.data[name].uncertainties = err

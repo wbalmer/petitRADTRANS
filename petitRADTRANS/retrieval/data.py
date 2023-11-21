@@ -12,74 +12,6 @@ import petitRADTRANS.physical_constants as cst
 
 
 class Data:
-    r"""
-    This class stores the spectral data to be retrieved from a single instrument or observation.
-
-    Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
-    The pRT instance can be overwritten, and associated with an existing pRT instance with the
-    external_pRT_reference parameter.
-    This setup allows for joint or independent retrievals on multiple datasets.
-
-    Args:
-        name : str
-            Identifier for this data set.
-        path_to_observations : str
-            Path to observations file, including filename. This can be a txt or dat file
-            containing the wavelength, flux, transit depth and error, or a fits file
-            containing the wavelength, spectrum and covariance matrix.
-        distance : float
-            The distance to the object in cgs units. Defaults to a 10pc normalized distance.
-        data_resolution : float
-            Spectral resolution of the instrument. Optional, allows convolution of model to
-            instrumental line width.
-        model_resolution : float
-            Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
-            This will generate a new c-k table using exo-k. The default (and maximum)
-            correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
-            Lowering the resolution will speed up the computation.
-            If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
-            will sample the high-resolution opacities at the specified resolution.
-            This may be desired in the case where medium-resolution spectra are
-            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
-            :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-            may make sense to carry out the calculations with lbl_opacity_sampling = 10e5,
-            for example, and then re-binning to the final desired resolution:
-            this may save time! The user should verify whether this leads to
-            solutions which are identical to the re-binned results of the fiducial
-            :math:`10^6` resolution. If not, this parameter must not be used.
-            Note the difference between this parameter and the lbl_opacity_sampling
-            parameter in the RadTrans class - the actual desired resolution should
-            be set here.
-        external_radtrans_reference : object
-            An existing RadTrans object. Leave as none unless you're sure of what you're doing.
-        model_generating_function : method
-            A function, typically defined in run_definition.py that returns the model wavelength and spectrum (emission
-            or transmission).
-            This is the function that contains the physics of the model, and calls pRT in order to compute the spectrum.
-        wlen_range_micron : tuple,list
-            Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data. Must at
-             least be equal to the range of the data.
-        scale : bool
-            Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the retrieval.
-        wlen_bins : numpy.ndarray
-            Set the wavelength bin width to bin the pRT model to the data. Defaults to the data bins.
-        photometry : bool
-            Set to True if using photometric data.
-        photometric_transformation_function : method
-            Transform the photometry (account for filter transmission etc.).
-            This function must take in the wavelength and flux of a spectrum,
-            and output a single photometric point (and optionally flux error).
-        photometric_bin_edges : Tuple, numpy.ndarray
-            The edges of the photometric bin in micron. [low,high]
-        radtrans_grid: bool
-            Set to true if data has been binned to pRT R = 1,000 c-k grid.
-        line_opacity_mode : str
-            Should the retrieval be run using correlated-k opacities (default, 'c-k'),
-            or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
-            recommended to set the model_resolution parameter. In general,
-            'c-k' mode is recommended for retrievals of everything other than
-            high-resolution (R>40000) spectra.
-    """
     resolving_power_str = ".R"
 
     def __init__(self,
@@ -87,51 +19,123 @@ class Data:
                  path_to_observations=None,
                  data_resolution=None,
                  model_resolution=None,
-                 distance=None,
+                 system_distance=None,
                  external_radtrans_reference=None,
                  model_generating_function=None,
-                 wlen_range_micron=None,
+                 wavelength_boundaries=None,
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
-                 wlen_bins=None,
+                 wavelength_bin_widths=None,
                  photometry=False,
                  photometric_transformation_function=None,
                  photometric_bin_edges=None,
                  line_opacity_mode='c-k',
                  radtrans_grid=False,
                  radtrans_object=None,
-                 wlen=None,
-                 flux=None,
-                 flux_error=None,
+                 wavelengths=None,
+                 spectrum=None,
+                 uncertainties=None,
                  mask=None
                  ):
+        r"""
+        This class stores the spectral data to be retrieved from a single instrument or observation.
 
+        Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
+        The pRT instance can be overwritten, and associated with an existing pRT instance with the
+        external_pRT_reference parameter.
+        This setup allows for joint or independent retrievals on multiple datasets.
+        # TODO complete docstring
+        Args:
+            name : str
+                Identifier for this data set.
+            path_to_observations : str
+                Path to observations file, including filename. This can be a txt or dat file
+                containing the wavelength, flux, transit depth and error, or a fits file
+                containing the wavelength, spectrum and covariance matrix.
+            data_resolution : float
+                Spectral resolution of the instrument. Optional, allows convolution of model to
+                instrumental line width.
+            model_resolution : float
+                Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
+                This will generate a new c-k table using exo-k. The default (and maximum)
+                correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
+                Lowering the resolution will speed up the computation.
+                If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
+                will sample the high-resolution opacities at the specified resolution.
+                This may be desired in the case where medium-resolution spectra are
+                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+                may make sense to carry out the calculations with lbl_opacity_sampling = 10e5,
+                for example, and then re-binning to the final desired resolution:
+                this may save time! The user should verify whether this leads to
+                solutions which are identical to the re-binned results of the fiducial
+                :math:`10^6` resolution. If not, this parameter must not be used.
+                Note the difference between this parameter and the lbl_opacity_sampling
+                parameter in the RadTrans class - the actual desired resolution should
+                be set here.
+            system_distance : float
+                The distance to the object in cgs units. Defaults to a 10pc normalized distance.
+            external_radtrans_reference : object
+                An existing RadTrans object. Leave as none unless you're sure of what you're doing.
+            model_generating_function : method
+                A function, typically defined in run_definition.py that returns the model wavelength and spectrum
+                (emission or transmission).
+                This is the function that contains the physics of the model, and calls pRT in order to compute the
+                spectrum.
+            wavelength_boundaries : tuple,list
+                Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
+                Must at
+                 least be equal to the range of the data.
+            scale : bool
+                Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
+                retrieval.
+            wavelength_bin_widths : numpy.ndarray
+                Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
+            photometry : bool
+                Set to True if using photometric data.
+            photometric_transformation_function : method
+                Transform the photometry (account for filter transmission etc.).
+                This function must take in the wavelength and flux of a spectrum,
+                and output a single photometric point (and optionally flux error).
+            photometric_bin_edges : Tuple, numpy.ndarray
+                The edges of the photometric bin in micron. [low,high]
+            radtrans_grid: bool
+                Set to true if data has been binned to pRT R = 1,000 c-k grid.
+            line_opacity_mode : str
+                Should the retrieval be run using correlated-k opacities (default, 'c-k'),
+                or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
+                recommended to set the model_resolution parameter. In general,
+                'c-k' mode is recommended for retrievals of everything other than
+                high-resolution (R>40000) spectra.
+        """
         self.name = name
         self.path_to_observations = path_to_observations
 
         # To be filled later
-        self.pRT_object = radtrans_object
-        self.wlen = wlen  #: The wavelength bin centers
-        self.flux = flux  #: The flux or transit depth
-        self.flux_error = flux_error  #: The error on the flux or transit depth
+        self.radtrans_object = radtrans_object
+        self.wavelengths = wavelengths  #: The wavelength bin centers
+        self.spectrum = spectrum  #: The flux or transit depth
+        self.uncertainties = uncertainties  #: The error on the flux or transit depth
 
         # Add a mask with that will be used in retrievals
         if mask is None:
-            self.mask = np.zeros(np.shape(self.flux), dtype=bool)
+            self.mask = np.zeros(np.shape(self.spectrum), dtype=bool)
         else:
             self.mask = mask
 
         # Sanity check distance
-        self.distance = distance
-        if not distance:
-            self.distance = 10. * cst.pc
-        if self.distance < 1.0 * cst.pc:
-            logging.warning("Your distance is less than 1pc, are you sure you're using cgs units?")
+        self.system_distance = system_distance
+
+        if not system_distance:
+            self.system_distance = 10. * cst.pc
+
+        if self.system_distance < 1.0 * cst.pc:
+            logging.warning("Your system distance is less than 1 pc, are you sure you're using cgs units?")
 
         self.data_resolution = data_resolution
         self.model_resolution = model_resolution
-        self.external_pRT_reference = external_radtrans_reference
+        self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
         self.line_opacity_mode = line_opacity_mode
 
@@ -154,7 +158,6 @@ class Data:
         self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
-        # self.flux_error = None  # TODO why doing this? flux_error is already None by default
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
@@ -163,7 +166,7 @@ class Data:
         self.bval = -np.inf
 
         # Bins and photometry
-        self.wlen_bins = wlen_bins
+        self.wavelength_bin_widths = wavelength_bin_widths
         self.photometry = photometry
         self.photometric_transformation_function = \
             photometric_transformation_function
@@ -177,10 +180,10 @@ class Data:
                 logging.error("You must include the photometric bin size if photometry is True!")
                 sys.exit(9)
 
-        self.photometry_range = wlen_range_micron
+        self.photometry_range = wavelength_boundaries
         self.width_photometry = photometric_bin_edges  # TODO change name, is confusing
 
-        self.pRT_grid = radtrans_grid
+        self.radtrans_grid = radtrans_grid
 
         # Read in data
         if path_to_observations is not None:
@@ -197,29 +200,29 @@ class Data:
                 else:
                     self.loadtxt(path_to_observations)
 
-                if wlen_range_micron is not None:
-                    self.wlen_range_pRT = wlen_range_micron
+                if wavelength_boundaries is not None:
+                    self.wavelength_boundaries = wavelength_boundaries
                 else:
-                    self.wlen_range_pRT = [0.95 * self.wlen[0],
-                                           1.05 * self.wlen[-1]]
+                    self.wavelength_boundaries = [0.95 * self.wavelengths[0],
+                                                  1.05 * self.wavelengths[-1]]
 
-                if self.wlen_bins is None:
-                    if wlen_bins is not None:
-                        self.wlen_bins = wlen_bins
+                if self.wavelength_bin_widths is None:
+                    if wavelength_bin_widths is not None:
+                        self.wavelength_bin_widths = wavelength_bin_widths
                     else:
-                        self.wlen_bins = np.zeros_like(self.wlen)
-                        self.wlen_bins[:-1] = np.diff(self.wlen)
-                        self.wlen_bins[-1] = self.wlen_bins[-2]
+                        self.wavelength_bin_widths = np.zeros_like(self.wavelengths)
+                        self.wavelength_bin_widths[:-1] = np.diff(self.wavelengths)
+                        self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
             else:
-                if wlen_range_micron is not None:
-                    self.wlen_range_pRT = wlen_range_micron
+                if wavelength_boundaries is not None:
+                    self.wavelength_boundaries = wavelength_boundaries
                 else:
-                    self.wlen_range_pRT = [0.95 * self.width_photometry[0],
-                                           1.05 * self.width_photometry[1]]
+                    self.wavelength_boundaries = [0.95 * self.width_photometry[0],
+                                                  1.05 * self.width_photometry[1]]
                 # For binning later
-                self.wlen_bins = self.width_photometry[1] - self.width_photometry[0]
+                self.wavelength_bin_widths = self.width_photometry[1] - self.width_photometry[0]
                 if self.data_resolution is None:
-                    self.data_resolution = np.mean(self.width_photometry) / self.wlen_bins
+                    self.data_resolution = np.mean(self.width_photometry) / self.wavelength_bin_widths
 
     def loadtxt(self, path, delimiter=',', comments='#'):
         """
@@ -249,10 +252,10 @@ class Data:
         if len(obs.shape) < 2:
             obs = np.genfromtxt(path, comments=comments)
         if obs.shape[1] == 4:
-            self.wlen = obs[:, 0]
-            self.wlen_bins = obs[:, 1]
-            self.flux = obs[:, 2]
-            self.flux_error = obs[:, 3]
+            self.wavelengths = obs[:, 0]
+            self.wavelength_bin_widths = obs[:, 1]
+            self.spectrum = obs[:, 2]
+            self.uncertainties = obs[:, 3]
             return
         elif obs.shape[1] != 3:
             obs = np.genfromtxt(path)
@@ -267,9 +270,9 @@ class Data:
                 f"the first three have this meaning: wavelength, [opt, wavelength bins], flux, flux error")
         if np.isnan(obs).any():
             logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
-        self.wlen = obs[:, 0]
-        self.flux = obs[:, 1]
-        self.flux_error = obs[:, 2]
+        self.wavelengths = obs[:, 0]
+        self.spectrum = obs[:, 1]
+        self.uncertainties = obs[:, 2]
 
     def load_jwst(self, path):
         """
@@ -281,13 +284,13 @@ class Data:
                 Directory and filename of the data.
         """
         hdul = fits.open(path)
-        self.wlen = hdul["EXTRACT1D"].data["WAVELENGTH"]
-        self.flux = hdul["EXTRACT1D"].data["FLUX"]
-        self.flux_error = hdul["EXTRACT1D"].data["FLUX_ERROR"]
+        self.wavelengths = hdul["EXTRACT1D"].data["WAVELENGTH"]
+        self.spectrum = hdul["EXTRACT1D"].data["FLUX"]
+        self.uncertainties = hdul["EXTRACT1D"].data["FLUX_ERROR"]
 
         # Convert from Jy to W/m^2/micron
-        self.flux = 1e-26 * 2.99792458e14 * self.flux / self.wlen ** 2
-        self.flux_error = 1e-26 * 2.99792458e14 * self.flux_error / self.wlen ** 2
+        self.spectrum = 1e-26 * 2.99792458e14 * self.spectrum / self.wavelengths ** 2
+        self.uncertainties = 1e-26 * 2.99792458e14 * self.uncertainties / self.wavelengths ** 2
 
     def loadfits(self, path):
         """
@@ -305,8 +308,8 @@ class Data:
         if self.photometry:
             return
 
-        self.wlen = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
-        self.flux = fits.getdata(path, 'SPECTRUM').field("FLUX")
+        self.wavelengths = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
+        self.spectrum = fits.getdata(path, 'SPECTRUM').field("FLUX")
 
         try:
             self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
@@ -316,12 +319,12 @@ class Data:
             # Dot with the correlation matrix (if available) to get
             # the full error.
             try:
-                self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
+                self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
             except Exception:  # TODO find what is the error expected here
-                self.flux_error = np.sqrt(self.covariance.diagonal())
+                self.uncertainties = np.sqrt(self.covariance.diagonal())
         except Exception:  # TODO find what is the error expected here
-            self.flux_error = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            self.covariance = np.diag(self.flux_error ** 2)
+            self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
+            self.covariance = np.diag(self.uncertainties ** 2)
             self.inv_cov = np.linalg.inv(self.covariance)
 
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
@@ -337,13 +340,13 @@ class Data:
                 The distance to the object in cgs units.
         """
 
-        self.distance = distance
-        return self.distance
+        self.system_distance = distance
+        return self.system_distance
 
     def update_bins(self, wlens):
-        self.wlen_bins = np.zeros_like(wlens)
-        self.wlen_bins[:-1] = np.diff(wlens)
-        self.wlen_bins[-1] = self.wlen_bins[-2]
+        self.wavelength_bin_widths = np.zeros_like(wlens)
+        self.wavelength_bin_widths[:-1] = np.diff(wlens)
+        self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
 
     def scale_to_distance(self, new_dist):
         """
@@ -355,20 +358,20 @@ class Data:
                 The distance to the object in cgs units.
         """
 
-        scale = (self.distance / new_dist) ** 2
-        self.flux *= scale
+        scale = (self.system_distance / new_dist) ** 2
+        self.spectrum *= scale
         if self.covariance is not None:
             self.covariance *= scale ** 2
             self.inv_cov = np.linalg.inv(self.covariance)
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
-            self.flux_error = np.sqrt(self.covariance.diagonal())
+            self.uncertainties = np.sqrt(self.covariance.diagonal())
         else:
-            self.flux_error *= scale
-            self.covariance = np.diag(self.flux_error)
+            self.uncertainties *= scale
+            self.covariance = np.diag(self.uncertainties)
             self.inv_cov = np.linalg.inv(self.covariance)
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
-        self.distance = new_dist
+        self.system_distance = new_dist
         return scale
 
     def get_chisq(self, wlen_model,
@@ -392,12 +395,12 @@ class Data:
             logL : float
                 The log likelihood of the model given the data.
         """
+        # TODO merge with SpectralModel: the chi2 calculation function should only calculate the chi2
         # Convolve to data resolution
-
         if not self.photometry:
-            if self.pRT_grid:
-                index = (wlen_model >= self.wlen[0] * 0.99999999) & \
-                        (wlen_model <= self.wlen[-1] * 1.00000001)
+            if self.radtrans_grid:
+                index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
+                        (wlen_model <= self.wavelengths[-1] * 1.00000001)
                 flux_rebinned = spectrum_model[index]
             else:
                 if self.data_resolution is not None:
@@ -406,8 +409,8 @@ class Data:
                                                    self.data_resolution)
 
                 # Rebin to model observation
-                if np.size(wlen_model) == np.size(self.wlen):
-                    if np.all(wlen_model == self.wlen):
+                if np.size(wlen_model) == np.size(self.wavelengths):
+                    if np.all(wlen_model == self.wavelengths):
                         flux_rebinned = copy.deepcopy(spectrum_model)
                         rebin = False
                     else:
@@ -419,8 +422,8 @@ class Data:
                     flux_rebinned = frebin.rebin_spectrum_bin(
                         wlen_model,
                         spectrum_model,
-                        self.wlen,
-                        self.wlen_bins
+                        self.wavelengths,
+                        self.wavelength_bin_widths
                     )
         else:
             flux_rebinned = \
@@ -431,11 +434,11 @@ class Data:
                 flux_rebinned = flux_rebinned[0]
 
         if self.scale:
-            diff = (flux_rebinned - self.flux * parameters[self.name + "_scale_factor"].value) + self.offset
+            diff = (flux_rebinned - self.spectrum * parameters[self.name + "_scale_factor"].value) + self.offset
         else:
-            diff = (flux_rebinned - self.flux) + self.offset
+            diff = (flux_rebinned - self.spectrum) + self.offset
 
-        f_err = self.flux_error
+        f_err = self.uncertainties
         b_val = None
 
         if f"{self.name}_b" in parameters.keys():
@@ -476,9 +479,9 @@ class Data:
 
             if not self.photometry:
                 plt.clf()
-                plt.plot(self.wlen, flux_rebinned)
-                plt.errorbar(self.wlen,
-                             self.flux * self.scale_factor,
+                plt.plot(self.wavelengths, flux_rebinned)
+                plt.errorbar(self.wavelengths,
+                             self.spectrum * self.scale_factor,
                              yerr=f_err,
                              fmt='+')
                 plt.show()
@@ -500,8 +503,8 @@ class Data:
         """
         return self.log_likelihood(
             model=spectrum_model,
-            data=self.flux,
-            uncertainties=self.flux_error,
+            data=self.spectrum,
+            uncertainties=self.uncertainties,
             beta=self.scale_factor
         )
 

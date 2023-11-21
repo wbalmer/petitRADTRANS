@@ -126,9 +126,9 @@ def init_run():
     # Load data
     run_definition_simple.add_data(
         name='test',
-        path=reference_filenames['mock_observation_transmission'],
+        path_to_observations=reference_filenames['mock_observation_transmission'],
         model_generating_function=retrieval_model_spec_iso,
-        opacity_mode='c-k',
+        line_opacity_mode='c-k',
         data_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'],
         model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
     )
@@ -167,7 +167,7 @@ def init_run():
 
 
 # Atmospheric model
-def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=False):
+def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=False):
     """
     This model computes a transmission spectrum based on free retrieval chemistry
     and an isothermal temperature-pressure profile.
@@ -185,7 +185,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, AMR=Fals
                 log_Pcloud : optional, cloud base pressure of a grey cloud deck.
         pt_plot_mode:
             Return only the pressure-temperature profile for plotting. Evaluate mode only. Mandatory.
-        AMR:
+        amr:
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base. Mandatory.
 
     Returns:
