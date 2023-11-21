@@ -63,7 +63,7 @@ class SpectralModel(Radtrans):
         A retrieval object can be initialised with the init_retrieval function.
         The generated Retrieval can be run using the run_retrieval function.
 
-        The model wavelength boundaries can be determined from the output_wavelengths model parameter, taking into
+        The model wavelength boundaries can be determined from the rebinned_wavelengths model parameter, taking into
         account Doppler shift if necessary, using the following model parameters:
             - relative_velocities: (cm.s-1) array of relative velocities between the target and the observer
             - system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
@@ -183,11 +183,11 @@ class SpectralModel(Radtrans):
         # Wavelength boundaries
         if wavelength_boundaries is None:  # calculate the optimal wavelength boundaries
             if self.wavelengths is not None:
-                self.model_parameters['output_wavelengths'] = copy.deepcopy(self.wavelengths)
-            elif 'output_wavelengths' not in self.model_parameters:
+                self.model_parameters['rebinned_wavelengths'] = copy.deepcopy(self.wavelengths)
+            elif 'rebinned_wavelengths' not in self.model_parameters:
                 raise TypeError("missing required argument "
                                 "'wavelength_boundaries', add this argument to manually set the boundaries or "
-                                "add keyword argument 'output_wavelengths' to set the boundaries automatically")
+                                "add keyword argument 'rebinned_wavelengths' to set the boundaries automatically")
 
             wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
 
@@ -482,14 +482,14 @@ class SpectralModel(Radtrans):
         return transit_fractional_light_loss
 
     @staticmethod
-    def _convolve_constant(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None,
+    def _convolve_constant(input_wavelengths, input_spectrum, convolve_resolving_power, input_resolving_power=None,
                            **kwargs):
         """Convolve a spectrum to a new resolving power with a Gaussian filter.
         The original spectrum must have a resolving power very large compared to the target resolving power.
-        The new resolving power is given in that case by:
-            new_resolving_power = input_wavelengths / FWHM_LSF  (FWHM_LSF <=> "Delta_lambda" in Wikipedia)
+        The convolution resolving power is given in that case by:
+            convolve_resolving_power = input_wavelengths / FWHM_LSF  (FWHM_LSF <=> "Delta_lambda" in Wikipedia)
         Therefore, the full width half maximum (FWHM) of the target line spread function (LSF) is given by:
-            FWHM_LSF = input_wavelengths / new_resolving_power
+            FWHM_LSF = input_wavelengths / convolve_resolving_power
         This FWHM is converted in terms of wavelength steps by:
             FWHM_LSF_Delta = FWHM_LSF / Delta_input_wavelengths
         where Delta_input_wavelengths is the difference between the edges of the bin.
@@ -499,7 +499,7 @@ class SpectralModel(Radtrans):
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
-            new_resolving_power: resolving power of output spectrum
+            convolve_resolving_power: resolving power of output spectrum
 
         Returns:
             convolved_spectrum: the convolved spectrum at the new resolving power
@@ -510,7 +510,7 @@ class SpectralModel(Radtrans):
 
         # Calculate the sigma to be used in the Gaussian filter in units of input wavelength bins
         # Conversion from FWHM to Gaussian sigma
-        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (2 * np.sqrt(2 * np.log(2)))
 
         convolved_spectrum = scipy.ndimage.gaussian_filter1d(
             input=input_spectrum,
@@ -521,7 +521,8 @@ class SpectralModel(Radtrans):
         return convolved_spectrum
 
     @staticmethod
-    def _convolve_running(input_wavelengths, input_spectrum, new_resolving_power, input_resolving_power=None, **kwargs):
+    def _convolve_running(input_wavelengths, input_spectrum, convolve_resolving_power, input_resolving_power=None,
+                          **kwargs):
         """Convolve a spectrum to a new resolving power.
         The spectrum is convolved using Gaussian filters with a standard deviation
             std_dev = R_in(lambda) / R_new(lambda) * input_wavelengths_bins.
@@ -543,7 +544,7 @@ class SpectralModel(Radtrans):
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
-            new_resolving_power: resolving power of output spectrum
+            convolve_resolving_power: resolving power of output spectrum
             input_resolving_power: if not None, skip its calculation using input_wavelengths
 
         Returns:
@@ -552,7 +553,7 @@ class SpectralModel(Radtrans):
         if input_resolving_power is None:
             input_resolving_power = SpectralModel.compute_bins_resolving_power(input_wavelengths)
 
-        sigma_lsf_gauss_filter = input_resolving_power / new_resolving_power / (2 * np.sqrt(2 * np.log(2)))
+        sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (2 * np.sqrt(2 * np.log(2)))
         weights = gaussian_weights_running(sigma_lsf_gauss_filter)
 
         input_length = weights.shape[1]
@@ -750,13 +751,13 @@ class SpectralModel(Radtrans):
 
         return self.wavelengths, self.fluxes, additional_outputs
 
-    def calculate_optimal_wavelength_boundaries(self, output_wavelengths=None, relative_velocities=None):
+    def calculate_optimal_wavelength_boundaries(self, rebinned_wavelengths=None, relative_velocities=None):
         """Return the optimal wavelength boundaries for rebin on output wavelengths.
         This minimises the number of wavelengths to load and over which to calculate the spectra.
         Doppler shifting is also taken into account.
 
         The SpectralModel must have in its model_parameters keys:
-            -  'output_wavelengths': (um) the wavelengths to rebin to
+            -  'rebinned_wavelengths': (um) the wavelengths to rebin to
         # TODO complete docstring
 
         The SpectralModel can have in its model_parameters keys:
@@ -767,20 +768,20 @@ class SpectralModel(Radtrans):
             optimal_wavelengths_boundaries: (um) the optimal wavelengths boundaries for the spectrum
         """
         # TODO fix for low-res wavelengths
-        if output_wavelengths is None:
-            output_wavelengths = self.model_parameters['output_wavelengths']
+        if rebinned_wavelengths is None:
+            rebinned_wavelengths = self.model_parameters['rebinned_wavelengths']
 
         if relative_velocities is None and 'relative_velocities' in self.model_parameters:
             relative_velocities = copy.deepcopy(self.model_parameters['relative_velocities'])
 
         # Prevent multiple definitions and give priority to the function argument
-        if 'output_wavelengths' in self.model_parameters:
-            output_wavelengths_tmp = copy.deepcopy(self.model_parameters['output_wavelengths'])
-            del self.model_parameters['output_wavelengths']
-            save_output_wavelengths = True
+        if 'rebinned_wavelengths' in self.model_parameters:
+            rebinned_wavelengths_tmp = copy.deepcopy(self.model_parameters['rebinned_wavelengths'])
+            del self.model_parameters['rebinned_wavelengths']
+            save_rebinned_wavelengths = True
         else:
-            output_wavelengths_tmp = None
-            save_output_wavelengths = False
+            rebinned_wavelengths_tmp = None
+            save_rebinned_wavelengths = False
 
         if 'relative_velocities' in self.model_parameters:
             relative_velocities_tmp = copy.deepcopy(self.model_parameters['relative_velocities'])
@@ -791,14 +792,14 @@ class SpectralModel(Radtrans):
             save_relative_velocities = False
 
         optimal_wavelengths_boundaries = self.compute_optimal_wavelengths_boundaries(
-            output_wavelengths=output_wavelengths,
+            rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=self.shift_wavelengths,
             relative_velocities=relative_velocities,
             **self.model_parameters
         )
 
-        if save_output_wavelengths:
-            self.model_parameters['output_wavelengths'] = output_wavelengths_tmp
+        if save_rebinned_wavelengths:
+            self.model_parameters['rebinned_wavelengths'] = rebinned_wavelengths_tmp
 
         if save_relative_velocities:
             self.model_parameters['relative_velocities'] = relative_velocities_tmp
@@ -1253,16 +1254,16 @@ class SpectralModel(Radtrans):
         return compute_mean_molar_masses(mass_mixing_ratios)
 
     @staticmethod
-    def compute_optimal_wavelengths_boundaries(output_wavelengths, shift_wavelengths_function=None,
+    def compute_optimal_wavelengths_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
                                                relative_velocities=None, rebin_range_margin_power=15, **kwargs):
         # Re-bin requirement is an interval half a bin larger than re-binning interval
-        if hasattr(output_wavelengths, 'dtype'):
-            if output_wavelengths.dtype != 'O':
-                wavelengths_flat = output_wavelengths.flatten()
+        if hasattr(rebinned_wavelengths, 'dtype'):
+            if rebinned_wavelengths.dtype != 'O':
+                wavelengths_flat = rebinned_wavelengths.flatten()
             else:
-                wavelengths_flat = np.concatenate(output_wavelengths)
+                wavelengths_flat = np.concatenate(rebinned_wavelengths)
         else:
-            wavelengths_flat = np.concatenate(output_wavelengths)
+            wavelengths_flat = np.concatenate(rebinned_wavelengths)
 
         if np.ndim(wavelengths_flat) > 1:
             wavelengths_flat = np.concatenate(wavelengths_flat)
@@ -1602,12 +1603,12 @@ class SpectralModel(Radtrans):
         return np.array([velocity_min, velocity_max])
 
     @staticmethod
-    def convolve(input_wavelengths, input_spectrum, new_resolving_power, constance_tolerance=1e-6, **kwargs):
+    def convolve(input_wavelengths, input_spectrum, convolve_resolving_power, constance_tolerance=1e-6, **kwargs):
         """
         Args:
             input_wavelengths: (cm) wavelengths of the input spectrum
             input_spectrum: input spectrum
-            new_resolving_power: resolving power of output spectrum
+            convolve_resolving_power: resolving power of output spectrum
             constance_tolerance: relative tolerance on input resolving power to apply constant or running convolutions
 
         Returns:
@@ -1616,11 +1617,11 @@ class SpectralModel(Radtrans):
         input_resolving_powers = SpectralModel.compute_bins_resolving_power(input_wavelengths)
 
         if np.allclose(input_resolving_powers, np.mean(input_resolving_powers), atol=0.0, rtol=constance_tolerance) \
-                and np.size(new_resolving_power) <= 1:
+                and np.size(convolve_resolving_power) <= 1:
             convolved_spectrum = SpectralModel._convolve_constant(
                 input_wavelengths=input_wavelengths,
                 input_spectrum=input_spectrum,
-                new_resolving_power=new_resolving_power,
+                convolve_resolving_power=convolve_resolving_power,
                 input_resolving_power=input_resolving_powers[0],
                 **kwargs
             )
@@ -1628,7 +1629,7 @@ class SpectralModel(Radtrans):
             convolved_spectrum = SpectralModel._convolve_running(
                 input_wavelengths=input_wavelengths,
                 input_spectrum=input_spectrum,
-                new_resolving_power=new_resolving_power,
+                convolve_resolving_power=convolve_resolving_power,
                 input_resolving_power=input_resolving_powers,
                 **kwargs
             )
@@ -1702,7 +1703,7 @@ class SpectralModel(Radtrans):
             relative_velocities = self.model_parameters['relative_velocities']
 
         wavelengths_range = self.compute_optimal_wavelengths_boundaries(
-            output_wavelengths=self.wavelengths,
+            rebinned_wavelengths=self.wavelengths,
             shift_wavelengths_function=self.shift_wavelengths,
             relative_velocities=-relative_velocities,
             **kwargs
@@ -1746,8 +1747,7 @@ class SpectralModel(Radtrans):
             amr=amr,
             scattering=scattering,  # scattering is automatically included for transmission spectra
             distribution=distribution,
-            pressures=pressures,
-            write_out_spec_sample=write_out_spec_sample  # TODO unused parameter?
+            pressures=pressures
         )
 
         # Retrieved parameters
@@ -1790,14 +1790,13 @@ class SpectralModel(Radtrans):
             data_mask = fill_object(copy.deepcopy(data), False)
 
         # Set model generating function
-        def model_generating_function(prt_object, parameters, pt_plot_mode=None, AMR=False):
-            # TODO AMR in lowercase
+        def model_generating_function(prt_object, parameters, pt_plot_mode=None, amr=False):
             # A special function is needed due to the specificity of the Retrieval object
             return self.retrieval_model_generating_function(
                 prt_object=prt_object,
                 parameters=parameters,
                 pt_plot_mode=pt_plot_mode,
-                AMR=AMR,
+                amr=amr,
                 mode=mode,
                 update_parameters=update_parameters,
                 telluric_transmittances=telluric_transmittances,
@@ -1814,12 +1813,12 @@ class SpectralModel(Radtrans):
         # Set Data object
         retrieval_configuration.add_data(
             name=dataset_name,
-            path=None,
+            path_to_observations=None,
             model_generating_function=model_generating_function,
-            prt_object=self,
-            wlen=data_wavelengths,
-            flux=data,
-            flux_error=data_uncertainties,
+            radtrans_object=self,
+            wavelengths=data_wavelengths,
+            spectrum=data,
+            uncertainties=data_uncertainties,
             mask=data_mask
         )
 
@@ -1878,9 +1877,9 @@ class SpectralModel(Radtrans):
                         scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                         telluric_transmittances_wavelengths=None, telluric_transmittances=None, airmass=None,
                         instrumental_deformations=None, noise_matrix=None,
-                        output_wavelengths=None, relative_velocities=None, radial_velocities=None,
+                        rebinned_wavelengths=None, relative_velocities=None, radial_velocities=None,
                         planet_radius=None,
-                        star_spectrum_wavelengths=None, star_flux=None, star_observed_spectrum=None,
+                        star_spectrum_wavelengths=None, star_flux=None,
                         is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None,
                         transit_fractional_light_loss_function=None, convolve_function=None,
@@ -1904,11 +1903,11 @@ class SpectralModel(Radtrans):
         if rebin_spectrum_function is None:
             rebin_spectrum_function = SpectralModel.rebin_spectrum
 
-        if output_wavelengths is not None:
-            if np.ndim(output_wavelengths) <= 1:
-                output_wavelengths = np.array([output_wavelengths])
+        if rebinned_wavelengths is not None:
+            if np.ndim(rebinned_wavelengths) <= 1:
+                rebinned_wavelengths = np.array([rebinned_wavelengths])
 
-            output_wavelengths *= 1e-4  # um to cm
+            rebinned_wavelengths *= 1e-4  # um to cm
 
         if star_flux is not None and star_spectrum_wavelengths is not None:
             star_flux = flux_hz2flux_cm(
@@ -1919,7 +1918,7 @@ class SpectralModel(Radtrans):
         star_spectrum = star_flux
 
         if rebin and telluric_transmittances is not None:  # TODO test if it works
-            wavelengths_0 = copy.deepcopy(output_wavelengths)
+            wavelengths_0 = copy.deepcopy(rebinned_wavelengths)
         elif telluric_transmittances is not None:
             wavelengths_0 = copy.deepcopy(wavelengths)
         else:
@@ -1940,7 +1939,7 @@ class SpectralModel(Radtrans):
                 _, star_spectrum[i] = SpectralModel._rebin_wrap(
                     wavelengths=star_spectrum_wavelengths,
                     spectrum=star_flux,
-                    output_wavelengths=wavelength_shift,
+                    rebinned_wavelengths=wavelength_shift,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
@@ -2025,7 +2024,7 @@ class SpectralModel(Radtrans):
                 current_resolving_power = np.mean(wavelengths[:, :-1] / np.diff(wavelengths) + 0.5)
 
                 # Get the intermediate wavelength grid at the same resolving power than the current shifted grids
-                wavelengths_rebin = SpectralModel.resolving_space(
+                rebinned_wavelengths = SpectralModel.resolving_space(
                     start=np.max(np.min(wavelengths[:, 1:], axis=-1)),
                     stop=np.min(np.max(wavelengths[:, :-1], axis=-1)),
                     resolving_power=current_resolving_power
@@ -2034,12 +2033,12 @@ class SpectralModel(Radtrans):
                 _, spectrum = SpectralModel._rebin_wrap(  # TODO rebin wrap should not be hidden
                     wavelengths=wavelengths,
                     spectrum=spectrum,
-                    output_wavelengths=wavelengths_rebin,
+                    rebinned_wavelengths=rebinned_wavelengths,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
 
-                wavelengths = np.tile(wavelengths_rebin, (spectrum.shape[0], 1))
+                wavelengths = np.tile(rebinned_wavelengths, (spectrum.shape[0], 1))
 
             # Initialize arrays
             telluric_transmittances_rebin = np.zeros(spectrum.shape)
@@ -2048,17 +2047,17 @@ class SpectralModel(Radtrans):
                 telluric_transmittances_wavelengths = wavelengths_0
 
             if np.ndim(wavelengths) == 1:
-                wavelengths_rebin = np.array([wavelengths])
+                rebinned_wavelengths = np.array([wavelengths])
             else:
-                wavelengths_rebin = wavelengths
+                rebinned_wavelengths = wavelengths
 
             # Get a telluric transmittance for each exposure
             if np.ndim(telluric_transmittances) == 1:
-                for i, wavelength_shift in enumerate(wavelengths_rebin):
+                for i, wavelength_shift in enumerate(rebinned_wavelengths):
                     _, telluric_transmittances_rebin[i] = SpectralModel._rebin_wrap(
                         wavelengths=telluric_transmittances_wavelengths,
                         spectrum=telluric_transmittances,
-                        output_wavelengths=wavelength_shift,
+                        rebinned_wavelengths=wavelength_shift,
                         rebin_spectrum_function=rebin_spectrum_function,
                         **kwargs
                     )
@@ -2073,11 +2072,11 @@ class SpectralModel(Radtrans):
                 warnings.warn("using 2D telluric transmittances is not recommended for precise modelling, "
                               "consider using 1D telluric transmittances and providing for airmass at each exposure")
 
-                for i, wavelength_shift in enumerate(wavelengths_rebin):
+                for i, wavelength_shift in enumerate(rebinned_wavelengths):
                     _, telluric_transmittances_rebin[i] = SpectralModel._rebin_wrap(
                         wavelengths=telluric_transmittances_wavelengths[i],
                         spectrum=telluric_transmittances[i],
-                        output_wavelengths=wavelength_shift,
+                        rebinned_wavelengths=wavelength_shift,
                         rebin_spectrum_function=rebin_spectrum_function,
                         **kwargs
                     )
@@ -2101,7 +2100,7 @@ class SpectralModel(Radtrans):
             wavelengths, spectrum = SpectralModel._rebin_wrap(
                 wavelengths=wavelengths,
                 spectrum=spectrum,
-                output_wavelengths=output_wavelengths,
+                rebinned_wavelengths=rebinned_wavelengths,
                 rebin_spectrum_function=rebin_spectrum_function,
                 **kwargs
             )
@@ -2176,21 +2175,21 @@ class SpectralModel(Radtrans):
         return np.array(space)
 
     @staticmethod
-    def rebin_spectrum(input_wavelengths, input_spectrum, output_wavelengths, **kwargs):
-        if np.ndim(output_wavelengths) <= 1 and isinstance(output_wavelengths, np.ndarray):
+    def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
+        if np.ndim(rebinned_wavelengths) <= 1 and isinstance(rebinned_wavelengths, np.ndarray):
             rebinned_spectrum = rebin_spectrum(
                 input_wavelengths=input_wavelengths,
                 input_spectrum=input_spectrum,
-                rebinned_wavelengths=output_wavelengths
+                rebinned_wavelengths=rebinned_wavelengths
             )
 
-            return output_wavelengths, rebinned_spectrum
+            return rebinned_wavelengths, rebinned_spectrum
         else:
-            if np.ndim(output_wavelengths) == 2 and isinstance(output_wavelengths, np.ndarray):
+            if np.ndim(rebinned_wavelengths) == 2 and isinstance(rebinned_wavelengths, np.ndarray):
                 spectra = []
                 lengths = []
 
-                for wavelengths in output_wavelengths:
+                for wavelengths in rebinned_wavelengths:
                     rebinned_spectrum = rebin_spectrum(
                         input_wavelengths=input_wavelengths,
                         input_spectrum=input_spectrum,
@@ -2205,10 +2204,10 @@ class SpectralModel(Radtrans):
                 else:
                     spectra = np.array(spectra, dtype=object)
 
-                return output_wavelengths, spectra
+                return rebinned_wavelengths, spectra
             else:
-                raise ValueError(f"parameter 'output_wavelengths' must have at most 2 dimensions, "
-                                 f"but has {np.ndim(output_wavelengths)}")
+                raise ValueError(f"parameter 'rebinned_wavelengths' must have at most 2 dimensions, "
+                                 f"but has {np.ndim(rebinned_wavelengths)}")
 
     @staticmethod
     def remove_mask(data, data_uncertainties):
@@ -2220,7 +2219,7 @@ class SpectralModel(Radtrans):
         )
 
     @staticmethod
-    def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, AMR=False,
+    def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, amr=False,
                                             mode='emission', update_parameters=False,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
@@ -2454,7 +2453,7 @@ class SpectralModel(Radtrans):
             orbital_period: float = None,
             star_mass: float = None,
             orbit_semi_major_axis: float = None,
-            output_wavelengths: np.ndarray[float] = None,
+            rebinned_wavelengths: np.ndarray[float] = None,
             orbital_inclination: float = 90.0,
             mid_transit_time: float = None,
             radial_velocity_semi_amplitude: float = None,
@@ -2539,7 +2538,7 @@ class SpectralModel(Radtrans):
 
         # Get the wavelengths boundaries from the velocity range
         wavelengths_boundaries = SpectralModel.compute_optimal_wavelengths_boundaries(
-            output_wavelengths=output_wavelengths,
+            rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=shift_wavelengths_function,
             relative_velocities=retrieval_velocities,
             **model_parameters
@@ -2579,7 +2578,7 @@ class SpectralModel(Radtrans):
             mid_transit_time=mid_transit_time,
             radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
             rest_frame_velocity_shift=rest_frame_velocity_shift,
-            output_wavelengths=output_wavelengths,
+            rebinned_wavelengths=rebinned_wavelengths,
             **model_parameters
         )
 
