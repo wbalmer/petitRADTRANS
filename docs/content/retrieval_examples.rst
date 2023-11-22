@@ -13,6 +13,3 @@ retrievals. **Please use the** `petitRADTRANS Retrieval Tutorial <notebooks/basi
    notebooks/retrieval_multiple_data
    notebooks/emission_retrieval
    notebooks/retrieval_models
-   ret_transmission
-   ret_emission
-   ret_analysis      
