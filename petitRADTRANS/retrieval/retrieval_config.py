@@ -7,6 +7,16 @@ import numpy as np
 from .data import Data
 from .parameter import Parameter
 
+# MPI Multiprocessing
+RANK = 0
+COMM = None
+try:
+    from mpi4py import MPI
+    COMM = MPI.COMM_WORLD
+    RANK = COMM.Get_rank()
+except ImportError:
+    logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
+
 #import species
 #species.SpeciesInit()
 
@@ -558,6 +568,7 @@ class RetrievalConfig:
             if photometric_transformation_function is None:
                 try:
                     import species as sp
+                    from species.phot.syn_phot import SyntheticPhotometry
                     sp.SpeciesInit()
                 except ModuleNotFoundError:  # TODO find what error is expected here
                     logging.error(
@@ -576,8 +587,16 @@ class RetrievalConfig:
                 flux = float(vals[3])
                 err = float(vals[4])
 
+                transform = None
                 if photometric_transformation_function is None:
-                    transform = sp.SyntheticPhotometry(name).spectrum_to_flux
+                    if COMM is not None and COMM.Get_size()>1:
+                        if RANK == 0:
+                            transform = SyntheticPhotometry(name).spectrum_to_flux
+                        else:
+                            transform = None  # transform still needs to exist in the other processes
+                        transform = COMM.bcast(transform, 0)
+                    else:
+                        transform = SyntheticPhotometry(name).spectrum_to_flux                        
                 else:
                     transform = photometric_transformation_function
 

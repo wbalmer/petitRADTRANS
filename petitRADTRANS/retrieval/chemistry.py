@@ -97,16 +97,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
             abundances_interp['H2'] = 10**parameters['H2'].value * np.ones_like(pressures)
-            msum += 10**parameters['H2'].value
         else:
             abundances_interp['H2'] = 0.766 * (1.0-msum) * np.ones_like(pressures)
-            msum += abundances_interp['H2'][0]
         if 'He' in  parameters.keys():
             abundances_interp['He'] = 10**parameters['He'].value * np.ones_like(pressures)
-            msum += 10**parameters['He'].value
         else:
             abundances_interp['He'] = 0.234 * (1.0-msum) * np.ones_like(pressures)
-            msum += abundances_interp['He'][0]
 
         # Imposing strict limit on msum to ensure H2 dominated composition
         if msum > 1.0:
@@ -122,9 +118,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         cname = cloud.split("_")[0]
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
-            abundances[cname] = abundances_interp[cname]
+            clouds[cname] = abundances_interp[cname]
             continue
-
         if "eq_scaling_"+cname in parameters.keys():
             # equilibrium cloud abundance
             Xcloud= fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
@@ -151,7 +146,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             Pbases[cname] = fc.simple_cdf_free(cname,
                                             pressures,
                                             temperatures,
-                                            10**parameters['log_X_cb_'+cname].value,
+                                            clouds[cname],
                                             MMW[0])
     # Find high resolution pressure grid and indices
     if AMR:

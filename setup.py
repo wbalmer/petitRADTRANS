@@ -75,7 +75,7 @@ def setup_function():
 
     setup(
         name='petitRADTRANS',
-        version='2.7.0',
+        version='2.7.4',
         description='Exoplanet spectral synthesis tool for retrievals',
         long_description=open(os.path.join(
           os.path.dirname(__file__), 'README.rst')).read(),
