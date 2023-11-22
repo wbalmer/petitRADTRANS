@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a98] - 2023-11-20
+## [3.0.0-a99] - 2023-11-22
 ### Added
 - Automatic download of missing input_data files.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
 - Function `Radtrans.calculate_transit_radii` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
+- The combination of correlated-k opacities are now using the faster merge sorting algorithm.
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
 - Object `SpectralModel` is now imported using `from petitRADTRANS.spectral_model import SpectralModel`.
