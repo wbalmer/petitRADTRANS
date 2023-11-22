@@ -104,7 +104,234 @@ module math
         
                 end subroutine find_interpolate_indices_
         end subroutine  linear_interpolate
-    
+
+
+        subroutine merge_sort(input_array, arr_len, sorted_indices)
+            ! """
+            ! Merge-sort ranking of an array
+            ! For performance reasons, the first 2 passes are taken
+            ! out of the standard loop, and use dedicated coding.
+            ! MRGRNK for opacity sorting. Taken from ORDERPACK2.0, http://www.fortran-2000.com/rank/
+            ! by Michel Olagnon, and adapted to petitRADTRANS
+            ! Thanks to Nick Wogan for uncovering this as the fastest option.
+            ! See his discussion here:
+            ! https://fortran-lang.discourse.group/t/fastest-sorting-for-a-specific-genre-of-unordered-numbers/3217
+            ! """
+            integer, intent (in) :: arr_len
+            double precision, intent (in) :: input_array(arr_len)
+            integer, intent (out) :: sorted_indices(arr_len)
+            
+            integer :: length_a, length_c, id_tmp_1, id_tmp_2
+            integer :: n_indices, i, i0, i1, i1_a, i0_a, i_b
+            integer, dimension(size(sorted_indices)) :: sorted_indices_tmp
+            double precision :: value_a, value_b
+
+            n_indices = min(size(input_array), size(sorted_indices))
+            
+            select case (n_indices)
+                case (:0)
+                    return
+                case (1)
+                    sorted_indices(1) = 1
+                    return
+                case default
+                    continue
+            end select
+            
+            ! Fill-in the index array, creating ordered couples
+            do i = 2, n_indices, 2
+                if (input_array(i - 1) <= input_array(i)) then
+                    sorted_indices(i - 1) = i - 1
+                    sorted_indices(i) = i
+                else
+                    sorted_indices(i - 1) = i
+                    sorted_indices(i) = i - 1
+                end if
+            end do
+            
+            if (modulo(n_indices, 2) /= 0) then
+                sorted_indices(n_indices) = n_indices
+            end if
+            
+            ! We will now have ordered subsets A - B - A - B - ...
+            ! and merge A and B couples into     C   -   C   - ...
+            length_a = 2
+            length_c = 4
+
+            ! First iteration. The length of the ordered subsets goes from 2 to 4
+            do
+                if (n_indices <= 2) then
+                    exit
+                end if
+            
+                !   Loop on merges of A and B into C
+                do i = 0, n_indices - 1, 4
+                    if ((i+4) > n_indices) then
+                        if ((i+2) >= n_indices) then
+                            exit
+                        end if
+
+                        ! 1 2 3
+                        if (input_array(sorted_indices(i+2)) <= input_array(sorted_indices(i+3))) then
+                            exit
+                        end if
+                        
+                        if (input_array(sorted_indices(i+1)) <= input_array(sorted_indices(i+3))) then
+                            ! 1 3 2
+                            id_tmp_2 = sorted_indices(i+2)
+                            sorted_indices(i+2) = sorted_indices(i+3)
+                            sorted_indices(i+3) = id_tmp_2
+                        else
+                            ! 3 1 2
+                            id_tmp_1 = sorted_indices(i+1)
+                            sorted_indices(i+1) = sorted_indices(i+3)
+                            sorted_indices(i+3) = sorted_indices(i+2)
+                            sorted_indices(i+2) = id_tmp_1
+                        end if
+                        
+                        exit
+                    end if
+                    
+                    ! 1 2 3 4
+                    if (input_array(sorted_indices(i+2)) <= input_array(sorted_indices(i+3))) then
+                        cycle
+                    end if
+
+                    ! 1 3 x x
+                    if (input_array(sorted_indices(i+1)) <= input_array(sorted_indices(i+3))) then
+                        id_tmp_2 = sorted_indices(i+2)
+                        sorted_indices(i+2) = sorted_indices(i+3)
+                        
+                        if (input_array(id_tmp_2) <= input_array(sorted_indices(i+4))) then
+                            ! 1 3 2 4
+                            sorted_indices(i+3) = id_tmp_2
+                        else
+                            ! 1 3 4 2
+                            sorted_indices(i+3) = sorted_indices(i+4)
+                            sorted_indices(i+4) = id_tmp_2
+                        end if
+                    else
+                        ! 3 x x x
+                        id_tmp_1 = sorted_indices(i+1)
+                        id_tmp_2 = sorted_indices(i+2)
+                        sorted_indices(i+1) = sorted_indices(i+3)
+                        
+                        if (input_array(id_tmp_1) <= input_array(sorted_indices(i+4))) then
+                            sorted_indices(i+2) = id_tmp_1
+                            if (input_array(id_tmp_2) <= input_array(sorted_indices(i+4))) then
+                                ! 3 1 2 4
+                                sorted_indices(i+3) = id_tmp_2
+                            else
+                                ! 3 1 4 2
+                                sorted_indices(i+3) = sorted_indices(i+4)
+                                sorted_indices(i+4) = id_tmp_2
+                            end if
+                        else
+                            ! 3 4 1 2
+                            sorted_indices(i+2) = sorted_indices(i+4)
+                            sorted_indices(i+3) = id_tmp_1
+                            sorted_indices(i+4) = id_tmp_2
+                        end if
+                    end if
+                end do
+
+                ! The Cs become As and Bs
+                length_a = 4
+                exit
+            end do
+
+            ! Iteration loop
+            ! Each time, the length of the ordered subsets is doubled
+            do
+                if (length_a >= n_indices) then
+                    exit
+                end if
+                
+                i1 = 0
+                length_c = 2 * length_c
+
+                ! Loop on merges of A and B into C
+                do
+                    i0 = i1
+                    i = i1 + 1
+                    i1_a = i1 + length_a
+                    i1 = i1 + length_c
+                    
+                    if (i1 >= n_indices) then
+                        if (i1_a >= n_indices) then
+                            exit
+                        end if
+                        
+                        i1 = n_indices
+                    end if
+                    
+                    i0_a = 1
+                    i_b = i1_a + 1
+
+                    ! Shortcut for the case when the max of A is smaller than the min of B
+                    ! This line may be activated when the initial set is already close to sorted
+                    if (input_array(sorted_indices(i1_a)) <= input_array(sorted_indices(i_b))) then
+                        cycle
+                    end if
+
+                    ! One steps in the C subset, that we build in the final rank array
+
+                    ! Make a copy of the rank array for the merge iteration
+                    sorted_indices_tmp(1:length_a) = sorted_indices(i:i1_a)
+
+                    value_a = input_array(sorted_indices_tmp(i0_a))
+                    value_b = input_array(sorted_indices(i_b))
+
+                    do
+                        i0 = i0 + 1
+
+                        ! We still have unprocessed values in both A and B
+                        if (value_a > value_b) then
+                            sorted_indices(i0) = sorted_indices(i_b)
+                            i_b = i_b + 1
+
+                            if (i_b > i1) then
+                                ! Only A still with unprocessed values
+                                sorted_indices(i0+1:i1) = sorted_indices_tmp(i0_a:length_a)
+                                exit
+                            end if
+                            
+                            value_b = input_array (sorted_indices(i_b))
+                        else
+                            sorted_indices(i0) = sorted_indices_tmp(i0_a)
+                            i0_a = i0_a + 1
+                            
+                            if (i0_a > length_a) then
+                                ! Only B still with unprocessed values
+                                exit
+                            end if
+                            
+                            value_a = input_array (sorted_indices_tmp(i0_a))
+                        end if
+
+                    end do
+                end do
+
+                ! The Cs become As and Bs
+                length_a = 2 * length_a
+            end do
+
+            return
+        end subroutine merge_sort
+
+        
+        subroutine merge_sort_wrapper(length, array)
+            implicit none
+            integer, intent(in) :: length
+            double precision, intent(inout) :: array(length, 2)
+
+            integer :: inds(length)
+
+            call merge_sort(array(:, 1), length, inds)
+            array(:,1) = array(inds,1)
+            array(:,2) = array(inds,2)
+        end subroutine merge_sort_wrapper
+        
         
         subroutine quicksort_swap_wrapper(length, array)
           implicit none
@@ -117,10 +344,9 @@ module math
           call quicksort_2d_swapped(length, swapped_array)
           array(:,1) = swapped_array(1,:)
           array(:,2) = swapped_array(2,:)
-
         end subroutine quicksort_swap_wrapper
 
-
+        
         recursive subroutine quicksort_2d_swapped(length, array)
             implicit none
             integer, intent(in) :: length
@@ -537,7 +763,7 @@ module fortran_radtrans_core
                                         n_g, n_frequencies, n_species, n_layers, opacities_out)
             ! """Subroutine to completely mix the c-k opacities.
             ! """
-            use math, only: linear_interpolate, quicksort_swap_wrapper
+            use math, only: linear_interpolate, merge_sort_wrapper
 
             implicit none
 
@@ -611,7 +837,7 @@ module fortran_radtrans_core
                             sampled_opa_weights(:, 1) = k_out(1:n_sample)
                             sampled_opa_weights(:, 2) = g_presort(1:n_sample)
 
-                            call quicksort_swap_wrapper(n_sample, sampled_opa_weights)
+                            call merge_sort_wrapper(n_sample, sampled_opa_weights)
 
                             sampled_opa_weights(:, 2) = sampled_opa_weights(:, 2) / sum(sampled_opa_weights(:, 2))
 
