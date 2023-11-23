@@ -1507,7 +1507,7 @@ class Radtrans:
     def _compute_optical_depths(pressures, reference_gravity, opacities, continuum_opacities_scattering,
                                 line_opacity_mode, scattering_in_emission,
                                 hack_cloud_photospheric_optical_depths, absorber_present, **custom_cloud_parameters):
-        optical_depths = copy.deepcopy(opacities)
+        optical_depths = np.zeros(opacities.shape, dtype='d', order='F')
         photon_destruction_probabilities = None
         relative_cloud_scaling_factor = None
 
