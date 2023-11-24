@@ -738,12 +738,12 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     # Load .dat files
     print("Loading dat files...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-        cloud_path, path_input_files, path_reference_files,
-        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-        len(doi_dict), n_cloud_wavelength_bins
-    )
+            cloud_path, path_input_files, path_reference_files,
+            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+            len(doi_dict), n_cloud_wavelength_bins
+        )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -931,7 +931,6 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
                                    external_species_contributor=None,
                                    external_species_description=None,
                                    external_species_molmass=None):
-
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
 
@@ -941,7 +940,7 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     burrows2003_doi = '10.1086/345412'
     mckemmish2019_doi = '10.1093/mnras/stz1818'
     hitemp_doi = '10.1016/j.jqsrt.2010.05.001'
-    VALD_website = 'http://vald.astro.uu.se/'
+    vald_website = 'http://vald.astro.uu.se/'
     hitran_doi = '10.1016/j.jqsrt.2013.07.002'
 
     exomolop_description = '10.1051/0004-6361/202038350'
@@ -998,7 +997,7 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'HCN': None,
         'K_allard': molliere2019_doi,
         'K_burrows': burrows2003_doi,
-        'K_lor_cut': VALD_website,
+        'K_lor_cut': vald_website,
         'Li': kurucz_website,
         'Mg': kurucz_website,
         'Mg+': kurucz_website,
@@ -1006,7 +1005,7 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'MgO': None,
         'Na_allard': '10.1051/0004-6361/201935593',
         'Na_burrows': burrows2003_doi,
-        'Na_lor_cut': VALD_website,
+        'Na_lor_cut': vald_website,
         'NaH': None,
         'NH3': None,
         'O': kurucz_website,
@@ -2820,12 +2819,12 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
     # Load .dat files
     print("Loading dat file...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-        cloud_path, path_input_files, path_reference_files,
-        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-        1, n_cloud_wavelength_bins
-    )
+            cloud_path, path_input_files, path_reference_files,
+            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+            1, n_cloud_wavelength_bins
+        )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
