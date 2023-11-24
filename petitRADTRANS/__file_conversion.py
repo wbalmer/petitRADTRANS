@@ -574,10 +574,10 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
         'KCL(c)_cm': get_species_molar_mass('H2O'),
         'KCL(c)_cd': get_species_molar_mass('H2O'),
         'Mg05Fe05SiO3(c)_am': (
-            0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
+                0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
         ),
         'Mg05Fe05SiO3(c)_ad': (
-            0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
+                0.5 * get_species_molar_mass('Mg') + 0.5 * get_species_molar_mass('Fe') + get_species_molar_mass('SiO3')
         ),
         'Mg2SiO4(c)_am': get_species_molar_mass('Mg2SiO4'),
         'Mg2SiO4(c)_ad': get_species_molar_mass('Mg2SiO4'),
@@ -738,12 +738,12 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     # Load .dat files
     print("Loading dat files...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-            cloud_path, path_input_files, path_reference_files,
-            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-            len(doi_dict), n_cloud_wavelength_bins
-        )
+        cloud_path, path_input_files, path_reference_files,
+        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+        len(doi_dict), n_cloud_wavelength_bins
+    )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -923,7 +923,15 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
 
 
 def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                   rewrite=False, old_paths=False, clean=False):
+                                   rewrite=False, old_paths=False, clean=False,
+                                   external_single_species=False,
+                                   path_to_external_species_opacity_folder=None,
+                                   external_species_longname=None,
+                                   external_species_doi=None,
+                                   external_species_contributor=None,
+                                   external_species_description=None,
+                                   external_species_molmass=None):
+
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
     import petitRADTRANS.physical_constants as cst
 
@@ -932,17 +940,30 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     molliere2019_doi = '10.1051/0004-6361/201935470'
     burrows2003_doi = '10.1086/345412'
     mckemmish2019_doi = '10.1093/mnras/stz1818'
+    hitemp_doi = '10.1016/j.jqsrt.2010.05.001'
+    VALD_website = 'http://vald.astro.uu.se/'
+    hitran_doi = '10.1016/j.jqsrt.2013.07.002'
+
+    exomolop_description = '10.1051/0004-6361/202038350'
 
     molaverdikhani_email = 'karan.molaverdikhani@colorado.edu'
 
     kurucz_description = 'gamma_nat + V dW, sigma_therm'
-    k_chubb_email = 'klc20@st-andrews.ac.uk'
+    exomolop_link = 'https://www.exomol.com/data/data-types/opacity/'
 
-    names = _get_prt2_correlated_k_names()
+    if not external_single_species:
+        names = _get_prt2_correlated_k_names()
 
-    for key, value in names.items():
-        if value is None:
-            names[key] = _get_base_correlated_k_names()[key]
+        for key, value in names.items():
+            if value is None:
+                names[key] = _get_base_correlated_k_names()[key]
+    else:
+        try:
+            spec = path_to_external_species_opacity_folder.rsplit(os.path.sep, 1)[1]
+        except IndexError:  # Case where one gives the external target folder path locally (so not absolute path).
+            spec = path_to_external_species_opacity_folder
+        spec = spec.rsplit('_def', 1)[0]
+        names = {spec: external_species_longname}
 
     # None is used for already referenced HDF5 files
     doi_dict = _get_prt2_correlated_k_names()
@@ -961,37 +982,37 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Ca+': kurucz_website,
         'CaH': None,
         'CH4': None,
-        'CO_12_HITEMP': molliere2019_doi,
-        'CO_13_HITEMP': molliere2019_doi,
+        'CO_12_HITEMP': hitemp_doi,
+        'CO_13_HITEMP': hitemp_doi,
         'CO_13_Chubb': None,
         'CO_all_iso_Chubb': None,
-        'CO_all_iso_HITEMP': molliere2019_doi,
+        'CO_all_iso_HITEMP': hitemp_doi,
         'CO2': None,
         'CrH': None,
         'Fe': kurucz_website,
         'Fe+': kurucz_website,
         'FeH': None,
         'H2O_Exomol': None,
-        'H2O_HITEMP': molliere2019_doi,
+        'H2O_HITEMP': hitemp_doi,
         'H2S': None,
         'HCN': None,
         'K_allard': molliere2019_doi,
         'K_burrows': burrows2003_doi,
-        'K_lor_cut': molliere2019_doi,
+        'K_lor_cut': VALD_website,
         'Li': kurucz_website,
         'Mg': kurucz_website,
         'Mg+': kurucz_website,
         'MgH': None,
         'MgO': None,
-        'Na_allard': molliere2019_doi,
+        'Na_allard': '10.1051/0004-6361/201935593',
         'Na_burrows': burrows2003_doi,
-        'Na_lor_cut': molliere2019_doi,
+        'Na_lor_cut': VALD_website,
         'NaH': None,
         'NH3': None,
         'O': kurucz_website,
         'O+': kurucz_website,  # TODO not in the docs
         'O2': None,
-        'O3': molliere2019_doi,
+        'O3': hitran_doi,
         'OH': None,
         'PH3': None,
         'SH': None,
@@ -1011,124 +1032,124 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'VO_Plez': molliere2019_doi
     })
     contributor_dict.update({
-        'Al': kurucz_description,
-        'Al+': kurucz_description,
-        'AlH': k_chubb_email,
-        'AlO': k_chubb_email,
-        'C2H2': k_chubb_email,
-        'C2H4': k_chubb_email,
+        'Al': molaverdikhani_email,
+        'Al+': molaverdikhani_email,
+        'AlH': exomolop_link,
+        'AlO': exomolop_link,
+        'C2H2': exomolop_link,
+        'C2H4': exomolop_link,
         'Ca': molaverdikhani_email,
         'Ca+': molaverdikhani_email,
-        'CaH': k_chubb_email,
-        'CH4': k_chubb_email,
+        'CaH': exomolop_link,
+        'CH4': exomolop_link,
         'CO_12_HITEMP': 'None',
         'CO_13_HITEMP': 'None',
-        'CO_13_Chubb': k_chubb_email,
-        'CO_all_iso_Chubb': k_chubb_email,
+        'CO_13_Chubb': exomolop_link,
+        'CO_all_iso_Chubb': exomolop_link,
         'CO_all_iso_HITEMP': 'None',
-        'CO2': k_chubb_email,
-        'CrH': k_chubb_email,
+        'CO2': exomolop_link,
+        'CrH': exomolop_link,
         'Fe': molaverdikhani_email,
         'Fe+': molaverdikhani_email,
-        'FeH': k_chubb_email,
-        'H2O_Exomol': k_chubb_email,
+        'FeH': exomolop_link,
+        'H2O_Exomol': exomolop_link,
         'H2O_HITEMP': 'None',
-        'H2S': k_chubb_email,
-        'HCN': k_chubb_email,
+        'H2S': exomolop_link,
+        'HCN': exomolop_link,
         'K_allard': 'None',
         'K_burrows': 'None',
         'K_lor_cut': 'None',
         'Li': molaverdikhani_email,
         'Mg': molaverdikhani_email,
         'Mg+': molaverdikhani_email,
-        'MgH': k_chubb_email,
-        'MgO': k_chubb_email,
+        'MgH': exomolop_link,
+        'MgO': exomolop_link,
         'Na_allard': 'None',
         'Na_burrows': 'None',
         'Na_lor_cut': 'None',
-        'NaH': k_chubb_email,
-        'NH3': k_chubb_email,
+        'NaH': exomolop_link,
+        'NH3': exomolop_link,
         'O': molaverdikhani_email,
         'O+': molaverdikhani_email,  # TODO not in the docs
-        'O2': k_chubb_email,
+        'O2': exomolop_link,
         'O3': 'None',
-        'OH': k_chubb_email,
-        'PH3': k_chubb_email,
-        'SH': k_chubb_email,
+        'OH': exomolop_link,
+        'PH3': exomolop_link,
+        'SH': exomolop_link,
         'Si': molaverdikhani_email,
         'Si+': molaverdikhani_email,
-        'SiO': k_chubb_email,
-        'SiO2': k_chubb_email,
+        'SiO': exomolop_link,
+        'SiO2': exomolop_link,
         'Ti': molaverdikhani_email,
         'Ti+': molaverdikhani_email,
-        'TiO_48_Exomol': k_chubb_email,
+        'TiO_48_Exomol': exomolop_link,
         'TiO_48_Plez': 'None',
-        'TiO_all_Exomol': k_chubb_email,
+        'TiO_all_Exomol': exomolop_link,
         'TiO_all_Plez': 'None',
         'V': molaverdikhani_email,
         'V+': molaverdikhani_email,
-        'VO': k_chubb_email,
+        'VO': exomolop_link,
         'VO_Plez': 'None'
     })
     description_dict.update({
         'Al': kurucz_description,
         'Al+': kurucz_description,
-        'AlH': 'None',
-        'AlO': 'None',
-        'C2H2': 'None',
-        'C2H4': 'None',
+        'AlH': 'Main isotopologue, ' + exomolop_description,
+        'AlO': 'Main isotopologue, ' + exomolop_description,
+        'C2H2': 'Main isotopologue, ' + exomolop_description,
+        'C2H4': 'Main isotopologue, ' + exomolop_description,
         'Ca': kurucz_description,
         'Ca+': kurucz_description,
-        'CaH': 'None',
-        'CH4': 'None',
-        'CO_12_HITEMP': 'None',
-        'CO_13_HITEMP': 'None',
-        'CO_13_Chubb': 'None',
-        'CO_all_iso_Chubb': 'None',
-        'CO_all_iso_HITEMP': 'None',
-        'CO2': 'None',
-        'CrH': 'None',
+        'CaH': 'Main isotopologue, ' + exomolop_description,
+        'CH4': 'Main isotopologue, ' + exomolop_description,
+        'CO_12_HITEMP': "Using HITEMP's air broadening prescription.",
+        'CO_13_HITEMP': "Using HITEMP's air broadening prescription.",
+        'CO_13_Chubb': '13C-16O, ' + exomolop_description,
+        'CO_all_iso_Chubb': 'All isotopologues, ' + exomolop_description,
+        'CO_all_iso_HITEMP': "Using HITEMP's air broadening prescription.",
+        'CO2': 'Main isotopologue, ' + exomolop_description,
+        'CrH': 'Main isotopologue, ' + exomolop_description,
         'Fe': kurucz_description,
         'Fe+': kurucz_description,
-        'FeH': 'None',
-        'H2O_Exomol': 'None',
-        'H2O_HITEMP': 'None',
-        'H2S': 'None',
-        'HCN': 'None',
+        'FeH': 'Main isotopologue, ' + exomolop_description,
+        'H2O_Exomol': 'Main isotopologue, ' + exomolop_description,
+        'H2O_HITEMP': "Using HITEMP's air broadening prescription.",
+        'H2S': 'Main isotopologue, ' + exomolop_description,
+        'HCN': 'Main isotopologue, ' + exomolop_description,
         'K_allard': 'Allard wings',
         'K_burrows': 'Burrows wings',
         'K_lor_cut': 'Lorentzian wings',
         'Li': kurucz_description,
         'Mg': kurucz_description,
         'Mg+': kurucz_description,
-        'MgH': 'None',
-        'MgO': 'None',
+        'MgH': 'Main isotopologue, ' + exomolop_description,
+        'MgO': 'Main isotopologue, ' + exomolop_description,
         'Na_allard': 'new Allard wings',  # TODO difference with "old" Allard wings?
         'Na_burrows': 'Burrows wings',
         'Na_lor_cut': 'Lorentzian wings',
-        'NaH': 'None',
-        'NH3': 'None',
+        'NaH': 'Main isotopologue, ' + exomolop_description,
+        'NH3': 'Main isotopologue, ' + exomolop_description,
         'O': kurucz_description,
         'O+': kurucz_description,  # TODO not in the docs
-        'O2': 'None',
-        'O3': 'None',
-        'OH': 'None',
-        'PH3': 'None',
-        'SH': 'None',
+        'O2': 'Main isotopologue, ' + exomolop_description,
+        'O3': "Using HITRAN's air broadening prescription.",
+        'OH': 'Main isotopologue, ' + exomolop_description,
+        'PH3': 'Main isotopologue, ' + exomolop_description,
+        'SH': 'Main isotopologue, ' + exomolop_description,
         'Si': kurucz_description,
         'Si+': kurucz_description,
-        'SiO': 'None',
-        'SiO2': 'None',
+        'SiO': 'Main isotopologue, ' + exomolop_description,
+        'SiO2': 'Main isotopologue, ' + exomolop_description,
         'Ti': kurucz_description,
         'Ti+': kurucz_description,
-        'TiO_48_Exomol': 'None',
-        'TiO_48_Plez': 'None',
-        'TiO_all_Exomol': 'None',
-        'TiO_all_Plez': 'None',
+        'TiO_48_Exomol': 'Using Sharp & Burrows, Eq. 15 for pressure broadening.',
+        'TiO_48_Plez': 'Using Sharp & Burrows, Eq. 15 for pressure broadening.',
+        'TiO_all_Exomol': 'Using Sharp & Burrows, Eq. 15 for pressure broadening.',
+        'TiO_all_Plez': 'Using Sharp & Burrows, Eq. 15 for pressure broadening.',
         'V': kurucz_description,
         'V+': kurucz_description,
-        'VO': 'None',
-        'VO_Plez': 'None'
+        'VO': 'Main isotopologue, ' + exomolop_description,
+        'VO_Plez': 'Using Sharp & Burrows, Eq. 15 for pressure broadening.'
     })
     molmass_dict.update({
         'Al': get_species_molar_mass('Al'),
@@ -1161,9 +1182,9 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Li': get_species_molar_mass('Li'),
         'Mg': get_species_molar_mass('Mg'),
         'Mg+': get_species_molar_mass('Mg') - get_species_molar_mass('e-'),
-        'MgH':  get_species_molar_mass('MgH'),
-        'MgO':  get_species_molar_mass('MgO'),
-        'Na_allard':  get_species_molar_mass('Na'),
+        'MgH': get_species_molar_mass('MgH'),
+        'MgO': get_species_molar_mass('MgO'),
+        'Na_allard': get_species_molar_mass('Na'),
         'Na_burrows': get_species_molar_mass('Na'),
         'Na_lor_cut': get_species_molar_mass('Na'),
         'NaH': get_species_molar_mass('NaH'),
@@ -1213,36 +1234,57 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     g_gauss = np.array(buffer[:, 0], dtype='d', order='F')
     weights_gauss = np.array(buffer[:, 1], dtype='d', order='F')
 
-    if old_paths:
-        input_directory = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['correlated_k_opacities'])
+    if not external_single_species:
+        if old_paths:
+            input_directory = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['correlated_k_opacities'])
 
-        directories = [
-            os.path.join(input_directory, d) for d in os.listdir(input_directory)
-            if os.path.isdir(d) and d != 'PaxHeader'
-        ]
+            directories = [
+                os.path.join(input_directory, d) for d in os.listdir(input_directory)
+                if os.path.isdir(d) and d != 'PaxHeader'
+            ]
+        else:
+            input_directory = os.path.join(path_input_data, get_input_data_subpaths()['correlated_k_opacities'])
+
+            directories = []
+
+            for species_dir in os.listdir(input_directory):
+                species_dir = os.path.join(input_directory, species_dir)
+
+                if os.path.isdir(species_dir) and species_dir.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
+                    for iso_dir in os.listdir(species_dir):
+                        iso_dir = os.path.join(species_dir, iso_dir)
+
+                        if os.path.isdir(iso_dir) and iso_dir.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
+                            for d in os.listdir(iso_dir):
+                                d = os.path.join(iso_dir, d)
+
+                                if os.path.isdir(d) and d.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
+                                    directories.append(d)
     else:
-        input_directory = os.path.join(path_input_data, get_input_data_subpaths()['correlated_k_opacities'])
-
-        directories = []
-
-        for species_dir in os.listdir(input_directory):
-            species_dir = os.path.join(input_directory, species_dir)
-
-            if os.path.isdir(species_dir) and species_dir.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
-                for iso_dir in os.listdir(species_dir):
-                    iso_dir = os.path.join(species_dir, iso_dir)
-
-                    if os.path.isdir(iso_dir) and iso_dir.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
-                        for d in os.listdir(iso_dir):
-                            d = os.path.join(iso_dir, d)
-
-                            if os.path.isdir(d) and d.rsplit(os.path.sep, 1)[1] != 'PaxHeader':
-                                directories.append(d)
+        directories = [path_to_external_species_opacity_folder]
 
     for directory in directories:
-        species = directory.rsplit(os.path.sep, 1)[1]
+        try:
+            species = directory.rsplit(os.path.sep, 1)[1]
+        except IndexError:  # Case where one gives the external target folder path locally (so not absolute path).
+            species = directory
+
         species = species.rsplit('_def', 1)[0]
         not_in_dict = False
+
+        if external_single_species:
+            doi_dict.unlock()
+            doi_dict[species] = external_species_doi
+            doi_dict.lock()
+            contributor_dict.unlock()
+            contributor_dict[species] = external_species_contributor
+            contributor_dict.lock()
+            description_dict.unlock()
+            description_dict[species] = external_species_description
+            description_dict.lock()
+            molmass_dict.unlock()
+            molmass_dict[species] = external_species_molmass
+            molmass_dict.lock()
 
         # Check information availability
         if species not in doi_dict:
@@ -1266,8 +1308,11 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
             not_in_dict = True
 
         if not_in_dict:
-            print(f" Skipping species '{species}' due to missing species in supplementary info dict...")
-            continue
+            if external_single_species:
+                raise ValueError(f" Please add all required information for the conversion of species '{species}'.")
+            else:
+                print(f" Skipping species '{species}' due to missing species in supplementary info dict...")
+                continue
 
         if doi_dict[species] is None:
             file = glob.glob(os.path.join(directory, '*.h5'))
@@ -1281,8 +1326,11 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
             file = file[0]
             f = file.rsplit(os.path.sep, 1)[1]
 
-            if f != _get_prt2_correlated_k_names()[species] and _get_prt2_correlated_k_names()[species] is not None:
-                f = _get_prt2_correlated_k_names()[species]
+            if not external_single_species:
+                if f != _get_prt2_correlated_k_names()[species] and _get_prt2_correlated_k_names()[species] is not None:
+                    f = _get_prt2_correlated_k_names()[species]
+            else:
+                f = external_species_longname
 
             if f.rsplit('.', 1)[1] != 'ktable.petitRADTRANS.h5':
                 f += '.ktable.petitRADTRANS.h5'
@@ -2236,7 +2284,12 @@ def _refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_
                     print(f"Skipping multi-defined key '{_key}'...")
                     continue
 
-                old_directory = d_prt2[_key]
+                # If folder only contains a part of the opacities that are usually converted (e.g., only c-k).
+                if _key not in d_prt2:
+                    print('Species ' + _key + ' not found in old input data folder. Skipping...')
+                    continue
+                else:
+                    old_directory = d_prt2[_key]
 
                 if move_dirs:
                     spec = copy.deepcopy(old_directory)
@@ -2767,12 +2820,12 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
     # Load .dat files
     print("Loading dat file...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-            cloud_path, path_input_files, path_reference_files,
-            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-            1, n_cloud_wavelength_bins
-        )
+        cloud_path, path_input_files, path_reference_files,
+        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+        1, n_cloud_wavelength_bins
+    )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -3439,6 +3492,23 @@ def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False)
         print(f" Successfully binned down k-table of species '{s}' \n")
 
     print("Successfully binned down all k-tables\n")
+
+
+def _correlated_k_opacities_dat2h5_external_species(path_to_species_opacity_folder,
+                                                    path_prt2_input_data,
+                                                    longname,
+                                                    doi=None,
+                                                    contributor=None,
+                                                    description=None,
+                                                    molmass=None):
+    _correlated_k_opacities_dat2h5(path_input_data=path_prt2_input_data,
+                                   external_single_species=True,
+                                   path_to_external_species_opacity_folder=path_to_species_opacity_folder,
+                                   external_species_longname=longname,
+                                   external_species_doi=doi,
+                                   external_species_contributor=contributor,
+                                   external_species_description=description,
+                                   external_species_molmass=molmass)
 
 
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(),
