@@ -57,8 +57,8 @@ def init_spectral_model_line_by_line():
         reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
         # cloud_pressure=1e-1,
         # Instrument parameters
-        new_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
-        output_wavelengths=np.arange(
+        convolve_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
+        rebinned_wavelengths=np.arange(
             radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0],
             radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1],
             radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] /

@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a100] - 2023-11-23
+## [3.0.0-a101] - 2023-11-24
 ### Added
 - Automatic download of missing input_data files.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
 - Importing the chemical table no longer triggers its loading.
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
+- Relevance threshold when combining correlated-k opacities is less strict.
 
 ## [2.7.3] - 2023-11-08
 ### Changed

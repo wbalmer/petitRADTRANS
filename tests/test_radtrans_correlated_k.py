@@ -303,8 +303,10 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
             'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
             'contribution': additional_outputs['transmission_contribution']
         },
-        relative_tolerance=relative_tolerance,
-        absolute_tolerance=5e-10  # there is a max absolute error of 3.28989835374216e-10 between windows and WSL
+        relative_tolerance=relative_tolerance,  # the python transit radius calculation function outputs are sligthly
+                                  # different than the fortran version, creating a slight error, especially in deeper
+                                  # atmospheric levels
+        absolute_tolerance=8e-7   # there is a max absolute error of 3.28989835374216e-10 between windows and WSL
                                   # generated files TODO investigate why
     )
 
