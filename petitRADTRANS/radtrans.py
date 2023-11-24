@@ -1547,7 +1547,7 @@ class Radtrans:
             # therefore cloud_scaling_factor = inf,
             # continuum_opacities_scattering_emission will contain nans and infs,
             # and photon_destruction_prob contains only nans
-            if len(photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)]) > 0.:
+            if len(photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)]) > 0:
                 print('Region of zero opacity detected, '
                       'setting the photon destruction probability in this spectral range to 1.')
                 photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
