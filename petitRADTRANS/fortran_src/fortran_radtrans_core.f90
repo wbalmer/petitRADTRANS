@@ -768,8 +768,8 @@ module fortran_radtrans_core
             implicit none
 
             integer, intent(in)          :: n_g, n_frequencies, n_species, n_layers
-            double precision, intent(in) :: opacities(n_g, n_frequencies, &
-                    n_species, n_layers), g_gauss(n_g), weights_gauss(n_g)
+            double precision, intent(in) :: opacities(n_g, n_frequencies, n_species, n_layers), &
+                g_gauss(n_g), weights_gauss(n_g)
             double precision, intent(out) :: opacities_out(n_g, n_frequencies, n_layers)
 
             double precision, parameter :: threshold_coefficient = 1d-2
@@ -865,9 +865,10 @@ module fortran_radtrans_core
         end subroutine combine_ck_opacities
 
 
-        subroutine compute_ck_flux(frequencies, optical_depths, temperatures, &
-                                   emission_cos_angles, emission_cos_angles_weights, weights_gauss, &
-                                   return_contribution, n_frequencies, n_layers, n_angles, n_g, n_species, &
+        subroutine compute_ck_flux(frequencies, temperatures, weights_gauss, &
+                                   emission_cos_angles, emission_cos_angles_weights, &
+                                   optical_depths, return_contribution, &
+                                   n_frequencies, n_layers, n_angles, n_g, n_species, &
                                    flux, emission_contribution)
             ! """
             ! Calculate the radiative transport, using the mean transmission method.
@@ -877,18 +878,16 @@ module fortran_radtrans_core
           implicit none
 
           ! I/O
-          integer, intent(in)                         :: n_frequencies, n_layers,n_g, n_species
+          logical, intent(in)                         :: return_contribution
+          integer, intent(in)                         :: n_frequencies, n_layers, n_angles, n_g, n_species
           double precision, intent(in)                :: frequencies(n_frequencies)
           double precision, intent(in)                :: temperatures(n_layers)
-          double precision, intent(in)                :: optical_depths(n_g,n_frequencies,n_species,n_layers)
-
-          integer, intent(in)                         :: n_angles
+          double precision, intent(in)                :: weights_gauss(n_g)
           double precision, intent(in)                :: emission_cos_angles(n_angles)
           double precision, intent(in)                :: emission_cos_angles_weights(n_angles)
-          double precision, intent(in)                :: weights_gauss(n_g)
-          logical, intent(in)                         :: return_contribution
+          double precision, intent(in)                :: optical_depths(n_g, n_frequencies, n_species, n_layers)
           double precision, intent(out)               :: flux(n_frequencies)
-          double precision, intent(out)               :: emission_contribution(n_layers,n_frequencies)
+          double precision, intent(out)               :: emission_contribution(n_layers, n_frequencies)
 
           ! Internal
           integer                                     :: i_mu,i_freq,i_str,i_spec
@@ -1401,12 +1400,13 @@ module fortran_radtrans_core
         end subroutine compute_cloud_particles_mean_radius_hansen
 
 
-        subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, optical_depths, temperatures, &
+        subroutine compute_feautrier_radiative_transfer(frequencies_bin_edges, temperatures, weights_gauss, &
                                                         emission_cos_angles, emission_cos_angles_weights, &
-                                                        weights_gauss, photon_destruction_probabilities, &
-                                                        return_contribution, reflectances, emissivities, &
-                                                        stellar_intensity, emission_geometry, &
-                                                        star_irradiation_cos_angle, &
+                                                        optical_depths, photon_destruction_probabilities, &
+                                                        emission_geometry, &
+                                                        stellar_intensity, star_irradiation_cos_angle, &
+                                                        reflectances, emissivities, &
+                                                        return_contribution, &
                                                         n_frequencies_bin_edges, n_layers, n_angles, n_g, &
                                                         flux, emission_contribution)
             use math, only: solve_tridiagonal_system, cst_pi
@@ -1417,63 +1417,64 @@ module fortran_radtrans_core
             integer, parameter :: iter_scat = 1000
             double precision, parameter :: tiniest = tiny(0d0), pi_4 = 4d0 * cst_pi
 
-            integer, intent(in)             :: n_frequencies_bin_edges, n_layers, n_angles, n_g
-            double precision, intent(in)    :: star_irradiation_cos_angle
-            double precision, intent(in)    :: &
-                reflectances(n_frequencies_bin_edges-1), emissivities(n_frequencies_bin_edges-1) !ELALEI
-            double precision, intent(in)    :: stellar_intensity(n_frequencies_bin_edges-1) !ELALEI
-            double precision, intent(in)    :: frequencies_bin_edges(n_frequencies_bin_edges)
-            double precision, intent(in)    :: optical_depths(n_g,n_frequencies_bin_edges-1,n_layers)
-            double precision, intent(in)    :: temperatures(n_layers)
-            double precision, intent(in)    :: emission_cos_angles(n_angles)
-            double precision, intent(in)    :: emission_cos_angles_weights(n_angles), weights_gauss(n_g)
-            double precision, intent(in)    :: photon_destruction_probabilities(n_g,n_frequencies_bin_edges-1,n_layers)
-            logical, intent(in)             :: return_contribution
-            double precision, intent(out)   :: flux(n_frequencies_bin_edges-1)
-            double precision, intent(out)   :: emission_contribution(n_layers,n_frequencies_bin_edges-1)
-            character(len=20), intent(in)   :: emission_geometry
+            character(len=*), intent(in)  :: emission_geometry
+            logical, intent(in)           :: return_contribution
+            integer, intent(in)           :: n_frequencies_bin_edges, n_layers, n_angles, n_g
+            double precision, intent(in)  :: frequencies_bin_edges(n_frequencies_bin_edges)
+            double precision, intent(in)  :: temperatures(n_layers)
+            double precision, intent(in)  :: weights_gauss(n_g)
+            double precision, intent(in)  :: emission_cos_angles(n_angles)
+            double precision, intent(in)  :: emission_cos_angles_weights(n_angles)
+            double precision, intent(in)  :: optical_depths(n_g, n_frequencies_bin_edges-1, n_layers)
+            double precision, intent(in)  :: photon_destruction_probabilities(n_g, n_frequencies_bin_edges-1, n_layers)
+            double precision, intent(in)  :: stellar_intensity(n_frequencies_bin_edges-1)
+            double precision, intent(in)  :: star_irradiation_cos_angle
+            double precision, intent(in)  :: reflectances(n_frequencies_bin_edges-1)
+            double precision, intent(in)  :: emissivities(n_frequencies_bin_edges-1)
+            double precision, intent(out) :: flux(n_frequencies_bin_edges-1)
+            double precision, intent(out) :: emission_contribution(n_layers, n_frequencies_bin_edges-1)
 
-            integer                         :: j,i,k,l
-            double precision                :: I_J(n_layers,n_angles), I_H(n_layers,n_angles)
-            double precision                :: source(n_layers, n_g, n_frequencies_bin_edges-1)
-            double precision                :: source_tmp(n_g, n_frequencies_bin_edges - 1, n_layers), &
+            integer                       :: i, j, k, l
+            double precision              :: I_J(n_layers,n_angles), I_H(n_layers,n_angles)
+            double precision              :: source(n_layers, n_g, n_frequencies_bin_edges-1)
+            double precision              :: &
                 J_planet_scat(n_layers, n_g, n_frequencies_bin_edges - 1), &
                 photon_destruction_probabilities_(n_layers, n_g, n_frequencies_bin_edges-1), &
                 source_planet_scat_n(n_layers), &
                 source_planet_scat_n1(n_layers), &
                 source_planet_scat_n2(n_layers), &
                 source_planet_scat_n3(n_layers)
-            double precision                :: J_star_ini(n_g,n_layers,n_frequencies_bin_edges-1)
-            double precision                :: I_star_calc(n_g,n_layers,n_angles,n_frequencies_bin_edges-1)
-            double precision                :: flux_tmp, flux_tmp_old, conv_val
-            double precision                :: I_surface_reflection
-            double precision                :: I_surface_no_scattering(n_g, n_frequencies_bin_edges - 1)
-            double precision                :: I_surface_emission
-            double precision                :: surf_refl_2(n_frequencies_bin_edges - 1)
-            double precision                :: mu_weight(n_angles)
+            double precision              :: J_star_ini(n_g,n_layers,n_frequencies_bin_edges-1)
+            double precision              :: I_star_calc(n_g,n_layers,n_angles,n_frequencies_bin_edges-1)
+            double precision              :: flux_tmp, flux_tmp_old, conv_val
+            double precision              :: I_surface_reflection
+            double precision              :: I_surface_no_scattering(n_g, n_frequencies_bin_edges - 1)
+            double precision              :: I_surface_emission
+            double precision              :: surf_refl_2(n_frequencies_bin_edges - 1)
+            double precision              :: mu_weight(n_angles)
             ! tridag variables
-            double precision                :: a(n_layers, n_angles),&
+            double precision              :: a(n_layers, n_angles),&
                 b(n_layers, n_angles),&
                 c(n_layers, n_angles),&
                 r(n_layers), &
                 planck(n_layers, n_frequencies_bin_edges - 1)
-            double precision                :: f1,f2,f3, deriv1, deriv2, I_minus
-            double precision                :: f2_struct(n_layers, n_angles),&
+            double precision              :: f1,f2,f3, deriv1, deriv2, I_minus
+            double precision              :: f2_struct(n_layers, n_angles),&
                                                f3_struct(n_layers, n_angles)
 
             ! quantities for P-T structure iteration
-            double precision                :: J_bol_g(n_layers)
+            double precision              :: J_bol_g(n_layers)
 
             ! ALI
-            double precision                :: lambda_loc(n_layers, n_g, n_frequencies_bin_edges - 1)
+            double precision              :: lambda_loc(n_layers, n_g, n_frequencies_bin_edges - 1)
 
             ! control
-            double precision                :: inv_del_tau_min, inv_del_tau_min_half
-            integer                         :: i_iter_scat
+            double precision              :: inv_del_tau_min, inv_del_tau_min_half
+            integer                       :: i_iter_scat
 
             ! GCM species calc
-            logical                         :: GCM_read
-            double precision                :: I_GCM(n_angles,n_frequencies_bin_edges-1)
+            logical                       :: GCM_read
+            double precision              :: I_GCM(n_angles,n_frequencies_bin_edges-1)
 
             ! Variables for the contribution function calculation
             integer :: i_mu, i_str, i_freq
@@ -1582,7 +1583,7 @@ module fortran_radtrans_core
             end if
 
             do i = 1, n_frequencies_bin_edges - 1
-                r = planck(:, i)  ! only modify the result of the first wavelength by ~1e-6 (relative), can be removed
+                r = planck(:, i)
 
                 do l = 1, n_g
                     source(:, l, i) = photon_destruction_probabilities_(:, l, i) * planck(:, i) &
@@ -1678,7 +1679,6 @@ module fortran_radtrans_core
                             ! r(n_layers) = I_J(n_layers) = 0.5[I_plus + I_minus]
                             ! where I_plus is the light that goes downwards and
                             ! I_minus is the light that goes upwards.
-
                             I_minus = I_surface_no_scattering(l, i) &
                                 + surf_refl_2(i) * sum(I_plus_surface(:, l, i) * mu_weight)
 
@@ -1708,14 +1708,10 @@ module fortran_radtrans_core
                         ! Test if the flux has converged
                         flux_tmp_old = flux_tmp
                         flux_tmp = 0d0
-                        J_bol_g = 0d0
 
                         do j = 1, n_angles
-                            J_bol_g = J_bol_g + I_J(:, j) * emission_cos_angles_weights(j)
                             flux_tmp = flux_tmp - I_H(1, j) * mu_weight(j)
                         end do
-
-                        J_planet_scat(:, l, i) = J_bol_g
 
                         conv_val = abs(1d0 - flux_tmp_old / flux_tmp)
 
@@ -1724,6 +1720,14 @@ module fortran_radtrans_core
                         end if
 
                         ! Update the source function using results from the current iteration.
+                        J_bol_g = 0d0
+
+                        do j = 1, n_angles
+                            J_bol_g = J_bol_g + I_J(:, j) * emission_cos_angles_weights(j)
+                        end do
+
+                        J_planet_scat(:, l, i) = J_bol_g
+
                         source(:, l, i) = (&
                             photon_destruction_probabilities_(:, l, i) * planck(:, i) &
                             + (1d0 - photon_destruction_probabilities_(:, l, i)) &
