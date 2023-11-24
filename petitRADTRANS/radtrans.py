@@ -536,7 +536,7 @@ class Radtrans:
 
         """
         optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor = (
-            self._compute_optical_depths(
+            self._compute_optical_depths_wrapper(
                 pressures=self._pressures,
                 reference_gravity=reference_gravity,
                 opacities=opacities,
@@ -561,64 +561,64 @@ class Radtrans:
             # TODO investigate bug with scattering and low VMR near surface
             # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
             # everything has been moved into the 0th index
-            flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
-                self._frequency_bins_edges,
-                optical_depths[:, :, 0, :],
-                temperatures,
-                self._emission_cos_angle_grid,
-                self._emission_cos_angle_grid_weights,
-                self._lines_loaded_opacities['weights_gauss'],
-                photon_destruction_probabilities,
-                return_contribution,
-                reflectances,
-                emissivities,
-                stellar_intensity,
-                emission_geometry,
-                star_irradiation_cos_angle
+            flux, emission_contribution = self._compute_feautrier_radiative_transfer(
+                frequency_bins_edges=self._frequency_bins_edges,
+                temperatures=temperatures,
+                weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                emission_cos_angle_grid=self._emission_cos_angle_grid,
+                emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                optical_depths=optical_depths[:, :, 0, :],
+                photon_destruction_probabilities=photon_destruction_probabilities,
+                emission_geometry=emission_geometry,
+                stellar_intensity=stellar_intensity,
+                star_irradiation_cos_angle=star_irradiation_cos_angle,
+                reflectances=reflectances,
+                emissivities=emissivities,
+                return_contribution=return_contribution
             )
 
             if return_rosseland_opacities:
                 if self._scattering_in_emission:
                     opacities_rosseland = \
-                        fcore.compute_rosseland_opacities(
-                            opacities[:, :, 0, :],
-                            temperatures,
-                            self._lines_loaded_opacities['weights_gauss'],
-                            self._frequency_bins_edges,
-                            self._scattering_in_emission,
-                            continuum_opacities_scattering
+                        self._compute_rosseland_opacities(
+                            frequency_bins_edges=self._frequency_bins_edges,
+                            temperatures=temperatures,
+                            weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                            opacities=opacities[:, :, 0, :],
+                            continuum_opacities_scattering=continuum_opacities_scattering,
+                            scattering_in_emission=self._scattering_in_emission
                         )
                 else:
                     opacities_rosseland = \
-                        fcore.compute_rosseland_opacities(
-                            opacities[:, :, 0, :],
-                            temperatures,
-                            self._lines_loaded_opacities['weights_gauss'],
-                            self._frequency_bins_edges,
-                            self._scattering_in_emission,
-                            np.zeros(continuum_opacities_scattering.shape)
+                        self._compute_rosseland_opacities(
+                            frequency_bins_edges=self._frequency_bins_edges,
+                            temperatures=temperatures,
+                            weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                            opacities=opacities[:, :, 0, :],
+                            continuum_opacities_scattering=np.zeros(continuum_opacities_scattering.shape),
+                            scattering_in_emission=self._scattering_in_emission
                         )
         else:
             if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
                     and len(self._line_species) > 1):
-                flux, emission_contribution = fcore.compute_ck_flux(
-                    self._frequencies,
-                    optical_depths[:, :, :1, :],
-                    temperatures,
-                    self._emission_cos_angle_grid,
-                    self._emission_cos_angle_grid_weights,
-                    self._lines_loaded_opacities['weights_gauss'],
-                    return_contribution
+                flux, emission_contribution = self._compute_ck_flux(
+                    frequencies=self._frequencies,
+                    temperatures=temperatures,
+                    weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                    emission_cos_angle_grid=self._emission_cos_angle_grid,
+                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    optical_depths=optical_depths[:, :, :1, :],
+                    return_contribution=return_contribution
                 )
             else:
-                flux, emission_contribution = fcore.compute_ck_flux(
-                    self._frequencies,
-                    optical_depths,
-                    temperatures,
-                    self._emission_cos_angle_grid,
-                    self._emission_cos_angle_grid_weights,
-                    self._lines_loaded_opacities['weights_gauss'],
-                    return_contribution
+                flux, emission_contribution = self._compute_ck_flux(
+                    frequencies=self._frequencies,
+                    temperatures=temperatures,
+                    weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                    emission_cos_angle_grid=self._emission_cos_angle_grid,
+                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    optical_depths=optical_depths,
+                    return_contribution=return_contribution
                 )
 
         return flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor
@@ -858,19 +858,19 @@ class Radtrans:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[chem_spec]
 
         # Combine line opacities with continuum opacities
-        opacities = finput.combine_opacities(
-            line_species_mass_fractions,
-            opacities,
-            continuum_opacities
+        opacities = self._combine_opacities(
+            line_species_mass_fractions=line_species_mass_fractions,
+            opacities=opacities,
+            continuum_opacities=continuum_opacities
         )
 
-        # Similar to the line-by-line case below, if test_ck_shuffle_comp is True, we will put the total opacity into
+        # Similar to the line-by-line case below, if _scattering_in_emission is True, we will put the total opacity into
         # the first species slot and then carry the remaining radiative transfer steps only over that 0 index
         if self._line_opacity_mode == 'c-k' and self._scattering_in_emission:
-            opacities[:, :, 0, :] = fcore.combine_ck_opacities(
-                opacities,
-                self._lines_loaded_opacities['g_gauss'],
-                self._lines_loaded_opacities['weights_gauss']
+            opacities[:, :, 0, :] = self._combine_ck_opacities(
+                opacities=opacities,
+                g_gauss=self._lines_loaded_opacities['g_gauss'],
+                weights_gauss=self._lines_loaded_opacities['weights_gauss']
             )
 
         # In the line-by-line case we can simply add the opacities of different species in frequency space
@@ -930,34 +930,20 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if return_contribution:
-                transit_radii, radius_hydrostatic_equilibrium = fcore.compute_transit_radii(
-                    opacities[:, :, :1, :],
-                    temperatures,
-                    self._pressures,
-                    reference_gravity,
-                    mean_molar_masses,
-                    reference_pressure,
-                    planet_radius,
-                    self._lines_loaded_opacities['weights_gauss'],
-                    self.__scattering_in_transmission,
-                    continuum_opacities_scattering,
-                    variable_gravity
-                )
-
                 transmission_contribution, radius_hydrostatic_equilibrium = (
-                    fcore.compute_transmission_spectrum_contribution(
-                        opacities[:, :, :1, :],
-                        temperatures,
-                        self._pressures,
-                        reference_gravity,
-                        mean_molar_masses,
-                        reference_pressure,
-                        planet_radius,
-                        self._lines_loaded_opacities['weights_gauss'],
-                        transit_radii ** 2,
-                        self.__scattering_in_transmission,
-                        continuum_opacities_scattering,
-                        variable_gravity
+                    self._compute_transmission_spectrum_contribution(
+                        transit_radii=transit_radii,
+                        opacities=opacities[:, :, :1, :],
+                        temperatures=temperatures,
+                        pressures=self._pressures,
+                        reference_gravity=reference_gravity,
+                        mean_molar_masses=mean_molar_masses,
+                        reference_pressure=reference_pressure,
+                        planet_radius=planet_radius,
+                        weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                        scattering_in_transmission=self.__scattering_in_transmission,
+                        continuum_opacities_scattering=continuum_opacities_scattering,
+                        variable_gravity=variable_gravity
                     )
                 )
         else:
@@ -977,38 +963,44 @@ class Radtrans:
 
             # TODO: contribution function calculation with python-only implementation
             if return_contribution:
-                transit_radii, radius_hydrostatic_equilibrium = fcore.compute_transit_radii(
-                    opacities,
-                    temperatures,
-                    self._pressures,
-                    reference_gravity,
-                    mean_molar_masses,
-                    reference_pressure,
-                    planet_radius,
-                    self._lines_loaded_opacities['weights_gauss'],
-                    self.__scattering_in_transmission,
-                    continuum_opacities_scattering,
-                    variable_gravity
-                )
-
                 transmission_contribution, radius_hydrostatic_equilibrium = (
-                    fcore.compute_transmission_spectrum_contribution(
-                        opacities,
-                        temperatures,
-                        self._pressures,
-                        reference_gravity,
-                        mean_molar_masses,
-                        reference_pressure,
-                        planet_radius,
-                        self._lines_loaded_opacities['weights_gauss'],
-                        transit_radii ** 2.,
-                        self.__scattering_in_transmission,
-                        continuum_opacities_scattering,
-                        variable_gravity
+                    self._compute_transmission_spectrum_contribution(
+                        transit_radii=transit_radii,
+                        opacities=opacities,
+                        temperatures=temperatures,
+                        pressures=self._pressures,
+                        reference_gravity=reference_gravity,
+                        mean_molar_masses=mean_molar_masses,
+                        reference_pressure=reference_pressure,
+                        planet_radius=planet_radius,
+                        weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                        scattering_in_transmission=self.__scattering_in_transmission,
+                        continuum_opacities_scattering=continuum_opacities_scattering,
+                        variable_gravity=variable_gravity
                     )
                 )
 
         return transit_radii, radius_hydrostatic_equilibrium, transmission_contribution
+
+    @staticmethod
+    def _combine_ck_opacities(opacities, g_gauss, weights_gauss):
+        opacities[:, :, 0, :] = fcore.combine_ck_opacities(
+            opacities,
+            g_gauss,
+            weights_gauss
+        )
+
+        return opacities[:, :, 0, :]
+
+    @staticmethod
+    def _combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):
+        opacities = finput.combine_opacities(
+            line_species_mass_fractions,
+            opacities,
+            continuum_opacities
+        )
+
+        return opacities
 
     @staticmethod
     def _compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
@@ -1052,6 +1044,22 @@ class Radtrans:
             )
 
         return cia_opacities
+
+    @staticmethod
+    def _compute_ck_flux(frequencies, temperatures, weights_gauss,
+                         emission_cos_angle_grid, emission_cos_angle_grid_weights, optical_depths, return_contribution):
+        flux, emission_contribution = fcore.compute_ck_flux(
+            frequencies,
+            temperatures,
+            weights_gauss,
+            emission_cos_angle_grid,
+            emission_cos_angle_grid_weights,
+            optical_depths,
+            return_contribution
+        )
+
+        return flux, emission_contribution
+
 
     @staticmethod
     def _compute_cloud_log_normal_particles_distribution_opacities(
@@ -1364,6 +1372,30 @@ class Radtrans:
         return fcore.compute_cloud_optical_depths(reference_gravity, pressures, cloud_opacities)
 
     @staticmethod
+    def _compute_feautrier_radiative_transfer(frequency_bins_edges, temperatures, weights_gauss,
+                                              emission_cos_angle_grid, emission_cos_angle_grid_weights,
+                                              optical_depths, photon_destruction_probabilities,
+                                              emission_geometry, stellar_intensity, star_irradiation_cos_angle,
+                                              reflectances, emissivities, return_contribution):
+        flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
+            frequency_bins_edges,
+            temperatures,
+            weights_gauss,
+            emission_cos_angle_grid,
+            emission_cos_angle_grid_weights,
+            optical_depths,
+            photon_destruction_probabilities,
+            emission_geometry,
+            stellar_intensity,
+            star_irradiation_cos_angle,
+            reflectances,
+            emissivities,
+            return_contribution
+        )
+
+        return flux, emission_contribution
+
+    @staticmethod
     def _compute_h_minus_free_free_xsec(wavelengths, temperatures, electron_partial_pressure):
         """Calculate the H- free-free cross-section in units of cm^2 per H per e- pressure (in cgs).
         Source: "The Observation and Analysis of Stellar Photospheres" by David F. Gray, p. 156
@@ -1505,8 +1537,27 @@ class Radtrans:
 
     @staticmethod
     def _compute_optical_depths(pressures, reference_gravity, opacities, continuum_opacities_scattering,
-                                line_opacity_mode, scattering_in_emission,
-                                hack_cloud_photospheric_optical_depths, absorber_present, **custom_cloud_parameters):
+                                scattering_in_emission, optical_depths=None):
+        if optical_depths is None:
+            optical_depths = np.zeros(opacities.shape, dtype='d', order='F')
+
+        optical_depths[:, :, :1, :], photon_destruction_probabilities = \
+            fcore.compute_optical_depths(
+                reference_gravity,
+                pressures,
+                opacities[:, :, :1, :],
+                scattering_in_emission,
+                continuum_opacities_scattering
+            )
+
+        return optical_depths[:, :, :1, :], photon_destruction_probabilities
+
+    @staticmethod
+    #@profile
+    def _compute_optical_depths_wrapper(pressures, reference_gravity, opacities, continuum_opacities_scattering,
+                                        scattering_in_emission, line_opacity_mode=None,
+                                        hack_cloud_photospheric_optical_depths=None, absorber_present=True,
+                                        **custom_cloud_parameters):
         optical_depths = np.zeros(opacities.shape, dtype='d', order='F')
         photon_destruction_probabilities = None
         relative_cloud_scaling_factor = None
@@ -1530,12 +1581,13 @@ class Radtrans:
                     _continuum_opacities_scattering = np.zeros(continuum_opacities_scattering.shape)
 
                 optical_depths[:, :, :1, :], photon_destruction_probabilities = \
-                    fcore.compute_optical_depths(
-                        reference_gravity,
-                        pressures,
-                        opacities[:, :, :1, :],
-                        scattering_in_emission,
-                        _continuum_opacities_scattering
+                    Radtrans._compute_optical_depths(
+                        pressures=pressures,
+                        reference_gravity=reference_gravity,
+                        opacities=opacities[:, :, :1, :],
+                        continuum_opacities_scattering=_continuum_opacities_scattering,
+                        scattering_in_emission=scattering_in_emission,
+                        optical_depths=optical_depths  # prevent re-initialisation of optical_depths
                     )
 
             # Handle cases without any absorbers, where opacities are zero
@@ -1552,10 +1604,10 @@ class Radtrans:
                       'setting the photon destruction probability in this spectral range to 1.')
                 photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
         else:
-            optical_depths = fcore.compute_cloud_optical_depths(
-                reference_gravity,
-                pressures,
-                opacities
+            optical_depths = Radtrans._compute_cloud_optical_depths(
+                reference_gravity=reference_gravity,
+                pressures=pressures,
+                cloud_opacities=opacities
             )
 
         return optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor
@@ -1592,21 +1644,22 @@ class Radtrans:
             # Get continuum scattering opacity, without clouds:
             continuum_opacities_scattering_emission -= cloud_anisotropic_scattering_opacities
 
-            opacities = finput.combine_opacities(
-                _mass_fractions_1,
-                opacities,
-                -cloud_absorption_opacities
+            opacities = Radtrans._combine_opacities(
+                line_species_mass_fractions=_mass_fractions_1,
+                opacities=opacities,
+                continuum_opacities=-cloud_absorption_opacities
             )
 
             # Calc. cloud-free optical depth
-            optical_depths[:, :, :1, :], photon_destruction_probabilities = \
-                fcore.compute_optical_depths(
-                    reference_gravity,
-                    pressures,
-                    opacities[:, :, :1, :],
-                    scattering_in_emission,
-                    continuum_opacities_scattering_emission
+            optical_depths[:, :, :1, :], photon_destruction_probabilities = (
+                Radtrans._compute_optical_depths(
+                    pressures=pressures,
+                    reference_gravity=reference_gravity,
+                    opacities=opacities[:, :, :1, :],
+                    continuum_opacities_scattering=continuum_opacities_scattering_emission,
+                    scattering_in_emission=scattering_in_emission
                 )
+            )
 
         # BLOCK 2, calc optical depth of cloud only!
         total_tau_cloud = np.zeros_like(optical_depths)
@@ -1619,19 +1672,22 @@ class Radtrans:
             if not block1 and not block3 and not block4:
                 _mass_fractions_1 = np.ones((pressures.size, n_species))
 
-            mock_line_cloud_continuum_only = finput.combine_opacities(
-                _mass_fractions_1, mock_line_cloud_continuum_only, cloud_absorption_opacities
+            mock_line_cloud_continuum_only = Radtrans._combine_opacities(
+                line_species_mass_fractions=_mass_fractions_1,
+                opacities=mock_line_cloud_continuum_only,
+                continuum_opacities=cloud_absorption_opacities
             )
 
             # Calc. optical depth of cloud only
-            total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud = \
-                fcore.compute_optical_depths(
-                    reference_gravity,
-                    pressures,
-                    mock_line_cloud_continuum_only[:, :, :1, :],
-                    scattering_in_emission,
-                    cloud_anisotropic_scattering_opacities
+            total_tau_cloud[:, :, :1, :], photon_destruction_prob_cloud = (
+                Radtrans._compute_optical_depths(
+                    pressures=pressures,
+                    reference_gravity=reference_gravity,
+                    opacities=mock_line_cloud_continuum_only[:, :, :1, :],
+                    continuum_opacities_scattering=cloud_anisotropic_scattering_opacities,
+                    scattering_in_emission=scattering_in_emission
                 )
+            )
 
             if (not block1 and not block3) and not block4:
                 print("Cloud only (for tests purposes...)!")
@@ -1712,20 +1768,22 @@ class Radtrans:
                 (continuum_opacities_scattering_emission
                  + cloud_scaling_factor * cloud_anisotropic_scattering_opacities)
 
-            opacities = \
-                finput.combine_opacities(
-                    _mass_fractions_1, opacities, cloud_scaling_factor * cloud_absorption_opacities
-                )
+            opacities = Radtrans._combine_opacities(
+                line_species_mass_fractions=_mass_fractions_1,
+                opacities=opacities,
+                continuum_opacities=cloud_scaling_factor * cloud_absorption_opacities
+            )
 
             # Calc. total optical depth, including clouds
-            optical_depths[:, :, :1, :], photon_destruction_probabilities = \
-                fcore.compute_optical_depths(
-                    reference_gravity,
-                    pressures,
-                    opacities[:, :, :1, :],
-                    scattering_in_emission,
-                    continuum_opacities_scattering_emission
+            optical_depths[:, :, :1, :], photon_destruction_probabilities = (
+                Radtrans._compute_optical_depths(
+                    pressures=pressures,
+                    reference_gravity=reference_gravity,
+                    opacities=opacities[:, :, :1, :],
+                    continuum_opacities_scattering=continuum_opacities_scattering_emission,
+                    scattering_in_emission=scattering_in_emission
                 )
+            )
 
         return optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor
 
@@ -1778,6 +1836,20 @@ class Radtrans:
             )
 
         return rayleigh_scattering_opacities
+
+    @staticmethod
+    def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
+                                     opacities, continuum_opacities_scattering, scattering_in_emission):
+        opacities_rosseland = fcore.compute_rosseland_opacities(
+                opacities[:, :, 0, :],
+                temperatures,
+                weights_gauss,
+                frequency_bins_edges,
+                scattering_in_emission,
+                continuum_opacities_scattering
+            )
+
+        return opacities_rosseland
 
     @staticmethod
     def _compute_transit_radii(opacities, continuum_opacities_scattering, pressures, temperatures, weights_gauss,
@@ -1903,6 +1975,30 @@ class Radtrans:
         transit_radii = np.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.)
 
         return transit_radii, radius_hydrostatic_equilibrium
+
+    @staticmethod
+    def _compute_transmission_spectrum_contribution(transit_radii, pressures, temperatures, mean_molar_masses,
+                                                    reference_gravity, reference_pressure, planet_radius,
+                                                    weights_gauss, opacities, continuum_opacities_scattering,
+                                                    scattering_in_transmission, variable_gravity):
+        transmission_contribution, radius_hydrostatic_equilibrium = (
+            fcore.compute_transmission_spectrum_contribution(
+                opacities,
+                temperatures,
+                pressures,
+                reference_gravity,
+                mean_molar_masses,
+                reference_pressure,
+                planet_radius,
+                weights_gauss,
+                transit_radii ** 2,
+                scattering_in_transmission,
+                continuum_opacities_scattering,
+                variable_gravity
+            )
+        )
+
+        return transmission_contribution, radius_hydrostatic_equilibrium
 
     @staticmethod
     def _init_cia_loaded_opacities(cia_contributors):
@@ -2427,10 +2523,10 @@ class Radtrans:
         if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
                 and len(self._line_species) > 1):
             if self._scattering_in_emission and opacities_rosseland is not None:
-                optical_depths_rosseland = fcore.compute_cloud_optical_depths(
-                    reference_gravity,
-                    self._pressures,
-                    opacities_rosseland.reshape(1, 1, 1, len(self._pressures))
+                optical_depths_rosseland = self._compute_cloud_optical_depths(
+                    reference_gravity=reference_gravity,
+                    pressures=self._pressures,
+                    cloud_opacities=opacities_rosseland.reshape(1, 1, 1, len(self._pressures))
                 ).reshape(len(self._pressures))
 
         additional_outputs = {}
@@ -2515,7 +2611,7 @@ class Radtrans:
 
         if self._line_opacity_mode == 'lbl' or self._scattering_in_emission:
             if optical_depths is None:
-                optical_depths, _, _ = self._compute_optical_depths(
+                optical_depths, _, _ = self._compute_optical_depths_wrapper(
                     pressures=self._pressures,
                     reference_gravity=reference_gravity,
                     opacities=opacities,
@@ -2667,17 +2763,18 @@ class Radtrans:
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
 
-        opacities_rosseland = \
-            fcore.compute_rosseland_opacities(
-                opacities[:, :, :1, :],
-                temperatures,
-                self._lines_loaded_opacities['weights_gauss'],
-                self._frequency_bins_edges,
-                self._scattering_in_emission,
-                continuum_opacities_scattering
+        opacities_rosseland = (
+            self._compute_rosseland_opacities(
+                frequency_bins_edges=self._frequency_bins_edges,
+                temperatures=temperatures,
+                weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                opacities=opacities[:, :, :1, :],
+                continuum_opacities_scattering=continuum_opacities_scattering,
+                scattering_in_emission=self._scattering_in_emission
             )
+        )
 
-        opacities_planck = \
+        opacities_planck = (
             fcore.compute_planck_opacities(
                 opacities[:, :, :1, :],
                 temperatures,
@@ -2686,6 +2783,7 @@ class Radtrans:
                 self._scattering_in_emission,
                 continuum_opacities_scattering
             )
+        )
 
         return opacities_rosseland, opacities_planck, cloud_particles_mean_radii
 
