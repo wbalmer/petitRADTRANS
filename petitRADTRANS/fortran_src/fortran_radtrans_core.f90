@@ -1434,6 +1434,9 @@ module fortran_radtrans_core
             double precision, intent(out) :: flux(n_frequencies_bin_edges-1)
             double precision, intent(out) :: emission_contribution(n_layers, n_frequencies_bin_edges-1)
 
+            integer, parameter            :: n_iterations_min = 9
+            double precision, parameter   :: convergence_threshold = 1d-3
+
             integer                       :: i, j, k, l
             double precision              :: I_J(n_layers,n_angles), I_H(n_layers,n_angles)
             double precision              :: source(n_layers, n_g, n_frequencies_bin_edges-1)
@@ -1715,7 +1718,7 @@ module fortran_radtrans_core
 
                         conv_val = abs(1d0 - flux_tmp_old / flux_tmp)
 
-                        if ((conv_val < 1d-3) .and. (i_iter_scat > 9)) then
+                        if ((conv_val < convergence_threshold) .and. (i_iter_scat > n_iterations_min)) then
                             exit
                         end if
 
