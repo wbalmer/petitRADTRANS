@@ -621,7 +621,7 @@ class Radtrans:
                     return_contribution
                 )
 
-        return flux, emission_contribution, opacities_rosseland, relative_cloud_scaling_factor
+        return flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor
 
     def _calculate_opacities(self, temperatures, mass_fractions, mean_molar_masses, reference_gravity,
                              opaque_cloud_top_pressure=None,
@@ -2377,6 +2377,29 @@ class Radtrans:
             )
         )
 
+        if auto_anisotropic_cloud_scattering:
+            self._anisotropic_cloud_scattering = 'auto'
+
+        flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor = (
+            self._calculate_flux(
+                temperatures=temperatures,
+                reference_gravity=reference_gravity,
+                opacities=opacities,
+                continuum_opacities_scattering=continuum_opacities_scattering,
+                emission_geometry=emission_geometry,
+                star_irradiation_cos_angle=star_irradiation_cos_angle,
+                stellar_intensity=stellar_intensities,
+                reflectances=reflectances,
+                emissivities=emissivities,
+                return_contribution=return_contribution,
+                cloud_f_sed=cloud_f_sed,
+                hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth,
+                cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+                cloud_absorption_opacities=cloud_absorption_opacities,
+                return_rosseland_opacities=return_rosseland_optical_depths
+            )
+        )
+
         if planet_radius is not None and return_photosphere_radius:
             photosphere_radius = self.calculate_photosphere_radius(
                 temperatures=temperatures,
@@ -2388,29 +2411,9 @@ class Radtrans:
                 cloud_f_sed=cloud_f_sed,
                 cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
                 cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-                cloud_absorption_opacities=cloud_absorption_opacities
+                cloud_absorption_opacities=cloud_absorption_opacities,
+                optical_depths=optical_depths
             )
-
-        if auto_anisotropic_cloud_scattering:
-            self._anisotropic_cloud_scattering = 'auto'
-
-        flux, emission_contribution, opacities_rosseland, relative_cloud_scaling_factor = self._calculate_flux(
-            temperatures=temperatures,
-            reference_gravity=reference_gravity,
-            opacities=opacities,
-            continuum_opacities_scattering=continuum_opacities_scattering,
-            emission_geometry=emission_geometry,
-            star_irradiation_cos_angle=star_irradiation_cos_angle,
-            stellar_intensity=stellar_intensities,
-            reflectances=reflectances,
-            emissivities=emissivities,
-            return_contribution=return_contribution,
-            cloud_f_sed=cloud_f_sed,
-            hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth,
-            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-            cloud_absorption_opacities=cloud_absorption_opacities,
-            return_rosseland_opacities=return_rosseland_optical_depths
-        )
 
         if self.__clouds_have_effect(mass_fractions) and return_cloud_contribution:
             cloud_contribution = self._compute_cloud_optical_depths(
@@ -2477,7 +2480,8 @@ class Radtrans:
             cloud_f_sed: float,
             cloud_photosphere_median_optical_depth: float,
             cloud_anisotropic_scattering_opacities: np.ndarray[float],
-            cloud_absorption_opacities: np.ndarray[float]
+            cloud_absorption_opacities: np.ndarray[float],
+            optical_depths: np.ndarray[float] = None
     ) -> np.ndarray[float]:
         """Calculate the photosphere radius.
         TODO complete docstring
@@ -2492,7 +2496,7 @@ class Radtrans:
             cloud_photosphere_median_optical_depth:
             cloud_anisotropic_scattering_opacities:
             cloud_absorption_opacities:
-
+            optical_depths:
         Returns:
 
         """
@@ -2510,23 +2514,25 @@ class Radtrans:
         photosphere_radius = np.zeros(self._frequencies.size)
 
         if self._line_opacity_mode == 'lbl' or self._scattering_in_emission:
-            optical_depths, _, _ = self._compute_optical_depths(
-                pressures=self._pressures,
-                reference_gravity=reference_gravity,
-                opacities=opacities,
-                continuum_opacities_scattering=continuum_opacities_scattering,
-                line_opacity_mode=self._line_opacity_mode,
-                scattering_in_emission=self._scattering_in_emission,
-                absorber_present=self.__absorber_present,
-                # Custom cloud parameters
-                frequencies=self._frequencies,
-                weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                cloud_wavelengths=self._clouds_loaded_opacities['wavelengths'],
-                cloud_f_sed=cloud_f_sed,
-                cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-                cloud_absorption_opacities=cloud_absorption_opacities,
-                hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth
-            )
+            if optical_depths is None:
+                optical_depths, _, _ = self._compute_optical_depths(
+                    pressures=self._pressures,
+                    reference_gravity=reference_gravity,
+                    opacities=opacities,
+                    continuum_opacities_scattering=continuum_opacities_scattering,
+                    line_opacity_mode=self._line_opacity_mode,
+                    scattering_in_emission=self._scattering_in_emission,
+                    absorber_present=self.__absorber_present,
+                    # Custom cloud parameters
+                    frequencies=self._frequencies,
+                    weights_gauss=self._lines_loaded_opacities['weights_gauss'],
+                    cloud_wavelengths=self._clouds_loaded_opacities['wavelengths'],
+                    cloud_f_sed=cloud_f_sed,
+                    cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+                    cloud_absorption_opacities=cloud_absorption_opacities,
+                    hack_cloud_photospheric_optical_depths=cloud_photosphere_median_optical_depth
+                )
+
             weights_gauss_reshape = self._lines_loaded_opacities['weights_gauss'].reshape(
                 len(self._lines_loaded_opacities['weights_gauss']), 1
             )
