@@ -772,7 +772,7 @@ module fortran_radtrans_core
                     n_species, n_layers), g_gauss(n_g), weights_gauss(n_g)
             double precision, intent(out) :: opacities_out(n_g, n_frequencies, n_layers)
 
-            double precision, parameter :: threshold_coefficient = 1d-3
+            double precision, parameter :: threshold_coefficient = 1d-2
 
             integer :: i_freq, i_spec, i_struc, i_samp, i_g, j_g, n_sample
             double precision :: weights_use(n_g)
