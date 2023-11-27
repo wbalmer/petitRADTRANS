@@ -867,7 +867,7 @@ class Radtrans:
         # Similar to the line-by-line case below, if _scattering_in_emission is True, we will put the total opacity into
         # the first species slot and then carry the remaining radiative transfer steps only over that 0 index
         if self._line_opacity_mode == 'c-k' and self._scattering_in_emission:
-            opacities[:, :, 0, :] = self._combine_ck_opacities(
+            opacities = self._combine_ck_opacities(
                 opacities=opacities,
                 g_gauss=self._lines_loaded_opacities['g_gauss'],
                 weights_gauss=self._lines_loaded_opacities['weights_gauss']
@@ -990,7 +990,7 @@ class Radtrans:
             weights_gauss
         )
 
-        return opacities[:, :, 0, :]
+        return opacities
 
     @staticmethod
     def _combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):
@@ -1537,23 +1537,19 @@ class Radtrans:
 
     @staticmethod
     def _compute_optical_depths(pressures, reference_gravity, opacities, continuum_opacities_scattering,
-                                scattering_in_emission, optical_depths=None):
-        if optical_depths is None:
-            optical_depths = np.zeros(opacities.shape, dtype='d', order='F')
-
-        optical_depths[:, :, :1, :], photon_destruction_probabilities = \
+                                scattering_in_emission):
+        optical_depths, photon_destruction_probabilities = \
             fcore.compute_optical_depths(
                 reference_gravity,
                 pressures,
-                opacities[:, :, :1, :],
+                opacities,
                 scattering_in_emission,
                 continuum_opacities_scattering
             )
 
-        return optical_depths[:, :, :1, :], photon_destruction_probabilities
+        return optical_depths, photon_destruction_probabilities
 
     @staticmethod
-    #@profile
     def _compute_optical_depths_wrapper(pressures, reference_gravity, opacities, continuum_opacities_scattering,
                                         scattering_in_emission, line_opacity_mode=None,
                                         hack_cloud_photospheric_optical_depths=None, absorber_present=True,
@@ -1578,7 +1574,9 @@ class Radtrans:
                 if scattering_in_emission:
                     _continuum_opacities_scattering = continuum_opacities_scattering
                 else:
-                    _continuum_opacities_scattering = np.zeros(continuum_opacities_scattering.shape)
+                    _continuum_opacities_scattering = np.zeros(
+                        continuum_opacities_scattering.shape, dtype='d', order='F'
+                    )
 
                 optical_depths[:, :, :1, :], photon_destruction_probabilities = \
                     Radtrans._compute_optical_depths(
@@ -1586,10 +1584,8 @@ class Radtrans:
                         reference_gravity=reference_gravity,
                         opacities=opacities[:, :, :1, :],
                         continuum_opacities_scattering=_continuum_opacities_scattering,
-                        scattering_in_emission=scattering_in_emission,
-                        optical_depths=optical_depths  # prevent re-initialisation of optical_depths
+                        scattering_in_emission=scattering_in_emission
                     )
-
             # Handle cases without any absorbers, where opacities are zero
             if not absorber_present:
                 print('No absorbers present, setting the photon destruction probability in the atmosphere to 1.')
