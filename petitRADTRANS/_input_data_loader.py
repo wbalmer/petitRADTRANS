@@ -341,7 +341,10 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
 
             new_default_file = files[new_default_file]
 
-            petitradtrans_config_parser.set_default_file(os.path.join(full_path, new_default_file))
+            petitradtrans_config_parser.set_default_file(
+                file=os.path.join(full_path, new_default_file),
+                path_input_data=path_input_data
+            )
 
             return new_default_file
 

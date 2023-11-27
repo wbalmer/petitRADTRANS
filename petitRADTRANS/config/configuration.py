@@ -3,6 +3,7 @@ Manages the configuration files.
 """
 import configparser
 import os
+import warnings
 from pathlib import Path
 
 from petitRADTRANS.utils import LockedDict
@@ -54,30 +55,6 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         config.save()
 
-    def check_input_data_path(self, path):
-        if self.get_input_data_path() not in path:
-            raise ValueError(f"path '{path}' must be within the input_data path ('{self.get_input_data_path()}')")
-
-        path = path.rsplit(self.get_input_data_path())[1][1:]  # remove leading '/'
-
-        if len(path) == 0:
-            raise ValueError(f"path must be within the input_data path, but is the input_data path itself ('{path}')")
-
-        is_subpath = False
-
-        for subpath in get_input_data_subpaths().values():
-            if subpath in path:
-                is_subpath = True
-                break
-
-        if not is_subpath:
-            subpaths_str = "\n".join(get_input_data_subpaths().values())
-            raise ValueError(f"path '{path}' must be within an input_data subpath\n"
-                             f"Valid subpaths are:\n"
-                             f"{subpaths_str}")
-
-        return path
-
     @property
     def config_file(self):
         """
@@ -98,6 +75,38 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
     def get_input_data_path(self):
         return self['Paths']['prt_input_data_path']
+
+    def get_input_data_subpath(self, path, path_input_data=None, strict=True):
+        if path_input_data is None:
+            path_input_data = self.get_input_data_path()
+
+        if self.get_input_data_path() not in path and strict:
+            warnings.warn(f"path '{path}' is not within "
+                          f"the configured input_data path ('{self.get_input_data_path()}')\n"
+                          f"Check your path, "
+                          f"or, if you are targeting an alternate input_data path, "
+                          f"set strict to False to supress this warning")
+
+        path = path.rsplit(path_input_data)[1][1:]  # remove leading '/'
+
+        if len(path) == 0:
+            raise ValueError(f"path must be within the input_data path, but is the input_data path itself ('{path}')")
+
+        is_subpath = False
+
+        for subpath in get_input_data_subpaths().values():
+            if subpath in path:
+                is_subpath = True
+                break
+
+        if not is_subpath:
+            subpaths_str = "\n".join(get_input_data_subpaths().values())
+            raise ValueError(f"path '{path}' must be within an input_data subpath\n"
+                             f"Valid subpaths are:\n"
+                             f"{subpaths_str}")
+
+        return path
+
 
     @classmethod
     def init_default(cls):
@@ -159,11 +168,22 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         self.load()
 
-    def set_default_file(self, file: str):
+    def set_default_file(self, file: str, path_input_data=None):
+        if path_input_data is None:
+            path_input_data = self.get_input_data_path()
+
         file = os.path.abspath(file)
         path, filename = file.rsplit(os.path.sep, 1)
 
-        sub_path = self.check_input_data_path(path)
+        if path_input_data != self.get_input_data_path():
+            print(f"Setting default side for '{path_input_data}', "
+                  f"outside of the configured input_data path ('{self.get_input_data_path()}')")
+
+        sub_path = self.get_input_data_subpath(
+            path=path,
+            path_input_data=path_input_data,
+            strict=False
+        )
 
         print(f"Setting new default file '{file}'")
         self.power_set('Default files', sub_path, filename)
