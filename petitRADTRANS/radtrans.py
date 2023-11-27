@@ -1060,7 +1060,6 @@ class Radtrans:
 
         return flux, emission_contribution
 
-
     @staticmethod
     def _compute_cloud_log_normal_particles_distribution_opacities(
             atmosphere_densities,

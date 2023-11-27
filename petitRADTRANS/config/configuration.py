@@ -107,7 +107,6 @@ class PetitradtransConfigParser(configparser.ConfigParser):
 
         return path
 
-
     @classmethod
     def init_default(cls):
         config = cls()
