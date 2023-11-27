@@ -34,6 +34,35 @@ __elemental_abundances = {
     'Ni': 1.52807116806281e-06
 }
 
+# Get molar masses ahead of time to gain speed
+__molar_masses = {
+    'H': get_species_molar_mass('H'),
+    'He': get_species_molar_mass('He'),
+    'C': get_species_molar_mass('C'),
+    'N': get_species_molar_mass('N'),
+    'O': get_species_molar_mass('O'),
+    'Na': get_species_molar_mass('Na'),
+    'Mg': get_species_molar_mass('Mg'),
+    'Al': get_species_molar_mass('Al'),
+    'Si': get_species_molar_mass('Si'),
+    'P': get_species_molar_mass('P'),
+    'S': get_species_molar_mass('S'),
+    'Cl': get_species_molar_mass('Cl'),
+    'K': get_species_molar_mass('K'),
+    'Ca': get_species_molar_mass('Ca'),
+    'Ti': get_species_molar_mass('Ti'),
+    'V': get_species_molar_mass('V'),
+    'Fe': get_species_molar_mass('Fe'),
+    'Ni': get_species_molar_mass('Ni')
+}
+
+
+def __get_species_molar_mass(species):
+    if species in __molar_masses:
+        return __molar_masses[species]
+    else:
+        return get_species_molar_mass(species)
+
 
 def setup_clouds(pressures, parameters, cloud_species):
     """
@@ -207,10 +236,10 @@ def return_x_fe(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    x_fe = get_species_molar_mass('Fe') * nfracs_use['Fe']
+    x_fe = __get_species_molar_mass('Fe') * nfracs_use['Fe']
     add = 0.
     for spec in nfracs_use.keys():
-        add += get_species_molar_mass(spec) * nfracs_use[spec]
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
     x_fe = x_fe / add
 
@@ -230,14 +259,14 @@ def return_x_mgsio3(metallicity, co_ratio):
     nfracs_mgsio3 = np.min([nfracs_use['Mg'],
                             nfracs_use['Si'],
                             nfracs_use['O'] / 3.])
-    masses_mgsio3 = get_species_molar_mass('Mg') \
-        + get_species_molar_mass('Si') \
-        + 3. * get_species_molar_mass('O')
+    masses_mgsio3 = __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Si') \
+        + 3. * __get_species_molar_mass('O')
 
     xmgsio3 = masses_mgsio3 * nfracs_mgsio3
     add = 0.
     for spec in nfracs_use.keys():
-        add += get_species_molar_mass(spec) * nfracs_use[spec]
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
     xmgsio3 = xmgsio3 / add
 
@@ -259,16 +288,16 @@ def return_x_mg2sio4(metallicity, co_ratio):
         nfracs_use['Si'],
         nfracs_use['O'] / 4.]
     )
-    masses_mg2sio4 = 2 * get_species_molar_mass('Mg') \
-        + get_species_molar_mass('Si') \
-        + 4. * get_species_molar_mass('O')
+    masses_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Si') \
+        + 4. * __get_species_molar_mass('O')
 
     x_mg2sio4 = masses_mg2sio4 * nfracs_mg2sio4
 
     add = 0.
 
     for spec in nfracs_use.keys():
-        add += get_species_molar_mass(spec) * nfracs_use[spec]
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
     x_mg2sio4 = x_mg2sio4 / add
 
@@ -287,13 +316,13 @@ def return_x_na2s(metallicity, co_ratio):
 
     nfracs_na2s = np.min([nfracs_use['Na'] / 2.,
                           nfracs_use['S']])
-    masses_na2s = 2. * get_species_molar_mass('Na') \
-        + get_species_molar_mass('S')
+    masses_na2s = 2. * __get_species_molar_mass('Na') \
+        + __get_species_molar_mass('S')
 
     xna2s = masses_na2s * nfracs_na2s
     add = 0.
     for spec in nfracs_use.keys():
-        add += get_species_molar_mass(spec) * nfracs_use[spec]
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
     xna2s = xna2s / add
 
@@ -312,13 +341,13 @@ def return_x_kcl(metallicity, co_ratio):
 
     nfracs_kcl = np.min([nfracs_use['K'],
                          nfracs_use['Cl']])
-    masses_kcl = get_species_molar_mass('K') \
-        + get_species_molar_mass('Cl')
+    masses_kcl = __get_species_molar_mass('K') \
+        + __get_species_molar_mass('Cl')
 
     xkcl = masses_kcl * nfracs_kcl
     add = 0.
     for spec in nfracs_use.keys():
-        add += get_species_molar_mass(spec) * nfracs_use[spec]
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
     xkcl = xkcl / add
 
@@ -340,7 +369,7 @@ def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
-    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
+    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
@@ -354,7 +383,7 @@ def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
-    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
+    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
@@ -377,7 +406,7 @@ def return_t_cond_fe_free(x_fe, mmw=2.33):
     def p_vap(x):
         return np.exp(15.71 - 47664. / x)
 
-    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
+    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
@@ -389,7 +418,7 @@ def return_t_cond_fe_l_free(x_fe, mmw=2.33):
     def p_vap(x):
         return np.exp(9.86 - 37120. / x)
 
-    return p_vap(t) / (x_fe * mmw / get_species_molar_mass('Fe')), t
+    return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
@@ -413,9 +442,9 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
 
     xmgsio3 = return_x_mgsio3(metallicity, co_ratio)
 
-    m_mgsio3 = get_species_molar_mass('Mg') \
-        + get_species_molar_mass('Si') \
-        + 3. * get_species_molar_mass('O')
+    m_mgsio3 = __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Si') \
+        + 3. * __get_species_molar_mass('O')
 
     return p_vap(t) / (xmgsio3 * mmw / m_mgsio3), t
 
@@ -431,9 +460,9 @@ def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
 
     # x_mg2sio4 = return_x_mg2sio4(metallicity, co_ratio)
     #
-    # m_mg2sio4 = 2. * get_species_molar_mass('Mg') \
-    #     + get_species_molar_mass('Si') \
-    #     + 4. * get_species_molar_mass('O')
+    # m_mg2sio4 = 2. * __get_species_molar_mass('Mg') \
+    #     + __get_species_molar_mass('Si') \
+    #     + 4. * __get_species_molar_mass('O')
     return p_vap(t), t  # TODO shouldn't that be multiplied by (x_mg2sio4 * mmw / m_mg2sio4) just like above?
 
 
@@ -446,9 +475,9 @@ def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
-    m_mgsio3 = get_species_molar_mass('Mg') \
-        + get_species_molar_mass('Si') \
-        + 3. * get_species_molar_mass('O')
+    m_mgsio3 = __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Si') \
+        + 3. * __get_species_molar_mass('O')
     return p_vap(t) / (x_mgsio3 * mmw / m_mgsio3), t
 
 
@@ -460,9 +489,9 @@ def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
-    m_mg2sio4 = 2 * get_species_molar_mass('Mg') \
-        + get_species_molar_mass('Si') \
-        + 4. * get_species_molar_mass('O')
+    m_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Si') \
+        + 4. * __get_species_molar_mass('O')
     return p_vap(t) / (x_mg2sio4 * mmw / m_mg2sio4), t
 
 
@@ -482,8 +511,8 @@ def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
 
     xna2s = return_x_na2s(metallicity, co_ratio)
 
-    m_na2s = 2. * get_species_molar_mass('Na') \
-        + get_species_molar_mass('S')
+    m_na2s = 2. * __get_species_molar_mass('Na') \
+        + __get_species_molar_mass('S')
 
     return p_vap(t) / (xna2s * mmw / m_na2s), t
 
@@ -506,8 +535,8 @@ def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     def p_vap(x):
         return 1e1 ** (8.55 - 13889. / x - 0.5 * (np.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
 
-    m_na2s = 2. * get_species_molar_mass('Na') \
-        + get_species_molar_mass('S')
+    m_na2s = 2. * __get_species_molar_mass('Na') \
+        + __get_species_molar_mass('S')
 
     return p_vap(t) / (x_na2s * mmw / m_na2s), t
 
@@ -521,8 +550,8 @@ def return_t_cond_kcl(metallicity, co_ratio, mmw=2.33):
 
     xkcl = return_x_kcl(metallicity, co_ratio)
 
-    m_kcl = get_species_molar_mass('K') \
-        + get_species_molar_mass('Cl')
+    m_kcl = __get_species_molar_mass('K') \
+        + __get_species_molar_mass('Cl')
 
     return p_vap(t) / (xkcl * mmw / m_kcl), t
 
@@ -534,8 +563,8 @@ def return_t_cond_kcl_free(x_kcl, mmw=2.33):
     def p_vap(x):
         return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
 
-    m_kcl = get_species_molar_mass('K') \
-        + get_species_molar_mass('Cl')
+    m_kcl = __get_species_molar_mass('K') \
+        + __get_species_molar_mass('Cl')
 
     return p_vap(t) / (x_kcl * mmw / m_kcl), t
 

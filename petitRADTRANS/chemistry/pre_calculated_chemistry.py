@@ -83,35 +83,36 @@ class PreCalculatedEquilibriumChemistryTable:
         temps_large_int = np.searchsorted(self.temperatures, temperatures) + 1
         pressures_large_int = np.searchsorted(self.pressures, pressures) + 1
 
-        if full:
-            chemical_table = np.concatenate(
-                (
-                    self.mass_fractions,
-                    self.mean_molar_masses[np.newaxis],
-                    self.nabla_adiabatic[np.newaxis]
-                )
-            )
-        else:
-            chemical_table = self.mass_fractions
-
-        # Get the interpolated values from Fortran routine
-        _chemical_table = fchem.interpolate_chemical_table(
+        _mass_fractions = fchem.interpolate_chemical_table(
             co_ratios, log10_metallicities, temperatures,
             pressures, co_ratios_large_int,
             fehs_large_int, temps_large_int,
             pressures_large_int, self.log10_metallicities, self.co_ratios,
-            self.pressures, self.temperatures, chemical_table, full
+            self.pressures, self.temperatures, self.mass_fractions, True
         )
 
         # Sort in output format of this function
         mass_fractions = {}
 
         for id_, name in enumerate(self.species):
-            mass_fractions[name] = _chemical_table[id_]
+            mass_fractions[name] = _mass_fractions[id_]
 
         if full:
-            mean_molar_masses = _chemical_table[-2]
-            nabla_adiabatic = _chemical_table[-1]
+            mean_molar_masses = fchem.interpolate_chemical_table(
+                co_ratios, log10_metallicities, temperatures,
+                pressures, co_ratios_large_int,
+                fehs_large_int, temps_large_int,
+                pressures_large_int, self.log10_metallicities, self.co_ratios,
+                self.pressures, self.temperatures, self.mean_molar_masses[np.newaxis], False
+            )
+
+            nabla_adiabatic = fchem.interpolate_chemical_table(
+                co_ratios, log10_metallicities, temperatures,
+                pressures, co_ratios_large_int,
+                fehs_large_int, temps_large_int,
+                pressures_large_int, self.log10_metallicities, self.co_ratios,
+                self.pressures, self.temperatures, self.nabla_adiabatic[np.newaxis], False
+            )
         else:
             mean_molar_masses = None
             nabla_adiabatic = None

@@ -41,13 +41,13 @@ module fortran_chemistry
                                               largest_co_ratios_indices, largest_metallicities_indices, &
                                               largest_temperatures_indices, largest_pressures_indices, &
                                               table_metallicities, table_co_ratios, table_pressures, &
-                                              table_temperatures, chemical_table, full, &
+                                              table_temperatures, chemical_table, is_mass_fraction, &
                                               n_layers, n_metallicities, n_co_ratios, n_pressures, &
                                               n_temperatures, n_species, chemical_table_interp)
 
             implicit none
             ! I/O
-            logical, intent(in) :: full
+            logical, intent(in) :: is_mass_fraction
             integer, intent(in) :: n_metallicities, n_co_ratios, n_pressures, n_temperatures, n_species, n_layers
             double precision, intent(in) :: co_ratios(n_layers), log10_metallicities(n_layers), &
                temperatures(n_layers), pressures(n_layers)
@@ -119,11 +119,9 @@ module fortran_chemistry
                 end do
             end do
 
-            if (full) then
-                ! Do not compute the power of ten of nabla_adiabatic and the mean molar mass
-                chemical_table_interp(1:n_species-2, :) = 1d1**chemical_table_interp(1:n_species-2, :)
-            else
-                chemical_table_interp(:, :) = 1d1**chemical_table_interp(:, :)
+            ! Do not compute the power of ten of nabla_adiabatic and the mean molar mass
+            if (is_mass_fraction) then
+                chemical_table_interp(:, :) = 1d1 ** chemical_table_interp(:, :)
             end if
         end subroutine interpolate_chemical_table
 end module fortran_chemistry
