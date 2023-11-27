@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
 - Relevance threshold when combining correlated-k opacities is less strict.
 
+## [2.7.5] - 2023-11-08
+### Changed
+ - Updates to retrieval tutorials, as requested by JOSS review.
+
+## [2.7.4] - 2023-11-13
+### Changed
+ - Fixed bugs in argument naming.
+ - Minor changes to MPI interface.
+ - Removed unnecessary instructions for installation on Apple Mx chips.
+ - Updated interface to `species`, now requiring newer than v0.7.
+
 ## [2.7.3] - 2023-11-08
 ### Changed
  - New plotting function interface, can pass `pRT_objects` and `model_generating_functions`
