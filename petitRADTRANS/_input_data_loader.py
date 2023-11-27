@@ -37,6 +37,37 @@ def __build_cia_aliases_dict():
     return cia_aliases
 
 
+def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
+    if index_merge is None:
+        index_merge = i - 1
+
+    if i > 0:
+        element, number = isotope_groups[i]
+        element_merge, number_merge = isotope_groups[index_merge]
+
+        if element == element_merge:
+            if number_merge == '':
+                number_merge = 1
+            elif number_merge == 0:
+                if index_merge > 0:
+                    isotope_groups = __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge - 1)
+                    return isotope_groups
+                else:
+                    return isotope_groups
+            else:
+                number_merge = int(number_merge)
+
+            if number == '':
+                number = 1
+            else:
+                number = int(number)
+
+            isotope_groups[index_merge][1] = number_merge + number
+            isotope_groups[i][1] = 0
+
+    return isotope_groups
+
+
 def _get_base_cia_names():
     return LockedDict.build_and_lock({
         'H2--H2': 'H2--H2-NatAbund__BoRi.R831_0.6-250mu',
@@ -401,6 +432,26 @@ def _has_isotope(string):
         return False
 
 
+def _merge_contiguous_isotopes(species, isotope_separator):
+    isotope_groups = re.findall(r'([A-Z][a-z]?)(\d{1,3})?', species)
+    isotope_groups = [list(isotope_group) for isotope_group in isotope_groups]
+
+    # Merge the isotopes, numbers of contiguous isotopes are converted to int, merged groups numbers are set to 0
+    for i in range(len(isotope_groups)):
+        isotope_groups = __recursive_merge_contiguous_isotopes(isotope_groups, i)
+
+    # Convert back numbers from int to str
+    for i in range(len(isotope_groups)):
+        isotope_groups[i][1] = str(isotope_groups[i][1])
+
+    # Rebuild the species with merged isotopes
+    return isotope_separator.join([
+        isotope_separator.join(isotope_group)
+        for isotope_group in isotope_groups
+        if isotope_group[1] != '0'  # ignore groups that has been merged
+    ])
+
+
 def _rebuild_isotope_numbers(species, mode='add'):
     """Add or remove isotope numbers from a species.
     Note that using improper isotope separation can lead to incorrect results (e.g. H218O -> 1H218-16O).
@@ -479,7 +530,16 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
             isotopes[j] = isotope_separator.join(matches)  # join non-separated isotopes with the explicit separator
 
-        _species[i] = isotope_separator.join(isotopes)  # join isotopes to rebuild species
+        _species_tmp = isotope_separator.join(isotopes)  # join isotopes to rebuild species
+
+        # Merge contiguous matches containing the same element (but presumably different isotopes)
+        if mode == 'remove':
+            _species_tmp = _merge_contiguous_isotopes(
+                species=_species_tmp,
+                isotope_separator=isotope_separator
+            )
+
+        _species[i] = _species_tmp
 
     __species = '--'.join(_species)  # join species to rebuild collision
 
