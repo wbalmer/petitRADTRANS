@@ -30,13 +30,6 @@ class PetitradtransConfigParser(configparser.ConfigParser):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def __new__(cls):
-        """Singleton pattern."""
-        if cls._instance is None:
-            cls._instance = super(PetitradtransConfigParser, cls).__new__(cls)
-
-        return cls._instance
-
     @classmethod
     def _make(cls):
         """

@@ -2,7 +2,6 @@
 """
 import copy
 import os
-import shutil
 
 from .context import petitRADTRANS
 
@@ -15,56 +14,61 @@ def test_configuration_file_generation():
     path_input_data = petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path()
 
     # Check if default input data path is used
+    config = petitRADTRANS.config.configuration.PetitradtransConfigParser()
+
     using_default_directory = False
 
-    default_directory = petitRADTRANS.config.petitradtrans_config_parser.directory
+    default_directory = config.default_config[path_section][input_data_path_option]
     modified_default_directory = default_directory + '_'
 
-    if os.path.isdir(
-            petitRADTRANS.config.petitradtrans_config_parser.default_config[path_section][input_data_path_option]
-    ):
+    if os.path.isdir(config.default_config[path_section][input_data_path_option]):
         # Rename input_data path to raise the FileNotFound error
         print(f"Temporarily renaming input data directory to '{modified_default_directory}'")
         os.rename(default_directory, modified_default_directory)
         using_default_directory = True
 
-    # Remove config file directory
-    # Prevent rmdir from complaining that the directory is not empty
-    os.remove(petitRADTRANS.config.petitradtrans_config_parser.config_file)
-    os.rmdir(petitRADTRANS.config.petitradtrans_config_parser.directory)
+    # Save old config
+    config = copy.deepcopy(petitRADTRANS.config.petitradtrans_config_parser)
 
-    # Power load the configuration, this should generate the default config file
-    petitRADTRANS.config.petitradtrans_config_parser.power_load()
+    # Remove config file directory
+    os.remove(config.config_file)  # prevent rmdir from complaining that the directory is not empty
+    os.rmdir(config.directory)
+
+    # Create a new instance of PetitradtransConfigParser, this should generate the default config file
+    new_config = petitRADTRANS.config.configuration.PetitradtransConfigParser()
+    new_config.power_load()
+    petitRADTRANS.config.petitradtrans_config_parser.power_update(new_config)
 
     # Test if the config file was generated, but the input_data path is incorrect
     print(f"Testing for incorrect input_data path behaviour...")
+    error_raised = False
 
     try:
         petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
 
-        if os.path.isdir(petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path()):
+        if os.path.isdir(new_config.get_input_data_path()):
             raise FileExistsError(
-                f"directory '{petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path()}' exists, "
-                f"while it should not for this test"
+                f"directory '{new_config.get_input_data_path()}' exists, while it should not for this test"
             )
     except FileNotFoundError as error:
-        if not os.path.isdir(petitRADTRANS.config.petitradtrans_config_parser.directory):
-            raise FileNotFoundError(
-                f"configuration directory '{petitRADTRANS.config.petitradtrans_config_parser.directory}' "
-                f"is expected to be generated"
-            )
-        elif not os.path.isdir(petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path()):
-            print(f"directory '{petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path()}' is incorrect, "
-                  f"as expected")
+        error_raised = True
+
+        if not os.path.isdir(new_config.directory):
+            raise FileNotFoundError(f"configuration directory '{new_config.directory}' is expected to be generated")
+        elif not os.path.isdir(new_config.get_input_data_path()):
+            print(f"directory '{new_config.get_input_data_path()}' is incorrect, as expected")
         else:
             raise FileExistsError(f"a file was unexpectedly not found: '{str(error)}'")
     finally:
+        petitRADTRANS.config.petitradtrans_config_parser.power_update(config)
+
         if using_default_directory:
             print(f"Renaming '{modified_default_directory}' back to '{default_directory}'")
             os.rename(modified_default_directory, default_directory)
 
-        print(f"Set back input_data path to '{path_input_data}'")
-        petitRADTRANS.config.petitradtrans_config_parser.set_input_data_path(path_input_data)
+    if not error_raised:
+        raise FileExistsError(f"stellar spectrum was unexpectedly loaded, maybe 'petitradtrans_config_parser' was "
+                              f"not properly reset")
 
     # Now test if the file is correctly loaded once everything is set properly
     print(f"Testing for correct input_data path behaviour...")
@@ -76,17 +80,9 @@ def test_configuration_file_repair():
     path_section = 'Paths'
     url_section = 'URLs'
 
-    config = petitRADTRANS.config.petitradtrans_config_parser
+    config = copy.deepcopy(petitRADTRANS.config.petitradtrans_config_parser)
     config.repair()  # ensure we start with a correct configuration
-
-    # Create a temporary broken config file
-    broken_config_file = config.config_file + '_test'
-    previous_config_file = copy.deepcopy(config.config_file)
-    shutil.copyfile(config.config_file, broken_config_file)
-
-    # Use the temporary file and break it
-    broken_config = config
-    broken_config._config_file = broken_config_file
+    broken_config = copy.deepcopy(config)
 
     try:
         # Break the configuration by removing sections and options
@@ -125,12 +121,7 @@ def test_configuration_file_repair():
         raise KeyError(f"something went wrong during repair testing, the error was:\n{str(error)}")
     finally:
         # Restore configuration to its previous state, even if it was broken
-        os.remove(broken_config_file)
-        config._config_file = previous_config_file
-        config.load()
-
-        # Just test if power_update works, no effect since config is the same instance as petitradtrans_config_parser
-        config.power_update(petitRADTRANS.config.petitradtrans_config_parser, repair_update=False)
+        petitRADTRANS.config.petitradtrans_config_parser.power_update(config, repair_update=False)
 
     # Now test if the file is correctly loaded once everything is set properly
     petitRADTRANS.config.petitradtrans_config_parser.load()
