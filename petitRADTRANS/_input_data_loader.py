@@ -234,6 +234,7 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
 
             matching_files = []
 
+            # First pass, try to use default resolution
             for file in files:
                 _file, spectral_info = file.split('.', 1)
 
@@ -264,8 +265,14 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
                             matching_files.append(file)
                         elif get_default_cloud_resolution() == resolution_file:
                             matching_files.append(file)
-                        else:  # not assuming any default resolution
-                            matching_files.append(file)
+
+            # Second pass, take any matching file regardless of resolution
+            if len(matching_files) == 0 and resolution_filename == '':
+                for file in files:
+                    _file = file.split('.', 1)[0]
+
+                    if _filename in _file:
+                        matching_files.append(file)
 
             if len(matching_files) == 0:
                 if display_other_files:
