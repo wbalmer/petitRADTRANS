@@ -2282,7 +2282,8 @@ class Radtrans:
             return_contribution: bool = False,
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
-            return_cloud_contribution: bool = False
+            return_cloud_contribution: bool = False,
+            return_opacities: bool = False,
     ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -2391,6 +2392,9 @@ class Radtrans:
                     if True, the Rosseland opacities and optical depths are calculated and returned
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated
+                return_opacities (Optional[bool]):
+                    if True, the absorption opacities and scattering opacities for species and clouds, as well as the
+                    optical depths, are returned
         """
         if reference_gravity <= 0:
             raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
@@ -2544,6 +2548,13 @@ class Radtrans:
 
         if return_cloud_contribution:
             additional_outputs['cloud_contribution'] = cloud_contribution
+
+        if return_opacities:
+            additional_outputs['opacities'] = opacities
+            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
+            additional_outputs['cloud_absorption_opacities'] = cloud_absorption_opacities
+            additional_outputs['cloud_anisotropic_scattering_opacities'] = cloud_anisotropic_scattering_opacities
+            additional_outputs['optical_depths'] = optical_depths
 
         if relative_cloud_scaling_factor is not None:
             additional_outputs['relative_cloud_scaling_factor'] = relative_cloud_scaling_factor
@@ -2808,7 +2819,8 @@ class Radtrans:
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
             return_cloud_contribution: bool = False,
-            return_radius_hydrostatic_equilibrium: bool = False
+            return_radius_hydrostatic_equilibrium: bool = False,
+            return_opacities: bool = False
     ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -2910,6 +2922,8 @@ class Radtrans:
                     if True, the cloud contribution is calculated and returned
                 return_radius_hydrostatic_equilibrium (Optional[bool]):
                     if True, the radius at hydrostatic equilibrium of the planet is returned
+                return_opacities (Optional[bool]):
+                    if True, the absorption opacities and scattering opacities are returned
         """
         if reference_gravity <= 0:
             raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
@@ -2973,6 +2987,10 @@ class Radtrans:
 
         if return_radius_hydrostatic_equilibrium:
             additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium
+
+        if return_opacities:
+            additional_outputs['opacities'] = opacities
+            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
 
         if frequencies_to_wavelengths:
             return (
