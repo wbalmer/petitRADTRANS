@@ -112,7 +112,6 @@ class Radtrans:
 
         # Inputs checks
         self.__check_line_opacity_mode(line_opacity_mode)
-        self.__check_wavelength_boundaries(wavelength_boundaries)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
 
@@ -150,6 +149,7 @@ class Radtrans:
         if wavelength_boundaries is None:
             self._wavelength_boundaries = np.array([0.05, 300.])  # um
         else:
+            self.__check_wavelength_boundaries(wavelength_boundaries)
             self._wavelength_boundaries = wavelength_boundaries
 
         self._anisotropic_cloud_scattering = anisotropic_cloud_scattering
@@ -468,9 +468,8 @@ class Radtrans:
 
     @staticmethod
     def __check_wavelength_boundaries(boundaries):
-        if boundaries is not None:
-            if np.size(boundaries) != 2:
-                raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
+        if np.size(boundaries) != 2:
+            raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
 
     def __clouds_have_effect(self, mass_fractions):
         """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
