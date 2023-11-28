@@ -264,6 +264,8 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
                             matching_files.append(file)
                         elif get_default_cloud_resolution() == resolution_file:
                             matching_files.append(file)
+                        else:  # not assuming any default resolution
+                            matching_files.append(file)
 
             if len(matching_files) == 0:
                 if display_other_files:
