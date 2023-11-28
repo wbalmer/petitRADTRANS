@@ -111,6 +111,7 @@ class Radtrans:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
         # Inputs checks
+        self.__check_pressures(pressures)
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
@@ -391,6 +392,7 @@ class Radtrans:
     @pressures.setter
     def pressures(self, array):
         warnings.warn(self.__property_setting_warning_message)
+        self.__check_pressures(array)
         self._pressures = array
 
     @property
@@ -465,6 +467,11 @@ class Radtrans:
                 f"To download the basic input_data directory, "
                 f"see https://petitradtrans.readthedocs.io/en/latest/content/installation.html"
             )
+
+    @staticmethod
+    def __check_pressures(pressures):
+        if not np.all(np.diff(pressures) > 0):
+            raise ValueError(f"pressures must be an array in increasing order")
 
     @staticmethod
     def __check_wavelength_boundaries(boundaries):
