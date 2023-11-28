@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a105] - 2023-11-28
+## [3.0.0-a106] - 2023-11-28
 ### Added
 - Automatic download of missing input_data files.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
 - Constant `e_molar_mass` to physical constants.
 - Possibility to return the gases and clouds opacities calculated by the `Radtrans` object.
+- Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
 - Some helpful error and warning messages.
 
 ### Changed
