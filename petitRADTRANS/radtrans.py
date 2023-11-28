@@ -478,6 +478,10 @@ class Radtrans:
         if np.size(boundaries) != 2:
             raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
 
+        if not boundaries[0] < boundaries[1]:
+            raise ValueError(f"wavelengths boundaries must be an array of 2 floats in increasing order, "
+                             f"but was {boundaries}")
+
     def __clouds_have_effect(self, mass_fractions):
         """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
 
