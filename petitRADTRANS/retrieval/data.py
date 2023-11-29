@@ -378,7 +378,9 @@ class Data:
     def get_chisq(self, wlen_model,
                   spectrum_model,
                   plotting,
-                  parameters=None):
+                  parameters=None,
+                  per_datapoint = False
+                  ):
         """
         Calculate the chi square between the model and the data.
 
@@ -471,9 +473,25 @@ class Data:
 
             log_l += -0.5 * np.dot(diff, np.dot(inv_cov, diff))
             log_l += -0.5 * log_covariance_determinant
+
+            if per_datapoint:
+                # Following Buerkner et al. (2020) to handle
+                # off-diagonal covariance elements
+                g_i = np.dot(inv_cov, diff)
+                sigma_bar_ii = np.diag(inv_cov)
+
+                sigma_tilde_i = 1/sigma_bar_ii
+                mu_tilde_i = flux_rebinned - g_i / sigma_bar_ii
+
+                logL_per_datapoint = -0.5*np.log(2*np.pi*sigma_tilde_i) + \
+                    - 0.5*(flux_rebinned - mu_tilde_i)**2 / sigma_tilde_i
         else:
             log_l += -0.5 * np.sum((diff / f_err) ** 2.)
-            log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
+            log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))if per_datapoint:
+
+            if per_datapoint:
+                # Only diagonal covariance elements
+                logL_per_datapoint = -0.5*np.log(2*np.pi*f_err**2) - 0.5*(diff/f_err)**2
 
         if plotting:
             import matplotlib.pyplot as plt
@@ -486,6 +504,9 @@ class Data:
                              yerr=f_err,
                              fmt='+')
                 plt.show()
+
+        if per_datapoint:
+            return logL_per_datapoint
 
         return log_l
 

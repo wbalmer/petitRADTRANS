@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
 - Relevance threshold when combining correlated-k opacities is less strict.
 
+## [2.7.6] - 2023-11-28
+### Changed
+ - Implementation of leave-one-out cross validation retrieval from Sam de Regt.
+ - Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
+ - Example included in test directory.
+
 ## [2.7.5] - 2023-11-08
 ### Changed
  - Updates to retrieval tutorials, as requested by JOSS review.
