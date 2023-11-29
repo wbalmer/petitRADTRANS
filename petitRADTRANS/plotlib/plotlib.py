@@ -748,7 +748,7 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
             error = data.uncertainties
             flux = data.spectrum
     else:
-        wlen = np.mean(data.width_photometry)
+        wlen = np.mean(data.photometric_bin_edges)
         flux = data.spectrum
         error = data.uncertainties
 
