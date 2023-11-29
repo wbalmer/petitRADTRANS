@@ -628,7 +628,7 @@ class Retrieval:
                 if self.rd.amr:
                     p = self.rd._setup_pres(scaling, width)  # TODO this function shouldn't be protected
                 else:
-                    p = self.rd.p_global
+                    p = self.rd.pressures
 
                 # Set up the pRT objects for the given dataset
                 rt_object = Radtrans(
@@ -1170,7 +1170,7 @@ class Retrieval:
             parameters["pressure_width"] = self.parameters["pressure_width"]
             parameters["pressure_simple"] = self.parameters["pressure_simple"]
         else:
-            p = self.rd.p_global
+            p = self.rd.pressures
 
         if prt_object is not None:
             atmosphere = prt_object
@@ -1335,7 +1335,7 @@ class Retrieval:
         ]
 
         abundances, mmw, _, _ = get_abundances(
-            self.rd.p_global,
+            self.rd.pressures,
             temps,
             cp.copy(species),
             cp.copy(self.data[name].radtrans_object.cloud_species),
@@ -1843,7 +1843,7 @@ class Retrieval:
         if self.rd.amr:
             p = self.rd._setup_pres()
         else:
-            p = self.rd.p_global
+            p = self.rd.pressures
 
         prt_object = Radtrans(
             pressures=p,
@@ -2153,7 +2153,7 @@ class Retrieval:
                         flux = dd.spectrum
                         wlen_bins = dd.wavelength_bin_widths
                 else:
-                    wlen = np.mean(dd.width_photometry)
+                    wlen = np.mean(dd.photometric_bin_edges)
                     flux = dd.spectrum
                     error = dd.uncertainties
                     wlen_bins = dd.wavelength_bin_widths
@@ -2619,7 +2619,7 @@ class Retrieval:
             self.rd.amr = False
             temps = []
 
-            pressures = self.rd.p_global  # prevent eventual reference before assignment
+            pressures = self.rd.pressures  # prevent eventual reference before assignment
             if amr:
                 for name, dd in self.data.items():
                     dd.radtrans_object.setup_opa_structure(pressures)
@@ -2901,7 +2901,7 @@ class Retrieval:
             fig, ax = plt.subplots(figsize=(10, 6))
             for name, dd in self.rd.data.items():
                 if dd.photometry:
-                    wlen = np.mean(dd.width_photometry)
+                    wlen = np.mean(dd.photometric_bin_edges)
                 else:
                     wlen = dd.wavelengths
                 ax.errorbar(wlen, dd.spectrum, yerr=dd.uncertainties, label=name, marker='o')
@@ -2968,8 +2968,8 @@ class Retrieval:
             amr = self.rd.amr
             self.rd.amr = False
             # Store old pressure array so that we can put it back later.
-            p_global_keep = self.rd.p_global
-            pressures = self.rd.p_global  # prevent eventual reference before assignment
+            p_global_keep = self.rd.pressures
+            pressures = self.rd.pressures  # prevent eventual reference before assignment
 
             if amr:
                 for name, dd in self.data.items():
@@ -3040,7 +3040,7 @@ class Retrieval:
 
             # Restore the correct pressure arrays.
             # *1e6 for units (cgs from bar)
-            self.rd.p_global = p_global_keep
+            self.rd.pressures = p_global_keep
             self.rd.amr = amr
             if amr:
                 for name, dd in self.data.items():
@@ -3116,8 +3116,8 @@ class Retrieval:
             amr = self.rd.amr
             self.rd.amr = False
             # Store old pressure array so that we can put it back later.
-            p_global_keep = self.rd.p_global
-            pressures = self.rd.p_global  # prevent eventual reference before assignment
+            p_global_keep = self.rd.pressures
+            pressures = self.rd.pressures  # prevent eventual reference before assignment
             if amr:
                 for name, dd in self.data.items():
                     dd.radtrans_object.setup_opa_structure(pressures)
@@ -3318,7 +3318,7 @@ class Retrieval:
                     + '_sampled_abundance_profiles.pdf',
                     bbox_inches='tight')
             # Restore the correct pressure arrays.
-            self.rd.p_global = p_global_keep
+            self.rd.pressures = p_global_keep
             self.rd.amr = amr
             if amr:
                 for name, dd in self.data.items():
