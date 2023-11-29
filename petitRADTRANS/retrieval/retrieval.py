@@ -246,7 +246,9 @@ class Retrieval:
             return
 
         if const_efficiency_mode and sampling_efficiency > 0.1:
-            logging.warning("Sampling efficiency should be ~ 0.05 if you're using constant efficiency mode!")
+            warnings.warn(
+                "Sampling efficiency should be <= 0.1 (0.05 recommended) if you're using constant efficiency mode!"
+            )
 
         prefix = self.output_dir + 'out_PMN/' + self.retrieval_name + '_'
 
