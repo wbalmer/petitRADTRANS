@@ -1079,9 +1079,11 @@ class SpectralModel(Radtrans):
                 }
             elif hasattr(filling_species, '__iter__'):
                 filling_species = {species: None for species in filling_species}
+            elif filling_species is None:
+                filling_species = {}
 
             if not isinstance(filling_species, dict):
-                ValueError(f"filling_species must be a dictionary, but is {filling_species}")
+                raise ValueError(f"filling_species must be a dictionary, but is {filling_species}")
 
         mass_fractions = {}
 
@@ -1182,12 +1184,17 @@ class SpectralModel(Radtrans):
 
                 mass_fractions[species] = sys.float_info.min
 
+        # Ensure that filling species are initialized as an array
+        for species in filling_species:
+            if species not in mass_fractions:
+                mass_fractions[species] = np.zeros(pressures.size)
+
         # Ensure that the sum of mass mixing ratios of all species is = 1
         m_sum_total = m_sum_species + m_sum_imposed_species
 
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
-                if filling_species is not None:  # fill the atmosphere using the filling species
+                if len(filling_species) > 0:  # fill the atmosphere using the filling species
                     # Take mass fractions from the current layer
                     mass_fractions_i = {
                         species: mass_fraction[i] for species, mass_fraction in mass_fractions.items()
@@ -1211,9 +1218,6 @@ class SpectralModel(Radtrans):
                     )
 
                     for species in mass_fractions_i:
-                        if species not in mass_fractions:  # ensure that filling species are initialized as an array
-                            mass_fractions[species] = np.zeros(pressures.size)
-
                         mass_fractions[species][i] = mass_fractions_i[species]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
