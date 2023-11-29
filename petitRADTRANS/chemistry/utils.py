@@ -110,7 +110,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
                 # Sanity check
-                if np.isclose(mass_fraction_from_weights, mass_fraction_from_subtraction, atol=0, rtol=1e-12):
+                if np.isclose(mass_fraction_from_weights, mass_fraction_from_subtraction, atol=1e-15, rtol=1e-12):
                     mass_fractions[species] = mass_fraction_from_subtraction
                 else:
                     raise ValueError(f"unexpected results when filling atmosphere\n"
