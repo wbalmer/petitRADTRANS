@@ -166,6 +166,7 @@ class Data:
         self.bval = -np.inf
 
         # Bins and photometry
+        self.wavelength_boundaries = None
         self.wavelength_bin_widths = wavelength_bin_widths
         self.photometry = photometry
         self.photometric_transformation_function = \
@@ -181,7 +182,7 @@ class Data:
                 sys.exit(9)
 
         self.photometry_range = wavelength_boundaries
-        self.width_photometry = photometric_bin_edges  # TODO change name, is confusing
+        self.photometric_bin_edges = photometric_bin_edges
 
         self.radtrans_grid = radtrans_grid
 
@@ -217,12 +218,12 @@ class Data:
                 if wavelength_boundaries is not None:
                     self.wavelength_boundaries = wavelength_boundaries
                 else:
-                    self.wavelength_boundaries = [0.95 * self.width_photometry[0],
-                                                  1.05 * self.width_photometry[1]]
+                    self.wavelength_boundaries = [0.95 * self.photometric_bin_edges[0],
+                                                  1.05 * self.photometric_bin_edges[1]]
                 # For binning later
-                self.wavelength_bin_widths = self.width_photometry[1] - self.width_photometry[0]
+                self.wavelength_bin_widths = self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
                 if self.data_resolution is None:
-                    self.data_resolution = np.mean(self.width_photometry) / self.wavelength_bin_widths
+                    self.data_resolution = np.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
 
     def loadtxt(self, path, delimiter=',', comments='#'):
         """
