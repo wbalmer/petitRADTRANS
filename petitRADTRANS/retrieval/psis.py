@@ -12,10 +12,10 @@ psislw
     Pareto smoothed importance sampling.
 
 gpdfitnew
-    Estimate the paramaters for the Generalized Pareto Distribution (GPD).
+    Estimate the parameters for the Generalized Pareto Distribution (GPD).
 
 gpinv
-    Inverse Generalised Pareto distribution function.
+    Inverse generalised Pareto distribution function.
 
 sumlogs
     Sum of vector where numbers are represented by their logarithms.
@@ -30,13 +30,8 @@ doi:10.1007/s11222-016-9696-4. https://arxiv.org/abs/1507.04544
 Aki Vehtari, Andrew Gelman and Jonah Gabry (2017). Pareto
 smoothed importance sampling. https://arxiv.org/abs/arXiv:1507.02646v5
 
-"""
-
-from __future__ import division # For Python 2 compatibility
-import numpy as np
-
-# 3-Clause BSD License
-"""
+3-Clause BSD License
+--------------------
 Copyright 2017 Aki Vehtari, Tuomas Sivula
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -62,7 +57,9 @@ ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
 LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. """
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+import numpy as np
 
 
 def psisloo(log_lik, **kwargs):
@@ -109,7 +106,7 @@ def psisloo(log_lik, **kwargs):
     return loo, loos, ks
 
 
-def psislw(lw, Reff=1.0, overwrite_lw=False):
+def psislw(lw, r_eff=1.0, overwrite_lw=False):
     """Pareto smoothed importance sampling (PSIS).
 
     Parameters
@@ -118,7 +115,7 @@ def psislw(lw, Reff=1.0, overwrite_lw=False):
         Array of size n x m containing m sets of n log weights. It is also
         possible to provide one dimensional array of length n.
 
-    Reff : scalar, optional
+    r_eff : scalar, optional
         relative MCMC efficiency ``N_eff / N``
 
     overwrite_lw : bool, optional
@@ -144,20 +141,21 @@ def psislw(lw, Reff=1.0, overwrite_lw=False):
         raise ValueError("More than one log-weight needed.")
 
     if overwrite_lw and lw.flags.f_contiguous:
-        # in-place operation
+        # In-place operation
         lw_out = lw
     else:
-        # allocate new array for output
+        # Allocate new array for output
         lw_out = np.copy(lw, order='F')
 
-    # allocate output array for kss
+    # Allocate output array for kss
     kss = np.empty(m)
 
-    # precalculate constants
-    cutoff_ind = - int(np.ceil(min(0.2 * n, 3 * np.sqrt(n / Reff)))) - 1
+    # Precalculate constants
+    cutoff_ind = - int(np.ceil(min(0.2 * n, 3 * np.sqrt(n / r_eff)))) - 1
     cutoffmin = np.log(np.finfo(float).tiny)
-    logn = np.log(n)
     k_min = 1/3
+    sigma = None
+    x2si = None
 
     # loop over sets of log weights
     for i, x in enumerate(lw_out.T if lw_out.ndim == 2 else lw_out[None, :]):
@@ -174,31 +172,34 @@ def psislw(lw, Reff=1.0, overwrite_lw=False):
         tailinds, = np.where(x > xcutoff)
         x2 = x[tailinds]
         n2 = len(x2)
+
         if n2 <= 4:
-            # not enough tail samples for gpdfitnew
+            # Not enough tail samples for gpdfitnew
             k = np.inf
         else:
-            # order of tail samples
+            # Order of tail samples
             x2si = np.argsort(x2)
-            # fit generalized Pareto distribution to the right tail samples
+            # Fit generalized Pareto distribution to the right tail samples
             np.exp(x2, out=x2)
             x2 -= expxcutoff
             k, sigma = gpdfitnew(x2, sort=x2si)
+
         if k >= k_min and not np.isinf(k):
-            # no smoothing if short tail or GPD fit failed
-            # compute ordered statistic for the fit
+            # No smoothing if short tail or GPD fit failed
+            # Compute ordered statistic for the fit
             sti = np.arange(0.5, n2)
             sti /= n2
             qq = gpinv(sti, k, sigma)
             qq += expxcutoff
             np.log(qq, out=qq)
-            # place the smoothed tail into the output array
+            # Place the smoothed tail into the output array
             x[tailinds[x2si]] = qq
-            # truncate smoothed values to the largest raw weight 0
+            # Truncate smoothed values to the largest raw weight 0
             x[x > 0] = 0
-        # renormalize weights
+
+        # Renormalize weights
         x -= sumlogs(x)
-        # store tail index k
+        # Store tail index k
         kss[i] = k
 
     # If the provided input array is one dimensional, return kss as scalar.
@@ -229,8 +230,8 @@ def gpdfitnew(x, sort=True, sort_in_place=False, return_quadrature=False):
         in-place (False by default).
 
     return_quadrature : bool, optional
-        If True, quadrature points and weight `ks` and `w` of the marginal posterior distribution of k are also calculated and returned. False by
-        default.
+        If True, quadrature points and weight `ks` and `w` of the marginal posterior distribution of k are also
+        calculated and returned. False by default.
 
     Returns
     -------
@@ -264,7 +265,7 @@ def gpdfitnew(x, sort=True, sort_in_place=False, return_quadrature=False):
         xsorted = False
 
     n = len(x)
-    PRIOR = 3
+    prior = 3
     m = 30 + int(np.sqrt(n))
 
     bs = np.arange(1, m + 1, dtype=float)
@@ -273,25 +274,25 @@ def gpdfitnew(x, sort=True, sort_in_place=False, return_quadrature=False):
     np.sqrt(bs, out=bs)
     np.subtract(1, bs, out=bs)
     if xsorted:
-        bs /= PRIOR * x[int(n/4 + 0.5) - 1]
+        bs /= prior * x[int(n/4 + 0.5) - 1]
         bs += 1 / x[-1]
     else:
-        bs /= PRIOR * x[sort[int(n/4 + 0.5) - 1]]
+        bs /= prior * x[sort[int(n/4 + 0.5) - 1]]
         bs += 1 / x[sort[-1]]
 
     ks = np.negative(bs)
-    temp = ks[:,None] * x
+    temp = ks[:, None] * x
     np.log1p(temp, out=temp)
     np.mean(temp, axis=1, out=ks)
 
-    L = bs / ks
-    np.negative(L, out=L)
-    np.log(L, out=L)
-    L -= ks
-    L -= 1
-    L *= n
+    l_parameter = bs / ks
+    np.negative(l_parameter, out=l_parameter)
+    np.log(l_parameter, out=l_parameter)
+    l_parameter -= ks
+    l_parameter -= 1
+    l_parameter *= n
 
-    temp = L - L[:,None]
+    temp = l_parameter - l_parameter[:, None]
     np.exp(temp, out=temp)
     w = np.sum(temp, axis=1)
     np.divide(1, w, out=w)

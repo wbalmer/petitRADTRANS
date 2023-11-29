@@ -467,7 +467,7 @@ class Radtrans:
     @staticmethod
     def __check_pressures(pressures):
         if not np.all(np.diff(pressures) > 0):
-            raise ValueError(f"pressures must be an array in increasing order")
+            raise ValueError("pressures must be an array in increasing order")
 
     @staticmethod
     def __check_wavelength_boundaries(boundaries):

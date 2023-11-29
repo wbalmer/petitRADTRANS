@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a106] - 2023-11-28
+## [3.0.0-a107] - 2023-11-29
 ### Added
 - Automatic download of missing input_data files.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -69,27 +69,35 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
 - Relevance threshold when combining correlated-k opacities is less strict.
 
-## [2.7.6] - 2023-11-28
-### Changed
- - Implementation of leave-one-out cross validation retrieval from Sam de Regt.
- - Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
- - Example included in test directory.
+## [2.9.0] - 2023-11-28
+Referred as 2.7.6
+### Added
+- Implementation of leave-one-out cross validation retrieval from Sam de Regt.
+- Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
+- Example included in test directory.
 
-## [2.7.5] - 2023-11-08
+## [2.8.2] - 2023-11-08
+Referred as 2.7.5
 ### Changed
  - Updates to retrieval tutorials, as requested by JOSS review.
 
-## [2.7.4] - 2023-11-13
+## [2.8.1] - 2023-11-13
+Referred as 2.7.4
 ### Changed
- - Fixed bugs in argument naming.
  - Minor changes to MPI interface.
  - Removed unnecessary instructions for installation on Apple Mx chips.
  - Updated interface to `species`, now requiring newer than v0.7.
 
-## [2.7.3] - 2023-11-08
-### Changed
- - New plotting function interface, can pass `pRT_objects` and `model_generating_functions`
- - New MPI interface for better parallelisation
+### Fixed
+ - Bugs in argument naming.
+
+## [2.8.0] - 2023-11-08
+Referred as 2.7.3
+### Added
+- Plotting function interface, can pass `pRT_objects` and `model_generating_functions`.
+- MPI interface for better parallelisation.
+
+### Fixed
  - Fixed binning of spectra errorbars for plotting
  - Minor typo bug fixes
 

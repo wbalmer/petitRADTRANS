@@ -734,7 +734,7 @@ class Retrieval:
                 i_p += 1
         return params
 
-    def log_likelihood(self, cube, ndim=0, nparam=0, logL_per_datapoint_dict=None):
+    def log_likelihood(self, cube, ndim=0, nparam=0, log_l_per_datapoint_dict=None):
         """
         pyMultiNest required likelihood function.
 
@@ -754,7 +754,7 @@ class Retrieval:
                 The number of dimensions of the problem
             nparam : int
                 The number of parameters in the fit.
-            logL_per_datapoint_dict : dict
+            log_l_per_datapoint_dict : dict
                 Dictionary with instrument-entries. If provided, log likelihood
                 per datapoint is appended to existing list.
 
@@ -789,10 +789,9 @@ class Retrieval:
                              f"but was '{self.uncertainties_mode}'")
 
         # Store per data-object
-        #log_likelihood_per_datapoint = {}
         per_datapoint = False
 
-        if isinstance(logL_per_datapoint_dict, dict):
+        if isinstance(log_l_per_datapoint_dict, dict):
             per_datapoint = True
 
         i_p = 0  # parameter count
@@ -971,7 +970,7 @@ class Retrieval:
                 wlen_model = None
 
             if per_datapoint:
-                logL_per_datapoint_dict[name].append(log_likelihood)
+                log_l_per_datapoint_dict[name].append(log_likelihood)
 
             # Check for data using the same pRT object
             # Calculate log likelihood
@@ -996,7 +995,7 @@ class Retrieval:
                         ) + additional_logl
 
         if per_datapoint:
-            return logL_per_datapoint_dict
+            return log_l_per_datapoint_dict
 
         if "log_prior_weight" in self.parameters.keys():
             log_prior += self.parameters["log_prior_weight"].value
@@ -1570,23 +1569,23 @@ class Retrieval:
             ret_name = self.retrieval_name
 
         # Set-up the dictionary structure
-        logL_per_datapoint_dict = {}
+        log_l_per_datapoint_dict = {}
         for name in self.data.keys():
-            logL_per_datapoint_dict[name] = []
+            log_l_per_datapoint_dict[name] = []
 
         for sample_i in samples_use:
             # Append the logL per datapoint for each posterior sample
-            logL_per_datapoint_dict = self.log_likelihood(
-                cube=sample_i, logL_per_datapoint_dict=logL_per_datapoint_dict
+            log_l_per_datapoint_dict = self.log_likelihood(
+                cube=sample_i, log_l_per_datapoint_dict=log_l_per_datapoint_dict
                 )
 
         # Save the logL's for each instrument
         for name in self.data.keys():
-            logL_per_datapoint_dict[name] = np.array(logL_per_datapoint_dict[name])
+            log_l_per_datapoint_dict[name] = np.array(log_l_per_datapoint_dict[name])
 
             np.save(
                 f"{self.output_dir}evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{name}",
-                logL_per_datapoint_dict[name]
+                log_l_per_datapoint_dict[name]
                 )
 
     def get_elpd_per_datapoint(self, ret_name=None):
@@ -1595,12 +1594,10 @@ class Retrieval:
 
         if isinstance(ret_name, str):
             ret_name = [ret_name]
-        assert(len(ret_name) <= 2)
+
+        assert len(ret_name) <= 2
 
         from .psis import psisloo
-
-        #if len(ret_name) == 2:
-        #    delta_elpd = {}
 
         elpd_tot, elpd, pareto_k = {}, {}, {}
         delta_elpd = {}
@@ -1610,22 +1607,22 @@ class Retrieval:
             elpd_tot[d_name], elpd[d_name], pareto_k[d_name] = {}, {}, {}
 
             for ret_name_i in ret_name:
-                logL_per_datapoint_j = np.load(
+                log_l_per_datapoint_j = np.load(
                     f"{self.output_dir}evaluate_{ret_name_i}/{ret_name_i}_logL_per_datapoint_{d_name}.npy",
                     )
 
                 # Compute the ELPDs with the PSIS module
                 elpd_tot[d_name][ret_name_i], elpd[d_name][ret_name_i], pareto_k[d_name][ret_name_i] \
-                    = psisloo(logL_per_datapoint_j, Reff=1)
+                    = psisloo(log_l_per_datapoint_j, Reff=1)
 
                 if ret_name_i == self.retrieval_name:
                     dd.elpd_tot = elpd_tot[d_name][ret_name_i]
-                    dd.elpd     = elpd[d_name][ret_name_i]
+                    dd.elpd = elpd[d_name][ret_name_i]
                     dd.pareto_k = pareto_k[d_name][ret_name_i]
 
             if len(ret_name) == 2:
                 delta_elpd[d_name] = elpd[d_name][ret_name[0]] - elpd[d_name][ret_name[1]]
-                dd.delta_elpd      = delta_elpd[d_name]
+                dd.delta_elpd = delta_elpd[d_name]
 
         return elpd_tot, elpd, pareto_k, delta_elpd
 
@@ -2124,7 +2121,7 @@ class Retrieval:
         return
 
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
-                     refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=plt.cm.bwr, marker_label=''
+                     refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label=''
                      ):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
@@ -2170,6 +2167,9 @@ class Retrieval:
         """
         import matplotlib.pyplot as plt
         from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
+
+        if marker_cmap is None:
+            marker_cmap = plt.cm.bwr
 
         if not self.use_MPI or rank == 0:
             # Avoiding saving the model spectrum to the sampled spectrum dictionary.
@@ -2230,22 +2230,21 @@ class Retrieval:
 
                 markerfacecolors = {}
                 vmin, vmax = np.inf, -np.inf
-                for name,dd in self.data.items():
-
-                    assert(hasattr(dd,marker_color_type))
+                for name, dd in self.data.items():
+                    assert hasattr(dd, marker_color_type)
 
                     markerfacecolors[name] = getattr(dd, marker_color_type)
                     vmin = min([markerfacecolors[name].min(), vmin])
                     vmax = max([markerfacecolors[name].max(), vmax])
 
                 if marker_color_type.startswith('delta_'):
-                    vmax = np.max(np.abs([vmin,vmax]))
+                    vmax = np.max(np.abs([vmin, vmax]))
                     vmin = -1*vmax
 
                 from matplotlib.colors import Normalize
                 norm = Normalize(vmin=vmin, vmax=vmax)
 
-                for name,dd in self.data.items():
+                for name, dd in self.data.items():
                     markerfacecolors[name] = norm(markerfacecolors[name])
                     markerfacecolors[name] = marker_cmap(markerfacecolors[name])
 
@@ -2385,18 +2384,20 @@ class Retrieval:
                                     alpha=0.9)
 
                         # Plot the residuals
-                        ax_r.errorbar(wlen[i],
-                                    ((flux - best_fit_binned) / (error))[i],
-                                    yerr=(error / error)[i],
-                                    marker=marker,
-                                    ecolor=ecolor,
-                                    markersize=markersize,
-                                    markerfacecolor=color_i,
-                                    markeredgecolor='k',
-                                    linewidth=0,
-                                    elinewidth=2,
-                                    zorder=10,
-                                    alpha=0.9)
+                        ax_r.errorbar(
+                            wlen[i],
+                            ((flux - best_fit_binned) / error)[i],
+                            yerr=(error / error)[i],
+                            marker=marker,
+                            ecolor=ecolor,
+                            markersize=markersize,
+                            markerfacecolor=color_i,
+                            markeredgecolor='k',
+                            linewidth=0,
+                            elinewidth=2,
+                            zorder=10,
+                            alpha=0.9
+                        )
 
                         label = None
                 else:
@@ -2426,21 +2427,23 @@ class Retrieval:
                                     alpha=0.6)
 
                         # Plot the residuals
-                        ax_r.errorbar(wlen[i],
-                                    ((flux - best_fit_binned) / (error))[i],
-                                    yerr=(error / error)[i],
-                                    xerr=dd.wlen_bins / 2.,
-                                    color='grey',
-                                    marker=marker,
-                                    ecolor=ecolor,
-                                    markersize=markersize,
-                                    markerfacecolor=color_i,
-                                    markeredgecolor='k',
-                                    linewidth=0,
-                                    elinewidth=2,
-                                    zorder=10,
-                                    alpha=0.6)
-                    
+                        ax_r.errorbar(
+                            wlen[i],
+                            ((flux - best_fit_binned) / error)[i],
+                            yerr=(error / error)[i],
+                            xerr=dd.wlen_bins / 2.,
+                            color='grey',
+                            marker=marker,
+                            ecolor=ecolor,
+                            markersize=markersize,
+                            markerfacecolor=color_i,
+                            markeredgecolor='k',
+                            linewidth=0,
+                            elinewidth=2,
+                            zorder=10,
+                            alpha=0.6
+                        )
+
             # Plot the best fit model
             ax.plot(bf_wlen,
                     bf_spectrum * self.rd.plot_kwargs["y_axis_scaling"],

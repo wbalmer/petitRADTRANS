@@ -379,7 +379,7 @@ class Data:
                   spectrum_model,
                   plotting,
                   parameters=None,
-                  per_datapoint = False
+                  per_datapoint=False
                   ):
         """
         Calculate the chi square between the model and the data.
@@ -400,6 +400,8 @@ class Data:
         """
         # TODO merge with SpectralModel: the chi2 calculation function should only calculate the chi2
         # Convolve to data resolution
+        flux_rebinned = None
+
         if not self.photometry:
             if self.radtrans_grid:
                 index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
@@ -456,6 +458,7 @@ class Data:
             f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
 
         log_l = 0.0
+        log_l_per_datapoint = None
 
         if self.covariance is not None:
             inv_cov = self.inv_cov
@@ -483,15 +486,17 @@ class Data:
                 sigma_tilde_i = 1/sigma_bar_ii
                 mu_tilde_i = flux_rebinned - g_i / sigma_bar_ii
 
-                logL_per_datapoint = -0.5*np.log(2*np.pi*sigma_tilde_i) + \
-                    - 0.5*(flux_rebinned - mu_tilde_i)**2 / sigma_tilde_i
+                log_l_per_datapoint = (
+                        -0.5 * np.log(2 * np.pi * sigma_tilde_i)
+                        - 0.5 * (flux_rebinned - mu_tilde_i) ** 2 / sigma_tilde_i
+                )
         else:
-            log_l += -0.5 * np.sum((diff / f_err) ** 2.)
-            log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))if per_datapoint:
+            log_l += -0.5 * np.sum((diff / f_err) ** 2)
+            log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2))
 
-            if per_datapoint:
+            if per_datapoint:  # TODO is there a point calculating log_l if only log_l_per_datapoint is returned?
                 # Only diagonal covariance elements
-                logL_per_datapoint = -0.5*np.log(2*np.pi*f_err**2) - 0.5*(diff/f_err)**2
+                log_l_per_datapoint = -0.5 * np.log(2 * np.pi * f_err ** 2) - 0.5 * (diff / f_err) ** 2
 
         if plotting:
             import matplotlib.pyplot as plt
@@ -506,7 +511,7 @@ class Data:
                 plt.show()
 
         if per_datapoint:
-            return logL_per_datapoint
+            return log_l_per_datapoint
 
         return log_l
 
