@@ -13,11 +13,11 @@ rank = 0
 comm = None
 
 try:
-    from mpi4py import mpi
-    comm = mpi.COMM_WORLD
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 except ImportError:
-    mpi = None
+    MPI = None
     logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
 
 
