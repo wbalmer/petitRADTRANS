@@ -1,6 +1,3 @@
-import logging
-import sys
-
 import numpy as np
 
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
@@ -58,16 +55,37 @@ class Parameter:
         if self.is_free_parameter:
             return self.transform_prior_cube_coordinate(cube)
 
-        logging.error('Error! Parameter ' + self.name + ' is not a free parameter!')
-        sys.exit(1)
+        raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
+
+    def get_flattened_value(self, value=None):
+        if value is None:
+            value = self.value
+
+        if isinstance(value, str):
+            return value
+
+        if isinstance(value, dict):
+            _value = []
+
+            keys = list(value.keys())
+            values = list(value.values())
+
+            for i, v in enumerate(values):
+                v = self.get_flattened_value(value=v)
+                k = self.get_flattened_value(value=[keys[i]])
+                flattened_dict = np.concatenate((k, v))
+                _value.append(flattened_dict.flatten())
+        else:
+            _value = value
+
+        return np.array(_value).flatten()
 
     def set_param(self, value):
         if self.is_free_parameter:
             self.value = value
             return
 
-        logging.error('Error! Parameter ' + self.name + ' is not a free parameter!')
-        sys.exit(1)
+        raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
 
 class RetrievalParameter:

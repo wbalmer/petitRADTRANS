@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a107] - 2023-11-29
+## [3.0.0-a108] - 2023-11-29
 ### Added
 - Automatic download of missing input_data files.
 - Simple transit light loss modelling for `SpectralModel`.

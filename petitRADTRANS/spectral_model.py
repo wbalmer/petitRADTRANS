@@ -1730,15 +1730,14 @@ class SpectralModel(Radtrans):
             mean_molar_masses=self.mean_molar_masses
         )
 
-    def init_retrieval(self, data, data_wavelengths, data_uncertainties, retrieval_directory,
-                       retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
-                       mode='emission', uncertainties_mode='default', update_parameters=False,
-                       telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
-                       scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
-                       prepare=False,
-                       run_mode='retrieval', amr=False, scattering=False, distribution='lognormal', pressures=None,
-                       write_out_spec_sample=False, dataset_name='data', **kwargs):
-        # TODO allow for multiple data/SpectralModels
+    def init_retrieval_configuration(self, data, data_wavelengths, data_uncertainties,
+                                     retrieved_parameters, model_parameters=None, retrieval_name='retrieval',
+                                     mode='emission', update_parameters=False,
+                                     telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
+                                     scale=False, shift=False, use_transit_light_loss=False, convolve=False,
+                                     rebin=False, prepare=False,
+                                     run_mode='retrieval', amr=False, scattering=False, distribution='lognormal',
+                                     pressures=None, dataset_name='data', **kwargs):
         if pressures is None:
             pressures = copy.copy(self.pressures)
 
@@ -1826,14 +1825,7 @@ class SpectralModel(Radtrans):
             mask=data_mask
         )
 
-        retrieval = Retrieval(
-            run_definition=retrieval_configuration,
-            output_dir=retrieval_directory,
-            uncertainties_mode=uncertainties_mode,
-            **kwargs
-        )
-
-        return retrieval
+        return retrieval_configuration
 
     @classmethod
     def load(cls, filename):
@@ -2299,9 +2291,18 @@ class SpectralModel(Radtrans):
         return wavelengths, model, beta
 
     @staticmethod
-    def run_retrieval(retrieval: Retrieval, n_live_points=100, resume=False, sampling_efficiency=0.8,
+    def run_retrieval(retrieval_configuration: RetrievalConfig, retrieval_directory, uncertainties_mode='default',
+                      n_live_points=100, resume=False,
+                      sampling_efficiency=0.8,
                       const_efficiency_mode=False, log_z_convergence=0.5, n_iter_before_update=50, max_iterations=0,
                       save=True, filename='retrieval_parameters', rank=0, **kwargs):
+        retrieval = Retrieval(
+            run_definition=retrieval_configuration,
+            output_dir=retrieval_directory,
+            uncertainties_mode=uncertainties_mode,
+            **kwargs
+        )
+
         if save:
             parameter_dict = {}  # copy.deepcopy(retrieval.__dict__)  # TODO fix issues with objects not stored in HDF5
 
