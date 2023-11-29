@@ -1034,7 +1034,7 @@ class Radtrans:
                             break
 
                     if not found:
-                        raise ValueError(f"species {cia_dicts} of CIA '{collision}' "
+                        raise ValueError(f"species '{collision_species}' of CIA '{collision}' "
                                          f"not found in mass mixing ratios dict "
                                          f"(listed species: {list(mass_fractions.keys())})")
 
