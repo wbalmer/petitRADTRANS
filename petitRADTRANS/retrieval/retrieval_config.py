@@ -71,9 +71,9 @@ class RetrievalConfig:
         self.amr = amr
 
         if pressures is not None:
-            self.p_global = pressures
+            self.pressures = pressures
         else:
-            self.p_global = np.logspace(-6, 3, 100)
+            self.pressures = np.logspace(-6, 3, 100)
 
         self.scattering = scattering
         self.distribution = distribution
@@ -90,7 +90,7 @@ class RetrievalConfig:
 
         self.add_parameter("pressure_scaling", False, value=1)
         self.add_parameter("pressure_width", False, value=1)
-        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
+        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
     def _plot_defaults(self):
         ##################################################################
@@ -134,11 +134,11 @@ class RetrievalConfig:
         nclouds = len(self.cloud_species)
         if nclouds == 0:
             print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
-        new_len = self.p_global.shape[0] + nclouds * width * (scaling - 1)
-        self.amr_pressure = np.logspace(np.log10(self.p_global[0]), np.log10(self.p_global[-1]), new_len)
+        new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
+        self.amr_pressure = np.logspace(np.log10(self.pressures[0]), np.log10(self.pressures[-1]), new_len)
         self.add_parameter("pressure_scaling", False, value=scaling)
         self.add_parameter("pressure_width", False, value=width)
-        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
+        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
         return self.amr_pressure
 
@@ -219,6 +219,137 @@ class RetrievalConfig:
             print(f)
 
         return files
+
+    @classmethod
+    def merge(cls, retrieval_configurations: list, retrieval_name=None, run_mode=None, amr=None,
+              scattering=None, distribution=None, pressures=None, fixed_parameters_whitelist=None, prior_test_size=50):
+        if retrieval_name is None:
+            retrieval_name = retrieval_configurations[0].retrieval_name
+
+        if run_mode is None:
+            run_mode = retrieval_configurations[0].run_mode
+
+        if amr is None:
+            amr = retrieval_configurations[0].amr
+
+        if scattering is None:
+            scattering = retrieval_configurations[0].scattering
+
+        if distribution is None:
+            distribution = retrieval_configurations[0].distribution
+
+        if pressures is None:
+            pressures = retrieval_configurations[0].pressures
+
+        if fixed_parameters_whitelist is None:
+            fixed_parameters_whitelist = []
+
+        merged_retrieval_configuration = cls(
+            retrieval_name=retrieval_name,
+            run_mode=run_mode,
+            amr=amr,
+            scattering=scattering,  # scattering is automatically included for transmission spectra
+            distribution=distribution,
+            pressures=pressures
+        )
+
+        prior_test = np.linspace(1e-12, 1 - 1e-12, prior_test_size)
+
+        for i, retrieval_configuration in enumerate(retrieval_configurations):
+            for parameter_name, parameter in retrieval_configuration.parameters.items():
+                if parameter_name not in merged_retrieval_configuration.parameters:
+                    merged_retrieval_configuration.add_parameter(
+                        name=parameter.name,
+                        free=parameter.is_free_parameter,
+                        value=parameter.value,
+                        transform_prior_cube_coordinate=parameter.transform_prior_cube_coordinate
+                    )
+                else:
+                    if (
+                        parameter.is_free_parameter
+                            != merged_retrieval_configuration.parameters[parameter_name].is_free_parameter
+                    ):
+                        raise ValueError(
+                            f"ambiguous parameter merging: parameter '{parameter_name}' attribute "
+                            f"'is_free_parameter' is set to {parameter.is_free_parameter} in "
+                            f"retrieval configuration {i}, but set to "
+                            f"{merged_retrieval_configuration.parameters[parameter_name].is_free_parameter} otherwise"
+                        )
+
+                    if not parameter.is_free_parameter:
+                        if parameter_name not in fixed_parameters_whitelist:
+                            flattened_value = parameter.get_flattened_value()
+                            flattened_value_ref = (merged_retrieval_configuration.parameters[parameter_name]
+                                                   .get_flattened_value())
+
+                            if np.shape(flattened_value) != np.shape(flattened_value_ref):
+                                raise ValueError(
+                                    f"ambiguous parameter merging: fixed parameter '{parameter_name}' value shape "
+                                    f"is {np.shape(flattened_value)} in "
+                                    f"retrieval configuration {i}, but is "
+                                    f"{np.shape(flattened_value_ref)} "
+                                    f"otherwise\n"
+                                    f"If that is expected, put '{parameter_name}' into the fixed parameters whitelist."
+                                )
+                            elif np.any(np.not_equal(flattened_value, flattened_value_ref)):
+                                raise ValueError(
+                                    f"ambiguous parameter merging: fixed parameter '{parameter_name}' value "
+                                    f"is set to {parameter.value} in "
+                                    f"retrieval configuration {i}, but set to "
+                                    f"{merged_retrieval_configuration.parameters[parameter_name].value} otherwise\n"
+                                    f"If that is expected, put '{parameter_name}' into the fixed parameters whitelist."
+                                )
+
+                        continue  # no need to test the prior function of fixed parameters
+
+                    print(f"Testing prior of '{parameter_name}' of configuration {i}... ", end='')
+
+                    for x in prior_test:
+                        prior_result = parameter.transform_prior_cube_coordinate(x)
+                        prior_result_ref = parameter.transform_prior_cube_coordinate(x)
+
+                        if not np.isclose(prior_result, prior_result_ref, atol=0, rtol=1e-6):
+                            raise ValueError(
+                                f"ambiguous parameter merging: parameter '{parameter_name}' prior "
+                                f"in retrieval configuration {i} does not have the same behaviour than "
+                                f"the other configurations\n"
+                                f" Tested configuration {i}:\n"
+                                f" x = {x}\n"
+                                f" Result:   {prior_result}\n"
+                                f" Expected: {prior_result_ref}\n"
+                                f"Ensure that the same prior functions and the same prior parameters has been used in "
+                                f"all configurations"
+                            )
+
+                    print("Done.")
+
+            for data in retrieval_configuration.data.values():
+                merged_retrieval_configuration.add_data(
+                    name=data.name,
+                    path_to_observations=data.path_to_observations,
+                    model_generating_function=data.model_generating_function,
+                    data_resolution=data.data_resolution,
+                    model_resolution=data.model_resolution,
+                    system_distance=data.system_distance,
+                    scale=data.scale,
+                    scale_err=data.scale_err,
+                    offset_bool=data.offset_bool,
+                    photometry=data.photometry,
+                    photometric_transformation_function=data.photometric_transformation_function,
+                    photometric_bin_edges=data.photometric_bin_edges,
+                    wavelength_boundaries=data.wavelength_boundaries,
+                    external_radtrans_reference=data.external_radtrans_reference,
+                    line_opacity_mode=data.line_opacity_mode,
+                    wavelength_bin_widths=data.wavelength_bin_widths,
+                    radtrans_grid=data.radtrans_grid,
+                    radtrans_object=data.radtrans_object,
+                    wavelengths=data.wavelengths,
+                    spectrum=data.spectrum,
+                    uncertainties=data.uncertainties,
+                    mask=data.mask
+                )
+
+        return merged_retrieval_configuration
 
     def set_line_species(self, linelist, eq=False, abund_lim=(-6.0, -0.5)):
         """
