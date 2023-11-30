@@ -104,7 +104,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 fehs_large_int, temps_large_int,
                 pressures_large_int, self.log10_metallicities, self.co_ratios,
                 self.pressures, self.temperatures, self.mean_molar_masses[np.newaxis], False
-            )
+            )[0]
 
             nabla_adiabatic = fchem.interpolate_chemical_table(
                 co_ratios, log10_metallicities, temperatures,
@@ -112,7 +112,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 fehs_large_int, temps_large_int,
                 pressures_large_int, self.log10_metallicities, self.co_ratios,
                 self.pressures, self.temperatures, self.nabla_adiabatic[np.newaxis], False
-            )
+            )[0]
         else:
             mean_molar_masses = None
             nabla_adiabatic = None

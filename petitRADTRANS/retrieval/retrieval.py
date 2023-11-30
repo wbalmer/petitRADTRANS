@@ -840,7 +840,6 @@ class Retrieval:
                     self.pt_plot_mode,
                     amr=self.rd.amr
                 )  # TODO the generating function should always return the same number of values
-
                 if retrieve_uncertainties:
                     if len(model_returned_values) == 4:
                         wlen_model, spectrum_model, beta, additional_logl = model_returned_values
@@ -906,6 +905,7 @@ class Retrieval:
 
                     if isinstance(dd.spectrum, float) or np.ndim(dd.spectrum) == 1:
                         # Convolution and rebin are cared of in get_chisq
+                        print('dd.name', dd.name)
                         log_likelihood += dd.get_chisq(
                             wlen_model,
                             spectrum_model,  # [~dd.mask],  # TODO temporary fix until code design rework
@@ -976,18 +976,23 @@ class Retrieval:
 
             # Check for data using the same pRT object
             # Calculate log likelihood
+            print('yoyo', list(self.data.keys()))
+            print('yoyo2', self.data.items())
             for de_name, dede in self.data.items():
+                print('dede.name1', dede.name)
                 if dede.external_radtrans_reference is not None:
                     if dede.scale:
                         dede.scale_factor = self.parameters[de_name + "_scale_factor"].value
 
                     if dede.external_radtrans_reference == name:
+                        print(spectrum_model)
                         if spectrum_model is None:
                             return invalid_value
 
                         if np.isnan(spectrum_model).any():
                             return invalid_value
 
+                        print('dede.name2', dede.name)
                         log_likelihood += dede.get_chisq(
                             wlen_model,
                             spectrum_model,
