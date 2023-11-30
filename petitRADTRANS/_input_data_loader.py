@@ -856,7 +856,7 @@ def get_default_line_by_line_resolution() -> str:
 
 def get_input_data_file_not_found_error_message(file: str) -> str:
     return (
-        f"no file found in path '{file}'\n"
+        f"no matching file found in path '{file}'\n"
         f"This may be caused by an incorrect input_data path, outdated file formatting, or a missing file\n\n"
         f"To set the input_data path, execute: \n"
         f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
@@ -881,7 +881,7 @@ def get_opacity_directory(species: str, category: str,
     istopologue_name = get_species_isotopologue_name(species, join=False)
 
     _, natural_abundance, charge, cloud_info, source, spectral_info = (
-        split_species_all_info(species, final_ion_format='pm'))
+        split_species_all_info(species, final_charge_format='pm'))
     filename = join_species_all_info(
         name=istopologue_name,
         charge=charge,
@@ -1027,7 +1027,7 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
     return name
 
 
-def split_species_all_info(species, final_ion_format='+-'):
+def split_species_all_info(species, final_charge_format='+-'):
     name, spectral_info = _split_species_spectral_info(species)
     name, source = _split_species_source(name)  # remove resolving power or opacity source information
 
@@ -1046,6 +1046,6 @@ def split_species_all_info(species, final_ion_format='+-'):
                          f"multiple consecutive charge symbols found (+, -, p, m)")
 
     # Extract ion symbol
-    name, charge = _split_species_charge(name, final_charge_format=final_ion_format)
+    name, charge = _split_species_charge(name, final_charge_format=final_charge_format)
 
     return name, natural_abundance, charge, cloud_info, source, spectral_info
