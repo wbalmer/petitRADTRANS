@@ -984,6 +984,10 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     return matches
 
 
+def get_resolving_power_from_string(string: str) -> int:
+    return int(string.split('R', 1)[1])
+
+
 def get_resolving_power_string(resolving_power: [int, float]) -> str:
     if isinstance(resolving_power, int):
         return f"R{resolving_power}"
