@@ -8,7 +8,11 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS._input_data_loader import get_cia_aliases, get_cloud_aliases, get_opacity_input_file
+from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
+from petitRADTRANS._input_data_loader import (
+    _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases, get_opacity_input_file,
+    get_resolving_power_from_string
+)
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
@@ -506,6 +510,50 @@ class Radtrans:
             cia.append(gas_continuum_contributor)
 
         return cia
+
+    @staticmethod
+    def __get_line_opacity_file(path_input_data, species, category):
+        if category == 'correlated_k_opacities':
+            matches = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category=category,
+                species=species,
+                find_all=True,
+                search_online=False
+            )
+
+            # Try to bin down the opacities
+            if len(matches) == 0:
+                default_species, spectral_info = _split_species_spectral_info(species)
+                target_resolving_power, _ = _get_spectral_information(spectral_info)
+
+                if 'R' in target_resolving_power:
+                    target_resolving_power = get_resolving_power_from_string(target_resolving_power)
+
+                hdf5_file = get_opacity_input_file(
+                    path_input_data=path_input_data,
+                    category=category,
+                    species=default_species,
+                    find_all=False,
+                    search_online=True
+                )
+
+                rebin_ck_line_opacities(
+                    input_file=hdf5_file,
+                    target_resolving_power=target_resolving_power,
+                    wavenumber_grid=None,
+                    rewrite=False
+                )
+
+        hdf5_file = get_opacity_input_file(
+            path_input_data=path_input_data,
+            category=category,
+            species=species,
+            find_all=False,
+            search_online=True
+        )
+
+        return hdf5_file
 
     @staticmethod
     def __get_non_cia_gas_continuum_contributions():
@@ -2137,10 +2185,10 @@ class Radtrans:
         if self._line_opacity_mode == 'c-k':  # correlated-k
             # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution
             # Use the first entry of self.line_species for this, if given
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = self.__get_line_opacity_file(
                 path_input_data=self._path_input_data,
-                category='correlated_k_opacities',
-                species=self._line_species[0]
+                species=self._line_species[0],
+                category='correlated_k_opacities'
             )
 
             with h5py.File(hdf5_file, 'r') as f:
@@ -3319,6 +3367,13 @@ class Radtrans:
                          (frequencies >= _frequencies[-1] * (1. - 1e-10))
             index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
                         (_frequencies >= frequencies[-1] * (1. - 1e-10))
+
+            if np.nonzero(index_fill)[0].size != np.nonzero(index_use)[0].size:
+                raise ValueError(
+                    f"frequencies size mismatch: value frequency array of size {np.nonzero(index_fill)[0].size} "
+                    f"cannot be broadcast to indexing result of size {np.nonzero(index_use)[0].size}\n"
+                    f"This may be caused by loading opacities of different resolving power")
+
             ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
 
             ret_val[ret_val < 0.] = 0.
@@ -3401,10 +3456,10 @@ class Radtrans:
         # Read opacities grid
         if len(self._line_species) > 0:
             for i, species in enumerate(self._line_species):
-                hdf5_file = get_opacity_input_file(
+                hdf5_file = self.__get_line_opacity_file(
                     path_input_data=path_input_data,
-                    category=category,
-                    species=species
+                    species=species,
+                    category=category
                 )
 
                 # Load g grid for correlated-k

@@ -402,7 +402,8 @@ class Retrieval:
                 path_input_data=self.path,
                 category='correlated_k_opacities',
                 species=join_species_all_info(line, spectral_info=get_resolving_power_string(resolution)),
-                find_all=True
+                find_all=True,
+                search_online=False
             )
 
             if len(matches) == 0:
@@ -602,8 +603,7 @@ class Retrieval:
             if dd.radtrans_object is not None:
                 continue
 
-            # Only create if there's no other data
-            # object using the same pRT object
+            # Only create if there's no other data object using the same pRT object
             if dd.external_radtrans_reference is None:
                 if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
@@ -972,7 +972,6 @@ class Retrieval:
                     )
 
                     self.best_fit_specs[name] = [wlen_model, spectrum_model]
-
 
         if per_datapoint:
             return log_l_per_datapoint_dict

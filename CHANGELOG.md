@@ -4,16 +4,10 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a109] - 2023-11-30
-
-### Fixed
-- Dimensionality of mean_molar_masses and nabla_adiabatic when calculated in interpolate_mass_fractions
-  in `full = True` mode
-- Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
-
-## [3.0.0-a108] - 2023-11-29
+## [3.0.0-a110] - 2023-11-30
 ### Added
 - Automatic download of missing input_data files.
+- Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.
 - Possibility to retrieve or optimize uncertainties.
 - Trimming preparation function.
@@ -70,6 +64,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Fixed
 - Crash when using photospheric cloud with null mass fractions.
+- Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
 - Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
 - Importing the chemical table no longer triggers its loading.
