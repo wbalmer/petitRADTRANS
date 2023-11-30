@@ -3491,7 +3491,7 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
 
         print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
         # Use Exo-k to rebin to low-res
-        tab = exo_k.Ktable(filename=input_file)
+        tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
         tab.bin_down(wavenumber_grid)
         print('Done.')
 

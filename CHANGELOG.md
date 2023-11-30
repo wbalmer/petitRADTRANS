@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a111] - 2023-11-30
+## [3.0.0-a112] - 2023-11-30
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -70,6 +70,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Importing the chemical table no longer triggers its loading.
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
 - Relevance threshold when combining correlated-k opacities is less strict.
+- Zero opacity values in ktables would need to NaNs in binned-down versions. This is prevented
+  by using `remove_zeros=True` when making a `Ktable` object.
 
 ## [2.9.0] - 2023-11-28
 Referred as 2.7.6
