@@ -905,7 +905,6 @@ class Retrieval:
 
                     if isinstance(dd.spectrum, float) or np.ndim(dd.spectrum) == 1:
                         # Convolution and rebin are cared of in get_chisq
-                        print('dd.name', dd.name)
                         log_likelihood += dd.get_chisq(
                             wlen_model,
                             spectrum_model,  # [~dd.mask],  # TODO temporary fix until code design rework
@@ -934,18 +933,31 @@ class Retrieval:
                                 )
                     else:
                         raise ValueError(f"observations have {np.ndim(dd.spectrum)} dimensions, but must have 1 to 3")
-            else:
-                # Get the PT profile
-                if name == self.rd.plot_kwargs['take_PTs_from']:
-                    pressures, temperatures = \
-                        dd.model_generating_function(dd.radtrans_object,
-                                                     self.parameters,
-                                                     self.pt_plot_mode,
-                                                     amr=self.rd.amr)
-                    return pressures, temperatures
-                else:
-                    raise ValueError(f"in PT plot mode data name '{name}' "
-                                     f"must be equal to '{self.rd.plot_kwargs['take_PTs_from']}'")
+
+            if per_datapoint:
+                log_l_per_datapoint_dict[name].append(log_likelihood)
+
+            # Check for data using the same pRT object
+            # Calculate log likelihood
+            for de_name, dede in self.data.items():
+                if dede.external_radtrans_reference is not None:
+                    if dede.scale:
+                        dede.scale_factor = self.parameters[de_name + "_scale_factor"].value
+
+                    if dede.external_radtrans_reference == name:
+                        if spectrum_model is None:
+                            return invalid_value
+
+                        if np.isnan(spectrum_model).any():
+                            return invalid_value
+
+                        log_likelihood += dede.get_chisq(
+                            wlen_model,
+                            spectrum_model,
+                            self.plotting,
+                            self.parameters,
+                            per_datapoint=per_datapoint
+                        ) + additional_logl
 
             # Save sampled outputs if necessary.
             if self.run_mode == 'evaluate':
@@ -960,46 +972,7 @@ class Retrieval:
                     )
 
                     self.best_fit_specs[name] = [wlen_model, spectrum_model]
-            else:
-                # The double loop is making sure that the spectrum and wavelength are
-                # calculated before being requested by a different pRT object.
-                # Since the spectrum isn't stored, we need to immediately check if
-                # any other data objects are requesting to use this spectrum, before
-                # moving on to the next item.
 
-                # Definition here to avoid possible reference before assignment
-                spectrum_model = None
-                wlen_model = None
-
-            if per_datapoint:
-                log_l_per_datapoint_dict[name].append(log_likelihood)
-
-            # Check for data using the same pRT object
-            # Calculate log likelihood
-            print('yoyo', list(self.data.keys()))
-            print('yoyo2', self.data.items())
-            for de_name, dede in self.data.items():
-                print('dede.name1', dede.name)
-                if dede.external_radtrans_reference is not None:
-                    if dede.scale:
-                        dede.scale_factor = self.parameters[de_name + "_scale_factor"].value
-
-                    if dede.external_radtrans_reference == name:
-                        print(spectrum_model)
-                        if spectrum_model is None:
-                            return invalid_value
-
-                        if np.isnan(spectrum_model).any():
-                            return invalid_value
-
-                        print('dede.name2', dede.name)
-                        log_likelihood += dede.get_chisq(
-                            wlen_model,
-                            spectrum_model,
-                            self.plotting,
-                            self.parameters,
-                            per_datapoint=per_datapoint
-                        ) + additional_logl
 
         if per_datapoint:
             return log_l_per_datapoint_dict
