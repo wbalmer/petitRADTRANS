@@ -910,7 +910,8 @@ def get_opacity_directory(species: str, category: str,
     return full_path
 
 
-def get_opacity_input_file(path_input_data: str, category: str, species: str, find_all: bool = False) -> str:
+def get_opacity_input_file(path_input_data: str, category: str, species: str, find_all: bool = False,
+                           search_online: bool = True) -> str:
     """Return the absolute filename of a species opacity.
     The validity of the given species name is checked.
 
@@ -938,6 +939,8 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
         find_all:
             If True, return all the matched files. If False, raise an error if no file is found, and only one file
             is returned.
+        search_online:
+            If True, search online for the opacity file
     Returns:
         The absolute opacity filename of the species
     """
@@ -958,7 +961,7 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
         find_all=find_all
     )
 
-    if len(matches) == 0:
+    if len(matches) == 0 and search_online:
         print(f"No file matching name '{filename}' found in directory '{full_path}'\n"
               f"Searching in the Keeper library...")
 
@@ -989,7 +992,7 @@ def get_resolving_power_string(resolving_power: [int, float]) -> str:
 
 
 def get_species_basename(species: str, join: bool = False) -> str:
-    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_charge_format='+-')
 
     # Remove isotopic numbers
     name = _rebuild_isotope_numbers(name, mode='remove')
@@ -1001,7 +1004,7 @@ def get_species_basename(species: str, join: bool = False) -> str:
 
 
 def get_species_isotopologue_name(species: str, join: bool = False) -> str:
-    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_ion_format='+-')
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_charge_format='+-')
 
     name = join_species_all_info(name, natural_abundance)
     name = _rebuild_isotope_numbers(name, mode='add')
