@@ -973,8 +973,8 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
             find_all=find_all
         )
 
-    if len(matches) == 0:
-        raise FileNotFoundError(get_input_data_file_not_found_error_message(path_input_data))
+    if len(matches) == 0 and not find_all:
+        raise FileNotFoundError(get_input_data_file_not_found_error_message(full_path))
 
     if hasattr(matches, '__iter__') and not isinstance(matches, str):
         matches = [os.path.join(full_path, m) for m in matches]
