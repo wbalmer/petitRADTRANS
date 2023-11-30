@@ -25,6 +25,17 @@ from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict
 
+# MPI Multiprocessing
+try:
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+except ImportError:
+    MPI = None
+    rank = 0
+    comm = None
+
 
 def __get_prt2_input_data_subpaths():
     old_input_data_subpaths = LockedDict()
@@ -2694,7 +2705,7 @@ def _write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
 def bin_species_exok(species, resolution):
     """
     This function uses exo-k to bin the c-k table of a
-    single species to a desired (lower) spectral resolution.
+    multiple species to a desired (lower) spectral resolution.
 
     Args:
         species : string
@@ -2719,8 +2730,8 @@ def bin_species_exok(species, resolution):
 
         print(f" Re-binned opacities: '{ck_paths[-1]}'")
 
-    rebin_ck_line_opacities(
-        resolution=int(resolution),
+    rebin_multiple_ck_line_opacities(
+        target_resolving_power=int(resolution),
         paths=ck_paths,
         species=species
     )
@@ -3445,9 +3456,56 @@ def line_by_line_opacities_dat2h5(directory, molmass, doi,
         __remove_files([directory])
 
 
-def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False):
-    import exo_k
+def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=None, rewrite=False):
+    try:
+        import exo_k
+    except ImportError:
+        # Only raise a warning to give a chance to download the binned
+        warnings.warn("binning down of opacities requires exo_k to be installed, no binning down has been performed")
+        return -1
 
+    if rank == 0:  # prevent race condition when writing the binned down file during multi-processes execution
+        if wavenumber_grid is None:
+            # Define own wavenumber grid, make sure that log spacing is constant everywhere
+            wavelengths_boundaries = _get_default_rebinning_wavelength_range()
+
+            n_spectral_points = int(
+                target_resolving_power * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
+            )
+
+            wavenumber_grid = np.logspace(
+                np.log10(1 / wavelengths_boundaries[1] * 1e4),
+                np.log10(1 / wavelengths_boundaries[0] * 1e4),
+                n_spectral_points
+            )
+
+        # Output files
+        output_file = input_file.replace(
+            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
+            join_species_all_info('', spectral_info=get_resolving_power_string(target_resolving_power))
+        )
+
+        if os.path.isfile(output_file) and not rewrite:
+            print(f"File '{output_file}' already exists, skipping re-binning...")
+            return
+
+        print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
+        # Use Exo-k to rebin to low-res
+        tab = exo_k.Ktable(filename=input_file)
+        tab.bin_down(wavenumber_grid)
+        print('Done.')
+
+        print(f" Writing binned down file '{output_file}'... ", end=' ')
+        tab.write_hdf5(output_file)
+        print('Done.')
+
+        print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
+
+    if comm is not None:  # wait for the main process to finish the binning down
+        comm.barrier()
+
+
+def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species=None, rewrite=False):
     if species is None:
         species = []
 
@@ -3457,7 +3515,7 @@ def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False)
     # Define own wavenumber grid, make sure that log spacing is constant everywhere
     wavelengths_boundaries = _get_default_rebinning_wavelength_range()
     n_spectral_points = int(
-        resolution * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
+        target_resolving_power * np.log(wavelengths_boundaries[1] / wavelengths_boundaries[0]) + 1
     )
 
     wavenumber_grid = np.logspace(
@@ -3466,31 +3524,28 @@ def rebin_ck_line_opacities(resolution, paths=None, species=None, rewrite=False)
         n_spectral_points
     )
 
+    success = False
+
     # Do the rebinning, loop through species
     for i, s in enumerate(species):
         # Output files
         hdf5_opacity_file_input = paths[i]
-        hdf5_opacity_file = paths[i].replace(
-            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
-            join_species_all_info('', spectral_info=get_resolving_power_string(resolution))
+
+        state = rebin_ck_line_opacities(
+            input_file=hdf5_opacity_file_input,
+            target_resolving_power=target_resolving_power,
+            wavenumber_grid=wavenumber_grid,
+            rewrite=rewrite
         )
 
-        if os.path.isfile(hdf5_opacity_file) and not rewrite:
-            print(f"Skipping already re-binned species '{s}' (file '{hdf5_opacity_file}' already exists)...")
-            continue
+        if state is None:
+            success = True
+        elif state == -1:
+            success = False
+            break
 
-        print(f"Rebinning species {s}...")
-        # Use Exo-k to rebin to low-res
-        print(f" Binning down to R = {resolution}...", end=' ')
-        tab = exo_k.Ktable(filename=hdf5_opacity_file_input)
-        tab.bin_down(wavenumber_grid)
-
-        print(f" Writing binned down file '{hdf5_opacity_file}'...")
-        tab.write_hdf5(hdf5_opacity_file)
-
-        print(f" Successfully binned down k-table of species '{s}' \n")
-
-    print("Successfully binned down all k-tables\n")
+    if success:
+        print("Successfully binned down all k-tables\n")
 
 
 def _correlated_k_opacities_dat2h5_external_species(path_to_species_opacity_folder,
