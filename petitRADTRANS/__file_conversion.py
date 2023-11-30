@@ -1342,7 +1342,7 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
             else:
                 f = external_species_longname
 
-            if f.rsplit('.', 1)[1] != 'ktable.petitRADTRANS.h5':
+            if '.ktable.petitRADTRANS.h5' not in f:
                 f += '.ktable.petitRADTRANS.h5'
 
             new_file = os.path.abspath(os.path.join(directory, '..', f))
