@@ -1067,6 +1067,17 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
     return name
 
 
+def split_input_data_path(path: str, path_input_data: str):
+    if path_input_data not in path:
+        raise ValueError(f"path '{path}' does not contains the input data path ('{path_input_data}')")
+
+    sub_path = path.split(path_input_data + os.path.sep, 1)[-1]
+    file = os.path.basename(sub_path)
+    sub_path = os.path.dirname(sub_path)
+
+    return path_input_data, sub_path, file
+
+
 def split_species_all_info(species, final_charge_format='+-'):
     name, spectral_info = _split_species_spectral_info(species)
     name, source = _split_species_source(name)  # remove resolving power or opacity source information
