@@ -23,7 +23,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             'pRT_outputs_path': os.path.join(str(Path.home()), 'petitRADTRANS', 'outputs')
         },
         'URLs': {
-            'pRT_input_data_url': 'https://keeper.mpdl.mpg.de/d/fb79812e3a694468bcda/?p='  # TODO change input_data_v3 to just input_data  # noqa E501
+            'pRT_input_data_url': 'https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/?p='
         }
     }
 
