@@ -32,6 +32,7 @@ class Data:
                  photometric_bin_edges=None,
                  line_opacity_mode='c-k',
                  radtrans_grid=False,
+                 concatenate_flux_epochs_variability=False,
                  radtrans_object=None,
                  wavelengths=None,
                  spectrum=None,
@@ -101,7 +102,9 @@ class Data:
             photometric_bin_edges : Tuple, numpy.ndarray
                 The edges of the photometric bin in micron. [low,high]
             radtrans_grid: bool
-                Set to true if data has been binned to pRT R = 1,000 c-k grid.
+                Set to true if data has been binned to a pRT c-k grid.
+            concatenate_flux_epochs_variability: bool
+                Set to true if data concatenation treatment for variability is to be used.
             line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -185,6 +188,7 @@ class Data:
         self.photometric_bin_edges = photometric_bin_edges
 
         self.radtrans_grid = radtrans_grid
+        self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
 
         # Read in data
         if path_to_observations is not None:
@@ -404,9 +408,12 @@ class Data:
 
         if not self.photometry:
             if self.radtrans_grid:
-                index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
-                        (wlen_model <= self.wavelengths[-1] * 1.00000001)
-                flux_rebinned = spectrum_model[index]
+                if self.concatenate_flux_epochs_variability:
+                    flux_rebinned = spectrum_model
+                else:
+                    index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
+                            (wlen_model <= self.wavelengths[-1] * 1.00000001)
+                    flux_rebinned = spectrum_model[index]
             else:
                 if self.data_resolution is not None:
                     spectrum_model = self.convolve(wlen_model,

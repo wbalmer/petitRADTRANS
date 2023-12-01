@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a112] - 2023-11-30
+## [3.0.0-a113] - 2023-12-01
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to return the gases and clouds opacities calculated by the `Radtrans` object.
 - Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
 - Some helpful error and warning messages.
+- Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
+  (see `concatenate_flux_epochs_variability` and its use in the data class.)
 
 ### Changed
 - Functions, arguments and attributes now have clearer names and respect PEP8. The complete list of change is available [here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
