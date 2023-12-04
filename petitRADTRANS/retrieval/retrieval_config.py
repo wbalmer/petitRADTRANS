@@ -582,7 +582,8 @@ class RetrievalConfig:
                  wavelengths=None,
                  spectrum=None,
                  uncertainties=None,
-                 mask=None):
+                 mask=None,
+                 concatenate_flux_epochs_variability=False):
         """
         Create a Data class object.
         # TODO complete docstring
@@ -642,7 +643,8 @@ class RetrievalConfig:
             wavelengths=wavelengths,
             spectrum=spectrum,
             uncertainties=uncertainties,
-            mask=mask
+            mask=mask,
+            concatenate_flux_epochs_variability=concatenate_flux_epochs_variability
         )
 
     def add_photometry(self, path,
