@@ -2229,7 +2229,7 @@ class SpectralModel(Radtrans):
             if hasattr(value, 'value'):
                 p[key] = p[key].value
 
-        # Handle beta
+        # Handle uncertainties scaling factor (beta)
         if 'beta' in p:
             beta = copy.deepcopy(p['beta'])
         elif 'log10_beta' in p:
@@ -2237,20 +2237,12 @@ class SpectralModel(Radtrans):
         else:
             beta = None
 
-        # Put retrieved species into imposed mass mixing ratio
+        # Put retrieved species into imposed mass fractions
         imposed_mass_fractions = {}
 
         for species in prt_object.line_species:
             if species in p:
-                if species == 'CO_36':
-                    imposed_mass_fractions[species] = 10 ** p[species] \
-                                                          * np.ones(prt_object.pressures.shape)
-                else:
-                    # spec = species.split('.')[
-                    #     0]  # deal with the naming scheme for binned down opacities (see below)
-                    spec = species
-                    imposed_mass_fractions[spec] = 10 ** p[species] \
-                        * np.ones(prt_object.pressures.shape)
+                imposed_mass_fractions[species] = 10 ** p[species] * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
@@ -2258,14 +2250,7 @@ class SpectralModel(Radtrans):
 
         for species in p['imposed_mass_fractions']:
             if species in p and species not in prt_object.line_species:
-                if species == 'CO_36':
-                    imposed_mass_fractions[species] = 10 ** p[species] \
-                                                          * np.ones(prt_object.pressures.shape)
-                else:
-                    spec = species.split('_R_')[
-                        0]  # deal with the naming scheme for binned down opacities (see below)
-                    imposed_mass_fractions[spec] = 10 ** p[species] \
-                        * np.ones(prt_object.pressures.shape)
+                imposed_mass_fractions[species] = 10 ** p[species] * np.ones(prt_object.pressures.shape)
 
                 del p[species]
 
