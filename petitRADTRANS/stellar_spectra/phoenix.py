@@ -96,7 +96,7 @@ class PhoenixStarTable:
             "phoenix.startable.petitRADTRANS.h5"
         )
 
-    def load(self, file=None, path_input_data=None):
+    def load(self, file=None, path_input_data=None, search_online=True):
         if file is None:
             file = self.get_default_file(path_input_data)
 
@@ -110,7 +110,7 @@ class PhoenixStarTable:
                 sub_path=None,
                 expect_spectral_information=False,
                 find_all=False,
-                search_online=True
+                search_online=search_online
             )
 
         print(f"Loading PHOENIX star table in file '{file}'... ", end='')

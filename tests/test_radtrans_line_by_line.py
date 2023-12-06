@@ -59,9 +59,9 @@ def init_spectral_model_line_by_line():
         # Instrument parameters
         convolve_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
         rebinned_wavelengths=np.arange(
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0],
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1],
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] /
+            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] * 1e-4,
+            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1] * 1e-4,
+            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] * 1e-4 /
             radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'] / 2
         ),  # um
         wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],

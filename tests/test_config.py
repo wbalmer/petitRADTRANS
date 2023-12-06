@@ -24,6 +24,11 @@ def test_configuration_file_generation():
     if os.path.isdir(config.default_config[path_section][input_data_path_option]):
         # Rename input_data path to raise the FileNotFound error
         print(f"Temporarily renaming input data directory to '{modified_default_directory}'")
+
+        if os.path.isdir(modified_default_directory):
+            raise FileExistsError(f"cannot rename input data directory for this test: "
+                                  f"'{modified_default_directory}' already exists")
+
         os.rename(default_directory, modified_default_directory)
         using_default_directory = True
 
@@ -43,19 +48,26 @@ def test_configuration_file_generation():
     print(f"Testing for incorrect input_data path behaviour...")
     error_raised = False
 
-    try:
-        petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
+    # Ensure the directory exists
+    star_table_directory = os.path.dirname(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file())
 
-        if os.path.isdir(new_config.get_input_data_path()):
+    if not os.path.isdir(star_table_directory):
+        os.makedirs(star_table_directory)
+
+    try:
+        petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
+
+        if os.path.isfile(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()):
             raise FileExistsError(
-                f"directory '{new_config.get_input_data_path()}' exists, while it should not for this test"
+                f"file '{petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()}' exists, "
+                f"while it should not for this test"
             )
     except FileNotFoundError as error:
         error_raised = True
 
         if not os.path.isdir(new_config.directory):
             raise FileNotFoundError(f"configuration directory '{new_config.directory}' is expected to be generated")
-        elif not os.path.isdir(new_config.get_input_data_path()):
+        elif not os.path.isdir(petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.get_default_file()):
             print(f"directory '{new_config.get_input_data_path()}' is incorrect, as expected")
         else:
             raise FileExistsError(f"a file was unexpectedly not found: '{str(error)}'")
@@ -63,6 +75,10 @@ def test_configuration_file_generation():
         petitRADTRANS.config.petitradtrans_config_parser.power_update(config)
 
         if using_default_directory:
+            if os.path.isdir(star_table_directory):
+                os.rmdir(star_table_directory)
+                os.rmdir(star_table_directory.rsplit(os.path.sep, 1)[0])
+
             print(f"Renaming '{modified_default_directory}' back to '{default_directory}'")
             os.rename(modified_default_directory, default_directory)
 
@@ -72,7 +88,7 @@ def test_configuration_file_generation():
 
     # Now test if the file is correctly loaded once everything is set properly
     print(f"Testing for correct input_data path behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
+    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
 
 
 def test_configuration_file_repair():
@@ -127,4 +143,4 @@ def test_configuration_file_repair():
     petitRADTRANS.config.petitradtrans_config_parser.load()
 
     print(f"Testing for correct behaviour...")
-    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load()
+    petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.load(search_online=False)
