@@ -160,7 +160,6 @@ class Retrieval:
             os.makedirs(self.output_dir + 'evaluate_' + self.retrieval_name, exist_ok=True)
 
         # Setup pRT Objects for each data structure.
-        print("Setting up PRT Objects")
         self.setup_data()
 
         try:
@@ -601,10 +600,13 @@ class Retrieval:
         """
         for name, dd in self.data.items():
             if dd.radtrans_object is not None:
+                print(f"Using provided Radtrans object for data '{name}'...")
                 continue
 
             # Only create if there's no other data object using the same pRT object
             if dd.external_radtrans_reference is None:
+                print(f"Setting up Radtrans object for data '{name}'...")
+
                 if dd.line_opacity_mode == 'c-k' and dd.model_resolution is not None:
                     # Use ExoK to have low res models.
                     self._rebin_opacities(resolution=dd.model_resolution)
@@ -664,6 +666,7 @@ class Retrieval:
                 i_p += 1
 
         for name, data in self.rd.data.items():
+            print(f"Testing model function for data '{name}'...")
             message = None
             wlen = None
             model = None
@@ -711,7 +714,7 @@ class Retrieval:
                 raise ValueError("unable to compute a spectrum (output wavelengths and spectrum are both None), "
                                  "check your inputs and your model function")
 
-        print("No errors detected in the model function!")
+        print("No errors detected in the model functions!")
 
     def prior(self, cube, ndim=0, nparams=0):
         """
