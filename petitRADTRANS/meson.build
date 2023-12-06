@@ -6,6 +6,7 @@ subdir('stellar_spectra')
 subdir('cli')
 subdir('ccf')
 subdir('plotlib')
+subdir('slurm_runs')
 
 py.install_sources([
     'math.py',
