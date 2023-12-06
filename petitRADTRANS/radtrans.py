@@ -2517,8 +2517,8 @@ class Radtrans:
             raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
 
         if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
-            warnings.warn(f"the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
-                          f"is not recommended")
+            warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+                          "is not recommended")
 
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
