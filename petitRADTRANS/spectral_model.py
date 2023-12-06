@@ -1315,7 +1315,7 @@ class SpectralModel(Radtrans):
         rebin_required_interval[0] -= 10 ** (np.floor(np.log10(rebin_required_interval[0])) - rebin_range_margin_power)
         rebin_required_interval[1] += 10 ** (np.floor(np.log10(rebin_required_interval[1])) - rebin_range_margin_power)
 
-        return np.array(rebin_required_interval)
+        return np.array(rebin_required_interval) * 1e4  # cm to um
 
     @staticmethod
     def compute_orbital_longitudes(times_to_longitude_start, orbital_period, longitude_start=0, **kwargs):
@@ -1902,8 +1902,6 @@ class SpectralModel(Radtrans):
         if rebinned_wavelengths is not None:
             if np.ndim(rebinned_wavelengths) <= 1:
                 rebinned_wavelengths = np.array([rebinned_wavelengths])
-
-            rebinned_wavelengths *= 1e-4  # um to cm
 
         if star_flux is not None and star_spectrum_wavelengths is not None:
             star_flux = flux_hz2flux_cm(
