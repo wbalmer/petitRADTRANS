@@ -218,7 +218,7 @@ class Retrieval:
         import pymultinest
 
         if MPI is None and comm is None and rank == 0:
-            print(
+            warnings.warn(
                 "unable to import mpi4py, "
                 "which is required for faster (multi-processes) retrievals\n"
                 "Using slower (single process) mode"
@@ -352,7 +352,7 @@ class Retrieval:
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
         """
 
-        logging.warning("ultranest mode is still in development. Proceed with caution")
+        warnings.warn("ultranest mode is still in development. Proceed with caution")
         try:
             import ultranest as un
             from ultranest.mlfriends import RobustEllipsoidRegion
@@ -2474,7 +2474,7 @@ class Retrieval:
             try:
                 ax.xaxis.set_major_formatter('{x:.1f}')
             except Exception:  # TODO find exception expected here
-                logging.warning("Please update to matplotlib 3.3.4 or greater")
+                warnings.warn("Please update to matplotlib 3.3.4 or greater")
                 pass
 
             min_wlen = bf_wlen[0]
@@ -2506,7 +2506,7 @@ class Retrieval:
             try:
                 ax_r.xaxis.set_major_formatter('{x:.1f}')
             except Exception:  # TODO find exception expected here
-                logging.warning("Please update to matplotlib 3.3.4 or greater")
+                warnings.warn("Please update to matplotlib 3.3.4 or greater")
                 pass
 
             if self.rd.plot_kwargs["xscale"] == 'log':

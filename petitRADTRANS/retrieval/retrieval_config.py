@@ -18,7 +18,6 @@ try:
     rank = comm.Get_rank()
 except ImportError:
     MPI = None
-    logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
 
 
 class RetrievalConfig:
