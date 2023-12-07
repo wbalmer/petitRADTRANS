@@ -71,7 +71,7 @@ does not appear to work, at least not on a Mac.
 Installation of petitRADTRANS via pip install
 _____________________________________________
 
-To install pRT via pip install just type
+Make sure you have numpy and a fortran compiler (e.g., gfortran) installed. Then, to install pRT via pip install just type
 
 .. code-block:: bash
 
@@ -91,6 +91,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder
+- Before continuing to the next step, make sure you have numpy and a fortran compiler (e.g., gfortran) installed.
 - Execute the following command in the terminal: ``pip install .``
 
 Windows 10 and 11 instructions
@@ -108,7 +109,7 @@ Instructions for Apple silicon (M1/M2/M3)
 _________________________________________
 
 petitRADTRANS should natively install on Apple silicon machines (so M1, M2 or M3 chips).
-Just make sure you have Apple's command line tools and
+Just make sure you have numpy, Apple's command line tools and
 the `Apple silicon version of gfortran <https://github.com/fxcoudert/gfortran-for-macOS/releases>`_ installed.
 
 Testing the installation
