@@ -397,7 +397,7 @@ class SpectralModel(Radtrans):
                 else:
                     kwargs['orbital_longitudes'] = orbital_longitudes
             else:
-                if orbital_longitudes is None:
+                if times is not None and mid_transit_time is not None and orbital_period is not None:
                     orbital_longitudes = orbital_longitudes_function(
                         times_to_longitude_start=times - mid_transit_time,
                         orbital_period=orbital_period,
