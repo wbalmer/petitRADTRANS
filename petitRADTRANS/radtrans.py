@@ -115,7 +115,6 @@ class Radtrans:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
         # Inputs checks
-        self.__check_pressures(pressures)
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
@@ -126,6 +125,8 @@ class Radtrans:
             pressures = np.array([1.0])  # bar
 
         self._pressures = pressures * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
+
+        self.__check_pressures(pressures)
 
         if line_species is None:
             self._line_species = []
