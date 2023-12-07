@@ -55,8 +55,7 @@ class Radtrans:
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_cos_angle_grid: np.ndarray[float] = None,
-            emission_cos_angle_grid_weights: np.ndarray[float] = None,
+            emission_angle_grid: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None
     ):
@@ -95,14 +94,12 @@ class Radtrans:
                 Will be ``False`` by default.
                 If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
                 the runtime of pRT!
-            emission_cos_angle_grid (Optional):
-                Array defining the cosines of the angle grid to be used for the emission spectrum calculations.
+            emission_angle_grid (Optional):
+                Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
+                and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
+                the angles, and emission_angle_grid[1] being the weights.
+                A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
                 If None, a default set of values and weights are used.
-                If not None, emission_cos_angle_grid_weights must be not None as well.
-            emission_cos_angle_grid_weights (Optional):
-                Array defining the cosines of the weights of the angle grid to be used for the emission spectrum
-                calculations.
-                Only taken into account if emission_cos_angle_grid is not None.
             anisotropic_cloud_scattering (Optional[bool, str]):
                 If True, anisotropic cloud scattering opacities are used for the spectral calculations.
                 If False, isotropic cloud scattering opacities are used for the spectral calculations.
@@ -205,35 +202,40 @@ class Radtrans:
         )
 
         # Initialize the angle (mu) grid for the emission spectral calculations
-        if emission_cos_angle_grid is None:
-            self._emission_cos_angle_grid = np.array([
+        self._emission_angle_grid = LockedDict.build_and_lock(
+            {
+                'cos_angles': None,
+                'weights': None
+            }
+        )
+
+        if emission_angle_grid is None:
+            self._emission_angle_grid['cos_angles'] = np.array([
                 0.1127016654,
                 0.5,
                 0.8872983346
             ])
 
-            if emission_cos_angle_grid_weights is not None:
-                warnings.warn("ignoring emission_cos_angle_grid_weights custom values and using the default ones\n"
-                              "To use a custom emission angle grid, "
-                              "set both emission_cos_angle_grid and emission_cos_angle_grid_weights")
-
-            self._emission_cos_angle_grid_weights = np.array([
+            self._emission_angle_grid['weights'] = np.array([
                 0.2777777778,
                 0.4444444444,
                 0.2777777778
             ])
         else:
-            if emission_cos_angle_grid_weights is None:
-                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
-                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
-                                 f"but was not set")
-            elif np.size(emission_cos_angle_grid_weights) != np.size(emission_cos_angle_grid):
-                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
-                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
-                                 f"but is of size {np.size(emission_cos_angle_grid_weights)}")
+            if isinstance(emission_angle_grid, dict):
+                self._emission_angle_grid['cos_angles'] = copy.deepcopy(emission_angle_grid['cos_angles'])
+                self._emission_angle_grid['weights'] = copy.deepcopy(emission_angle_grid['weights'])
+            elif hasattr(emission_angle_grid, '__iter__'):
+                self._emission_angle_grid['cos_angles'] = np.array(emission_angle_grid[0], copy=True)
+                self._emission_angle_grid['weights'] = np.array(emission_angle_grid[1], copy=True)
 
-            self._emission_cos_angle_grid = emission_cos_angle_grid
-            self._emission_cos_angle_grid_weights = emission_cos_angle_grid_weights
+                if self._emission_angle_grid['cos_angles'].size != self._emission_angle_grid['weights'].size:
+                    raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
+                                     f"emission_cos_angle_grid ({self._emission_angle_grid['cos_angles'].size}), "
+                                     f"but is of size {self._emission_angle_grid['weights'].size}")
+            else:
+                raise ValueError(f"emission_angle_grid must be a dictionary or an iterable of shape (2, n_angles), but "
+                                 f"is of type {type(emission_angle_grid)}")
 
         # Load all opacities
         self.load_all_opacities()
@@ -302,6 +304,17 @@ class Radtrans:
     def cloud_species(self, species: list):
         warnings.warn(self.__property_setting_warning_message)
         self._cloud_species = species
+
+    @property
+    def emission_angle_grid(self):
+        return self._emission_angle_grid
+
+    @emission_angle_grid.setter
+    def emission_angle_grid(self, dictionary: dict[str, np.ndarray[float]]):
+        warnings.warn(self.__property_setting_warning_message)
+
+        for key, value in dictionary.items():
+            self._emission_angle_grid[key] = value
 
     @property
     def frequencies(self):
@@ -620,8 +633,8 @@ class Radtrans:
                 frequency_bins_edges=self._frequency_bins_edges,
                 temperatures=temperatures,
                 weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                emission_cos_angle_grid=self._emission_cos_angle_grid,
-                emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                 optical_depths=optical_depths[:, :, 0, :],
                 photon_destruction_probabilities=photon_destruction_probabilities,
                 emission_geometry=emission_geometry,
@@ -660,8 +673,8 @@ class Radtrans:
                     frequencies=self._frequencies,
                     temperatures=temperatures,
                     weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                    emission_cos_angle_grid=self._emission_cos_angle_grid,
-                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                    emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                     optical_depths=optical_depths[:, :, :1, :],
                     return_contribution=return_contribution
                 )
@@ -670,8 +683,8 @@ class Radtrans:
                     frequencies=self._frequencies,
                     temperatures=temperatures,
                     weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                    emission_cos_angle_grid=self._emission_cos_angle_grid,
-                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                    emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                     optical_depths=optical_depths,
                     return_contribution=return_contribution
                 )
