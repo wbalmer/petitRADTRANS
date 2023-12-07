@@ -51,7 +51,7 @@ class SpectralModel(Radtrans):
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
-            wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
+            wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
     ):
         """Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
@@ -125,7 +125,7 @@ class SpectralModel(Radtrans):
                 (um) wavelengths of the model.
             transit_radii:
                 transit radii of the model.
-            spectral_radiosities:
+            fluxes:
                 (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
             **model_parameters:
                 dictionary of parameters. The keys can match arguments of functions used to generate the model.
@@ -159,7 +159,7 @@ class SpectralModel(Radtrans):
         # Spectrum parameters
         self.wavelengths = wavelengths
         self.transit_radii = transit_radii
-        self.fluxes = spectral_radiosities
+        self.fluxes = fluxes
 
         # Other model parameters
         self.model_parameters = model_parameters
@@ -1854,7 +1854,6 @@ class SpectralModel(Radtrans):
         return retrieval_configuration
 
     @classmethod
-    def load(cls, filename):
     def load(cls, filename, path_input_data=None):
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
@@ -2612,7 +2611,7 @@ class SpectralModel(Radtrans):
             mean_molar_masses=mean_molar_masses,
             wavelengths=wavelengths,
             transit_radii=transit_radii,
-            spectral_radiosities=spectral_radiosities,
+            fluxes=spectral_radiosities,
             orbital_period=orbital_period,
             system_observer_radial_velocities=system_observer_radial_velocities,
             orbital_inclination=orbital_inclination,
