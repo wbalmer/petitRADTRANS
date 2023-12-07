@@ -402,7 +402,7 @@ module math
 
         subroutine solve_tridiagonal_system(a, b, c, res, length, solution)
             ! """
-            ! Solves tridiagonal systems of linear equations. Source: some numerical recipes book.
+            ! Solves tridiagonal systems of linear equations. Source: numerical recipes book.
             ! """
             implicit none
 
