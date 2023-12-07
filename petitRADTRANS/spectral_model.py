@@ -1855,17 +1855,39 @@ class SpectralModel(Radtrans):
 
     @classmethod
     def load(cls, filename):
+    def load(cls, filename, path_input_data=None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
         # Update the SpectralModel attributes from the file
         with h5py.File(filename, 'r') as f:
             parameters = hdf52dict(f)
 
+        del parameters['units']
+
         radtrans_attributes = Radtrans.__dict__
+
+        discarded_radtrans_attributes = [
+            '_cias_loaded_opacities',
+            '_clouds_loaded_opacities',
+            '_lines_loaded_opacities',
+            '_frequency_bins_edges'
+        ]
 
         # Convert Radtrans properties to input names
         for parameter in list(parameters.keys()):
             if parameter[0] == '_' and parameter[1] != '_':
                 if parameter[1:] in radtrans_attributes:
+                    if parameter == '_path_input_data':
+                        parameters[parameter] = path_input_data
+                    elif parameter in discarded_radtrans_attributes:
+                        # Remove hidden and opacity-related parameters
+                        del parameters[parameter]
+                        continue
+
                     parameters[parameter[1:]] = parameters.pop(parameter)
+                elif '_Radtrans__' in parameter:
+                    del parameters[parameter]
             elif parameter == 'model_parameters':
                 for key, value in parameters[parameter].items():
                     parameters[key] = value
