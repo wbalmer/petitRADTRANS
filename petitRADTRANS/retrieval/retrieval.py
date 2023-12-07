@@ -216,11 +216,10 @@ class Retrieval:
         """
         import pymultinest
 
-        if MPI is None and comm is None and rank == 0:
-            warnings.warn(
-                "unable to import mpi4py, "
-                "which is required for faster (multi-processes) retrievals\n"
-                "Using slower (single process) mode"
+        if MPI is None:
+            print(
+                "Unable to import mpi4py, using slow (single process) mode\n"
+                "The mpi4py module is required for faster (multi-processes) retrievals, and is strongly recommended"
             )
 
         self.n_live_points = n_live_points
