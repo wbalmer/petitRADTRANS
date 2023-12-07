@@ -208,6 +208,9 @@ class SpectralModel(Radtrans):
             path_input_data=path_input_data
         )
 
+        # Check relevance of model parameters
+        self.__check_model_parameters_relevance()
+
     @staticmethod
     def __check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
         missing = []
@@ -222,6 +225,25 @@ class SpectralModel(Radtrans):
             base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
 
             raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
+
+    def __check_model_parameters_relevance(self):
+        default_parameters = []
+
+        for function in dir(self):
+            if (callable(getattr(self, function))
+                    and (function[0] != '_' or getattr(self, function) is self.__init_velocities)):
+                print(function)
+                signature = inspect.signature(getattr(self, function))
+
+                for parameter in signature.parameters:
+                    default_parameters.append(parameter)
+
+        for parameter in self.model_parameters:
+            if parameter not in default_parameters:
+                warnings.warn(f"model parameter '{parameter}' is not used by any function main function of this "
+                              f"SpectralModel\n"
+                              f"To remove this warning, add a custom function using this parameter, "
+                              f"or remove it from your model")
 
     @staticmethod
     def __check_none_model_parameters(explanation_message_=None, **kwargs):
@@ -1512,7 +1534,9 @@ class SpectralModel(Radtrans):
         return temperatures
 
     @staticmethod
-    def compute_transit_fractional_light_loss(spectrum, **kwargs):
+    def compute_transit_fractional_light_loss(spectrum, orbit_semi_major_axis, orbital_inclination,
+                                              star_radius, orbital_longitudes, transit_duration, orbital_period,
+                                              **kwargs):
         """Calculate the transit depth taking into account the transit fractional light loss.
         Spectrum must be scaled.
 
@@ -1526,8 +1550,13 @@ class SpectralModel(Radtrans):
         planet_radius_normalized = np.sqrt(planet_radius_normalized_squared)
 
         planet_star_centers_distance = SpectralModel._compute_planet_star_centers_distance(
+            orbit_semi_major_axis=orbit_semi_major_axis,
+            orbital_inclination=orbital_inclination,
             planet_radius_normalized=planet_radius_normalized,
-            **kwargs
+            star_radius=star_radius,
+            orbital_longitudes=orbital_longitudes,
+            transit_duration=transit_duration,
+            orbital_period=orbital_period
         )
 
         spectrum_transit_fractional_light_loss = SpectralModel._compute_transit_fractional_light_loss_uniform(
@@ -2110,16 +2139,11 @@ class SpectralModel(Radtrans):
         return wavelengths, spectrum, star_observed_spectrum
 
     @staticmethod
-    def pipeline(spectrum, **kwargs):
-        """Interface with simple_pipeline.
-
-        Args:
-            spectrum: spectrum to prepare
-            **kwargs: simple_pipeline arguments
-
-        Returns:
-            The prepared spectrum, matrix, and uncertainties
-        """
+    def preparing_pipeline(spectrum, uncertainties=None,
+                           wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
+                           apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
+                           uncertainties_as_weights=False, **kwargs):
+        """Interface with retrieval.preparing.preparing_pipeline."""
         # simple_pipeline interface
         if not hasattr(spectrum, 'mask'):
             spectrum = np.ma.masked_array(spectrum)
@@ -2131,10 +2155,23 @@ class SpectralModel(Radtrans):
         if np.ndim(spectrum.mask) == 0:
             spectrum.mask = np.zeros(spectrum.shape, dtype=bool)
 
-        return preparing_pipeline(spectrum=spectrum, full=True, **kwargs)
+        return preparing_pipeline(
+            spectrum=spectrum,
+            uncertainties=uncertainties,
+            wavelengths=wavelengths,
+            airmass=airmass,
+            tellurics_mask_threshold=tellurics_mask_threshold,
+            polynomial_fit_degree=polynomial_fit_degree,
+            apply_throughput_removal=apply_throughput_removal,
+            apply_telluric_lines_removal=apply_telluric_lines_removal,
+            correct_uncertainties=correct_uncertainties,
+            uncertainties_as_weights=uncertainties_as_weights,
+            full=True,
+            **kwargs
+        )
 
     def prepare_spectrum(self, spectrum, **kwargs):
-        return self.pipeline(spectrum, **kwargs)
+        return self.preparing_pipeline(spectrum, **kwargs)
 
     @staticmethod
     def resolving_space(start, stop, resolving_power):
