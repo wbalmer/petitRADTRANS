@@ -232,7 +232,6 @@ class SpectralModel(Radtrans):
         for function in dir(self):
             if (callable(getattr(self, function))
                     and (function[0] != '_' or getattr(self, function) is self.__init_velocities)):
-                print(function)
                 signature = inspect.signature(getattr(self, function))
 
                 for parameter in signature.parameters:
