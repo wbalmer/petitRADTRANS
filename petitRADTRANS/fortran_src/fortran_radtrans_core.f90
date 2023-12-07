@@ -402,7 +402,7 @@ module math
 
         subroutine solve_tridiagonal_system(a, b, c, res, length, solution)
             ! """
-            ! Solves tridiagonal systems of linear equations. Source: numerical recipes book.
+            ! Solves tridiagonal systems of linear equations. Source: Numerical Recipes book.
             ! """
             implicit none
 
@@ -443,23 +443,29 @@ module math
                     return
                 end if
 
-                solution(ind) = res(ind) / buffer_scalar
-                solution_pre = solution(ind - 1) / buffer_scalar
+                ! TODO: check when these overflows are triggered!
+!                solution(ind) = res(ind) / buffer_scalar
+!                solution_pre = solution(ind - 1) / buffer_scalar
+!
+!                if(solution_pre <= sqrt_hugest) then ! less accurate than a proper overflow detection, but less costly
+!                    solution(ind) = max(solution(ind) - solution_pre * a(ind), tiniest)  ! max() prevents < 0 solutions
+!                else  ! overflow prevention
+!                    if(.not. huge_value_warning_trigger) then
+!                        write(&
+!                            *, &
+!                            '("solve_tridiagonal_system: Warning: &
+!                            &very high value (> ", ES11.3, ") found during inversion, capping solution...")'&
+!                        ) sqrt_hugest
+!                        huge_value_warning_trigger = .true.
+!                    end if
+!
+!                    solution(ind) = sqrt_hugest  ! capping value to avoid infinity
+!                end if
 
-                if(solution_pre <= sqrt_hugest) then ! less accurate than a proper overflow detection, but less costly
-                    solution(ind) = max(solution(ind) - solution_pre * a(ind), tiniest)  ! max() prevents < 0 solutions
-                else  ! overflow prevention
-                    if(.not. huge_value_warning_trigger) then
-                        write(&
-                            *, &
-                            '("solve_tridiagonal_system: Warning: &
-                            &very high value (> ", ES11.3, ") found during inversion, capping solution...")'&
-                        ) sqrt_hugest
-                        huge_value_warning_trigger = .true.
-                    end if
+                ! TODO: remove the line below and add the above commented block back in if the todo above was solved.
+                solution(ind) = (res(ind) - a(ind)*solution(ind-1))/buffer_scalar
 
-                    solution(ind) = sqrt_hugest  ! capping value to avoid infinity
-                end if
+
             end do
 
             do ind = length - 1, 1, -1
