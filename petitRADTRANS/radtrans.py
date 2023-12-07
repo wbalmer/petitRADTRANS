@@ -176,7 +176,6 @@ class Radtrans:
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
             {
-                'has_custom_tp_grid': {},
                 'temperature_pressure_grid': {},
                 'temperature_grid_size': {},
                 'pressure_grid_size': {},
@@ -897,7 +896,6 @@ class Radtrans:
             n_frequencies=self._frequencies.size,
             line_opacities_grid=self._lines_loaded_opacities['opacity_grid'],
             line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'],
-            has_custom_line_opacities_tp_grid=self._lines_loaded_opacities['has_custom_tp_grid'],
             line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size'],
             line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
         )
@@ -2314,7 +2312,7 @@ class Radtrans:
 
     @staticmethod
     def _interpolate_species_opacities(pressures, temperatures, n_g, n_frequencies, line_opacities_grid,
-                                       line_opacities_temperature_pressure_grid, has_custom_line_opacities_tp_grid,
+                                       line_opacities_temperature_pressure_grid,
                                        line_opacities_temperature_grid_size, line_opacities_pressure_grid_size
                                        ):
         # Interpolate line opacities to given temperature structure.
@@ -2331,7 +2329,7 @@ class Radtrans:
                     pressures,
                     temperatures,
                     line_opacities_temperature_pressure_grid[species],
-                    has_custom_line_opacities_tp_grid[species],
+                    True,  # always assume custom PT grid with new format
                     line_opacities_temperature_grid_size[species],
                     line_opacities_pressure_grid_size[species],
                     line_opacities_grid[species]
@@ -3483,8 +3481,7 @@ class Radtrans:
                 # Load temperature-pressure grid
                 self._lines_loaded_opacities['temperature_pressure_grid'][species], \
                     self._lines_loaded_opacities['temperature_grid_size'][species], \
-                    self._lines_loaded_opacities['pressure_grid_size'][species], \
-                    self._lines_loaded_opacities['has_custom_tp_grid'][species] \
+                    self._lines_loaded_opacities['pressure_grid_size'][species] \
                     = self.load_line_opacities_pressure_temperature_grid(
                     hdf5_file=hdf5_file
                 )
@@ -3532,10 +3529,9 @@ class Radtrans:
         line_opacities_temperature_pressure_grid = ret_val
         line_opacities_temperature_grid_size = temperature_grid.size
         line_opacities_pressure_grid_size = pressure_grid.size
-        has_custom_line_opacities_temperature_pressure_grid = True
 
         return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
-            line_opacities_pressure_grid_size, has_custom_line_opacities_temperature_pressure_grid
+            line_opacities_pressure_grid_size
 
     @staticmethod
     def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
