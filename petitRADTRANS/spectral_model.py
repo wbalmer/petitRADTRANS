@@ -2065,21 +2065,22 @@ class SpectralModel(Radtrans):
                 current_resolving_power = np.mean(wavelengths[:, :-1] / np.diff(wavelengths) + 0.5)
 
                 # Get the intermediate wavelength grid at the same resolving power than the current shifted grids
-                rebinned_wavelengths = SpectralModel.resolving_space(
-                    start=np.max(np.min(wavelengths[:, 1:], axis=-1)),
-                    stop=np.min(np.max(wavelengths[:, :-1], axis=-1)),
+                diff = np.max(np.diff(rebinned_wavelengths))
+                _rebinned_wavelengths = SpectralModel.resolving_space(
+                    start=np.min(rebinned_wavelengths) - diff,
+                    stop=np.max(rebinned_wavelengths) + diff,
                     resolving_power=current_resolving_power
                 )  # TODO these wavelengths should be obtainable from a function
 
                 _, spectrum = SpectralModel._rebin_wrap(  # TODO rebin wrap should not be hidden
                     wavelengths=wavelengths,
                     spectrum=spectrum,
-                    rebinned_wavelengths=rebinned_wavelengths,
+                    rebinned_wavelengths=_rebinned_wavelengths,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
 
-                wavelengths = np.tile(rebinned_wavelengths, (spectrum.shape[0], 1))
+                wavelengths = np.tile(_rebinned_wavelengths, (spectrum.shape[0], 1))
 
             # Initialize arrays
             telluric_transmittances_rebin = np.zeros(spectrum.shape)
@@ -2088,13 +2089,13 @@ class SpectralModel(Radtrans):
                 telluric_transmittances_wavelengths = wavelengths_0
 
             if np.ndim(wavelengths) == 1:
-                rebinned_wavelengths = np.array([wavelengths])
+                _rebinned_wavelengths = np.array([wavelengths])
             else:
-                rebinned_wavelengths = wavelengths
+                _rebinned_wavelengths = wavelengths
 
             # Get a telluric transmittance for each exposure
             if np.ndim(telluric_transmittances) == 1:
-                for i, wavelength_shift in enumerate(rebinned_wavelengths):
+                for i, wavelength_shift in enumerate(_rebinned_wavelengths):
                     _, telluric_transmittances_rebin[i] = SpectralModel._rebin_wrap(
                         wavelengths=telluric_transmittances_wavelengths,
                         spectrum=telluric_transmittances,
