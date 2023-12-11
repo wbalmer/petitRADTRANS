@@ -113,19 +113,7 @@ def _get_parameter_range(sample_dict, retrieved_parameters, spectral_model=None)
             coefficients.append(1)
 
         if 'figure_offset' in dictionary:
-            if spectral_model is not None:
-                if key == 'mid_transit_time':
-                    figure_offset = spectral_model.model_parameters['mid_transit_time']
-                    prior_parameters += spectral_model.model_parameters['mid_transit_time']
-                else:
-                    figure_offset = 0
-            else:
-                if key == 'mid_transit_time':
-                    prior_parameters -= dictionary['figure_offset']
-
-                figure_offset = 0
-
-            figure_offset += dictionary['figure_offset']
+            figure_offset = dictionary['figure_offset']
 
             offsets.append(dictionary['figure_offset'])
             low_ref += dictionary['figure_offset']
