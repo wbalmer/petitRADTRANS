@@ -29,7 +29,7 @@ def init_run():
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest
         amr=False,  # We won't be using adaptive mesh refinement for the pressure grid
         pressures=radtrans_parameters['pressures'],
-        scattering=False  # This would turn on scattering when calculating emission spectra
+        scattering_in_emission=False  # This would turn on scattering when calculating emission spectra
     )
     # Scattering is automatically included for transmission spectra
 
