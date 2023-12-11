@@ -5,8 +5,8 @@ import sys
 import numpy as np
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from .data import Data
-from .parameter import Parameter
+from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 
 # MPI Multiprocessing
 rank = 0
@@ -42,7 +42,7 @@ class RetrievalConfig:
             Use an adaptive high resolution pressure grid around the location of cloud condensation.
             This will increase the size of the pressure grid by a constant factor that can be adjusted
             in the setup_pres function.
-        scattering : bool
+        scattering_in_emission : bool
             If using emission spectra, turn scattering on or off.
         pressures : numpy.array
             A log-spaced array of pressures over which to retrieve. 100 points is standard, between
@@ -53,8 +53,7 @@ class RetrievalConfig:
                  retrieval_name="retrieval_name",
                  run_mode="retrieval",
                  amr=False,
-                 scattering=False,
-                 distribution="lognormal",
+                 scattering_in_emission=False,
                  pressures=None):
 
         self.retrieval_name = retrieval_name
@@ -74,8 +73,7 @@ class RetrievalConfig:
         else:
             self.pressures = np.logspace(-6, 3, 100)
 
-        self.scattering = scattering
-        self.distribution = distribution
+        self.scattering_in_emission = scattering_in_emission
         self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
         self.data = {}  #: Dictionary of the datasets used in the retrieval.
         self.instruments = []
