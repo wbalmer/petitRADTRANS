@@ -176,6 +176,8 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
         sample_dict = {'': None}
 
     samples = list(sample_dict.keys())
+    coefficients = 1
+    offsets = 0
 
     # Get all useful figure information from all retrievals
     for i, sample in enumerate(samples):
@@ -237,7 +239,9 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
     if true_values is not None:
         if isinstance(true_values, dict):
             if list(true_values.keys())[0] != '':
-                true_values = [true_values[key] for key in sd[0]]
+                true_values = np.array([true_values[key] for key in sd[0]])
+
+        true_values = true_values * coefficients + offsets
 
         for sample in sample_dict:
             true_values_dict[sample] = true_values
