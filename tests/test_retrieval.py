@@ -242,8 +242,8 @@ def test_list_available_species():
 def test_simple_retrieval(test_number=0, max_test_number=max_number_of_tests):
     retrieval = petitRADTRANS.retrieval.Retrieval(
         run_definition,
-        output_dir=tests_results_directory,
-        sample_spec=radtrans_parameters['retrieval_parameters']['sample_spectrum_output'],
+        output_directory=tests_results_directory,
+        evaluate_sample_spectra=radtrans_parameters['retrieval_parameters']['sample_spectrum_output'],
         ultranest=radtrans_parameters['retrieval_parameters']['ultranest']  # if False, use PyMultiNest
     )
 
@@ -259,7 +259,7 @@ def test_simple_retrieval(test_number=0, max_test_number=max_number_of_tests):
         sample_dict, parameter_dict = retrieval.get_samples(
             ultranest=False,
             names=retrieval.corner_files,
-            output_dir=retrieval.output_dir
+            output_directory=retrieval.output_directory
         )
 
         # Get results and reference
