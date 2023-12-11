@@ -79,7 +79,7 @@ def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False,
     if not os.path.isfile(parameter_names_file):
         raise FileNotFoundError(f"parameter names file '{parameter_names_file}' does not exist")
 
-    samples = np.genfromtxt(os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat'))
+    samples = np.genfromtxt(str(os.path.join(output_dir, 'out_PMN', name + '_post_equal_weights.dat')))
 
     with open(parameter_names_file, 'r') as f:
         parameters_read = json.load(f)
