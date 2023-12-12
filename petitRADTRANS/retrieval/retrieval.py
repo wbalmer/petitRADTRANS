@@ -143,9 +143,10 @@ class Retrieval:
                 os.path.join(self.output_directory, 'out_PMN'),
                 exist_ok=True
             )
-        if not os.path.isdir(os.path.join(self.output_directory, 'evaluate_', self.configuration.retrieval_name)):
+
+        if not os.path.isdir(os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name)):
             os.makedirs(
-                os.path.join(self.output_directory, 'evaluate_', self.configuration.retrieval_name),
+                os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name),
                 exist_ok=True
             )
 
@@ -154,7 +155,7 @@ class Retrieval:
 
         try:
             self.generate_retrieval_summary()
-        except ValueError as e:  # TODO check if ValueError was expected here
+        except (ValueError, FileNotFoundError) as e:  # TODO check if ValueError was expected here
             print(f"Could not generate summary file! Error was: {str(e)}")
 
     def run(self,
