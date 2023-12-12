@@ -236,6 +236,9 @@ class SpectralModel(Radtrans):
                     default_parameters.append(parameter)
 
         for parameter in self.model_parameters:
+            if 'log10_' in parameter:
+                parameter = parameter.split('log10_', 1)[1]
+
             if parameter not in default_parameters:
                 warnings.warn(f"model parameter '{parameter}' is not used by any function main function of this "
                               f"SpectralModel\n"
