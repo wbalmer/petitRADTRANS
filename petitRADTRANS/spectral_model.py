@@ -1762,7 +1762,7 @@ class SpectralModel(Radtrans):
                                      telluric_transmittances=None, instrumental_deformations=None, noise_matrix=None,
                                      scale=False, shift=False, use_transit_light_loss=False, convolve=False,
                                      rebin=False, prepare=False,
-                                     run_mode='retrieval', amr=False, scattering=False, distribution='lognormal',
+                                     run_mode='retrieval', amr=False, scattering_in_emission=False,
                                      pressures=None, dataset_name='data', **kwargs):
         if pressures is None:
             pressures = copy.copy(self.pressures)
@@ -1774,8 +1774,7 @@ class SpectralModel(Radtrans):
             retrieval_name=retrieval_name,
             run_mode=run_mode,
             amr=amr,
-            scattering=scattering,  # scattering is automatically included for transmission spectra
-            distribution=distribution,
+            scattering_in_emission=scattering_in_emission,  # scattering is automatically included in transmission
             pressures=pressures
         )
 
@@ -2270,14 +2269,26 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, amr=False,
+                                            fixed_parameters=None,
                                             mode='emission', update_parameters=False,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
                                             convolve=False, rebin=False, prepare=False):
         # TODO Change model generating function template to not include pt_plot_mode
-        # Convert from Parameter object to dictionary
-        p = copy.deepcopy(parameters)  # copy to avoid over-writing
+        if fixed_parameters is None:
+            fixed_parameters = {}
+
+        # Build model parameters
+        p = {}
+
+        # Add fixed parameters
+        for key, value in fixed_parameters.items():
+            p[key] = value
+
+        # Add free parameters, convert from Parameter object to dictionary
+        for key, value in parameters.items():
+            p[key] = copy.deepcopy(value)
 
         for key, value in p.items():
             if hasattr(value, 'value'):
@@ -2311,6 +2322,7 @@ class SpectralModel(Radtrans):
         for key, value in imposed_mass_fractions.items():
             p['imposed_mass_fractions'][key] = value
 
+        # Calculate the spectrum
         wavelengths, model = prt_object.calculate_spectrum(
             mode=mode,
             parameters=p,
@@ -2336,8 +2348,8 @@ class SpectralModel(Radtrans):
                       const_efficiency_mode=False, log_z_convergence=0.5, n_iter_before_update=50, max_iterations=0,
                       save=True, filename='retrieval_parameters', rank=0, **kwargs):
         retrieval = Retrieval(
-            run_definition=retrieval_configuration,
-            output_dir=retrieval_directory,
+            configuration=retrieval_configuration,
+            output_directory=retrieval_directory,
             uncertainties_mode=uncertainties_mode,
             **kwargs
         )
@@ -2354,7 +2366,7 @@ class SpectralModel(Radtrans):
 
             if rank == 0:
                 SpectralModel.save_parameters(
-                    file=os.path.join(retrieval.output_dir, filename + '.h5'),
+                    file=os.path.join(retrieval.output_directory, filename + '.h5'),
                     n_live_points=n_live_points,
                     const_efficiency_mode=const_efficiency_mode,
                     log_z_convergence=log_z_convergence,
