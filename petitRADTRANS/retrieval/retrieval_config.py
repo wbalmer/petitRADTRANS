@@ -6,7 +6,7 @@ import numpy as np
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.parameter import Parameter
 
 # MPI Multiprocessing
 rank = 0
