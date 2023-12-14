@@ -1101,7 +1101,7 @@ module fortran_radtrans_core
         end subroutine compute_cloud_hansen_opacities
 
 
-        subroutine compute_cloud_optical_depths(reference_gravity, pressures, opacities, &
+        subroutine compute_species_optical_depths(reference_gravity, pressures, opacities, &
                                                 n_layers, n_frequencies, n_g, n_species, &
                                                 optical_depths)
             ! """
@@ -1125,7 +1125,7 @@ module fortran_radtrans_core
           !~~~~~~~~~~~~~
 
           optical_depths = 0d0
-          second_order = .FALSE.
+          second_order = .FALSE.  ! TODO maybe implement this in the future
 
           if (second_order) then
              do i_struc = 2, n_layers
@@ -1179,7 +1179,7 @@ module fortran_radtrans_core
              end do
           end if
 
-        end subroutine compute_cloud_optical_depths
+        end subroutine compute_species_optical_depths
 
 
         subroutine compute_cloud_particles_mean_radius(reference_gravity, atmospheric_densities, &

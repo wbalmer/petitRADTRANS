@@ -1443,7 +1443,7 @@ class Radtrans:
                 _cloud_particles_mean_radii)
 
     @staticmethod
-    def _compute_cloud_optical_depths(reference_gravity, pressures, cloud_opacities):
+    def _compute_species_optical_depths(reference_gravity, pressures, cloud_opacities):
         """Calculate the optical depth of the clouds as function of
         frequency and pressure. The array with the optical depths is set to the
         ``tau_cloud`` attribute. The optical depth is calculated from the top of
@@ -1457,7 +1457,7 @@ class Radtrans:
                     Surface gravity in cgs. Vertically constant for emission
                     spectra.
         """
-        return fcore.compute_cloud_optical_depths(reference_gravity, pressures, cloud_opacities)
+        return fcore.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)
 
     @staticmethod
     def _compute_feautrier_radiative_transfer(frequency_bins_edges, temperatures, weights_gauss,
@@ -1688,7 +1688,7 @@ class Radtrans:
                       'setting the photon destruction probability in this spectral range to 1.')
                 photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
         else:
-            optical_depths = Radtrans._compute_cloud_optical_depths(
+            optical_depths = Radtrans._compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=pressures,
                 cloud_opacities=opacities
@@ -2644,7 +2644,7 @@ class Radtrans:
             )
 
         if self.__clouds_have_effect(mass_fractions) and return_cloud_contribution:
-            cloud_contribution = self._compute_cloud_optical_depths(
+            cloud_contribution = self._compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=self._pressures,
                 cloud_opacities=cloud_opacities
@@ -2655,7 +2655,7 @@ class Radtrans:
         if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
                 and len(self._line_species) > 1):
             if self._scattering_in_emission and opacities_rosseland is not None:
-                optical_depths_rosseland = self._compute_cloud_optical_depths(
+                optical_depths_rosseland = self._compute_species_optical_depths(
                     reference_gravity=reference_gravity,
                     pressures=self._pressures,
                     cloud_opacities=opacities_rosseland.reshape(1, 1, 1, len(self._pressures))
