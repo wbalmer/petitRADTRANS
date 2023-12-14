@@ -18,8 +18,9 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.radtrans import Radtrans
+from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
-from petitRADTRANS.retrieval.parameter import Parameter
+from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.utils import flatten_object
 
@@ -36,36 +37,6 @@ except ImportError:
 
 
 class Retrieval:
-    """
-    This class implements the retrieval method using petitRADTRANS and pymultinest.
-    A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
-    and priors. The run() method then uses pymultinest to sample the parameter space, producing
-    posterior distributions for parameters and bayesian evidence for models.
-    Various useful plotting functions have also been included, and can be run once the retrieval is
-    complete.
-
-    Args:
-        configuration : RetrievalConfig
-            A RetrievalConfig object that describes the retrieval to be run. This is the user
-            facing class that must be setup for every retrieval.
-        output_directory : Str
-            The directory in which the output folders should be written
-        evaluate_sample_spectra : Bool
-            Produce plots and data files for random samples drawn from the outputs of pymultinest.
-        ultranest : bool
-            If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
-            but is significantly slower.
-        corner_plot_names : List(Str)
-            List of additional retrieval names that should be included in the corner plotlib.
-        use_prt_plot_style : Bool
-            Use the petitRADTRANS plotting style as described in style.py. Recommended to
-            turn this parameter to false if you want to use interactive plotting, or if the
-            test_plotting parameter is True.
-        test_plotting : Bool
-            Only use when running locally. A boolean flag that will produce plots
-            for each sample when pymultinest is run.
-    """
-
     def __init__(
             self,
             configuration: RetrievalConfig,
@@ -82,6 +53,42 @@ class Retrieval:
             test_plotting: bool = False,
             uncertainties_mode: str = "default"
     ):
+        """
+        This class implements the retrieval method using petitRADTRANS and pymultinest.
+        A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
+        and priors. The run() method then uses pymultinest to sample the parameter space, producing
+        posterior distributions for parameters and bayesian evidence for models.
+        Various useful plotting functions have also been included, and can be run once the retrieval is
+        complete.
+
+        Args:
+            configuration : RetrievalConfig
+                A RetrievalConfig object that describes the retrieval to be run. This is the user
+                facing class that must be setup for every retrieval.
+            output_directory : Str
+                The directory in which the output folders should be written
+            evaluate_sample_spectra : Bool
+                Produce plots and data files for random samples drawn from the outputs of pymultinest.
+            ultranest : bool
+                If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
+                but is significantly slower.
+            corner_plot_names : List(Str)
+                List of additional retrieval names that should be included in the corner plotlib.
+            use_prt_plot_style : Bool
+                Use the petitRADTRANS plotting style as described in style.py. Recommended to
+                turn this parameter to false if you want to use interactive plotting, or if the
+                test_plotting parameter is True.
+            test_plotting : Bool
+                Only use when running locally. A boolean flag that will produce plots
+                for each sample when pymultinest is run.
+            uncertainties_mode : Str
+                Uncertainties handling method during the retrieval.
+                    - "default": the uncertainties are fixed.
+                    - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
+                      (https://doi.org/10.1093/mnras/staa228).
+                    - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
+                    - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
+        """
         self.configuration = configuration
 
         if len(self.configuration.line_species) < 1:
@@ -96,7 +103,6 @@ class Retrieval:
 
         # Maybe inherit from retrieval config class?
         # Could actually be merged with RetrievalConfig
-        self.configuration.parameters = self.configuration.parameters
         self.ultranest = ultranest
         self.use_mpi = use_mpi
 
@@ -414,6 +420,119 @@ class Retrieval:
 
             if comm is not None:
                 comm.barrier()
+
+    @classmethod
+    def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict[str]],
+                  retrieval_name: str = "retrieval_name",
+                  run_mode="retrieval", amr=False, output_directory: str = "", use_mpi: bool = False,
+                  evaluate_sample_spectra: bool = False, ultranest: bool = False,
+                  corner_plot_names: list[str] = None, use_prt_plot_style: bool = True, test_plotting: bool = False,
+                  uncertainties_mode: str = "default",
+                  scattering_in_emission: bool = False, pressures: np.ndarray = None
+                  ):
+        """Instantiate a Retrieval object with a dictionary of Data objects.
+        Intended to be used in couple with the SpectralModel.init_data function.
+
+        The RetrievalConfig object is automatically generated. No fixed parameters will be used, those must be stored
+        in their respective Data.model_generating_function. This is automatically done when using the
+        SpectralModel.init_data function.
+
+        Args:
+            data : Dict
+                A dictionary with data names as keys and Data objects as values.
+            retrieved_parameters : Dict
+                A dictionary with retrieved parameter names as keys and dictionaries as values. Those sub-dictionaries
+                must have keys 'prior_parameters' and 'prior_type'. This can also be a list of RetrievalParameter
+                objects.
+            retrieval_name : Str
+                Name of this retrieval. Make it informative so that you can keep track of the outputs!
+            run_mode : Str
+                Can be either 'retrieval', which runs the retrieval normally using pymultinest,
+                or 'evaluate', which produces plots from the best fit parameters stored in the
+                output post_equal_weights file.
+            amr : Bool
+                Use an adaptive high resolution pressure grid around the location of cloud condensation.
+                This will increase the size of the pressure grid by a constant factor that can be adjusted
+                in the setup_pres function.
+            output_directory : Str
+                The directory in which the output folders should be written
+            evaluate_sample_spectra : Bool
+                Produce plots and data files for random samples drawn from the outputs of pymultinest.
+            ultranest : bool
+                If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
+                but is significantly slower.
+            corner_plot_names : List(Str)
+                List of additional retrieval names that should be included in the corner plotlib.
+            use_prt_plot_style : Bool
+                Use the petitRADTRANS plotting style as described in style.py. Recommended to
+                turn this parameter to false if you want to use interactive plotting, or if the
+                test_plotting parameter is True.
+            test_plotting : Bool
+                Only use when running locally. A boolean flag that will produce plots
+                for each sample when pymultinest is run.
+            uncertainties_mode : Str
+                Uncertainties handling method during the retrieval.
+                    - "default": the uncertainties are fixed.
+                    - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
+                      (https://doi.org/10.1093/mnras/staa228).
+                    - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
+                    - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
+            scattering_in_emission : Bool
+                If using emission spectra, turn scattering on or off.
+            pressures : numpy.ndarray
+                A log-spaced array of pressures over which to retrieve. 100 points is standard, between
+                10^-6 and 10^3.
+
+        Returns:
+            An Retrieval object instance.
+        """
+        if pressures is None:
+            pressures = np.ones(1)
+
+        # Instantiate an empty RetrievalConfig
+        retrieval_configuration = RetrievalConfig(
+            retrieval_name=retrieval_name,
+            run_mode=run_mode,
+            amr=amr,
+            scattering_in_emission=scattering_in_emission,  # scattering is not necessary when using SpectralModels
+            pressures=pressures  # pressures is not necessary when using SpectralModels
+        )
+
+        # Convert retrieved parameters ot RetrievalParameters
+        if isinstance(retrieved_parameters, dict):
+            retrieved_parameters = RetrievalParameter.from_dict(retrieved_parameters)
+
+        # Add retrieved parameters to the RetrievalConfig
+        for parameter in retrieved_parameters:
+            if not hasattr(parameter, 'prior_function'):
+                raise AttributeError(
+                    f"'{type(parameter)}' object has no attribute 'prior_function': "
+                    f"usage of dictionary or a '{type(RetrievalParameter)}' instance is recommended"
+                )
+
+            retrieval_configuration.add_parameter(
+                name=parameter.name,
+                free=True,  # fixed parameters must be stored within the Data.model_generating_function
+                value=None,
+                transform_prior_cube_coordinate=parameter.prior_function
+            )
+
+        # Add the data to the RetrievalConfig
+        for data_name, d in data.items():
+            retrieval_configuration.data[data_name] = d
+
+        # Instantiate the new Retrieval object
+        return cls(
+            configuration=retrieval_configuration,
+            output_directory=output_directory,
+            use_mpi=use_mpi,
+            evaluate_sample_spectra=evaluate_sample_spectra,
+            ultranest=ultranest,
+            corner_plot_names=corner_plot_names,
+            use_prt_plot_style=use_prt_plot_style,
+            test_plotting=test_plotting,
+            uncertainties_mode=uncertainties_mode
+        )
 
     def generate_retrieval_summary(self, stats=None):
         """
