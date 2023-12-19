@@ -7,7 +7,7 @@ import numpy as np
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
-from petitRADTRANS._input_data_loader import get_input_data_file_not_found_error_message
+from petitRADTRANS._input_data_loader import get_input_file
 
 
 class PhoenixStarTable:
@@ -96,12 +96,22 @@ class PhoenixStarTable:
             "phoenix.startable.petitRADTRANS.h5"
         )
 
-    def load(self, file=None):
+    def load(self, file=None, path_input_data=None, search_online=True):
         if file is None:
-            file = self.get_default_file()
+            file = self.get_default_file(path_input_data)
+
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
 
         if not os.path.isfile(file):
-            raise FileNotFoundError(get_input_data_file_not_found_error_message(file))
+            file = get_input_file(
+                file=file,
+                path_input_data=path_input_data,
+                sub_path=None,
+                expect_spectral_information=False,
+                find_all=False,
+                search_online=search_online
+            )
 
         print(f"Loading PHOENIX star table in file '{file}'... ", end='')
 

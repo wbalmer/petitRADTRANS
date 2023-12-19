@@ -175,6 +175,11 @@ def download_input_data(destination, source=None, rewrite=False,
 
     # Start download
     destination = os.path.join(path_input_data, destination.split(os.path.sep, 1)[1])
+    destination_directory = os.path.dirname(destination)
+
+    if not os.path.isdir(destination_directory):
+        print(f"Creating directory '{destination_directory}'...")
+        os.makedirs(destination_directory)
 
     print(f"Downloading '{destination}'...")
 

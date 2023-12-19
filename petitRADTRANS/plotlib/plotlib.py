@@ -113,19 +113,7 @@ def _get_parameter_range(sample_dict, retrieved_parameters, spectral_model=None)
             coefficients.append(1)
 
         if 'figure_offset' in dictionary:
-            if spectral_model is not None:
-                if key == 'mid_transit_time':
-                    figure_offset = spectral_model.model_parameters['mid_transit_time']
-                    prior_parameters += spectral_model.model_parameters['mid_transit_time']
-                else:
-                    figure_offset = 0
-            else:
-                if key == 'mid_transit_time':
-                    prior_parameters -= dictionary['figure_offset']
-
-                figure_offset = 0
-
-            figure_offset += dictionary['figure_offset']
+            figure_offset = dictionary['figure_offset']
 
             offsets.append(dictionary['figure_offset'])
             low_ref += dictionary['figure_offset']
@@ -188,6 +176,8 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
         sample_dict = {'': None}
 
     samples = list(sample_dict.keys())
+    coefficients = 1
+    offsets = 0
 
     # Get all useful figure information from all retrievals
     for i, sample in enumerate(samples):
@@ -249,7 +239,9 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
     if true_values is not None:
         if isinstance(true_values, dict):
             if list(true_values.keys())[0] != '':
-                true_values = [true_values[key] for key in sd[0]]
+                true_values = np.array([true_values[key] for key in sd[0]])
+
+        true_values = true_values * coefficients + offsets
 
         for sample in sample_dict:
             true_values_dict[sample] = true_values

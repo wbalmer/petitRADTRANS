@@ -55,8 +55,7 @@ class Radtrans:
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_cos_angle_grid: np.ndarray[float] = None,
-            emission_cos_angle_grid_weights: np.ndarray[float] = None,
+            emission_angle_grid: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None
     ):
@@ -95,14 +94,12 @@ class Radtrans:
                 Will be ``False`` by default.
                 If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
                 the runtime of pRT!
-            emission_cos_angle_grid (Optional):
-                Array defining the cosines of the angle grid to be used for the emission spectrum calculations.
+            emission_angle_grid (Optional):
+                Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
+                and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
+                the angles, and emission_angle_grid[1] being the weights.
+                A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
                 If None, a default set of values and weights are used.
-                If not None, emission_cos_angle_grid_weights must be not None as well.
-            emission_cos_angle_grid_weights (Optional):
-                Array defining the cosines of the weights of the angle grid to be used for the emission spectrum
-                calculations.
-                Only taken into account if emission_cos_angle_grid is not None.
             anisotropic_cloud_scattering (Optional[bool, str]):
                 If True, anisotropic cloud scattering opacities are used for the spectral calculations.
                 If False, isotropic cloud scattering opacities are used for the spectral calculations.
@@ -115,7 +112,6 @@ class Radtrans:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
         # Inputs checks
-        self.__check_pressures(pressures)
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
         self.__check_path_input_data(path_input_data)
@@ -126,6 +122,8 @@ class Radtrans:
             pressures = np.array([1.0])  # bar
 
         self._pressures = pressures * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
+
+        self.__check_pressures(pressures)
 
         if line_species is None:
             self._line_species = []
@@ -176,7 +174,6 @@ class Radtrans:
         # Initialize loaded line opacities variables
         self._lines_loaded_opacities = LockedDict.build_and_lock(
             {
-                'has_custom_tp_grid': {},
                 'temperature_pressure_grid': {},
                 'temperature_grid_size': {},
                 'pressure_grid_size': {},
@@ -205,35 +202,40 @@ class Radtrans:
         )
 
         # Initialize the angle (mu) grid for the emission spectral calculations
-        if emission_cos_angle_grid is None:
-            self._emission_cos_angle_grid = np.array([
+        self._emission_angle_grid = LockedDict.build_and_lock(
+            {
+                'cos_angles': None,
+                'weights': None
+            }
+        )
+
+        if emission_angle_grid is None:
+            self._emission_angle_grid['cos_angles'] = np.array([
                 0.1127016654,
                 0.5,
                 0.8872983346
             ])
 
-            if emission_cos_angle_grid_weights is not None:
-                warnings.warn("ignoring emission_cos_angle_grid_weights custom values and using the default ones\n"
-                              "To use a custom emission angle grid, "
-                              "set both emission_cos_angle_grid and emission_cos_angle_grid_weights")
-
-            self._emission_cos_angle_grid_weights = np.array([
+            self._emission_angle_grid['weights'] = np.array([
                 0.2777777778,
                 0.4444444444,
                 0.2777777778
             ])
         else:
-            if emission_cos_angle_grid_weights is None:
-                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
-                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
-                                 f"but was not set")
-            elif np.size(emission_cos_angle_grid_weights) != np.size(emission_cos_angle_grid):
-                raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
-                                 f"emission_cos_angle_grid ({np.size(emission_cos_angle_grid)}), "
-                                 f"but is of size {np.size(emission_cos_angle_grid_weights)}")
+            if isinstance(emission_angle_grid, dict):
+                self._emission_angle_grid['cos_angles'] = copy.deepcopy(emission_angle_grid['cos_angles'])
+                self._emission_angle_grid['weights'] = copy.deepcopy(emission_angle_grid['weights'])
+            elif hasattr(emission_angle_grid, '__iter__'):
+                self._emission_angle_grid['cos_angles'] = np.array(emission_angle_grid[0], copy=True)
+                self._emission_angle_grid['weights'] = np.array(emission_angle_grid[1], copy=True)
 
-            self._emission_cos_angle_grid = emission_cos_angle_grid
-            self._emission_cos_angle_grid_weights = emission_cos_angle_grid_weights
+                if self._emission_angle_grid['cos_angles'].size != self._emission_angle_grid['weights'].size:
+                    raise ValueError(f"emission_cos_angle_grid_weights must be an array of the same size than "
+                                     f"emission_cos_angle_grid ({self._emission_angle_grid['cos_angles'].size}), "
+                                     f"but is of size {self._emission_angle_grid['weights'].size}")
+            else:
+                raise ValueError(f"emission_angle_grid must be a dictionary or an iterable of shape (2, n_angles), but "
+                                 f"is of type {type(emission_angle_grid)}")
 
         # Load all opacities
         self.load_all_opacities()
@@ -302,6 +304,17 @@ class Radtrans:
     def cloud_species(self, species: list):
         warnings.warn(self.__property_setting_warning_message)
         self._cloud_species = species
+
+    @property
+    def emission_angle_grid(self):
+        return self._emission_angle_grid
+
+    @emission_angle_grid.setter
+    def emission_angle_grid(self, dictionary: dict[str, np.ndarray[float]]):
+        warnings.warn(self.__property_setting_warning_message)
+
+        for key, value in dictionary.items():
+            self._emission_angle_grid[key] = value
 
     @property
     def frequencies(self):
@@ -620,8 +633,8 @@ class Radtrans:
                 frequency_bins_edges=self._frequency_bins_edges,
                 temperatures=temperatures,
                 weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                emission_cos_angle_grid=self._emission_cos_angle_grid,
-                emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                 optical_depths=optical_depths[:, :, 0, :],
                 photon_destruction_probabilities=photon_destruction_probabilities,
                 emission_geometry=emission_geometry,
@@ -660,8 +673,8 @@ class Radtrans:
                     frequencies=self._frequencies,
                     temperatures=temperatures,
                     weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                    emission_cos_angle_grid=self._emission_cos_angle_grid,
-                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                    emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                     optical_depths=optical_depths[:, :, :1, :],
                     return_contribution=return_contribution
                 )
@@ -670,8 +683,8 @@ class Radtrans:
                     frequencies=self._frequencies,
                     temperatures=temperatures,
                     weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                    emission_cos_angle_grid=self._emission_cos_angle_grid,
-                    emission_cos_angle_grid_weights=self._emission_cos_angle_grid_weights,
+                    emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
+                    emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
                     optical_depths=optical_depths,
                     return_contribution=return_contribution
                 )
@@ -897,7 +910,6 @@ class Radtrans:
             n_frequencies=self._frequencies.size,
             line_opacities_grid=self._lines_loaded_opacities['opacity_grid'],
             line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'],
-            has_custom_line_opacities_tp_grid=self._lines_loaded_opacities['has_custom_tp_grid'],
             line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size'],
             line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
         )
@@ -1431,7 +1443,7 @@ class Radtrans:
                 _cloud_particles_mean_radii)
 
     @staticmethod
-    def _compute_cloud_optical_depths(reference_gravity, pressures, cloud_opacities):
+    def _compute_species_optical_depths(reference_gravity, pressures, cloud_opacities):
         """Calculate the optical depth of the clouds as function of
         frequency and pressure. The array with the optical depths is set to the
         ``tau_cloud`` attribute. The optical depth is calculated from the top of
@@ -1445,7 +1457,7 @@ class Radtrans:
                     Surface gravity in cgs. Vertically constant for emission
                     spectra.
         """
-        return fcore.compute_cloud_optical_depths(reference_gravity, pressures, cloud_opacities)
+        return fcore.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)
 
     @staticmethod
     def _compute_feautrier_radiative_transfer(frequency_bins_edges, temperatures, weights_gauss,
@@ -1676,7 +1688,7 @@ class Radtrans:
                       'setting the photon destruction probability in this spectral range to 1.')
                 photon_destruction_probabilities[np.isnan(photon_destruction_probabilities)] = 1.
         else:
-            optical_depths = Radtrans._compute_cloud_optical_depths(
+            optical_depths = Radtrans._compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=pressures,
                 cloud_opacities=opacities
@@ -2314,7 +2326,7 @@ class Radtrans:
 
     @staticmethod
     def _interpolate_species_opacities(pressures, temperatures, n_g, n_frequencies, line_opacities_grid,
-                                       line_opacities_temperature_pressure_grid, has_custom_line_opacities_tp_grid,
+                                       line_opacities_temperature_pressure_grid,
                                        line_opacities_temperature_grid_size, line_opacities_pressure_grid_size
                                        ):
         # Interpolate line opacities to given temperature structure.
@@ -2331,7 +2343,7 @@ class Radtrans:
                     pressures,
                     temperatures,
                     line_opacities_temperature_pressure_grid[species],
-                    has_custom_line_opacities_tp_grid[species],
+                    True,  # always assume custom PT grid with new format
                     line_opacities_temperature_grid_size[species],
                     line_opacities_pressure_grid_size[species],
                     line_opacities_grid[species]
@@ -2516,6 +2528,10 @@ class Radtrans:
         if reference_gravity <= 0:
             raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
 
+        if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
+            warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+                          "is not recommended")
+
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
         if star_irradiation_cos_angle <= 0.:
@@ -2628,7 +2644,7 @@ class Radtrans:
             )
 
         if self.__clouds_have_effect(mass_fractions) and return_cloud_contribution:
-            cloud_contribution = self._compute_cloud_optical_depths(
+            cloud_contribution = self._compute_species_optical_depths(
                 reference_gravity=reference_gravity,
                 pressures=self._pressures,
                 cloud_opacities=cloud_opacities
@@ -2639,7 +2655,7 @@ class Radtrans:
         if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
                 and len(self._line_species) > 1):
             if self._scattering_in_emission and opacities_rosseland is not None:
-                optical_depths_rosseland = self._compute_cloud_optical_depths(
+                optical_depths_rosseland = self._compute_species_optical_depths(
                     reference_gravity=reference_gravity,
                     pressures=self._pressures,
                     cloud_opacities=opacities_rosseland.reshape(1, 1, 1, len(self._pressures))
@@ -3479,8 +3495,7 @@ class Radtrans:
                 # Load temperature-pressure grid
                 self._lines_loaded_opacities['temperature_pressure_grid'][species], \
                     self._lines_loaded_opacities['temperature_grid_size'][species], \
-                    self._lines_loaded_opacities['pressure_grid_size'][species], \
-                    self._lines_loaded_opacities['has_custom_tp_grid'][species] \
+                    self._lines_loaded_opacities['pressure_grid_size'][species] \
                     = self.load_line_opacities_pressure_temperature_grid(
                     hdf5_file=hdf5_file
                 )
@@ -3528,10 +3543,9 @@ class Radtrans:
         line_opacities_temperature_pressure_grid = ret_val
         line_opacities_temperature_grid_size = temperature_grid.size
         line_opacities_pressure_grid_size = pressure_grid.size
-        has_custom_line_opacities_temperature_pressure_grid = True
 
         return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
-            line_opacities_pressure_grid_size, has_custom_line_opacities_temperature_pressure_grid
+            line_opacities_pressure_grid_size
 
     @staticmethod
     def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):

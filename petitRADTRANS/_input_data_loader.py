@@ -218,7 +218,8 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_all=False, display_other_files=False):
+def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect_spectral_information=False,
+                    find_all=False, display_other_files=False):
     full_path = os.path.join(path_input_data, sub_path)
 
     if files is None:
@@ -228,43 +229,44 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
         return []
     else:  # at least one file detected in path
         if filename is not None:  # check if one of the files matches the given filename
-            resolution_filename, range_filename = _get_spectral_information(filename)
-
+            matching_files = []
+            resolution_filename = ''
             _filename = filename.split('.', 1)[0]
 
-            matching_files = []
+            if expect_spectral_information:
+                resolution_filename, range_filename = _get_spectral_information(filename)
 
-            # First pass, try to use default resolution
-            for file in files:
-                _file, spectral_info = file.split('.', 1)
+                # First pass, try to use default resolution
+                for file in files:
+                    _file, spectral_info = file.split('.', 1)
 
-                resolution_file, range_file = _get_spectral_information(spectral_info)
+                    resolution_file, range_file = _get_spectral_information(spectral_info)
 
-                if resolution_file == '' or range_file == '':
-                    warnings.warn(f"file '{file}' lack spectral information "
-                                  f"(resolution: {resolution_file}, range: {range_file})")
+                    if resolution_file == '' or range_file == '':
+                        warnings.warn(f"file '{file}' lack spectral information "
+                                      f"(resolution: {resolution_file}, range: {range_file})")
 
-                _file = file.split('.', 1)[0]
+                    _file = file.split('.', 1)[0]
 
-                if _filename in _file:
-                    if resolution_filename != '':
-                        range_match = False
+                    if _filename in _file:
+                        if resolution_filename != '':
+                            range_match = False
 
-                        if range_filename != '':
-                            if range_filename == range_file:
+                            if range_filename != '':
+                                if range_filename == range_file:
+                                    range_match = True
+                            else:
                                 range_match = True
-                        else:
-                            range_match = True
 
-                        if resolution_filename == resolution_file and range_match:
-                            matching_files.append(file)
-                    else:
-                        if get_default_correlated_k_resolution() == resolution_file:
-                            matching_files.append(file)
-                        elif get_default_line_by_line_resolution() == resolution_file:
-                            matching_files.append(file)
-                        elif get_default_cloud_resolution() == resolution_file:
-                            matching_files.append(file)
+                            if resolution_filename == resolution_file and range_match:
+                                matching_files.append(file)
+                        else:
+                            if get_default_correlated_k_resolution() == resolution_file:
+                                matching_files.append(file)
+                            elif get_default_line_by_line_resolution() == resolution_file:
+                                matching_files.append(file)
+                            elif get_default_cloud_resolution() == resolution_file:
+                                matching_files.append(file)
 
             # Second pass, take any matching file regardless of resolution
             if len(matching_files) == 0 and resolution_filename == '':
@@ -358,7 +360,8 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, find_a
             return new_default_file
 
 
-def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, filename=None, find_all=False,
+def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, filename=None,
+                                expect_spectral_information=False, find_all=False,
                                 ext='h5', timeout=3, url_input_data=None):
     if path_input_data is None:
         path_input_data = petitradtrans_config_parser.get_input_data_path()
@@ -384,6 +387,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
         sub_path=sub_path,
         files=list(files.keys()),
         filename=filename,
+        expect_spectral_information=expect_spectral_information,
         find_all=find_all,
         display_other_files=True
     )
@@ -394,6 +398,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
             sub_path=sub_path,
             files=None,
             filename=filename,
+            expect_spectral_information=expect_spectral_information,
             find_all=find_all,
             display_other_files=True
         )
@@ -870,6 +875,57 @@ def get_input_data_file_not_found_error_message(file: str) -> str:
     )
 
 
+def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect_spectral_information: bool = False,
+                   find_all: bool = False, search_online: bool = True):
+    if sub_path is None:
+        full_path = os.path.dirname(file)
+        _, sub_path, file = split_input_data_path(file, path_input_data)
+    else:
+        full_path = os.path.abspath(os.path.join(path_input_data, sub_path))
+
+    if not os.path.isdir(full_path):  # search even if search_online is False
+        print(f"No such directory '{full_path}'\n"
+              f"Searching in the Keeper library...")
+
+        matches = _get_input_file_from_keeper(
+            full_path=full_path,
+            path_input_data=path_input_data,
+            sub_path=sub_path,
+            filename=file,
+            find_all=find_all
+        )
+    else:
+        matches = _get_input_file(
+            path_input_data=path_input_data,
+            sub_path=sub_path,
+            filename=file,
+            expect_spectral_information=expect_spectral_information,
+            find_all=find_all
+        )
+
+        if len(matches) == 0 and search_online:
+            print(f"No file matching name '{file}' found in directory '{full_path}'\n"
+                  f"Searching in the Keeper library...")
+
+            matches = _get_input_file_from_keeper(
+                full_path=full_path,
+                path_input_data=path_input_data,
+                sub_path=sub_path,
+                filename=file,
+                find_all=find_all
+            )
+
+    if len(matches) == 0 and not find_all:
+        raise FileNotFoundError(get_input_data_file_not_found_error_message(full_path))
+
+    if hasattr(matches, '__iter__') and not isinstance(matches, str):
+        matches = [os.path.join(full_path, m) for m in matches]
+    else:
+        matches = os.path.join(full_path, matches)
+
+    return matches
+
+
 def get_opacity_directory(species: str, category: str,
                           path_input_data: str = None, full: bool = False):
     if path_input_data is None:
@@ -944,44 +1000,21 @@ def get_opacity_input_file(path_input_data: str, category: str, species: str, fi
     Returns:
         The absolute opacity filename of the species
     """
-    full_path, sub_path, filename = get_opacity_directory(
+    _, sub_path, filename = get_opacity_directory(
         species=species,
         category=category,
         path_input_data=path_input_data,
         full=True
     )
 
-    if not os.path.isdir(full_path):
-        raise NotADirectoryError(get_input_data_file_not_found_error_message(full_path))
-
-    matches = _get_input_file(
+    return get_input_file(
+        file=filename,
         path_input_data=path_input_data,
         sub_path=sub_path,
-        filename=filename,
-        find_all=find_all
+        expect_spectral_information=True,
+        find_all=find_all,
+        search_online=search_online
     )
-
-    if len(matches) == 0 and search_online:
-        print(f"No file matching name '{filename}' found in directory '{full_path}'\n"
-              f"Searching in the Keeper library...")
-
-        matches = _get_input_file_from_keeper(
-            full_path=full_path,
-            path_input_data=path_input_data,
-            sub_path=sub_path,
-            filename=filename,
-            find_all=find_all
-        )
-
-    if len(matches) == 0 and not find_all:
-        raise FileNotFoundError(get_input_data_file_not_found_error_message(full_path))
-
-    if hasattr(matches, '__iter__') and not isinstance(matches, str):
-        matches = [os.path.join(full_path, m) for m in matches]
-    else:
-        matches = os.path.join(full_path, matches)
-
-    return matches
 
 
 def get_resolving_power_from_string(string: str) -> int:
@@ -1032,6 +1065,17 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
         name += '.' + spectral_info
 
     return name
+
+
+def split_input_data_path(path: str, path_input_data: str):
+    if path_input_data not in path:
+        raise ValueError(f"path '{path}' does not contains the input data path ('{path_input_data}')")
+
+    sub_path = path.split(path_input_data + os.path.sep, 1)[-1]
+    file = os.path.basename(sub_path)
+    sub_path = os.path.dirname(sub_path)
+
+    return path_input_data, sub_path, file
 
 
 def split_species_all_info(species, final_charge_format='+-'):

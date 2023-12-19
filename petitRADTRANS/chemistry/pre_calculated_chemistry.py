@@ -7,7 +7,7 @@ import numpy as np
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
-from petitRADTRANS._input_data_loader import get_input_data_file_not_found_error_message
+from petitRADTRANS._input_data_loader import get_input_file
 
 
 class PreCalculatedEquilibriumChemistryTable:
@@ -24,11 +24,15 @@ class PreCalculatedEquilibriumChemistryTable:
         self.mean_molar_masses = None
 
     @staticmethod
-    def get_default_input_data_path() -> str:
+    def get_default_file(path_input_data=None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
         return os.path.join(
-            petitradtrans_config_parser.get_input_data_path(),
+            path_input_data,
             get_input_data_subpaths()["pre_calculated_chemistry"],
-            "equilibrium_chemistry"
+            "equilibrium_chemistry",
+            "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
         )
 
     def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
@@ -117,7 +121,7 @@ class PreCalculatedEquilibriumChemistryTable:
             mean_molar_masses = None
             nabla_adiabatic = None
 
-        # Carbon quenching? Assumes pressures_goal is sorted in ascending order
+        # Carbon quenching, assumes pressures_goal is sorted in ascending order
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > np.min(pressures):
                 q_index = min(np.searchsorted(pressures, carbon_pressure_quench),
@@ -143,20 +147,26 @@ class PreCalculatedEquilibriumChemistryTable:
 
         return mass_fractions
 
-    def load(self, path: str = None):
+    def load(self, path: str = None, path_input_data: str = None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
         if path is None:
-            path = self.get_default_input_data_path()
+            file = self.get_default_file(path_input_data)
 
-        chemical_table_file = os.path.join(
-            path, "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
-        )
+        if not os.path.isfile(file):
+            file = get_input_file(
+                file=file,
+                path_input_data=path_input_data,
+                sub_path=None,
+                expect_spectral_information=False,
+                find_all=False,
+                search_online=True
+            )
 
-        if not os.path.isfile(chemical_table_file):
-            raise FileNotFoundError(get_input_data_file_not_found_error_message(chemical_table_file))
+        print(f"Loading chemical equilibrium chemistry table from file '{file}'... ", end='')
 
-        print(f"Loading chemical equilibrium chemistry table from file '{chemical_table_file}'... ", end='')
-
-        with h5py.File(chemical_table_file, 'r') as f:
+        with h5py.File(file, 'r') as f:
             self.log10_metallicities = f['log10_metallicities'][()]
             self.co_ratios = f['co_ratios'][()]
             self.temperatures = f['temperatures'][()]

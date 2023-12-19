@@ -6,6 +6,7 @@ C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_s
 Do not change the parameters used to generate the comparison files, including input_data files, when running the tests.
 """
 import copy
+import warnings
 
 import numpy as np
 
@@ -31,68 +32,72 @@ def init_radtrans_line_by_line():
 
 
 def init_spectral_model_line_by_line():
-    spectral_model = petitRADTRANS.spectral_model.SpectralModel(
-        # Radtrans object parameters
-        pressures=radtrans_parameters['pressures'],  # bar
-        line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
-        rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
-        scattering_in_emission=False,  # is False by default on Radtrans but True by default on SpectralModel
-        line_opacity_mode='lbl',
-        # Temperature profile parameters: generate a Guillot temperature profile
-        temperature_profile_mode='guillot',
-        temperature=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature'],  # K
-        intrinsic_temperature=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
-        metallicity=1.0,
-        guillot_temperature_profile_gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
-        guillot_temperature_profile_kappa_ir_z0=radtrans_parameters['temperature_guillot_2010_parameters'][
-            'infrared_mean_opacity'],
-        # Chemical parameters
-        use_equilibrium_chemistry=False,
-        imposed_mass_fractions=radtrans_parameters['mass_fractions'],
-        # Transmission spectrum parameters (radtrans.calc_transm)
-        planet_radius=radtrans_parameters['planetary_parameters']['radius']
-        * petitRADTRANS.physical_constants.r_jup_mean,  # cm
-        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
-        # cloud_pressure=1e-1,
-        # Instrument parameters
-        convolve_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
-        rebinned_wavelengths=np.arange(
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0],
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1],
-            radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] /
-            radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'] / 2
-        ),  # um
-        wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
-        # Scaling parameters
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,  # cm
-        # Orbital parameters
-        star_mass=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.m_sun,  # g
-        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
-        orbital_longitudes=np.linspace(
-            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][0] * 360,
-            radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][1] * 360,
-            radtrans_parameters['mock_observation_parameters']['n_exposures']
-        ),
-        system_observer_radial_velocities=np.linspace(
-            radtrans_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][0],
-            radtrans_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][1],
-            radtrans_parameters['mock_observation_parameters']['n_exposures']
-        ),  # cm.s-1
-        rest_frame_velocity_shift=radtrans_parameters['mock_observation_parameters'][
-            "rest_frame_velocity_shift"],  # cm.s-1
-        # Reprocessing parameters
-        # uncertainties=model_uncertainties,
-        # airmass=airmasses,
-        # tellurics_mask_threshold=tellurics_mask_threshold,
-        # polynomial_fit_degree=2,
-        # apply_throughput_removal=True,
-        # apply_telluric_lines_removal=True,
-        # Special parameters
-        # Test addition of a useless parameter
-        yet_another_useless_parameter42="irrelevant string"
-    )
+    with warnings.catch_warnings():
+        # Expect UserWarning caused by yet_another_useless_parameter42, SpectralModel should work fine
+        warnings.filterwarnings("ignore", category=UserWarning)
+
+        spectral_model = petitRADTRANS.spectral_model.SpectralModel(
+            # Radtrans object parameters
+            pressures=radtrans_parameters['pressures'],  # bar
+            line_species=radtrans_parameters['spectrum_parameters']['line_species_line_by_line'],
+            rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
+            gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
+            scattering_in_emission=False,  # is False by default on Radtrans but True by default on SpectralModel
+            line_opacity_mode='lbl',
+            # Temperature profile parameters: generate a Guillot temperature profile
+            temperature_profile_mode='guillot',
+            temperature=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature'],  # K
+            intrinsic_temperature=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
+            metallicity=1.0,
+            guillot_temperature_profile_gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
+            guillot_temperature_profile_kappa_ir_z0=radtrans_parameters['temperature_guillot_2010_parameters'][
+                'infrared_mean_opacity'],
+            # Chemical parameters
+            use_equilibrium_chemistry=False,
+            imposed_mass_fractions=radtrans_parameters['mass_fractions'],
+            # Transmission spectrum parameters (radtrans.calc_transm)
+            planet_radius=radtrans_parameters['planetary_parameters']['radius']
+            * petitRADTRANS.physical_constants.r_jup_mean,  # cm
+            reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
+            reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],  # bar
+            # cloud_pressure=1e-1,
+            # Instrument parameters
+            convolve_resolving_power=radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
+            rebinned_wavelengths=np.arange(
+                radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] * 1e-4,
+                radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][1] * 1e-4,
+                radtrans_parameters['mock_observation_parameters']['wavelength_range_high_resolution'][0] * 1e-4 /
+                radtrans_parameters['mock_observation_parameters']['high_resolution_resolving_power'] / 2
+            ),  # um
+            wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_line_by_line'],
+            # Scaling parameters
+            star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,  # cm
+            # Orbital parameters
+            star_mass=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.m_sun,  # g
+            orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
+            orbital_longitudes=np.linspace(
+                radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][0] * 360,
+                radtrans_parameters['mock_observation_parameters']['orbital_phase_range'][1] * 360,
+                radtrans_parameters['mock_observation_parameters']['n_exposures']
+            ),
+            system_observer_radial_velocities=np.linspace(
+                radtrans_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][0],
+                radtrans_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][1],
+                radtrans_parameters['mock_observation_parameters']['n_exposures']
+            ),  # cm.s-1
+            rest_frame_velocity_shift=radtrans_parameters['mock_observation_parameters'][
+                "rest_frame_velocity_shift"],  # cm.s-1
+            # Reprocessing parameters
+            # uncertainties=model_uncertainties,
+            # airmass=airmasses,
+            # tellurics_mask_threshold=tellurics_mask_threshold,
+            # polynomial_fit_degree=2,
+            # apply_throughput_removal=True,
+            # apply_telluric_lines_removal=True,
+            # Special parameters
+            # Test addition of a useless parameter
+            yet_another_useless_parameter42="irrelevant string"
+        )
 
     def calculate_mean_molar_masses(pressures, **kwargs):
         return radtrans_parameters['mean_molar_mass'] * np.ones(pressures.size)
