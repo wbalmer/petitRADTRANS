@@ -2775,30 +2775,12 @@ class Radtrans:
             for i_freq in range(self._frequencies.size):
                 tau_p = np.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
                 pressures_tau_p = interp1d(tau_p, self._pressures)
-                try:
+                if np.max(tau_p) > 2./3.:
                     photosphere_radius[i_freq] = radius_interp(pressures_tau_p(2. / 3.))
-                except ValueError:
-                    print('Too transparent atmosphere for radius_interp(pressures_tau_p(2. / 3.) detected.')
-                    print('Wlen (micron) ', cst.c/self._frequencies[i_freq]*1e4)
-                    print('vals',
-                                temperatures,
-                                mean_molar_masses,
-                                reference_gravity,
-                                planet_radius,
-                                #opacities,
-                                continuum_opacities_scattering,
-                                cloud_f_sed,
-                                cloud_photosphere_median_optical_depth,
-                                cloud_anisotropic_scattering_opacities,
-                                cloud_absorption_opacities) #,
-                                #optical_depths)
-                    print('tau_p, self._pressures', tau_p, self._pressures)
-                    print()
-                    print()
-                    print('############################################')
-                    print()
-                    print()
-                    return np.array([-1,-1])
+                else:
+                    warnings.warn('Atmosphere is too transparent for calculating the "photospheric '
+                                  'radius" at tau = 2/3. Returning the radius at maximum pressure instead!')
+                    photosphere_radius[i_freq] = radius_hydrostatic_equilibrium[-1]
 
         return photosphere_radius
 

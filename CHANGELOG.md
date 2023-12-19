@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a125] - 2023-12-14
+## [3.0.0-a126] - 2023-12-19
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -66,6 +66,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Deprecated `molecular_weight` constant.
 
 ### Fixed
+- Removed debugging text in the photospheric radius calculation in radtrans.py
+- Plotting when running in "evaluate" mode of the retrieval package
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
 - Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.

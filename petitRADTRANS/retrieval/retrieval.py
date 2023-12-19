@@ -40,7 +40,7 @@ class Retrieval:
     def __init__(
             self,
             configuration: RetrievalConfig,
-            output_directory: str = "",
+            output_directory: str = os.getcwd(),
             use_mpi: bool = False,
             evaluate_sample_spectra: bool = False,
             ultranest: bool = False,
@@ -668,15 +668,15 @@ class Retrieval:
                 parameters_read = self.param_dictionary[self.configuration.retrieval_name]
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
+                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
                 chi2_wlen = self.get_reduced_chi2(
-                    sample=samples_use[best_fit_index],
+                    sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=False,
                     verbose=True,
                     show_chi2=True
                 )
                 chi2_d_o_f = self.get_reduced_chi2(
-                    sample=samples_use[best_fit_index],
+                    sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=True,
                     verbose=True,
                     show_chi2=False  # show chi2 only once
@@ -994,11 +994,17 @@ class Retrieval:
                 use_obj = data.radtrans_object
                 if data.external_radtrans_reference is not None:
                     use_obj = self.configuration.data[data.external_radtrans_reference].radtrans_object
-                pressures, temperatures = \
+                ret_val = \
                     data.model_generating_function(use_obj,
                                                    self.configuration.parameters,
                                                    self.pt_plot_mode,
                                                    amr=self.configuration.amr)
+
+                if len(ret_val) == 3:
+                    pressures, temperatures, __ = ret_val
+                else:
+                    pressures, temperatures = ret_val
+
                 return pressures, temperatures
             elif self.pt_plot_mode:
                 continue
@@ -1228,13 +1234,20 @@ class Retrieval:
                 )
                 self.best_fit_spectra[name] = [wlen_model, spectrum_model]
 
-    @staticmethod
-    def get_samples(ultranest, names, output_directory=None, ret_names=None):
+
+    def get_samples(self,
+                    ultranest=False,
+                    names=None,
+                    output_directory=os.getcwd(),
+                    ret_names=None):
         if ret_names is None:
             ret_names = []
 
         param_dict = {}
         samples = {}
+
+        if names is None:
+            names = [self.configuration.retrieval_name]
 
         if ultranest:
             for name in names:
@@ -1372,7 +1385,7 @@ class Retrieval:
                 rayleigh_species=cp.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
                 cloud_species=cp.copy(self.configuration.cloud_species),
-                line_opacity_mode=self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].opacity_mode,
+                line_opacity_mode=self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.configuration.scattering_in_emission
             )
@@ -2385,7 +2398,7 @@ class Retrieval:
 
             # Get best-fit index
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-            sample_use = samples_use[best_fit_index, :-1]
+            sample_use = samples_use[:-1, best_fit_index]
 
             # Then get the full wavelength range
             # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
@@ -2878,7 +2891,7 @@ class Retrieval:
             # self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
             # Then get the full wavelength range
             bf_wlen, bf_spectrum = self.get_best_fit_model(
-                samples_use[best_fit_index, :-1],
+                samples_use[:-1, best_fit_index],
                 parameters_read,
                 model_generating_function=model_generating_function,
                 prt_reference=prt_reference,
@@ -2981,7 +2994,8 @@ class Retrieval:
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
             if amr:
                 for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(pressures)
+                    if dd.external_radtrans_reference is None:
+                        dd.radtrans_object._pressures = pressures * 1e6
             press_file = f"{self.get_base_figure_name()}_pressures"
             temp_file = f"{self.get_base_figure_name()}_temps"
 
@@ -2989,8 +3003,9 @@ class Retrieval:
                 pressures = np.load(press_file + ".npy")
                 temps_sort = np.load(temp_file + ".npy")
             else:
-                for sample in samples_use:
-                    press, t = self.log_likelihood(sample[:-1], 0, 0)
+                length_samples = np.shape(samples_use)[1]
+                for i_sample in range(length_samples):
+                    press, t = self.log_likelihood(samples_use[:-1, i_sample], 0, 0)
 
                     if t is None:
                         continue
@@ -3054,8 +3069,8 @@ class Retrieval:
                 if mode.strip('-').strip("_").lower() == "bestfit":
                     # Get best-fit index
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-                    sample_use = samples_use[best_fit_index, :-1]
+                    self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                    sample_use = samples_use[:-1, best_fit_index]
                 elif mode.lower() == "median":
                     med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
                 else:
@@ -3152,7 +3167,8 @@ class Retrieval:
             self.configuration.amr = amr
             if amr:
                 for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
+                    if dd.external_radtrans_reference is None:
+                        dd.radtrans_object._pressures = self.configuration.amr_pressure * 1e6
         else:
             fig = None
             ax = None
@@ -3336,15 +3352,15 @@ class Retrieval:
 
             # Calculate the temperature structure
             self.pt_plot_mode = True
-            pressures, t = self.log_likelihood(samples_use[best_fit_index, :-1], 0, 0)
+            pressures, t = self.log_likelihood(samples_use[:-1, best_fit_index], 0, 0)
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-                sample_use = samples_use[best_fit_index, :-1]
+                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                sample_use = samples_use[:-1, best_fit_index]
             elif mode.lower() == "median":
                 med_params, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
             else:
@@ -3486,8 +3502,8 @@ class Retrieval:
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[best_fit_index, :-1], parameters_read)
-                sample_use = samples_use[best_fit_index, :-1]
+                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                sample_use = samples_use[:-1, best_fit_index]
             elif mode.lower() == "median":
                 med_params, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
             else:
