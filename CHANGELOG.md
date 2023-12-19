@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a124] - 2023-12-14
+## [3.0.0-a125] - 2023-12-14
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
   (see `concatenate_flux_epochs_variability` and its use in the data class.)
 
 ### Changed
+- Reverted to old version of solve_tridiagonal_system in fortran_radtrans_core.f90, still need to check what can cause the occasional overflow error.
 - Functions, arguments and attributes now have clearer names and respect PEP8. The complete list of change is available [here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.

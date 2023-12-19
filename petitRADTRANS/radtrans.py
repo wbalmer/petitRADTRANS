@@ -2755,8 +2755,8 @@ class Radtrans:
                     reference_gravity=reference_gravity,
                     opacities=opacities,
                     continuum_opacities_scattering=continuum_opacities_scattering,
-                    line_opacity_mode=self._line_opacity_mode,
                     scattering_in_emission=self._scattering_in_emission,
+                    line_opacity_mode=self._line_opacity_mode,
                     absorber_present=self.__absorber_present,
                     # Custom cloud parameters
                     frequencies=self._frequencies,
@@ -2775,7 +2775,30 @@ class Radtrans:
             for i_freq in range(self._frequencies.size):
                 tau_p = np.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
                 pressures_tau_p = interp1d(tau_p, self._pressures)
-                photosphere_radius[i_freq] = radius_interp(pressures_tau_p(2. / 3.))
+                try:
+                    photosphere_radius[i_freq] = radius_interp(pressures_tau_p(2. / 3.))
+                except ValueError:
+                    print('Too transparent atmosphere for radius_interp(pressures_tau_p(2. / 3.) detected.')
+                    print('Wlen (micron) ', cst.c/self._frequencies[i_freq]*1e4)
+                    print('vals',
+                                temperatures,
+                                mean_molar_masses,
+                                reference_gravity,
+                                planet_radius,
+                                #opacities,
+                                continuum_opacities_scattering,
+                                cloud_f_sed,
+                                cloud_photosphere_median_optical_depth,
+                                cloud_anisotropic_scattering_opacities,
+                                cloud_absorption_opacities) #,
+                                #optical_depths)
+                    print('tau_p, self._pressures', tau_p, self._pressures)
+                    print()
+                    print()
+                    print('############################################')
+                    print()
+                    print()
+                    return np.array([-1,-1])
 
         return photosphere_radius
 
