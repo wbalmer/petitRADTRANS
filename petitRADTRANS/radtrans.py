@@ -541,6 +541,9 @@ class Radtrans:
             if 'R' in target_resolving_power:
                 target_resolving_power = get_resolving_power_from_string(target_resolving_power)
 
+            if target_resolving_power == '':
+                target_resolving_power = int(get_default_correlated_k_resolution()[1:])
+
             # Try to bin down the opacities
             if len(matches) == 0 or target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
                 hdf5_file = get_opacity_input_file(

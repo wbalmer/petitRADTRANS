@@ -294,8 +294,6 @@ class Retrieval:
                                              outputfiles_basename=prefix)
         s = self.analyzer.get_stats()
 
-        self.configuration.run_mode = 'evaluate'
-
         if rank == 0:
             self.generate_retrieval_summary(s)
 
