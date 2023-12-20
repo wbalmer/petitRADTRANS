@@ -151,34 +151,6 @@ def class2hdf5(obj, filename=None):
         )
 
 
-def load_csv(file, **kwargs):
-    data = {}
-    header_read = False
-
-    with open(file) as csv_file:
-        csv_reader = csv.reader(csv_file, **kwargs)
-
-        for row in csv_reader:
-            if not header_read:
-                column_names = copy.deepcopy(row)
-
-                for column_name in column_names:
-                    if '# ' in column_name:
-                        column_name = column_name.split('# ', 1)[1]
-
-                    data[column_name] = []
-
-                header_read = True
-            else:
-                for i, column_name in enumerate(data):
-                    data[column_name].append(float(row[i]))
-
-    for column_name, value in data.items():
-        data[column_name] = np.array(value)
-
-    return data
-
-
 def dataset2obj(obj):
     """Convert a HDF5 dataset into a list of objects (float, int or str)."""
     if hasattr(obj, '__iter__') and not isinstance(obj, bytes):
@@ -258,6 +230,34 @@ def hdf52dict(hdf5_file):
                           f"hdf52dict() can only handle types 'Dataset' and 'Group'")
 
     return dictionary
+
+
+def load_csv(file, **kwargs):
+    data = {}
+    header_read = False
+
+    with open(file) as csv_file:
+        csv_reader = csv.reader(csv_file, **kwargs)
+
+        for row in csv_reader:
+            if not header_read:
+                column_names = copy.deepcopy(row)
+
+                for column_name in column_names:
+                    if '# ' in column_name:
+                        column_name = column_name.split('# ', 1)[1]
+
+                    data[column_name] = []
+
+                header_read = True
+            else:
+                for i, column_name in enumerate(data):
+                    data[column_name].append(float(row[i]))
+
+    for column_name, value in data.items():
+        data[column_name] = np.array(value)
+
+    return data
 
 
 def remove_mask(data, data_uncertainties):
