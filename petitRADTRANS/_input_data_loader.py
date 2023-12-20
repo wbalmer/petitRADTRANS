@@ -7,7 +7,7 @@ from molmass import Formula
 
 from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.utils import LockedDict
+from petitRADTRANS.utils import LockedDict, user_input
 
 
 def __build_cia_aliases_dict():
@@ -35,6 +35,35 @@ def __build_cia_aliases_dict():
             cia_aliases[cia].extend([''.join(species), '-'.join(species), '--'.join(species)])
 
     return cia_aliases
+
+
+def __default_file_selection(files, full_path, sub_path):
+    files_str = [f" {i + 1}: {file}" for i, file in enumerate(files)]
+    files_str = "\n".join(files_str)
+
+    introduction_message = (
+        f"More than one file detected in '{full_path}', and no default file set for this path "
+        f"in petitRADTRANS' configuration\n"
+        f"Please select one of the files in the list below by typing the corresponding integer:\n"
+        f"{files_str}"
+    )
+
+    new_default_file = user_input(
+        introduction_message=introduction_message,
+        input_message=f"Select which file to set as the default file for '{sub_path}'",
+        failure_message=f"failure to enter new default file for '{sub_path}'",
+        cancel_message="Cancelling default file selection...",
+        mode='list',
+        list_length=len(files)
+    )
+
+    if new_default_file is None:
+        raise ValueError(f"no default file selected for path '{sub_path}'")
+
+    new_default_file -= 1
+    new_default_file = files[new_default_file]
+
+    return new_default_file
 
 
 def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
@@ -312,45 +341,11 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
                     f"Or download the missing file."
                 )
         else:  # make the user enter the default file
-            files_str = [f" {i + 1}: {file}" for i, file in enumerate(files)]
-            files_str = "\n".join(files_str)
-            print(
-                f"More than one file detected in '{full_path}', and no default file set for this path "
-                f"in petitRADTRANS' configuration\n"
-                f"Please select one of the files in the list below by typing the corresponding integer:\n"
-                f"{files_str}"
+            new_default_file = __default_file_selection(
+                files=files,
+                full_path=full_path,
+                sub_path=sub_path
             )
-
-            max_attempts = 5
-            new_default_file = len(files) + 1  # raise an index error if the new file was not set by the user
-
-            for i in range(max_attempts + 1):
-                if i == max_attempts:
-                    raise ValueError(f"failure to enter new default file for '{sub_path}' after {i} attempts")
-
-                new_default_file = input(
-                    f"Select which file to set as the default file for '{sub_path}' (1-{len(files)}; 'cancel')"
-                )
-
-                if new_default_file == 'cancel':
-                    print("Cancelling default file selection...")
-                    raise ValueError(f"no default file selected for path '{sub_path}'")
-
-                if not new_default_file.isdigit():
-                    print(f"'{new_default_file}' is not an integer, please enter an integer within 1-{len(files)}")
-                    continue
-
-                new_default_file = int(new_default_file)
-
-                if new_default_file < 1 or new_default_file > len(files):
-                    print(f"{new_default_file} is not within the range 1-{len(files)}, "
-                          f"please enter an integer within 1-{len(files)}")
-                    continue
-
-                new_default_file -= 1
-                break
-
-            new_default_file = files[new_default_file]
 
             petitradtrans_config_parser.set_default_file(
                 file=os.path.join(full_path, new_default_file),
@@ -374,7 +369,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
     if sub_path is None:
         sub_path = full_path.split(path_input_data, 1)[1]
 
-    files = get_keeper_files_url_paths(
+    url_paths = get_keeper_files_url_paths(
         path=full_path,
         ext=ext,
         timeout=timeout,
@@ -385,7 +380,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
     matches = _get_input_file(
         path_input_data=path_input_data,
         sub_path=sub_path,
-        files=list(files.keys()),
+        files=list(url_paths.keys()),
         filename=filename,
         expect_spectral_information=expect_spectral_information,
         find_all=find_all,
@@ -402,14 +397,65 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
             find_all=find_all,
             display_other_files=True
         )
-    else:
+    elif len(matches) == 1 or isinstance(matches, str):
         download_input_data(
             destination=os.path.join(full_path, matches),
-            source=files[matches],
+            source=url_paths[matches],
             rewrite=False,
             path_input_data=path_input_data,
             url_input_data=url_input_data
         )
+    else:
+        files_str = [f" {i + 1}: {file}" for i, file in enumerate(matches)]
+        files_str = "\n".join(files_str)
+
+        introduction_message = (
+            f"Multiple matching files found in the Keeper library, and no default file set for this path "
+            f"in petitRADTRANS' configuration\n"
+            f"List of matching files:\n"
+            f"{files_str}"
+        )
+
+        download_all = user_input(
+            introduction_message=introduction_message,
+            input_message=f"Download all of the {len(matches)} matching files?",
+            failure_message=f"unclear answer",
+            cancel_message="Cancelling...",
+            mode='y/n',
+            list_length=len(url_paths)
+        )
+
+        if download_all is None:
+            raise ValueError(f"Keeper file download cancelled")
+
+        if download_all:
+            for match in matches:
+                download_input_data(
+                    destination=os.path.join(full_path, match),
+                    source=url_paths[match],
+                    rewrite=False,
+                    path_input_data=path_input_data,
+                    url_input_data=url_input_data
+                )
+        else:
+            new_default_file = __default_file_selection(
+                files=list(url_paths.keys()),
+                full_path="the Keeper library",
+                sub_path=sub_path
+            )
+
+            petitradtrans_config_parser.set_default_file(
+                file=os.path.join(full_path, new_default_file),
+                path_input_data=path_input_data
+            )
+
+            download_input_data(
+                destination=os.path.join(full_path, new_default_file),
+                source=url_paths[new_default_file],
+                rewrite=False,
+                path_input_data=path_input_data,
+                url_input_data=url_input_data
+            )
 
     return matches
 

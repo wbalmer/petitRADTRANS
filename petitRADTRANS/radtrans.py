@@ -10,8 +10,8 @@ from scipy.interpolate import interp1d
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS._input_data_loader import (
-    _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases, get_opacity_input_file,
-    get_resolving_power_from_string
+    _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases,
+    get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string
 )
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -535,14 +535,14 @@ class Radtrans:
                 search_online=False
             )
 
+            default_species, spectral_info = _split_species_spectral_info(species)
+            target_resolving_power, _ = _get_spectral_information(spectral_info)
+
+            if 'R' in target_resolving_power:
+                target_resolving_power = get_resolving_power_from_string(target_resolving_power)
+
             # Try to bin down the opacities
-            if len(matches) == 0:
-                default_species, spectral_info = _split_species_spectral_info(species)
-                target_resolving_power, _ = _get_spectral_information(spectral_info)
-
-                if 'R' in target_resolving_power:
-                    target_resolving_power = get_resolving_power_from_string(target_resolving_power)
-
+            if len(matches) == 0 or target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
                 hdf5_file = get_opacity_input_file(
                     path_input_data=path_input_data,
                     category=category,
@@ -551,12 +551,15 @@ class Radtrans:
                     search_online=True
                 )
 
-                rebin_ck_line_opacities(
+                state = rebin_ck_line_opacities(
                     input_file=hdf5_file,
                     target_resolving_power=target_resolving_power,
                     wavenumber_grid=None,
                     rewrite=False
                 )
+
+                if state == -1:
+                    raise RuntimeError("unable to perform binning down, please install exo_k")
 
         hdf5_file = get_opacity_input_file(
             path_input_data=path_input_data,
