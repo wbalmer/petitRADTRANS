@@ -419,14 +419,14 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
         download_all = user_input(
             introduction_message=introduction_message,
             input_message=f"Download all of the {len(matches)} matching files?",
-            failure_message=f"unclear answer",
+            failure_message="unclear answer",
             cancel_message="Cancelling...",
             mode='y/n',
             list_length=len(url_paths)
         )
 
         if download_all is None:
-            raise ValueError(f"Keeper file download cancelled")
+            raise ValueError("Keeper file download cancelled")
 
         if download_all:
             for match in matches:

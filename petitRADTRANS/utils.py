@@ -315,7 +315,7 @@ def user_input(introduction_message: str, input_message: str, failure_message: s
                          f"available modes are {quote + ', '.join(available_modes) + quote}")
 
     if mode == 'list' and list_length is None:
-        raise TypeError(f"'list' mode missing required argument 'list_size'")
+        raise TypeError("'list' mode missing required argument 'list_size'")
 
     print(introduction_message)
 

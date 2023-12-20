@@ -1234,7 +1234,6 @@ class Retrieval:
                 )
                 self.best_fit_spectra[name] = [wlen_model, spectrum_model]
 
-
     def get_samples(self,
                     ultranest=False,
                     names=None,
@@ -1385,7 +1384,8 @@ class Retrieval:
                 rayleigh_species=cp.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
                 cloud_species=cp.copy(self.configuration.cloud_species),
-                line_opacity_mode=self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
+                line_opacity_mode=self.configuration.data[
+                    self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                 scattering_in_emission=self.configuration.scattering_in_emission
             )
