@@ -303,3 +303,63 @@ def savez_compressed_record(file, numpy_record_array):
     """Apply numpy.savez_compressed on a record array."""
     data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
     np.savez_compressed(file, **data_dict)
+
+
+def user_input(introduction_message: str, input_message: str, failure_message: str, cancel_message: str,
+               mode: str, max_attempts: int = 5, list_length: int = None):
+    available_modes = ['list', 'y/n']
+
+    if mode not in available_modes:
+        quote = "'"
+        raise ValueError(f"user input mode '{mode}' is not available, "
+                         f"available modes are {quote + ', '.join(available_modes) + quote}")
+
+    if mode == 'list' and list_length is None:
+        raise TypeError(f"'list' mode missing required argument 'list_size'")
+
+    print(introduction_message)
+
+    for i in range(max_attempts + 1):
+        if i == max_attempts:
+            raise ValueError(f"{failure_message} after {i} attempts")
+
+        if mode == 'y/n':
+            selection = input(
+                f"{input_message} ('y'/'n'; 'cancel')"
+            )
+        elif mode == 'list':
+            selection = input(
+                f"{input_message} (1-{list_length}; 'cancel')"
+            )
+        else:
+            quote = "'"
+            raise ValueError(f"user input mode '{mode}' is not available, "
+                             f"available modes are {quote + ', '.join(available_modes) + quote}")
+
+        if selection == 'cancel':
+            print(cancel_message)
+            return
+
+        if mode == 'y/n':
+            selection = selection.lower()
+
+            if selection == 'y':
+                selection = True
+            elif selection == 'n':
+                selection = False
+            else:
+                print(f"Unclear input '{selection}', please enter 'y' or 'n'")
+                continue
+        elif mode == 'list':
+            if not selection.isdigit():
+                print(f"'{selection}' is not an integer, please enter an integer within 1-{list_length}")
+                continue
+
+            selection = int(selection)
+
+            if selection < 1 or selection > list_length:
+                print(f"{selection} is not within the range 1-{list_length}, "
+                      f"please enter an integer within 1-{list_length}")
+                continue
+
+        return selection
