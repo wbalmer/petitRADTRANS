@@ -455,6 +455,8 @@ class Data:
 
         if f"{self.name}_b" in parameters.keys():
             b_val = parameters[self.name + "_b"].value
+        elif f"{self.name.rsplit('_',1)[0]}_b" in parameters.keys():
+            b_val = parameters[f"{self.name.rsplit('_',1)[0]}_b"].value
         elif "uncertainty_scaling_b" in parameters.keys():
             b_val = parameters["uncertainty_scaling_b"].value
 

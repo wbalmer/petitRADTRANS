@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.0.0-a129] - 2023-12-21
 ### Added
+- Added more control over uncertainty_scaling_b: can now also be done per observation "types" (e.g., different MRS channels see the same b).
 - Added only_save_best_fit_specs flag to plot_spectra() in petitRADTRANS/retrieval/retrieval.py. If True, only the best fit spectra are calculated and no plot is produced.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
