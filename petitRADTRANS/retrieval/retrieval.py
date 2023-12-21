@@ -1603,7 +1603,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -1666,7 +1666,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -1780,7 +1780,7 @@ class Retrieval:
             # Append the logL per datapoint for each posterior sample
             log_l_per_datapoint_dict = self.log_likelihood(
                 cube=sample_i, log_l_per_datapoint_dict=log_l_per_datapoint_dict
-                )
+            )
 
         # Save the logL's for each instrument
         for name in self.configuration.data.keys():
@@ -1789,7 +1789,7 @@ class Retrieval:
             np.save(
                 f"{self.output_directory}/evaluate_{ret_name}/{ret_name}_logL_per_datapoint_{name}",
                 log_l_per_datapoint_dict[name]
-                )
+            )
 
     def get_elpd_per_datapoint(self, ret_name=None):
         if ret_name is None:
@@ -1812,7 +1812,7 @@ class Retrieval:
             for ret_name_i in ret_name:
                 log_l_per_datapoint_j = np.load(
                     f"{self.output_directory}/evaluate_{ret_name_i}/{ret_name_i}_logL_per_datapoint_{d_name}.npy",
-                    )
+                )
 
                 # Compute the ELPDs with the PSIS module
                 elpd_tot[d_name][ret_name_i], elpd[d_name][ret_name_i], pareto_k[d_name][ret_name_i] \
@@ -2324,8 +2324,8 @@ class Retrieval:
         return
 
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
-                     refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label=''
-                     ):
+                     refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label='',
+                     only_save_best_fit_specs=False):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/RETRIEVAL_NAME_MODE_spec.pdf
@@ -2360,6 +2360,11 @@ class Retrieval:
                 Colormap to use for marker colors.
             marker_label : str
                 Label to add to colorbar corresponding to marker colors.
+            only_save_best_fit_specs : bool
+                If False (default value), the plot_spectra routine will run as per usual, producing a plot
+                of the best-fit or median-parameter forward model and the data.
+                If True, only the best-fit models will be calculated for every dataset, and saved in the
+                "evaluate_"+retrieval_name folder. No figure will be generated.
         Returns:
             fig : matplotlib.figure
                 The matplotlib figure, containing the data, best fit spectrum and residuals.
@@ -2407,6 +2412,8 @@ class Retrieval:
             # First get the fit for each dataset for the residual plots
             # self.log_likelihood(sample_use, 0, 0)
             self.save_best_fit_outputs(self.best_fit_parameters)
+            if only_save_best_fit_specs:
+                return None, None, None
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
@@ -2429,7 +2436,7 @@ class Retrieval:
                 markersize = 10
 
                 l, b, w, h = ax.get_position().bounds
-                cax = fig.add_axes([l+w+0.015*w, b, 0.025*w, h])
+                cax = fig.add_axes([l + w + 0.015 * w, b, 0.025 * w, h])
 
                 markerfacecolors = {}
                 vmin, vmax = np.inf, -np.inf
@@ -2442,7 +2449,7 @@ class Retrieval:
 
                 if marker_color_type.startswith('delta_'):
                     vmax = np.max(np.abs([vmin, vmax]))
-                    vmin = -1*vmax
+                    vmin = -1 * vmax
 
                 from matplotlib.colors import Normalize
                 norm = Normalize(vmin=vmin, vmax=vmax)
@@ -2455,7 +2462,7 @@ class Retrieval:
                 fig.colorbar(
                     ScalarMappable(norm=norm, cmap=marker_cmap),
                     ax=ax, cax=cax, orientation='vertical'
-                    )
+                )
                 cax.set_ylabel(marker_label)
 
                 if marker_color_type == 'pareto_k':
@@ -3410,7 +3417,7 @@ class Retrieval:
             plt.savefig(
                 f"{self.get_base_figure_name()}_{mode}_contribution.pdf",
                 bbox_inches='tight'
-                )
+            )
 
             # Restore the correct pressure arrays.
             # *1e6 for units (cgs from bar)
@@ -3513,7 +3520,7 @@ class Retrieval:
             # Check if we're only plotting a few species
             if species_to_plot is None:
                 if self.configuration.data[
-                        self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
                     species_to_plot = self.configuration.data[
                         self.configuration.data[
                             self.configuration.plot_kwargs["take_PTs_from"]
