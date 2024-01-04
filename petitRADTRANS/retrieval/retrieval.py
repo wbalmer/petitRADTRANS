@@ -936,9 +936,9 @@ class Retrieval:
         retrieve_uncertainties = False
         beta_mode = "multiply"
 
-        wavelengths_model = None
-        spectrum_model = None
-        additional_log_l = None
+        wavelengths_models = []
+        spectrum_models = []
+        additional_log_ls = []
         beta = 1.0
 
         if self.uncertainties_mode == "default":
@@ -1114,6 +1114,10 @@ class Retrieval:
                 spectrum_model = None
                 additional_log_l = None
 
+            wavelengths_models.append(wavelengths_model)
+            spectrum_models.append(spectrum_model)
+            additional_log_ls.append(additional_log_l)
+
             if per_datapoint:
                 log_l_per_datapoint_dict[data_name].append(log_likelihood)
 
@@ -1174,7 +1178,7 @@ class Retrieval:
         if not return_model:
             return log_likelihood + log_prior
         else:
-            return log_likelihood + log_prior, wavelengths_model, spectrum_model, beta, additional_log_l
+            return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
 
     def save_best_fit_outputs(self, parameters):
         # Save sampled outputs if necessary.
@@ -1603,7 +1607,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -1666,7 +1670,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -3520,7 +3524,7 @@ class Retrieval:
             # Check if we're only plotting a few species
             if species_to_plot is None:
                 if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
+                        self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
                     species_to_plot = self.configuration.data[
                         self.configuration.data[
                             self.configuration.plot_kwargs["take_PTs_from"]
