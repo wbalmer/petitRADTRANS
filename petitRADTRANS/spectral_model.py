@@ -1859,7 +1859,7 @@ class SpectralModel(Radtrans):
 
         # Remove data masked values if necessary
         if hasattr(data_spectrum, 'mask'):
-            data, data_uncertainties, data_mask = SpectralModel.remove_mask(
+            data_spectrum, data_uncertainties, data_mask = SpectralModel.remove_mask(
                 data=data_spectrum,
                 data_uncertainties=data_uncertainties
             )
