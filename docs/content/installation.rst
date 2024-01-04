@@ -67,6 +67,11 @@ into the ``lib`` folder that your Python binary sees.
 If you use anaconda, this folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``,
 at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your ``LD_LIBRARY_PATH``")
 does not appear to work, at least not on a Mac.
+If using conda on Mac OS, you will also need the `mpi4py` package, which must be installed with 
+
+.. code-block:: bash
+
+   conda install mpi4py
 
 Installation of petitRADTRANS via pip install
 _____________________________________________
