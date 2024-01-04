@@ -70,7 +70,7 @@ does not appear to work, at least not on a Mac.
 
 Installation of petitRADTRANS via pip install
 _____________________________________________
-
+pRT version 2.x requires a python version between 3.8 and 3.11 inclusive (version 3.12 compatibility will be added in version 3.0).
 Make sure you have numpy and a fortran compiler (e.g., gfortran) installed. Then, to install pRT via pip install just type
 
 .. code-block:: bash
