@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a131] - 2024-01-04
+## [3.0.0-a132] - 2024-01-08
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Some helpful error and warning messages.
 - Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
   (see `concatenate_flux_epochs_variability` and its use in the data class.)
+- Argument `seed` to function `Retrieval.run`, for reproducibility.
+- Better test suite workflow.
 
 ### Changed
 - Reverted to old version of solve_tridiagonal_system in fortran_radtrans_core.f90, still need to check what can cause the occasional overflow error.

@@ -3,7 +3,8 @@
 import numpy as np
 
 from .context import petitRADTRANS
-from .utils import compare_from_reference_file, reference_filenames
+from .benchmark import Benchmark
+from .utils import reference_filenames
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
 
@@ -11,14 +12,13 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older result
 def test_rebin_spectrum():
     reference_data = np.load(reference_filenames['simple_spectrum'])
 
-    rebin_spectrum = petitRADTRANS.fortran_rebin.fortran_rebin.rebin_spectrum(
-            reference_data['wavelengths'], reference_data['spectrum'], reference_data['rebin_wavelengths']
+    benchmark = Benchmark(
+        function=petitRADTRANS.fortran_rebin.fortran_rebin.rebin_spectrum,
+        relative_tolerance=relative_tolerance
     )
 
-    compare_from_reference_file(
-        reference_filenames['simple_spectrum'],
-        comparison_dict={
-            'rebin_spectrum': rebin_spectrum
-        },
-        relative_tolerance=relative_tolerance
+    benchmark.run(
+        input_wavelengths=reference_data['wavelengths'],
+        input_spectrum=reference_data['spectrum'],
+        rebinned_wavelengths=reference_data['rebin_wavelengths']
     )
