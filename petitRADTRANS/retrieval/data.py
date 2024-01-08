@@ -33,8 +33,8 @@ class Data:
                  line_opacity_mode='c-k',
                  radtrans_grid=False,
                  concatenate_flux_epochs_variability=False,
-                 mix_atmospheric_column_fluxes=None,
-                 variability_atmospheric_column_flux_return_mode=False,
+                 atmospheric_column_flux_mixer=None,
+                 variability_atmospheric_column_model_flux_return_mode=False,
                  radtrans_object=None,
                  wavelengths=None,
                  spectrum=None,
@@ -107,9 +107,9 @@ class Data:
                 Set to true if data has been binned to a pRT c-k grid.
             concatenate_flux_epochs_variability: bool
                 Set to true if data concatenation treatment for variability is to be used.
-            mix_atmospheric_column_fluxes: method
+            atmospheric_column_flux_mixer: method
                 Function that mixes model fluxes of atmospheric columns in variability retrievals.
-            variability_atmospheric_column_flux_return_mode: bool
+            variability_atmospheric_column_model_flux_return_mode: bool
                 Set to true if the forward model should returns the fluxes of the individual atmospheric
                 columns. This is useful if external_radtrans_reference is True, but the master (reference) object
                 should return the column fluxes for mixing, not the combined column flux. In this case a column
@@ -198,8 +198,8 @@ class Data:
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
-        self.variability_atmospheric_column_flux_return_mode = variability_atmospheric_column_flux_return_mode
-        self.mix_atmospheric_column_fluxes = mix_atmospheric_column_fluxes
+        self.variability_atmospheric_column_model_flux_return_mode = variability_atmospheric_column_model_flux_return_mode
+        self.atmospheric_column_flux_mixer = atmospheric_column_flux_mixer
 
         # Read in data
         if path_to_observations is not None:
@@ -425,12 +425,12 @@ class Data:
                 if self.concatenate_flux_epochs_variability:
                     flux_rebinned = spectrum_model
                 else:
-                    if not self.variability_atmospheric_column_flux_return_mode:
+                    if not self.variability_atmospheric_column_model_flux_return_mode:
                         index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
                                 (wlen_model <= self.wavelengths[-1] * 1.00000001)
                         flux_rebinned = spectrum_model[index]
-                    elif self.mix_atmospheric_column_fluxes is not None:
-                        flux_rebinned = self.mix_atmospheric_column_fluxes(atmospheric_model_column_fluxes,
+                    elif self.atmospheric_column_flux_mixer is not None:
+                        flux_rebinned = self.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
                                                                            parameters,
                                                                            self.name)
 

@@ -1025,7 +1025,7 @@ class Retrieval:
                         wavelengths_model, spectrum_model, beta = model_returned_values
                         additional_log_l = 0.
                 else:
-                    if data.variability_atmospheric_column_flux_return_mode:
+                    if data.variability_atmospheric_column_model_flux_return_mode:
                         wavelengths_model, spectrum_model, additional_log_l, atmospheric_model_column_fluxes = \
                             model_returned_values
                     elif len(model_returned_values) == 3:
