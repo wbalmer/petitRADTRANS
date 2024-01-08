@@ -33,6 +33,8 @@ class Data:
                  line_opacity_mode='c-k',
                  radtrans_grid=False,
                  concatenate_flux_epochs_variability=False,
+                 mix_atmospheric_column_fluxes=None,
+                 variability_atmospheric_column_flux_return_mode=False,
                  radtrans_object=None,
                  wavelengths=None,
                  spectrum=None,
@@ -105,6 +107,13 @@ class Data:
                 Set to true if data has been binned to a pRT c-k grid.
             concatenate_flux_epochs_variability: bool
                 Set to true if data concatenation treatment for variability is to be used.
+            mix_atmospheric_column_fluxes: method
+                Function that mixes model fluxes of atmospheric columns in variability retrievals.
+            variability_atmospheric_column_flux_return_mode: bool
+                Set to true if the forward model should returns the fluxes of the individual atmospheric
+                columns. This is useful if external_radtrans_reference is True, but the master (reference) object
+                should return the column fluxes for mixing, not the combined column flux. In this case a column
+                mixing function needs to be handed to the data constructor.
             line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -189,6 +198,8 @@ class Data:
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
+        self.variability_atmospheric_column_flux_return_mode = variability_atmospheric_column_flux_return_mode
+        self.mix_atmospheric_column_fluxes = mix_atmospheric_column_fluxes
 
         # Read in data
         if path_to_observations is not None:
@@ -383,7 +394,8 @@ class Data:
                   spectrum_model,
                   plotting,
                   parameters=None,
-                  per_datapoint=False
+                  per_datapoint=False,
+                  atmospheric_model_column_fluxes=None
                   ):
         """
         Calculate the chi square between the model and the data.
@@ -397,7 +409,9 @@ class Data:
                 Show test plots.
             parameters :
                 # TODO complete docstring
-
+            atmospheric_model_column_fluxes : numpy.ndarray
+                The fluxes of individual atmospheric columns in case the retrieval is run in the associated
+                column_flux_return mode.
         Returns:
             logL : float
                 The log likelihood of the model given the data.
@@ -411,9 +425,15 @@ class Data:
                 if self.concatenate_flux_epochs_variability:
                     flux_rebinned = spectrum_model
                 else:
-                    index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
-                            (wlen_model <= self.wavelengths[-1] * 1.00000001)
-                    flux_rebinned = spectrum_model[index]
+                    if not self.variability_atmospheric_column_flux_return_mode:
+                        index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
+                                (wlen_model <= self.wavelengths[-1] * 1.00000001)
+                        flux_rebinned = spectrum_model[index]
+                    elif self.mix_atmospheric_column_fluxes is not None:
+                        flux_rebinned = self.mix_atmospheric_column_fluxes(atmospheric_model_column_fluxes,
+                                                                           parameters,
+                                                                           self.name)
+
             else:
                 if self.data_resolution is not None:
                     spectrum_model = self.convolve(wlen_model,
@@ -455,8 +475,8 @@ class Data:
 
         if f"{self.name}_b" in parameters.keys():
             b_val = parameters[self.name + "_b"].value
-        elif f"{self.name.rsplit('_',1)[0]}_b" in parameters.keys():
-            b_val = parameters[f"{self.name.rsplit('_',1)[0]}_b"].value
+        elif f"{self.name.rsplit('_', 1)[0]}_b" in parameters.keys():
+            b_val = parameters[f"{self.name.rsplit('_', 1)[0]}_b"].value
         elif "uncertainty_scaling_b" in parameters.keys():
             b_val = parameters["uncertainty_scaling_b"].value
 
@@ -492,7 +512,7 @@ class Data:
                 g_i = np.dot(inv_cov, diff)
                 sigma_bar_ii = np.diag(inv_cov)
 
-                sigma_tilde_i = 1/sigma_bar_ii
+                sigma_tilde_i = 1 / sigma_bar_ii
                 mu_tilde_i = flux_rebinned - g_i / sigma_bar_ii
 
                 log_l_per_datapoint = (

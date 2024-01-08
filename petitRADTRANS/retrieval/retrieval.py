@@ -941,6 +941,8 @@ class Retrieval:
         additional_log_ls = []
         beta = 1.0
 
+        atmospheric_model_column_fluxes = None
+
         if self.uncertainties_mode == "default":
             beta = 1.0
         elif self.uncertainties_mode == "optimize":
@@ -1023,7 +1025,10 @@ class Retrieval:
                         wavelengths_model, spectrum_model, beta = model_returned_values
                         additional_log_l = 0.
                 else:
-                    if len(model_returned_values) == 3:
+                    if data.variability_atmospheric_column_flux_return_mode:
+                        wavelengths_model, spectrum_model, additional_log_l, atmospheric_model_column_fluxes = \
+                            model_returned_values
+                    elif len(model_returned_values) == 3:
                         wavelengths_model, spectrum_model, additional_log_l = model_returned_values
                     else:
                         wavelengths_model, spectrum_model = model_returned_values
@@ -1087,6 +1092,7 @@ class Retrieval:
                             self.test_plotting,
                             self.configuration.parameters,
                             per_datapoint=per_datapoint,
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
                         ) + additional_log_l
                     elif np.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -1140,7 +1146,8 @@ class Retrieval:
                             spectrum_model,
                             self.test_plotting,
                             self.configuration.parameters,
-                            per_datapoint=per_datapoint
+                            per_datapoint=per_datapoint,
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
                         ) + additional_log_l
 
             # Save sampled outputs if necessary.
@@ -1176,6 +1183,7 @@ class Retrieval:
             return invalid_value
 
         if not return_model:
+            print('log_likelihood + log_prior', log_likelihood + log_prior)
             return log_likelihood + log_prior
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
@@ -1607,7 +1615,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -1670,7 +1678,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -3524,7 +3532,7 @@ class Retrieval:
             # Check if we're only plotting a few species
             if species_to_plot is None:
                 if self.configuration.data[
-                        self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
                     species_to_plot = self.configuration.data[
                         self.configuration.data[
                             self.configuration.plot_kwargs["take_PTs_from"]
