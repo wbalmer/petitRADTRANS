@@ -96,6 +96,28 @@ class LockedDict(dict):
         self._locked = False
 
 
+def check_all_close(a, b, **kwargs):
+    if isinstance(a, dict):
+        assert len(a) == len(b)  # check if both dict have the same number of keys
+
+        for key, value in a.items():
+            # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
+            check_all_close(value, b[key])
+    elif isinstance(a, str):
+        assert a == b
+    elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
+        for i, value in enumerate(a):
+            check_all_close(value, b[i])
+    elif a is None:
+        assert b is None
+    else:
+        assert np.allclose(
+            a,
+            b,
+            **kwargs
+        )
+
+
 def class_init_args2class_args(string):
     """Convenience code-writing function to convert a series of arguments into lines of initialisation for a class.
     Useful to quickly write the __init__ function of a class from its arguments.
