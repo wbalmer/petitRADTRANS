@@ -183,13 +183,24 @@ def dataset2obj(obj):
 
         return np.array(new_obj)
     elif isinstance(obj, bytes):
-        return str(obj, 'utf-8')
+        obj = str(obj, 'utf-8')
+
+        if obj == 'None':
+            obj = None
+
+        return obj
     else:
         return obj
 
 
 def dict2hdf5(dictionary, hdf5_file, group='/'):
     """Convert a dictionary into a HDF5 dataset."""
+    if len(dictionary) == 0:
+        hdf5_file.create_dataset(
+            name=group + '__EMPTY_DICT__',
+            data=np.nan
+        )
+
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
             new_group = group + key + '/'
@@ -243,6 +254,10 @@ def hdf52dict(hdf5_file):
     dictionary = {}
 
     for key in hdf5_file:
+        if key == '__EMPTY_DICT__':
+            if np.isnan(hdf5_file[key]):
+                return {}
+
         if isinstance(hdf5_file[key], h5py.Dataset):
             dictionary[key] = dataset2obj(hdf5_file[key][()])
         elif isinstance(hdf5_file[key], h5py.Group):
