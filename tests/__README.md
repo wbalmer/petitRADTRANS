@@ -1,4 +1,4 @@
-# petitRADTRANS test suite Readme
+__# petitRADTRANS test suite Readme
 This should probably be merged within a future contributing file.
 
 ## How to use the test suite?
@@ -16,10 +16,11 @@ Tox will automatically execute any function in any module across all the project
 .
 ├── data                           <- contains the test paramters
 |   ├── config_test_radtrans.json  <- the parameters for the test suite
-|   ├── <numerous .npz files>      <- results of last validated tests
+|   ├── <several .npz/.dat files>  <- data files used in tests
 |   └── test_stats.json            <- results of the last validated retrieval test
 ├── errors                         <- if an AssertionError is raised, results will be sent here for diagnostic
 ├── references                     <- contains the test reference files, storing results from the last validated test
+|   └── <numerous .h5 files>       <- results of the last validated retrieval test
 ├── results                        <- results of the last retrieval test
 ├── __init__.py                    <- init file (empty)
 ├── benchmark.py                   <- module containing the Benchmark class, used to compare the results
@@ -48,30 +49,41 @@ Tests are used both to ensure that every functionality of the code work, but als
 
 In order to create a test, you can use the petitRADTRANS tools and follow these steps:
 1. If you need a `Radtrans` object (or equivalent), first check if there is one that already suits your need in the existing test modules.
-2. If relevant, create a new test module. At the beginning of the module, put: 
+2. If relevant, create a new test module, beginning with "test_". At the top of the module, put: 
     ```
     from .benchmark import Benchmark
     from .context import petitRADTRANS
     ```
 3. Create your test function (starting with `test_`). Be as expansive as possible when choosing the name, to make it easier to understand what went wrong if it fails. For the same reason, most of the time you would want to have one functionality tested per test function. The function should have no arguments.
-4. Add lines to compare your results with previous ones. To do so, it is highly recommended to use the following workflow:
+4. Add lines to compare your results with previous ones. To do so, it is highly recommended to use the following structure:
     ```
-    benchmark = Benchmark(
-        function=function_to_test,
-        relative_tolerance=1e-6
-    )
+    def test_my_feature():
+        benchmark = Benchmark(
+            function=function_to_test,
+            relative_tolerance=1e-6
+        )
    
-    benchmark.run(
-        function_to_test_keyword_argument_1=...,
-        function_to_test_keyword_argument_2=...,
-        ...
-    )
+        benchmark.run(
+            function_to_test_keyword_argument_1=...,
+            function_to_test_keyword_argument_2=...,
+            ...
+        )
     ```
 5. Check the dictionary within `utils.make_petitradtrans_test_config_file` and look for parameters that you can use in your test function, **if possible without editing them**. If necessary, add key/value pairs to this dictionary. The added values should be small (i.e. no size 10+ array). In general, keep your inputs as small as possible to make tests faster and limit data storage on git. Any larger input (max ~100 kB) should be stored outside this file in the "data" directory. Exception is made for files inside the petitRADTRANS "input_data" directory, that should not be stored on the git.
 6. In a python console, execute:
     ```
-    from tests.new_test_module import new_test_function  # this will automatically re-generate the parameter file if needed
+    from tests.test_my_new_module import test_my_feature  # this will automatically re-generate the parameter file if needed
     Benchmark.activate_reference_file_generation()
-    new_test_function()  # generate the reference comparison file, then test the function
+    test_my_feature()  # generate the reference comparison file, then test the function
+    Benchmark.deactivate_reference_file_generation()
     ```
 7. Launch `tox` to be sure that everything went right!
+
+### Resetting all reference files
+In rare cases, for example when pushing a new version, it might be interesting to reset all reference files. 
+This operation should not be taken lightly as this can have significant consequences on the code's reproducibility and behaviour.
+To easily do this operation, execute the following:
+    ```
+    from tests.benchmark import Benchmark
+    Benchmark.write_all_reference_files()
+    ```

@@ -130,6 +130,16 @@ class ReferenceFile(TestFile):
 
     def __init__(self, parameters: dict = None, outputs: dict = None,
                  absolute_tolerance: float = None, relative_tolerance: float = None):
+        """Class for reference files.
+        Intended to store the outputs of a tested function and the parameters used to obtain this output.
+        The absolute and relative tolerances for the parameters are stored as well.
+
+        Args:
+            parameters: parameters (value of the arguments) used when testing the function
+            outputs: outputs of the tested function
+            absolute_tolerance: absolute tolerance for testing the outputs
+            relative_tolerance: relative tolerance for testing the outputs
+        """
         super().__init__(absolute_tolerance=absolute_tolerance, relative_tolerance=relative_tolerance)
         self.parameters = parameters
         self.outputs = outputs
@@ -141,6 +151,17 @@ class Benchmark:
 
     def __init__(self, function: callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
                  name: str = None):
+        """Class to test a function.
+        The function tested is given arguments. Both the arguments/parameters and its outputs are compared with values
+        contained in a reference file, with given absolute and relative tolerances for the parameters and the outputs.
+        The reference file can also be generated.
+
+        Args:
+            function: function to test.
+            absolute_tolerance: absolute tolerance to use when comparing the outputs with those of the reference file.
+            relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
+            name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
+        """
         if name is None:
             name = inspect.currentframe().f_back.f_code.co_name  # the name of the function that instantiated Benchmark
 
@@ -150,29 +171,26 @@ class Benchmark:
         self._relative_tolerance = relative_tolerance
 
     @property
-    def absolute_tolerance(self):
+    def absolute_tolerance(self) -> float:
         return self._absolute_tolerance
 
     @property
-    def function(self):
+    def function(self) -> callable:
         return self._function
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def relative_tolerance(self):
+    def relative_tolerance(self) -> float:
         return self._relative_tolerance
 
     def _check_parameters(self, reference_file: ReferenceFile, test_parameters: dict) -> None:
         """Check if the ReferenceFile parameters are the same as the test parameters.
 
         Args:
-            test_parameters:
-
-        Returns:
-
+            test_parameters: current test parameters
         """
         invalid_parameters = {}
 
@@ -211,6 +229,15 @@ class Benchmark:
                                  f"The invalid parameters has been saved for diagnostic")
 
     def _get_function_arguments(self, parameters: dict) -> dict:
+        """Get the function arguments from the given parameters.
+        A check for missing arguments is performed to ensure that the function can run.
+
+        Args:
+            parameters: test parameters.
+
+        Returns:
+            A dictionary containing only the function parameters and their values.
+        """
         # Get the function arguments
         arguments_names = self.function.__code__.co_varnames
 
@@ -232,14 +259,24 @@ class Benchmark:
         }
 
     def _get_reference_file(self) -> str:
+        """Automatically get the benchmark reference file from its name."""
         return os.path.join(
             tests_references_directory,
             str(self._name) + '_ref.h5'
         )
 
     def _run(self, **kwargs) -> dict:
+        """Run the tested function.
+
+        Args:
+            **kwargs: tested function parameters.
+
+        Returns:
+            A dictionary with one key per returned output, labelled '0', '1', ..., and their values.
+        """
         outputs = self.function(**kwargs)
 
+        # Ensure that the outputs are in a tuple in order for the output dict to be in the proper format
         if not isinstance(outputs, tuple):
             outputs = (outputs,)
 
@@ -247,6 +284,14 @@ class Benchmark:
 
     def _write_error_file(self, file_suffix: str, error_dict: dict,
                           absolute_tolerance: float, relative_tolerance: float) -> None:
+        """Write an error file if the test did not run properly.
+
+        Args:
+            file_suffix: string to put at the end of the file's name, separated by a "_".
+            error_dict: dict that wil be saved in the file.
+            absolute_tolerance: absolute tolerance of the failed test.
+            relative_tolerance: relative tolerance of the failed test.
+        """
         error_file = TestFile(
             absolute_tolerance=absolute_tolerance,
             relative_tolerance=relative_tolerance,
@@ -270,11 +315,84 @@ class Benchmark:
 
     @staticmethod
     def activate_reference_file_generation() -> None:
+        """Activate all Benchmark reference files generation."""
         Benchmark._make_reference_file = True
         print(f"Benchmark reference file generation has been activated")
 
     @staticmethod
-    def make_all_reference_files(test_directory=None):
+    def deactivate_reference_file_generation() -> None:
+        """Deactivate all Benchmark reference files generation."""
+        Benchmark._make_reference_file = False
+        Benchmark._reference_file_rewrite = False
+        print(f"Benchmark reference file generation state has been reset to default")
+
+    def run(self, **kwargs) -> None:
+        """Test the Benchmark function.
+        Write the reference file if their generation is activated.
+        After writing the reference file, the function test is performed to ensure that the test behaviour is stable.
+        """
+        if Benchmark._make_reference_file:
+            self.write_reference_file(**kwargs)
+
+        self.test(**kwargs)
+
+    def test(self, **kwargs) -> None:
+        """Test a function by comparing its outputs with those from a reference file."""
+        # Load the reference file
+        reference_file = self._get_reference_file()
+
+        if not os.path.isfile(reference_file):
+            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
+                                    f"generate it first to run the test")
+
+        reference_file = ReferenceFile.load(reference_file)
+
+        print(f"Comparing '{self._name}' results "
+              f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
+              f"and petitRADTRANS-{petitRADTRANS.__version__}...")
+
+        # Check if the parameters used in the current test are identical to the parameters used to make the reference
+        self._check_parameters(
+            reference_file=reference_file,
+            test_parameters=kwargs
+        )
+
+        # Run the function
+        outputs = self._run(**kwargs)
+
+        # Check if the outputs are close enough to those from the reference file
+        try:
+            petitRADTRANS.utils.check_all_close(
+                outputs,
+                reference_file.outputs,
+                atol=self._absolute_tolerance,
+                rtol=self._relative_tolerance
+            )
+        except AssertionError:
+            # Write an error file if the assertion failed
+            self._write_error_file(
+                file_suffix='invalid_outputs',
+                error_dict={
+                    'test_outputs': outputs,
+                    'reference_outputs': reference_file.outputs
+                },
+                absolute_tolerance=self._absolute_tolerance,
+                relative_tolerance=self._relative_tolerance
+            )
+
+            raise
+
+        print(f"Test successful "
+              f"(absolute and relative tolerances: {self._absolute_tolerance}, {self._relative_tolerance})")
+
+    @staticmethod
+    def write_all_reference_files(test_directory=None) -> None:
+        """Write all reference files by activating reference file generation and executing all test functions.
+        Reference files generation is deactivated at the end of the function even if an error occurred.
+
+        Args:
+            test_directory: directory containing the test modules.
+        """
         if test_directory is None:
             test_directory = os.path.abspath(os.path.dirname(__file__))
 
@@ -300,18 +418,20 @@ class Benchmark:
                 module_name = os.path.basename(test_file).rsplit('.py', 1)[0]  # remove extension
                 module_name = "tests." + module_name
 
-                # Import the test file
+                # Import the test module
                 print(f"Importing test module from file '{test_file}' ({i + 1}/{len(test_files)})...")
                 spec = importlib.util.spec_from_file_location(module_name, test_file)
                 test_module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = test_module
                 spec.loader.exec_module(test_module)
 
+                # Get all test functions in the test module
                 test_functions = dir(test_module)
 
                 for test_function_name in test_functions:
                     test_function = test_module.__getattribute__(test_function_name)
 
+                    # Execute the test function
                     if test_function_name.startswith('test_') and callable(test_function):
                         print(f" Running '{module_name}.{test_function_name}'...")
                         test_function()
@@ -320,66 +440,16 @@ class Benchmark:
 
             print(f"Successfully made all test reference files")
         finally:
-            Benchmark.reset_reference_file_generation()
-
-    @staticmethod
-    def reset_reference_file_generation() -> None:
-        Benchmark._make_reference_file = False
-        Benchmark._reference_file_rewrite = False
-        print(f"Benchmark reference file generation state has been reset to default")
-
-    def run(self, **kwargs) -> None:
-        if Benchmark._make_reference_file:
-            self.write_reference_file(**kwargs)
-
-        self.test(**kwargs)
-
-    def test(self, **kwargs) -> None:
-        reference_file = self._get_reference_file()
-
-        if not os.path.isfile(reference_file):
-            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
-                                    f"generate it first to run the test")
-
-        reference_file = ReferenceFile.load(reference_file)
-
-        print(f"Comparing '{self._name}' results "
-              f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
-              f"and petitRADTRANS-{petitRADTRANS.__version__}...")
-
-        self._check_parameters(
-            reference_file=reference_file,
-            test_parameters=kwargs
-        )
-
-        outputs = self._run(**kwargs)
-
-        try:
-            petitRADTRANS.utils.check_all_close(
-                outputs,
-                reference_file.outputs,
-                atol=self._absolute_tolerance,
-                rtol=self._relative_tolerance
-            )
-        except AssertionError:
-            self._write_error_file(
-                file_suffix='invalid_outputs',
-                error_dict={
-                    'test_outputs': outputs,
-                    'reference_outputs': reference_file.outputs
-                },
-                absolute_tolerance=self._absolute_tolerance,
-                relative_tolerance=self._relative_tolerance
-            )
-
-            raise
-
-        print(f"Test successful "
-              f"(absolute and relative tolerances: {self._absolute_tolerance}, {self._relative_tolerance})")
+            Benchmark.deactivate_reference_file_generation()
 
     def write_reference_file(self, **kwargs) -> None:
+        """Write the Benchmark's reference file by saving the outputs of the Benchmark's function.
+        If the file already exists, the user must go through a checklist to prevent an accidental overwrite.
+        """
+        # Run the function
         outputs = self._run(**kwargs)
 
+        # Initialize the reference file
         reference_file = ReferenceFile(
             parameters=kwargs,
             outputs=outputs,
@@ -389,6 +459,7 @@ class Benchmark:
 
         reference_file_name = self._get_reference_file()
 
+        # Make the user go through a checklist to prevent accidental overwrite
         if os.path.isfile(reference_file_name) and not Benchmark._reference_file_rewrite:
             answer = input(
                 f"You are about to rewrite existing test reference files.\n"
@@ -431,6 +502,7 @@ class Benchmark:
             print(f"Checklist done. Proceeding to test reference file overwrite...")
             Benchmark._reference_file_rewrite = True
 
+        # Save the new reference file
         print(f"Saving reference file '{reference_file_name}'...")
 
         reference_file.save(reference_file_name, rewrite=True)
