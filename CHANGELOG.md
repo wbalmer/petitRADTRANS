@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a133] - 2024-01-09
+## [3.0.0-a134] - 2024-01-11
 ### Added
 - Possibility to print the log-likelihood to the console if desired, for retrieval debugging (False by default)
 - Added that forward model can return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
