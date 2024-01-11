@@ -15,7 +15,7 @@ from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
 from .context import petitRADTRANS
-from .utils import tests_results_directory, reference_filenames, radtrans_parameters
+from .utils import tests_results_directory, reference_filenames, test_parameters
 
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
@@ -28,7 +28,7 @@ def init_run():
         retrieval_name="test",
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest
         amr=False,  # We won't be using adaptive mesh refinement for the pressure grid
-        pressures=radtrans_parameters['pressures'],
+        pressures=test_parameters['pressures'],
         scattering_in_emission=False  # This would turn on scattering when calculating emission spectra
     )
     # Scattering is automatically included for transmission spectra
@@ -37,14 +37,14 @@ def init_run():
     run_definition_simple.add_parameter(
         'Rstar',
         False,
-        value=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
+        value=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun
     )
 
     # Log of the surface gravity
     run_definition_simple.add_parameter(
         'log_g',
         False,
-        value=np.log10(radtrans_parameters['planetary_parameters']['surface_gravity'])
+        value=np.log10(test_parameters['planetary_parameters']['surface_gravity'])
     )
 
     # Retrieved parameters
@@ -52,24 +52,24 @@ def init_run():
     def prior_planet_radius(x):
         return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
-            x1=radtrans_parameters['retrieval_parameters']['planetary_radius_bounds'][0]
-            * petitRADTRANS.physical_constants.r_jup_mean,
-            x2=radtrans_parameters['retrieval_parameters']['planetary_radius_bounds'][1]
-            * petitRADTRANS.physical_constants.r_jup_mean,
+            x1=test_parameters['retrieval_parameters']['planetary_radius_bounds'][0]
+               * petitRADTRANS.physical_constants.r_jup_mean,
+            x2=test_parameters['retrieval_parameters']['planetary_radius_bounds'][1]
+               * petitRADTRANS.physical_constants.r_jup_mean,
         )
 
     def prior_temperature(x):
         return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
-            x1=radtrans_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][0],
-            x2=radtrans_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][1]
+            x1=test_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][0],
+            x2=test_parameters['retrieval_parameters']['intrinsic_temperature_bounds'][1]
         )
 
     def prior_cloud_pressure(x):
         return petitRADTRANS.retrieval.utils.uniform_prior(
             cube=x,
-            x1=radtrans_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][0],
-            x2=radtrans_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][1]
+            x1=test_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][0],
+            x2=test_parameters['retrieval_parameters']['log10_cloud_pressure_bounds'][1]
         )
 
     # Planet radius
@@ -94,20 +94,20 @@ def init_run():
     )
 
     # Spectrum parameters
-    run_definition_simple.set_rayleigh_species(radtrans_parameters['spectrum_parameters']['rayleigh_species'])
-    run_definition_simple.set_continuum_opacities(radtrans_parameters['spectrum_parameters']['continuum_opacities'])
+    run_definition_simple.set_rayleigh_species(test_parameters['spectrum_parameters']['rayleigh_species'])
+    run_definition_simple.set_continuum_opacities(test_parameters['spectrum_parameters']['continuum_opacities'])
 
     run_definition_simple.set_line_species(
-        radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
+        test_parameters['spectrum_parameters']['line_species_correlated_k'],
         eq=False,
         abund_lim=(
-            radtrans_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][0],
-            radtrans_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][1]
+            test_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][0],
+            test_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][1]
         )  # prior: min = abund_lim[0], max = min + abund_lim[1]
     )
 
     # Remove old binned down opacities to test rebinning function
-    for species in radtrans_parameters['spectrum_parameters']['line_species_correlated_k']:
+    for species in test_parameters['spectrum_parameters']['line_species_correlated_k']:
         file = get_opacity_input_file(
             path_input_data=petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path(),
             category='correlated_k_opacities',
@@ -116,7 +116,7 @@ def init_run():
             join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
             join_species_all_info(
                 '',
-                get_resolving_power_string(radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2)
+                get_resolving_power_string(test_parameters['mock_observation_parameters']['resolving_power'] * 2)
             )
         )
 
@@ -129,8 +129,8 @@ def init_run():
         path_to_observations=reference_filenames['mock_observation_transmission'],
         model_generating_function=retrieval_model_spec_iso,
         line_opacity_mode='c-k',
-        data_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'],
-        model_resolution=radtrans_parameters['mock_observation_parameters']['resolving_power'] * 2
+        data_resolution=test_parameters['mock_observation_parameters']['resolving_power'],
+        model_resolution=test_parameters['mock_observation_parameters']['resolving_power'] * 2
     )
 
     # Plot parameters
@@ -207,8 +207,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
         abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
-    abundances['H2'] = radtrans_parameters['mass_fractions']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
-    abundances['He'] = radtrans_parameters['mass_fractions']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
+    abundances['H2'] = test_parameters['mass_fractions']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
+    abundances['He'] = test_parameters['mass_fractions']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
     mmw = compute_mean_molar_masses(abundances)
@@ -220,7 +220,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
         reference_gravity=10 ** parameters['log_g'].value,
         mean_molar_masses=mmw,
         planet_radius=parameters['R_pl'].value,
-        reference_pressure=radtrans_parameters['planetary_parameters']['reference_pressure'],
+        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         opaque_cloud_top_pressure=10 ** parameters['log_Pcloud'].value,
         frequencies_to_wavelengths=True  # True by default
     )
@@ -239,59 +239,44 @@ def test_list_available_species():
     run_definition.list_available_line_species()
 
 
-def test_simple_retrieval(test_number=0, max_test_number=max_number_of_tests):
+def test_simple_retrieval():
     retrieval = petitRADTRANS.retrieval.Retrieval(
         run_definition,
         output_directory=tests_results_directory,
-        evaluate_sample_spectra=radtrans_parameters['retrieval_parameters']['sample_spectrum_output'],
-        ultranest=radtrans_parameters['retrieval_parameters']['ultranest']  # if False, use PyMultiNest
+        evaluate_sample_spectra=test_parameters['retrieval_parameters']['sample_spectrum_output'],
+        ultranest=test_parameters['retrieval_parameters']['ultranest']  # if False, use PyMultiNest
     )
 
-    try:
-        retrieval.run(
-            sampling_efficiency=radtrans_parameters['retrieval_parameters']['sampling_efficiency'],
-            n_live_points=radtrans_parameters['retrieval_parameters']['n_live_points'],
-            const_efficiency_mode=radtrans_parameters['retrieval_parameters']['const_efficiency_mode'],
-            resume=radtrans_parameters['retrieval_parameters']['resume']
-        )
+    retrieval.run(
+        sampling_efficiency=test_parameters['retrieval_parameters']['sampling_efficiency'],
+        n_live_points=test_parameters['retrieval_parameters']['n_live_points'],
+        const_efficiency_mode=test_parameters['retrieval_parameters']['const_efficiency_mode'],
+        resume=test_parameters['retrieval_parameters']['resume'],
+        seed=test_parameters['retrieval_parameters']['seed']
+    )
 
-        # Just check if get_samples works
-        sample_dict, parameter_dict = retrieval.get_samples(
-            ultranest=False,
-            names=retrieval.corner_files,
-            output_directory=retrieval.output_directory
-        )
+    # Just check if get_samples works
+    sample_dict, parameter_dict = retrieval.get_samples(
+        ultranest=False,
+        names=retrieval.corner_files,
+        output_directory=retrieval.output_directory
+    )
 
-        # Get results and reference
-        with open(reference_filenames['pymultinest_parameter_analysis']) as f:
-            reference = json.load(f)
+    # Get results and reference
+    with open(reference_filenames['pymultinest_parameter_analysis']) as f:
+        reference = json.load(f)
 
-        new_result_file = os.path.join(
-            tests_results_directory,
-            'out_PMN',
-            os.path.basename(reference_filenames['pymultinest_parameter_analysis'])
-        )
+    new_result_file = os.path.join(
+        tests_results_directory,
+        'out_PMN',
+        os.path.basename(reference_filenames['pymultinest_parameter_analysis'])
+    )
 
-        with open(new_result_file) as f:
-            new_results = json.load(f)
+    with open(new_result_file) as f:
+        new_results = json.load(f)
 
-        # Check if retrieved parameters are in +/- 1 sigma of the previous retrieved parameters
-        for i, marginal in enumerate(new_results['marginals']):
-            assert marginal['median'] - reference['marginals'][i]['sigma'] \
-                   <= reference['marginals'][i]['median'] \
-                   <= marginal['median'] + reference['marginals'][i]['sigma']
-    except AssertionError as error_message:
-        test_number += 1
-
-        if test_number < max_test_number:
-            test_simple_retrieval(test_number=test_number, max_test_number=max_test_number)
-        else:
-            raise AssertionError(
-                f"Retrievals are expected to give results within a +/- 1 sigma uncertainty range with a probability of "
-                f"~68% for each parameters."
-                f"To take that into account, {test_number} tests were performed, "
-                f"but all failed to fall within this range "
-                f"compared to the results of the previous version.\n"
-                f"Complete error message was: \n" +
-                str(error_message)
-            )
+    # Check if retrieved parameters are in +/- 1 sigma of the previous retrieved parameters
+    for i, marginal in enumerate(new_results['marginals']):
+        assert marginal['median'] - relative_tolerance * reference['marginals'][i]['sigma'] \
+               <= reference['marginals'][i]['median'] \
+               <= marginal['median'] + relative_tolerance * reference['marginals'][i]['sigma']

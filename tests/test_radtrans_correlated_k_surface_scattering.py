@@ -12,8 +12,8 @@ may be performed in order to rule out "unlucky" results.
 import copy
 
 from .context import petitRADTRANS
-from .utils import compare_from_reference_file, \
-    reference_filenames, radtrans_parameters, temperature_guillot_2010
+from .benchmark import Benchmark
+from .utils import test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older spectra
 
@@ -21,12 +21,12 @@ relative_tolerance = 1e-6  # relative tolerance when comparing with older spectr
 # Initializations
 def init_radtrans_correlated_k():
     atmosphere = petitRADTRANS.radtrans.Radtrans(
-        pressures=radtrans_parameters['pressures_thin_atmosphere'],
-        line_species=radtrans_parameters['spectrum_parameters']['line_species_correlated_k'],
-        rayleigh_species=radtrans_parameters['spectrum_parameters']['rayleigh_species'],
-        gas_continuum_contributors=radtrans_parameters['spectrum_parameters']['continuum_opacities'],
-        cloud_species=list(radtrans_parameters['cloud_parameters']['cloud_species'].keys()),
-        wavelength_boundaries=radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        pressures=test_parameters['pressures_thin_atmosphere'],
+        line_species=test_parameters['spectrum_parameters']['line_species_correlated_k'],
+        rayleigh_species=test_parameters['spectrum_parameters']['rayleigh_species'],
+        gas_continuum_contributors=test_parameters['spectrum_parameters']['continuum_opacities'],
+        cloud_species=list(test_parameters['cloud_parameters']['cloud_species'].keys()),
+        wavelength_boundaries=test_parameters['spectrum_parameters']['wavelength_range_correlated_k'],
         line_opacity_mode='c-k',
         scattering_in_emission=True
     )
@@ -41,28 +41,21 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     # Copy atmosphere so that change in reflectance is not carried outside the function
     atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
 
-    frequencies, flux, _ = atmosphere.calculate_flux(
-        temperatures=temperature_guillot_2010,
-        mass_fractions=radtrans_parameters['mass_fractions'],
-        reference_gravity=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        mean_molar_masses=radtrans_parameters['mean_molar_mass'],
-        emission_geometry='non-isotropic',
-        star_effective_temperature=radtrans_parameters['stellar_parameters']['effective_temperature'],
-        star_radius=radtrans_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
-        orbit_semi_major_axis=radtrans_parameters['planetary_parameters']['orbit_semi_major_axis'],
-        star_irradiation_angle=radtrans_parameters['stellar_parameters']['incidence_angle'],
-        reflectances=radtrans_parameters['planetary_parameters']['surface_reflectance'],
-        frequencies_to_wavelengths=False
+    benchmark = Benchmark(
+        function=atmosphere.calculate_flux,
+        relative_tolerance=relative_tolerance
     )
 
-    # Comparison
-    compare_from_reference_file(
-        reference_file=reference_filenames[
-            'correlated_k_emission_surface_scattering'
-        ],
-        comparison_dict={
-            'wavelength': petitRADTRANS.physical_constants.c / frequencies * 1e4,
-            'spectral_radiosity': flux
-        },
-        relative_tolerance=relative_tolerance
+    benchmark.run(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=test_parameters['mass_fractions'],
+        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        emission_geometry='non-isotropic',
+        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
+        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
+        star_irradiation_angle=test_parameters['stellar_parameters']['incidence_angle'],
+        reflectances=test_parameters['planetary_parameters']['surface_reflectance'],
+        frequencies_to_wavelengths=False
     )

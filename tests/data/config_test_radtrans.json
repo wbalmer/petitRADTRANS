@@ -118,7 +118,8 @@
         "sampling_efficiency": 0.8,
         "n_live_points": 50,
         "const_efficiency_mode": false,
-        "resume": false
+        "resume": false,
+        "seed": 12345
     },
     "mock_observation_parameters": {
         "resolving_power": 60,

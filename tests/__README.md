@@ -1,4 +1,4 @@
-# petitRADTRANS test suite Readme
+__# petitRADTRANS test suite Readme
 This should probably be merged within a future contributing file.
 
 ## How to use the test suite?
@@ -14,13 +14,16 @@ The tox [configuration](https://tox.wiki/en/latest/config.html) is set within th
 Tox will automatically execute any function in any module across all the project whose name is starting with `test_`. To keep the code clean, the tests should by default be put within the "tests" directory. The structure of this directory is as follows:
 ```
 .
-├── data                           <- contains the test setups and the results from the last validated test
+├── data                           <- contains the test paramters
 |   ├── config_test_radtrans.json  <- the parameters for the test suite
-|   ├── <numerous .npz files>      <- results of last validated tests
+|   ├── <several .npz/.dat files>  <- data files used in tests
 |   └── test_stats.json            <- results of the last validated retrieval test
 ├── errors                         <- if an AssertionError is raised, results will be sent here for diagnostic
+├── references                     <- contains the test reference files, storing results from the last validated test
+|   └── <numerous .h5 files>       <- results of the last validated retrieval test
 ├── results                        <- results of the last retrieval test
 ├── __init__.py                    <- init file (empty)
+├── benchmark.py                   <- module containing the Benchmark class, used to compare the results
 ├── context.py                     <- loaded in tests modules in order to ensure that the local version of petitRADTRANS is tested
 ├── reference_files_generators.py  <- contains functions to generate and save reference files (i.e. the results from the latest validated test)
 ├── <numerous test modules>        <- modules containing the testing functions
@@ -45,33 +48,42 @@ Tests are used both to ensure that every functionality of the code work, but als
 - Be as fast as possible without compromising with functionality testing.
 
 In order to create a test, you can use the petitRADTRANS tools and follow these steps:
-1. If you need a `Radtrans` object, first check if there is one that already suits your need in the existing test modules.
-2. If relevant, create a new test module. At the beginning of the module, put: 
+1. If you need a `Radtrans` object (or equivalent), first check if there is one that already suits your need in the existing test modules.
+2. If relevant, create a new test module, beginning with "test_". At the top of the module, put: 
     ```
+    from .benchmark import Benchmark
     from .context import petitRADTRANS
-    from .utils import compare_from_reference_file
     ```
 3. Create your test function (starting with `test_`). Be as expansive as possible when choosing the name, to make it easier to understand what went wrong if it fails. For the same reason, most of the time you would want to have one functionality tested per test function. The function should have no arguments.
-4. Add lines to compare your results with previous ones. To do so, it is highly recommended to use the `utils.compare_form_reference_file` function (check the docstrings for more information).
-5. Copy your test function in "reference_file_generator.py", but remove the `test_` at the beginning of the name. For clarity and consistency you should replace it with `create_<function_name>_ref`.
-6. In the copied function, if relevant import what is necessary from your test module (e.g. a `Radtrans` object used in common). Use a relative import to be sure that you are using your local module.
-7. If relevant, you can add a `plot_figure=False` argument to the function.
-8. Remove the comparison part of the function (e.g. the call to `compare_from_reference_file`).
-9. Add lines to save the results you want to test within a file. The file should be in .npz format (`numpy.savez_compressed()`), be stored within the "data" directory, and have at least keys: 
-    - `header`, to indicate how the file was generated and the units of the results if relevant,
-    - `prt_version`, to indicate the petitRADTRANS version with which the file has been generated.
-    
-    These keys serve no other purpose than keeping track of changes and easing debugging. While not mandatory they can save precious time. For that purpose, it is highly recommended to use (or create) a `__save` function in the `reference_files_generators` module.
-10. Add a call to your function in function `create_all_comparison_files`, at the end of the `reference_files_generators` module.
-11. In the `utils` module, add to the dictionary `reference_filenames` a key/value pair with your function name as key and your file core name (i.e. without path and without extension) + "_ref" as value.
-12. Go back to your `create_` and `test_` functions, and replace your filename and reference file with `reference_filenames['your_reference_file_key']`. This is to keep everything consistent and trackable.
-13. Check the dictionary within `utils.create_test_radtrans_config_file` and look for parameters that you can use in your test function, **if possible without editing them**. If necessary, add key/value pairs to this dictionary. The added values should be small (i.e. no size 10+ array). In general, keep your inputs as small as possible to make tests faster and limit data storage on git. Any larger input (max ~100 kB) should be stored outside this file in the "data" directory. Exception is made for files inside the petitRADTRANS "input_data" directory, that should not be stored on the git.
-14. Go back to your `create_` and `test_` functions, and replace your parameter values with `radtrans_parameters['<parameter_name>']`. This will ensure that the parameters used for the test are without ambiguity the same in the create and test functions. It also stores parameters outside the code, os it prevents a test failure resulting from code edition.
-15. Update the `utils.version` value to the current petitRADTRANS version.
-16. If you added new parameters, delete the "data/config_test_radtrans.json".
-17. In a python console, execute:
+4. Add lines to compare your results with previous ones. To do so, it is highly recommended to use the following structure:
     ```
-    from tests.reference_files_generators import <new_create_function_name>  # re-generate the parameter file if needed
-    <new_create_function_name>()  # generate the reference comparison file
+    def test_my_feature():
+        benchmark = Benchmark(
+            function=function_to_test,
+            relative_tolerance=1e-6
+        )
+   
+        benchmark.run(
+            function_to_test_keyword_argument_1=...,
+            function_to_test_keyword_argument_2=...,
+            ...
+        )
     ```
-18. Launch `tox` to be sure that everything went right!
+5. Check the dictionary within `utils.make_petitradtrans_test_config_file` and look for parameters that you can use in your test function, **if possible without editing them**. If necessary, add key/value pairs to this dictionary. The added values should be small (i.e. no size 10+ array). In general, keep your inputs as small as possible to make tests faster and limit data storage on git. Any larger input (max ~100 kB) should be stored outside this file in the "data" directory. Exception is made for files inside the petitRADTRANS "input_data" directory, that should not be stored on the git.
+6. In a python console, execute:
+    ```
+    from tests.test_my_new_module import test_my_feature  # this will automatically re-generate the parameter file if needed
+    Benchmark.activate_reference_file_generation()
+    test_my_feature()  # generate the reference comparison file, then test the function
+    Benchmark.deactivate_reference_file_generation()
+    ```
+7. Launch `tox` to be sure that everything went right!
+
+### Resetting all reference files
+In rare cases, for example when pushing a new version, it might be interesting to reset all reference files. 
+This operation should not be taken lightly as this can have significant consequences on the code's reproducibility and behaviour.
+To easily do this operation, execute the following:
+    ```
+    from tests.benchmark import Benchmark
+    Benchmark.write_all_reference_files()
+    ```

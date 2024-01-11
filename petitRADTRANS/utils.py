@@ -96,6 +96,28 @@ class LockedDict(dict):
         self._locked = False
 
 
+def check_all_close(a, b, **kwargs):
+    if isinstance(a, dict):
+        assert len(a) == len(b)  # check if both dict have the same number of keys
+
+        for key, value in a.items():
+            # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
+            check_all_close(value, b[key])
+    elif isinstance(a, str):
+        assert a == b
+    elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
+        for i, value in enumerate(a):
+            check_all_close(value, b[i])
+    elif a is None:
+        assert b is None
+    else:
+        assert np.allclose(
+            a,
+            b,
+            **kwargs
+        )
+
+
 def class_init_args2class_args(string):
     """Convenience code-writing function to convert a series of arguments into lines of initialisation for a class.
     Useful to quickly write the __init__ function of a class from its arguments.
@@ -161,13 +183,24 @@ def dataset2obj(obj):
 
         return np.array(new_obj)
     elif isinstance(obj, bytes):
-        return str(obj, 'utf-8')
+        obj = str(obj, 'utf-8')
+
+        if obj == 'None':
+            obj = None
+
+        return obj
     else:
         return obj
 
 
 def dict2hdf5(dictionary, hdf5_file, group='/'):
     """Convert a dictionary into a HDF5 dataset."""
+    if len(dictionary) == 0:
+        hdf5_file.create_dataset(
+            name=group + '__EMPTY_DICT__',
+            data=np.nan
+        )
+
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
             new_group = group + key + '/'
@@ -221,6 +254,10 @@ def hdf52dict(hdf5_file):
     dictionary = {}
 
     for key in hdf5_file:
+        if key == '__EMPTY_DICT__':
+            if np.isnan(hdf5_file[key]):
+                return {}
+
         if isinstance(hdf5_file[key], h5py.Dataset):
             dictionary[key] = dataset2obj(hdf5_file[key][()])
         elif isinstance(hdf5_file[key], h5py.Group):

@@ -176,7 +176,8 @@ class Retrieval:
             max_iters=0,
             frac_remain=0.1,
             l_epsilon=0.3,
-            error_checking=True):
+            error_checking=True,
+            seed=-1):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
@@ -210,6 +211,8 @@ class Retrieval:
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
             error_checking : bool
                 Test the model generating function for typical errors. ONLY TURN THIS OFF IF YOU KNOW WHAT YOU'RE DOING!
+            seed : int
+                Random number generator seed, -ve value for seed from the system clock (for reproducibility)
         """
         import pymultinest
 
@@ -278,15 +281,30 @@ class Retrieval:
                 LogLikelihood=self.log_likelihood,
                 Prior=self.prior,
                 n_dims=n_params,
+                n_params=None,
+                n_clustering_params=None,
+                wrapped_params=None,
+                importance_nested_sampling=True,
+                multimodal=True,
                 const_efficiency_mode=const_efficiency_mode,
                 n_live_points=n_live_points,
                 evidence_tolerance=log_z_convergence,  # default value is 0.5
                 sampling_efficiency=sampling_efficiency,  # default value is 0.8
                 n_iter_before_update=n_iter_before_update,  # default value is 100
+                null_log_evidence=-1e90,  # PyM default value
+                max_modes=100,  # PyM default value
+                mode_tolerance=-1e90,  # PyM default value
                 outputfiles_basename=prefix,
+                seed=seed,
                 verbose=True,
                 resume=resume,
-                max_iter=max_iters
+                context=0,  # PyM default value (any additional information user wants to pass)
+                write_output=True,  # PyM default value
+                log_zero=1e-100,  # PyM default value
+                max_iter=max_iters,
+                init_MPI=False,  # PyM default value (should be False, because importing mpi4py initialises MPI already)
+                dump_callback=None,  # PyM default value
+                use_MPI=True,  # PyM default value
             )
 
         # Analyze the output data
