@@ -449,7 +449,9 @@ class RetrievalConfig:
                  spectrum=None,
                  uncertainties=None,
                  mask=None,
-                 concatenate_flux_epochs_variability=False):
+                 concatenate_flux_epochs_variability=False,
+                 variability_atmospheric_column_model_flux_return_mode=False,
+                 atmospheric_column_flux_mixer=None):
         """
         Create a Data class object.
         # TODO complete docstring
@@ -510,7 +512,9 @@ class RetrievalConfig:
             spectrum=spectrum,
             uncertainties=uncertainties,
             mask=mask,
-            concatenate_flux_epochs_variability=concatenate_flux_epochs_variability
+            concatenate_flux_epochs_variability=concatenate_flux_epochs_variability,
+            variability_atmospheric_column_model_flux_return_mode = variability_atmospheric_column_model_flux_return_mode,
+            atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
         )
 
     def add_photometry(self, path,

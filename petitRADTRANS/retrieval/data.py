@@ -425,14 +425,16 @@ class Data:
                 if self.concatenate_flux_epochs_variability:
                     flux_rebinned = spectrum_model
                 else:
+                    index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
+                            (wlen_model <= self.wavelengths[-1] * 1.00000001)
                     if not self.variability_atmospheric_column_model_flux_return_mode:
-                        index = (wlen_model >= self.wavelengths[0] * 0.99999999) & \
-                                (wlen_model <= self.wavelengths[-1] * 1.00000001)
                         flux_rebinned = spectrum_model[index]
                     elif self.atmospheric_column_flux_mixer is not None:
                         flux_rebinned = self.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
                                                                            parameters,
                                                                            self.name)
+                        flux_rebinned = flux_rebinned[index]
+
 
             else:
                 if self.data_resolution is not None:
