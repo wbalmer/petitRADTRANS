@@ -51,7 +51,8 @@ class Retrieval:
             corner_plot_names: list[str] = None,
             use_prt_plot_style: bool = True,
             test_plotting: bool = False,
-            uncertainties_mode: str = "default"
+            uncertainties_mode: str = "default",
+            print_log_likelihood_for_debugging=False
     ):
         """
         This class implements the retrieval method using petitRADTRANS and pymultinest.
@@ -88,6 +89,8 @@ class Retrieval:
                       (https://doi.org/10.1093/mnras/staa228).
                     - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
                     - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
+            print_log_likelihood_for_debugging : bool
+                If True, the current log likelihood of a forward model run will be printed to the console.
         """
         self.configuration = configuration
 
@@ -107,6 +110,8 @@ class Retrieval:
         self.use_mpi = use_mpi
 
         self.uncertainties_mode = uncertainties_mode
+
+        self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
 
         self.output_directory = output_directory
 
@@ -1201,7 +1206,8 @@ class Retrieval:
             return invalid_value
 
         if not return_model:
-            print('log_likelihood + log_prior', log_likelihood + log_prior)
+            if self.print_log_likelihood_for_debugging:
+                print('log_likelihood + log_prior', log_likelihood + log_prior)
             return log_likelihood + log_prior
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls

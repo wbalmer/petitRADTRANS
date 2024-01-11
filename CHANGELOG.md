@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.0.0-a133] - 2024-01-09
 ### Added
+- Possibility to print the log-likelihood to the console if desired, for retrieval debugging (False by default)
+- Added that forward model can return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.

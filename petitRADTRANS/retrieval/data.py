@@ -422,6 +422,8 @@ class Data:
 
         if not self.photometry:
             if self.radtrans_grid:
+                # TODO remove the concatenate_flux_epochs_variability treatment: this should now be handled by atmospheric_column_flux_mixer.
+                # TODO make atmospheric_column_flux_mixer accessible also to self.radtrans_grid = False data.
                 if self.concatenate_flux_epochs_variability:
                     flux_rebinned = spectrum_model
                 else:
@@ -434,8 +436,6 @@ class Data:
                                                                            parameters,
                                                                            self.name)
                         flux_rebinned = flux_rebinned[index]
-
-
             else:
                 if self.data_resolution is not None:
                     spectrum_model = self.convolve(wlen_model,
