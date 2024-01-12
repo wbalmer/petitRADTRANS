@@ -814,7 +814,7 @@ class SpectralModel(Radtrans):
             relative_velocities_tmp = None
             save_relative_velocities = False
 
-        optimal_wavelengths_boundaries = self.compute_optimal_wavelengths_boundaries(
+        optimal_wavelengths_boundaries = self.compute_optimal_wavelength_boundaries(
             rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=self.shift_wavelengths,
             relative_velocities=relative_velocities,
@@ -1281,8 +1281,8 @@ class SpectralModel(Radtrans):
         return compute_mean_molar_masses(mass_mixing_ratios)
 
     @staticmethod
-    def compute_optimal_wavelengths_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
-                                               relative_velocities=None, rebin_range_margin_power=15, **kwargs):
+    def compute_optimal_wavelength_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
+                                              relative_velocities=None, rebin_range_margin_power=15, **kwargs):
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(rebinned_wavelengths, 'dtype'):
             if rebinned_wavelengths.dtype != 'O':
@@ -1736,7 +1736,7 @@ class SpectralModel(Radtrans):
         if relative_velocities is None:
             relative_velocities = self.model_parameters['relative_velocities']
 
-        wavelengths_range = self.compute_optimal_wavelengths_boundaries(
+        wavelengths_range = self.compute_optimal_wavelength_boundaries(
             rebinned_wavelengths=self.wavelengths,
             shift_wavelengths_function=self.shift_wavelengths,
             relative_velocities=-relative_velocities,
@@ -2718,7 +2718,7 @@ class SpectralModel(Radtrans):
         )
 
         # Get the wavelengths boundaries from the velocity range
-        wavelengths_boundaries = SpectralModel.compute_optimal_wavelengths_boundaries(
+        wavelengths_boundaries = SpectralModel.compute_optimal_wavelength_boundaries(
             rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=shift_wavelengths_function,
             relative_velocities=retrieval_velocities,
