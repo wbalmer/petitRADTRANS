@@ -305,7 +305,7 @@ class Retrieval:
                 resume=resume,
                 context=0,  # PyM default value (any additional information user wants to pass)
                 write_output=True,  # PyM default value
-                log_zero=1e-100,  # PyM default value
+                log_zero=-1e100,  # PyM default value
                 max_iter=max_iters,
                 init_MPI=False,  # PyM default value (should be False, because importing mpi4py initialises MPI already)
                 dump_callback=None,  # PyM default value
