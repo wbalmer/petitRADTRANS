@@ -198,7 +198,8 @@ class Data:
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
-        self.variability_atmospheric_column_model_flux_return_mode = variability_atmospheric_column_model_flux_return_mode
+        self.variability_atmospheric_column_model_flux_return_mode = (
+            variability_atmospheric_column_model_flux_return_mode)
         self.atmospheric_column_flux_mixer = atmospheric_column_flux_mixer
 
         # Read in data
@@ -422,7 +423,7 @@ class Data:
 
         if not self.photometry:
             if self.radtrans_grid:
-                # TODO remove the concatenate_flux_epochs_variability treatment: this should now be handled by atmospheric_column_flux_mixer.
+                # TODO remove the concatenate_flux_epochs_variability treatment: this should now be handled by atmospheric_column_flux_mixer # noqa E501
                 # TODO make atmospheric_column_flux_mixer accessible also to self.radtrans_grid = False data.
                 if self.concatenate_flux_epochs_variability:
                     flux_rebinned = spectrum_model

@@ -1639,7 +1639,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -1702,7 +1702,7 @@ class Retrieval:
 
         for ret in rets:
             if self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
+                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
                 name = self.configuration.plot_kwargs["take_PTs_from"]
             else:
                 name = self.configuration.data[
@@ -3556,7 +3556,7 @@ class Retrieval:
             # Check if we're only plotting a few species
             if species_to_plot is None:
                 if self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
+                        self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is not None:
                     species_to_plot = self.configuration.data[
                         self.configuration.data[
                             self.configuration.plot_kwargs["take_PTs_from"]

@@ -513,7 +513,7 @@ class RetrievalConfig:
             uncertainties=uncertainties,
             mask=mask,
             concatenate_flux_epochs_variability=concatenate_flux_epochs_variability,
-            variability_atmospheric_column_model_flux_return_mode = variability_atmospheric_column_model_flux_return_mode,
+            variability_atmospheric_column_model_flux_return_mode=variability_atmospheric_column_model_flux_return_mode,
             atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
         )
 
