@@ -579,6 +579,18 @@ def _rebuild_isotope_numbers(species, mode='add'):
             for k, groups in enumerate(matches):  # for each non-separated isotope in the "separated isotope"
                 groups = list(groups)  # contains isotope number, element symbol and element count (e.g. 13, C, 2)
 
+                # Handle deuterium
+                if groups[1] == 'D':
+                    if groups[0] == '':
+                        groups[0] = '2'
+
+                    groups[1] = 'H'
+                elif groups[1] == 'T':
+                    if groups[0] == '':
+                        groups[0] = '3'
+
+                    groups[1] = 'H'
+
                 # Update isotope number
                 if mode == 'add':
                     if groups[0] == '':
