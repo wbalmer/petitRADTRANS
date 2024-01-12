@@ -4,10 +4,8 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a134] - 2024-01-11
+## [3.0.0-a135] - 2024-01-12
 ### Added
-- Possibility to print the log-likelihood to the console if desired, for retrieval debugging (False by default)
-- Added that forward model can return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -23,9 +21,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
 - Constant `e_molar_mass` to physical constants.
 - More control over uncertainty_scaling_b: can now also be done per observation "types" (e.g., different MRS channels see the same b).
+- Possibility for the forward model to return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
 - Possibility to return only the best fit spectra are calculated and no plot is produced.
 - Possibility to return the gases and clouds opacities calculated by the `Radtrans` object.
 - Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
+- Possibility to print the log-likelihood to the console if desired, for retrieval debugging (False by default)
 - Some helpful error and warning messages.
 - Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
   (see `concatenate_flux_epochs_variability` and its use in the data class.)

@@ -661,7 +661,7 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
                               n_iterations_max=10, convergence_criterion=1e-3,
                               tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
                               apply_throughput_removal=True, apply_telluric_lines_removal=True,
-                              correct_uncertainties=True, uncertainties_as_weights=True,
+                              correct_uncertainties=True, uncertainties_as_weights=False,
                               subtract=True, remove_mean=True, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
