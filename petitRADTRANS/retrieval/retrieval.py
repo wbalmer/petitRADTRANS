@@ -203,6 +203,8 @@ class Retrieval:
                 if np.any(np.less(data, 0)):
                     warnings.warn(f"Negative value detected ({np.nonzero(np.less(data))[0].size} / {data.size})")
                     valid = False
+        else:
+            self._data_are_valid(np.array(data))
 
         return valid
 
