@@ -169,6 +169,43 @@ class Retrieval:
         except (ValueError, FileNotFoundError) as e:  # TODO check if ValueError was expected here
             print(f"Could not generate summary file! Error was: {str(e)}")
 
+    def _data_are_valid(self, data=None):
+        tested_attributes = ['wavelengths', 'spectrum', 'uncertainties']
+        valid = True
+
+        if data is None:
+            data = self.configuration.data
+
+        if isinstance(data, dict):
+            for name, data_obj in data.items():
+                print(f"Testing data '{name}':")
+
+                for tested_attribute in tested_attributes:
+                    print(f" {tested_attribute}:")
+                    tested_attribute = data_obj.__getattribute__(tested_attribute)
+                    valid = valid and self._data_are_valid(tested_attribute)
+
+                    if valid:
+                        print("  No NaN, infinite, or negative value detected")
+        elif isinstance(data, np.ndarray):
+            if data.dtype == 'O':
+                for d in data:
+                    valid = valid and self._data_are_valid(d)
+            else:
+                if np.any(np.isnan(data)):
+                    warnings.warn(f"NaN detected ({np.nonzero(np.isnan(data))[0].size} / {data.size})")
+                    valid = False
+
+                if np.any(~np.isfinite(data)):
+                    warnings.warn(f"Infinite value detected ({np.nonzero(~np.isfinite(data))[0].size} / {data.size})")
+                    valid = False
+
+                if np.any(np.less(data, 0)):
+                    warnings.warn(f"Negative value detected ({np.nonzero(np.less(data))[0].size} / {data.size})")
+                    valid = False
+
+        return valid
+
     def run(self,
             sampling_efficiency=0.8,
             const_efficiency_mode=False,
@@ -235,6 +272,11 @@ class Retrieval:
         self.constant_efficiency_mode = const_efficiency_mode
 
         if error_checking:
+            data_are_valid = self._data_are_valid()
+
+            if not data_are_valid:
+                warnings.warn("Data may not be suitable for retrievals due to invalid values")
+
             self._error_check_model_function()
         else:
             print("Error checking is turned off!! You might overwrite your retrieval output files!")
