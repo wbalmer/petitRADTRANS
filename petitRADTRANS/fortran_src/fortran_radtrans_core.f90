@@ -416,11 +416,11 @@ module math
             double precision, intent(out) :: solution(length)
 
             ! Internal variables
-            logical :: huge_value_warning_trigger
+!            logical :: huge_value_warning_trigger
             integer :: ind
             double precision :: buffer_scalar, buffer_vector(length), solution_pre
 
-            huge_value_warning_trigger = .false.
+!            huge_value_warning_trigger = .false.
 
             ! Test if b(1) == 0:
             if (abs(b(1)) < tiniest) then
@@ -444,13 +444,15 @@ module math
                 end if
 
                 ! TODO: check when these overflows are triggered!
-!                solution(ind) = res(ind) / buffer_scalar
-!                solution_pre = solution(ind - 1) / buffer_scalar
-!
-!                if(solution_pre <= sqrt_hugest) then ! less accurate than a proper overflow detection, but less costly
+                solution(ind) = res(ind) / buffer_scalar
+                solution_pre = solution(ind - 1) / buffer_scalar
+
+                if(solution_pre <= sqrt_hugest) then ! less accurate than a proper overflow detection, but less costly
 !                    solution(ind) = max(solution(ind) - solution_pre * a(ind), tiniest)  ! max() prevents < 0 solutions
-!                else  ! overflow prevention
+                    solution(ind) = solution(ind) - solution_pre * a(ind)  ! TODO check if solutions < 0 are ok
+                else  ! overflow prevention
 !                    if(.not. huge_value_warning_trigger) then
+                        ! TODO re-add silented warning in a way that does not creates GB of outputs during retrievals
 !                        write(&
 !                            *, &
 !                            '("solve_tridiagonal_system: Warning: &
@@ -458,14 +460,11 @@ module math
 !                        ) sqrt_hugest
 !                        huge_value_warning_trigger = .true.
 !                    end if
-!
-!                    solution(ind) = sqrt_hugest  ! capping value to avoid infinity
-!                end if
 
-                ! TODO: remove the line below and add the above commented block back in if the todo above was solved.
-                solution(ind) = (res(ind) - a(ind)*solution(ind-1))/buffer_scalar
+                    solution(ind) = sqrt_hugest  ! capping value to avoid infinity
+                end if
 
-
+                ! solution(ind) = (res(ind) - a(ind)*solution(ind-1))/buffer_scalar  ! old line
             end do
 
             do ind = length - 1, 1, -1
