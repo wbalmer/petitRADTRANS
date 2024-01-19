@@ -232,9 +232,9 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
     if mean_molar_masses is None:
         mean_molar_masses = compute_mean_molar_masses(volume_mixing_ratios)
 
-    volume_mixing_ratios = {}
+    mass_fractions = {}
 
     for species, volume_mixing_ratio in volume_mixing_ratios.items():
-        volume_mixing_ratios[species] = volume_mixing_ratio * get_species_molar_mass(species) / mean_molar_masses
+        mass_fractions[species] = volume_mixing_ratio * get_species_molar_mass(species) / mean_molar_masses
 
-    return volume_mixing_ratios
+    return mass_fractions

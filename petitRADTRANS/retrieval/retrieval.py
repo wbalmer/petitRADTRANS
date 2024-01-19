@@ -1277,6 +1277,11 @@ class Retrieval:
                                                  amr=self.configuration.amr)
                 if len(ret_val) == 3:
                     wlen_model, spectrum_model, additional_logl = ret_val
+                elif len(ret_val) == 4 and dd.variability_atmospheric_column_model_flux_return_mode:
+                    wlen_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = ret_val
+                    spectrum_model = dd.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
+                                                                      parameters,
+                                                                      dd.name)
                 else:
                     wlen_model, spectrum_model = ret_val
             else:
@@ -1293,6 +1298,11 @@ class Retrieval:
 
                 if len(ret_val) == 3:
                     wlen_model, spectrum_model, additional_logl = ret_val
+                elif len(ret_val) == 4 and dd.variability_atmospheric_column_model_flux_return_mode:
+                    wlen_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = ret_val
+                    spectrum_model = dd.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
+                                                                      parameters,
+                                                                      dd.name)
                 else:
                     wlen_model, spectrum_model = ret_val
 
