@@ -10,38 +10,6 @@ module fortran_inputs
     integer, parameter :: species_string_max_length = 64  ! longest molelcule formula ("tintin") is 30 characters long
 
     contains
-        subroutine combine_opacities(line_species_mass_fractions, opacitites, continuum_opacitites, &
-                                           n_species, n_frequencies, n_layers, n_g, &
-                                           opacitites_out)
-            ! """
-            ! Subroutine to get the abundance weightes opas for ck, and for adding the continuum opas.
-            ! """
-            implicit none
-
-            integer, intent(in) :: n_species,n_frequencies,n_layers,n_g
-            double precision, intent(in) :: line_species_mass_fractions(n_layers,n_species), &
-                continuum_opacitites(n_frequencies,n_layers)
-            double precision, intent(in) :: opacitites(n_g,n_frequencies,n_species,n_layers)
-            double precision, intent(out) :: opacitites_out(n_g,n_frequencies,n_species,n_layers)
-
-            integer :: i_spec, i_struc, i_freq
-
-            do i_struc = 1, n_layers
-                do i_spec = 1, n_species
-                    opacitites_out(:,:,i_spec,i_struc) = line_species_mass_fractions(i_struc,i_spec) &
-                        * opacitites(:,:,i_spec,i_struc)
-                end do
-            end do
-
-            do i_struc = 1, n_layers
-                do i_freq = 1, n_frequencies
-                    opacitites_out(:,i_freq,1,i_struc) = opacitites_out(:,i_freq,1,i_struc) &
-                        + continuum_opacitites(i_freq,i_struc)
-                end do
-            end do
-        end subroutine combine_opacities
-        
-        
         subroutine count_file_line_number(file, n_lines)
             ! """
             ! Subroutine to get a opacities array size in the high-res case.
