@@ -623,6 +623,13 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
             species_dir = os.path.join(input_directory, species + '_c')
         else:
             k = _get_prt2_cloud_names()[key]
+
+            if k not in _get_base_cloud_names():
+                warnings.warn(f"pRT2 species name '{k}' has no default pRT3 name, skipping...")
+                bad_keys.append(key)
+
+                continue
+
             species_dir = get_species_basename(_get_base_cloud_names()[k], join=True)
             iso_dir = get_species_isotopologue_name(_get_base_cloud_names()[k], join=True)
             species_dir = os.path.join(input_directory, species_dir, iso_dir)
