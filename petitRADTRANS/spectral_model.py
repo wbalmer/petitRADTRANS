@@ -1244,7 +1244,7 @@ class SpectralModel(Radtrans):
                         mass_fractions[species][i] = mass_fractions_i[species]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
-                                  f"Set fill_atmosphere to automatically fill the atmosphere "
+                                  f"Set filling_species to automatically fill the atmosphere "
                                   f"or manually adjust the imposed mass fractions")
             elif m_sum > 1:  # scale down the mass fractions
                 if verbose:
