@@ -39,8 +39,8 @@ class TestFile:
         attributes = list(attributes.keys())
 
         missing_attributes = [
-            loaded_attribute for loaded_attribute in loaded_attributes
-            if loaded_attribute not in attributes
+            attribute for attribute in attributes
+            if attribute not in loaded_attributes
         ]
 
         if len(missing_attributes) > 0:
