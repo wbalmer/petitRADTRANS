@@ -98,24 +98,33 @@ class LockedDict(dict):
 
 def check_all_close(a, b, **kwargs):
     if isinstance(a, dict):
-        assert len(a) == len(b)  # check if both dict have the same number of keys
+        if len(a) != len(b):  # check if both dict have the same number of keys
+            raise AssertionError(f"a and b have a different number of keys ({len(a)} and {len(b)})\n"
+                                 f"{a=}\n"
+                                 f"{b=}")
 
         for key, value in a.items():
             # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
-            check_all_close(value, b[key])
+            check_all_close(value, b[key], **kwargs)
     elif isinstance(a, str):
-        assert a == b
+        if a != b:
+            raise AssertionError(f"'{a}' != '{b}'")
     elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
         for i, value in enumerate(a):
-            check_all_close(value, b[i])
+            check_all_close(value, b[i], **kwargs)
     elif a is None:
-        assert b is None
+        if b is not None:
+            raise AssertionError(f"a is None but b is {b}")
     else:
-        assert np.allclose(
-            a,
-            b,
-            **kwargs
-        )
+        if not np.allclose(
+                    a,
+                    b,
+                    **kwargs
+                ):
+            raise AssertionError(f"a and b are not close enough\n"
+                                 f"{a=}\n"
+                                 f"{b=}\n"
+                                 f"{kwargs}")
 
 
 def class_init_args2class_args(string):
