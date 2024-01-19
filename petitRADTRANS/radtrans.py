@@ -673,8 +673,7 @@ class Radtrans:
                             scattering_in_emission=self._scattering_in_emission
                         )
         else:
-            if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
-                    and len(self._line_species) > 1):
+            if (self._line_opacity_mode == 'lbl' or self._scattering_in_emission) and len(self._line_species) > 1:
                 flux, emission_contribution = self._compute_ck_flux(
                     frequencies=self._frequencies,
                     temperatures=temperatures,
@@ -1067,11 +1066,10 @@ class Radtrans:
 
     @staticmethod
     def _combine_opacities(line_species_mass_fractions, opacities, continuum_opacities):
-        opacities = finput.combine_opacities(
-            line_species_mass_fractions,
-            opacities,
-            continuum_opacities
-        )
+        opacities *= line_species_mass_fractions.T  # (g, frequencies, species, layers)
+        opacities = np.swapaxes(opacities, 1, 2)  # (g, species, frequencies, layers)
+        opacities[:, 0] += continuum_opacities  # quirkiness: put total opacities in the opacities of species 0
+        opacities = np.swapaxes(opacities, 2, 1)  # back to default shape (g, frequencies, species, layers)
 
         return opacities
 
