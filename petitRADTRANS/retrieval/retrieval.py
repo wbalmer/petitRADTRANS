@@ -308,7 +308,8 @@ class Retrieval:
             else:
                 print("Error checking is turned off!! You might overwrite your retrieval output files!")
 
-        comm.barrier()
+        if comm is not None:
+            comm.barrier()
 
         if self.ultranest:
             self._run_ultranest(n_live_points=n_live_points,
