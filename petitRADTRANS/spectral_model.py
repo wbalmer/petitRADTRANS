@@ -874,11 +874,9 @@ class SpectralModel(Radtrans):
         else:
             raise ValueError(f"mode must be 'emission' or 'transmission', not '{mode}'")
 
-        wavelengths = copy.copy(self.wavelengths)
-
         # Modified spectrum
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
-            wavelengths=wavelengths,
+            wavelengths=copy.copy(self.wavelengths),
             spectrum=spectrum,
             scale_function=self.scale_spectrum,
             shift_wavelengths_function=self.shift_wavelengths,

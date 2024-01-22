@@ -5,6 +5,8 @@ import linecache
 import os
 import tracemalloc
 
+__megabyte = 1024 ** 2
+
 
 def malloc_peak_snapshot(label: str = '', reset_peak: bool = True) -> None:
     """Display the traced memory and the peak memory since tracemalloc.start() in MiB.
@@ -13,11 +15,11 @@ def malloc_peak_snapshot(label: str = '', reset_peak: bool = True) -> None:
         label: label to be printed next to the display.
         reset_peak: if True, the memory peak will be reset.
     """
-    kilo_byte = 1024  # Byte
-
     size, peak = tracemalloc.get_traced_memory()
+    size /= __megabyte
+    peak /= __megabyte
 
-    print(f"{label} {size=} MiB, {peak=} MiB")
+    print(f"{label} {size=:.3f} MiB, {peak=:.3f} MiB")
 
     if reset_peak:
         tracemalloc.reset_peak()
@@ -36,14 +38,14 @@ def malloc_top_lines_snapshot(label: str = '', n_lines: int = 3) -> None:
             tracemalloc.Filter(False, "<unknown>"),
         ))
         top_stats = _snapshot.statistics(key_type)
-        mbytes = 1024**2
+
         print("Top %s lines" % n_lines)
         for index, stat in enumerate(top_stats[:n_lines], 1):
             frame = stat.traceback[0]
             # replace "/path/to/module/file.py" with "module/file.py"
             filename = os.sep.join(frame.filename.split(os.sep)[-2:])
             print("#%s: %s:%s: %.3f MiB"
-                  % (index, filename, frame.lineno, stat.size / mbytes))
+                  % (index, filename, frame.lineno, stat.size / __megabyte))
             line = linecache.getline(frame.filename, frame.lineno).strip()
             if line:
                 print('    %s' % line)
@@ -51,9 +53,9 @@ def malloc_top_lines_snapshot(label: str = '', n_lines: int = 3) -> None:
         other = top_stats[n_lines:]
         if other:
             size = sum(stat.size for stat in other)
-            print("%s other: %.3f MiB" % (len(other), size / mbytes))
+            print("%s other: %.3f MiB" % (len(other), size / __megabyte))
         total = sum(stat.size for stat in top_stats)
-        print("Total allocated size: %.3f MiB" % (total / mbytes))
+        print("Total allocated size: %.3f MiB" % (total / __megabyte))
 
     snapshot = tracemalloc.take_snapshot()
     print(f'\n{label}')

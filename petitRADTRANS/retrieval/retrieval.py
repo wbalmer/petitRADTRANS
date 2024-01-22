@@ -186,7 +186,7 @@ class Retrieval:
                     valid = valid and self._data_are_valid(tested_attribute)
 
                     if valid:
-                        print("  No NaN, infinite, or negative value detected")
+                        print("  OK (no NaN, infinite, or negative value detected)")
         elif isinstance(data, np.ndarray):
             if data.dtype == 'O':
                 for d in data:

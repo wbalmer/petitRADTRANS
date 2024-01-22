@@ -190,12 +190,12 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         mask_threshold: mask wavelengths where the Earth atmospheric transmittance estimate is below this value
         polynomial_fit_degree: degree of the polynomial fit of the Earth atmospheric transmittance
         correct_uncertainties:
+        uncertainties_as_weights:
 
     Returns:
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
-    spectrum = copy.deepcopy(spectrum)
     degrees_of_freedom = polynomial_fit_degree + 1
 
     if spectrum.shape[1] <= degrees_of_freedom:
@@ -303,6 +303,7 @@ def remove_telluric_lines_mean(spectrum, reduction_matrix, uncertainties=None, m
         reduction_matrix: matrix storing all the operations made to reduce the data
         uncertainties: uncertainties on the data
         mask_threshold: mask wavelengths where the Earth atmospheric transmittance estimate is below this value
+        uncertainties_as_weights:
 
     Returns:
         Corrected spectral data, reduction matrix and uncertainties after correction
@@ -368,12 +369,12 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         mask_threshold: mask wavelengths where the Earth atmospheric transmittance estimate is below this value
         polynomial_fit_degree: degree of the polynomial fit of the Earth atmospheric transmittance
         correct_uncertainties:
+        uncertainties_as_weights:
 
     Returns:
         Corrected spectral data, reduction matrix and uncertainties after correction
     """
     # Initialization
-    spectrum = copy.deepcopy(spectrum)
     degrees_of_freedom = polynomial_fit_degree + 1
 
     if spectrum.shape[2] <= degrees_of_freedom:
@@ -388,7 +389,6 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     )
 
     if uncertainties is not None and uncertainties_as_weights:
-        # Ensure low weights within tellurics, but gives more weight to noisy non-telluric wavelengths
         weights = copy.deepcopy(uncertainties)
         weights = weights.filled(0)  # polyfit doesn't take masks into account, so set weight of masked values to 0
     else:
@@ -408,7 +408,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         print('Assuming same wavelength solution for each observations, taking wavelengths of observation 0')
 
     # Correction
-    for i, det in enumerate(spectrum):
+    for i, order in enumerate(spectrum):
         if np.ndim(wavelengths) == 1:
             wvl = wavelengths
         elif np.ndim(wavelengths) == 2:
@@ -419,9 +419,9 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
             raise ValueError(f"wavelengths must have at most 3 dimensions, but has {np.ndim(wavelengths)}")
 
         # Fit each observation
-        for j, observation in enumerate(det):
+        for j, exposure in enumerate(order):
             fit_parameters = np.polynomial.Polynomial.fit(
-                x=wvl, y=observation, deg=polynomial_fit_degree, w=weights[i, j, :]
+                x=wvl, y=exposure, deg=polynomial_fit_degree, w=weights[i, j, :]
             )
             fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)
             throughput_fits[i, j, :] = fit_function(wvl)
@@ -432,11 +432,11 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
             throughput_fits[i, :, :]
         )
         throughput_fits[i, :, :] = np.ma.masked_where(
-            det.mask, throughput_fits[i, :, :]
+            order.mask, throughput_fits[i, :, :]
         )
 
         # Apply correction
-        spectral_data_corrected[i, :, :] = det
+        spectral_data_corrected[i, :, :] = order
         spectral_data_corrected[i, :, :] /= throughput_fits[i, :, :]
         reduction_matrix[i, :, :] /= throughput_fits[i, :, :]
 
@@ -495,16 +495,16 @@ def remove_throughput_mean(spectrum, reduction_matrix=None, uncertainties=None, 
             weights = weights.filled(0)
 
     # Correction
-    for i, data in enumerate(spectrum):
+    for i, order in enumerate(spectrum):
         if isinstance(spectrum, np.ma.core.MaskedArray):
-            correction_coefficient = np.ma.average(data, axis=1, weights=weights[i])
+            correction_coefficient = np.ma.average(order, axis=1, weights=weights[i])
         elif isinstance(spectrum, np.ndarray):
-            correction_coefficient = np.average(data, axis=1, weights=weights[i])
+            correction_coefficient = np.average(order, axis=1, weights=weights[i])
         else:
             raise ValueError(f"spectral_data must be a numpy.ndarray or a numpy.ma.core.MaskedArray, "
                              f"but is of type '{type(spectrum)}'")
 
-        spectral_data_corrected[i, :, :] = np.transpose(np.transpose(data) / correction_coefficient)
+        spectral_data_corrected[i, :, :] = np.transpose(np.transpose(order) / correction_coefficient)
         reduction_matrix[i, :, :] = np.transpose(np.transpose(reduction_matrix[i, :, :]) / correction_coefficient)
 
         if uncertainties is not None:
