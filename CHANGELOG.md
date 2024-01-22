@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a140] - 2024-01-19
+## [3.0.0-a141] - 2024-01-19
 ### Added
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
@@ -34,12 +34,16 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Better test suite workflow.
 
 ### Changed
-- Reverted to old version of solve_tridiagonal_system in fortran_radtrans_core.f90, still need to check what can cause the occasional overflow error.
+- TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
+  - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
+  - temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Functions, arguments and attributes now have clearer names and respect PEP8. The complete list of change is available [here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
 - Function `Radtrans.calculate_transit_radii` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
 - The combination of correlated-k opacities are now using the faster merge sorting algorithm.
+- Significantly improved the CIA interpolation performances. This might cause small changes in some results (most of the time the relative change should be < 1e-6).
+- Significantly improved transmission spectra calculation performances.
 - Slightly improved Feautrier radiative transfer calculation performances (`calculate_flux`).
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.
@@ -73,18 +77,17 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Deprecated `molecular_weight` constant.
 
 ### Fixed
-- Bug in volume_mixing_ratios2mass_fractions in petitRADTRANS/chemistry/utils.py
-- Removed debugging text in the photospheric radius calculation in radtrans.py
-- Plotting when running in "evaluate" mode of the retrieval package
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
 - Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.
+- Function `chemistry.volume_mixing_ratios2mass_fractions` always returning an empty dict.
+- Zero opacity values in k-tables creating NaNs when using `exo-k` to bin them down.
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
 - Importing the chemical table no longer triggers its loading.
 - Importing the PHOENIX stellar spectra table no longer triggers its loading.
 - Relevance threshold when combining correlated-k opacities is less strict.
-- Zero opacity values in ktables would need to NaNs in binned-down versions. This is prevented
-  by using `remove_zeros=True` when making a `Ktable` object.
+- Debugging text displayed in the `Radtrans` photospheric radius calculation.
+- Incorrect behaviour: plotting when running in "evaluate" mode of the retrieval package.
 
 ## [2.9.0] - 2023-11-28
 Referred as 2.7.6
