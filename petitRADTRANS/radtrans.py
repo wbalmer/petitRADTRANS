@@ -907,6 +907,16 @@ class Radtrans:
                     # give_absorption_opacity and give_scattering_opacity
                     cloud_scattering_opacities = cloud_scattering_opacities
 
+        # Fill line mass fraction dictionary with provided mass fraction dictionary
+        for i_spec in range(len(self._line_species)):
+            # Check if user provided the detailed line absorber name or if line absorber name should be matched exactly
+            if self._line_species[i_spec] in mass_fractions:
+                line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
+            else:
+                # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
+                chem_spec = self._line_species[i_spec].split('.', 1)[0].split('_', 1)[0]
+                line_species_mass_fractions[:, i_spec] = mass_fractions[chem_spec]
+
         # Interpolate line opacities
         opacities = self._interpolate_species_opacities(
             pressures=self._pressures,
@@ -919,22 +929,14 @@ class Radtrans:
             line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
         )
 
-        # Fill line mass fraction dictionary with provided mass fraction dictionary
-        for i_spec in range(len(self._line_species)):
-            # Check if user provided the detailed line absorber name or if line absorber name should be matched exactly
-            if self._line_species[i_spec] in mass_fractions:
-                line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
-            else:
-                # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
-                chem_spec = self._line_species[i_spec].split('.', 1)[0].split('_', 1)[0]
-                line_species_mass_fractions[:, i_spec] = mass_fractions[chem_spec]
-
         # Combine line opacities with continuum opacities
         opacities = self._combine_opacities(
             line_species_mass_fractions=line_species_mass_fractions,
             opacities=opacities,
             continuum_opacities=continuum_opacities
         )
+
+        del continuum_opacities  # delete unnecessary variable
 
         # Similar to the line-by-line case below, if _scattering_in_emission is True, we will put the total opacity into
         # the first species slot and then carry the remaining radiative transfer steps only over that 0 index
@@ -958,7 +960,7 @@ class Radtrans:
 
     def _calculate_transit_radii(self, temperatures, mean_molar_masses, reference_gravity,
                                  reference_pressure, planet_radius, variable_gravity,
-                                 opacities, continuum_opacities_scattering, return_contribution):
+                                 opacities, continuum_opacities_scattering, copy_opacities):
         """Calculate the transit radii.
         TODO complete docstring
 
@@ -971,12 +973,12 @@ class Radtrans:
             variable_gravity:
             opacities:
             continuum_opacities_scattering:
-            return_contribution:
+            copy_opacities:
 
         Returns:
 
         """
-        if return_contribution:
+        if copy_opacities:
             transmission_contribution = np.zeros(
                 (np.size(self._pressures), self._frequencies.size), dtype='d', order='F'
             )
@@ -984,8 +986,7 @@ class Radtrans:
             transmission_contribution = None
 
         # Calculate the transmission spectrum
-        if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
-                and len(self._line_species) > 1):
+        if (self._line_opacity_mode == 'lbl' or self._scattering_in_emission) and len(self._line_species) > 1:
             transit_radii, radius_hydrostatic_equilibrium = self._compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
@@ -997,11 +998,12 @@ class Radtrans:
                 reference_pressure=reference_pressure,
                 planet_radius=planet_radius,
                 variable_gravity=variable_gravity,
-                line_by_line=True
+                summed_species_opacities=True,
+                copy_opacities=copy_opacities
             )
 
             # TODO: contribution function calculation with python-only implementation
-            if return_contribution:
+            if copy_opacities:
                 transmission_contribution, radius_hydrostatic_equilibrium = (
                     self._compute_transmission_spectrum_contribution(
                         transit_radii=transit_radii,
@@ -1030,11 +1032,12 @@ class Radtrans:
                 reference_pressure=reference_pressure,
                 planet_radius=planet_radius,
                 variable_gravity=variable_gravity,
-                line_by_line=False
+                summed_species_opacities=False,
+                copy_opacities=copy_opacities
             )
 
             # TODO: contribution function calculation with python-only implementation
-            if return_contribution:
+            if copy_opacities:
                 transmission_contribution, radius_hydrostatic_equilibrium = (
                     self._compute_transmission_spectrum_contribution(
                         transit_radii=transit_radii,
@@ -1923,7 +1926,7 @@ class Radtrans:
     @staticmethod
     def _compute_transit_radii(opacities, continuum_opacities_scattering, pressures, temperatures, weights_gauss,
                                mean_molar_masses, reference_gravity, reference_pressure,
-                               planet_radius, variable_gravity, line_by_line):
+                               planet_radius, variable_gravity, summed_species_opacities, copy_opacities):
         """Calculate the planetary transmission spectrum.
             # TODO complete docstring
             Args:
@@ -1943,10 +1946,14 @@ class Radtrans:
                 planet_radius (float):
                     Planet radius in cm.
                 variable_gravity (bool):
-                    If true, gravity in the atmosphere will vary proportional to 1/r^2, where r is the planet
+                    If True, gravity in the atmosphere will vary proportional to 1/r^2, where r is the planet
                     radius.
-                line_by_line (bool):
-                    If true function assumes that pRT is running in lbl mode.
+                summed_species_opacities (bool):
+                    If True, it is assumed that the given opacities contains the summed opacities of all species.
+                    This is the case in line-by-line and/or scattering mode.
+                copy_opacities (bool):
+                    If True, a new array will be created for the transparencies, distinct from the opacities. This
+                    increases memory usage.
 
             Returns:
                 * transmission radius in cm (1-d numpy array, as many elements as wavelengths)
@@ -1979,10 +1986,7 @@ class Radtrans:
         # unit tests are still being passed.
         #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
         rho = (pressures * 1e6  # bar to cgs
-               * mean_molar_masses * 1.66053892e-24 / 1.3806488e-16 / temperatures)
-        # Bring in right shape for matrix operations later.
-        rho = rho.reshape(1, 1, 1, struc_len)
-        rho = np.array(rho, dtype='d', order='F')
+               * mean_molar_masses * cst.amu / cst.kB / temperatures)
 
         # Bring continuum scattering opacities in right shape for matrix operations later.
         # Reminder: when calling this function, continuum absorption opacities have already
@@ -1990,19 +1994,26 @@ class Radtrans:
         continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, freq_len, 1, struc_len))
 
         # Calculate the inverse mean free paths
-        if line_by_line:
-            alpha_t2 = opacities[:, :, :1, :] * rho
-            alpha_t2 += continuum_opa_scat_reshaped * rho
+        print(f"{copy_opacities=}")
+        if copy_opacities:
+            transparencies = copy.deepcopy(opacities)  # opacities will not be modified, but memory usage is increased
         else:
-            alpha_t2 = opacities * rho
-            alpha_t2[:, :, :1, :] += continuum_opa_scat_reshaped * rho
+            transparencies = opacities  # opacities will be modified
+
+        if summed_species_opacities:
+            transparencies = transparencies[:, :, :1, :]
+            transparencies *= rho
+            transparencies += continuum_opa_scat_reshaped * rho
+        else:
+            transparencies *= rho
+            transparencies[:, :, :1, :] += continuum_opa_scat_reshaped * rho
 
         # Calculate average mean free path between neighboring layers for later integration
         # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-        alpha_t2[:, :, :, 1:] = alpha_t2[:, :, :, :-1] + alpha_t2[:, :, :, 1:]
+        transparencies[:, :, :, 1:] += transparencies[:, :, :, :-1]
 
         # Prepare matrix for delta path lengths during optical depth integration
-        diff_s = np.zeros((struc_len, struc_len), order='F')
+        diff_s = np.zeros((struc_len, struc_len))
 
         # Calculate matrix of delta path lengths
         r_ik = (radius_hydrostatic_equilibrium.reshape(1, struc_len) ** 2.
@@ -2012,35 +2023,49 @@ class Radtrans:
         diff_s[1:, 1:] = - r_ik[1:, 1:] + r_ik[1:, :-1]
 
         # Calculate optical depths
-        t_graze = np.einsum('ijkl,ml', alpha_t2, diff_s, optimize=True)
-        # Calculate transmissions
-        t_graze = np.exp(-t_graze)
-        # Integrate over correlated-k's g-coordinate (self.weights_gauss == np.array([1.]) for lbl mode)
-        t_graze = np.einsum('ijkl,i', t_graze, weights_gauss, optimize=True)
+        transparencies = np.einsum('ijkl,ml', transparencies, diff_s, out=transparencies, optimize=True)
 
-        # Multiply transmissions of all absorber species in c-k mode (this will have no effect in lbl mode)
-        t_graze = np.swapaxes(t_graze, 0, 1)
-        t_graze = np.swapaxes(t_graze, 1, 2)
-        t_graze = np.prod(t_graze, axis=0)
+        # Delete unnecessary intermediate array
+        del diff_s
 
-        # Prepare planet area integration: this is the transparency.
-        t_graze = 1. - t_graze
+        # Calculate transmittances (peak memory usage)
+        transparencies *= -1
+
+        transparencies = np.exp(transparencies, out=transparencies)
+
+        if weights_gauss.size == 1:
+            # Get rid of the g-dimension
+            transparencies = transparencies[0]
+        else:
+            # Integrate over correlated-k's g-coordinate
+            transparencies = np.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
+
+        transparencies = np.swapaxes(transparencies, 1, 0)
+
+        if transparencies.shape[0] == 1:
+            # Get rid of the species dimension
+            transparencies = transparencies[0]
+        else:
+            # Multiply transmittances of all absorber species
+            transparencies = np.prod(transparencies, axis=0)
+
+        # Calculate transparencies
+        transparencies *= -1
+        transparencies += 1
 
         # Annulus radius increments
-        diffr = -np.diff(radius_hydrostatic_equilibrium).reshape(struc_len - 1, 1)
-        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.reshape(struc_len, 1)
+        annulus_radius_increments = -np.diff(radius_hydrostatic_equilibrium)
 
         # Integrate effective area, omit 2 pi omitted:
-        # 2 cancels with 1/2 of average inverse mean free path above.
-        # pi cancels when calculating the radius from the area below.
-        transit_radii = np.sum(
-            diffr * (
-                    t_graze[1:, :] * radius_hydrostatic_equilibrium[1:, :]
-                    + t_graze[:-1, :] * radius_hydrostatic_equilibrium[:-1, :]
-            ),
-            axis=0
-        )
-        # Transform area to transmission radius.
+        # - 2 cancels with 1/2 of average inverse mean free path above
+        # - pi cancels when calculating the radius from the area below
+        transparencies *= radius_hydrostatic_equilibrium
+        transparencies[:, 1:] += transparencies[:, :-1]
+        transparencies = transparencies[:, 1:]
+        transparencies *= annulus_radius_increments
+        transit_radii = np.sum(transparencies, axis=1)
+
+        # Transform area to transmission radius
         transit_radii = np.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.)
 
         return transit_radii, radius_hydrostatic_equilibrium
@@ -2647,8 +2672,7 @@ class Radtrans:
         else:
             cloud_contribution = None
 
-        if ((self._line_opacity_mode == 'lbl' or self._scattering_in_emission)
-                and len(self._line_species) > 1):
+        if (self._line_opacity_mode == 'lbl' or self._scattering_in_emission) and len(self._line_species) > 1:
             if self._scattering_in_emission and opacities_rosseland is not None:
                 optical_depths_rosseland = self._compute_species_optical_depths(
                     reference_gravity=reference_gravity,
@@ -3095,9 +3119,22 @@ class Radtrans:
             additional_scattering_opacities_function=additional_scattering_opacities_function
         )
 
+        # Start filling additional outputs here to get rid of unnecessary variables ASAP
+        additional_outputs = {}
+
+        if return_opacities:
+            additional_outputs['opacities'] = opacities
+            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
+
+        if cloud_particles_mean_radii is not None:
+            additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
+
+        del cloud_particles_mean_radii
+
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
 
+        # Calculate the transit radii
         transit_radii, radius_hydrostatic_equilibrium, transmission_contribution = self._calculate_transit_radii(
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
@@ -3107,23 +3144,17 @@ class Radtrans:
             variable_gravity=variable_gravity,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
-            return_contribution=return_contribution
+            copy_opacities=return_contribution  # opacities need to be copied only if they are used for contribution
         )
 
-        additional_outputs = {}
+        del opacities
 
-        if cloud_particles_mean_radii is not None:
-            additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
-
+        # Fill last additional parameters
         if return_contribution:
             additional_outputs['transmission_contribution'] = transmission_contribution
 
         if return_radius_hydrostatic_equilibrium:
             additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium
-
-        if return_opacities:
-            additional_outputs['opacities'] = opacities
-            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
 
         if frequencies_to_wavelengths:
             return (
