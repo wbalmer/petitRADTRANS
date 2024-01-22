@@ -2285,14 +2285,6 @@ class Radtrans:
         Returns:
             A (wavelength, temperature) array containing the CIA opacities.
         """
-        '''
-        Dev note: this function is one of the costliest when calculating a spectrum.
-        Interpolating on wavelengths during instantiation (since wavelengths will not change for a given Radtrans), then
-        interpolating here does not significantly improve this function's performances.
-        Using a (arguably more accurate) 2D interpolation using a scipy RegularGridInterpolator is also slower in the
-        linear case. The 10 ** operation is costly, performing it before the wavelength interpolation is faster, but
-        leads to > 1e-6 errors in the tox tests.
-        '''
         factor = combined_mass_fractions / collision_dict['weight'] \
             * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
 
@@ -2308,20 +2300,19 @@ class Radtrans:
                 fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
             )
 
-            cia_opacities = interpolating_function(temperatures)
+            cia_opacities = np.exp(interpolating_function(temperatures) * np.log(10))
 
             interpolating_function = interp1d(
                 x=collision_dict['lambda'],
                 y=cia_opacities,
                 kind='linear',
                 bounds_error=False,
-                fill_value=(np.log10(sys.float_info.min)),
+                fill_value=sys.float_info.min,
                 axis=0
             )
 
-            cia_opacities = np.exp(interpolating_function(cst.c / frequencies) * np.log(10))
-
-            cia_opacities = np.where(cia_opacities < sys.float_info.min, 0, cia_opacities)
+            cia_opacities = interpolating_function(cst.c / frequencies)
+            cia_opacities[cia_opacities < sys.float_info.min] = 0
 
             return cia_opacities * factor
         else:
