@@ -169,6 +169,14 @@ class Retrieval:
         except (ValueError, FileNotFoundError) as e:  # TODO check if ValueError was expected here
             print(f"Could not generate summary file! Error was: {str(e)}")
 
+    def _check_errors(self):
+        data_are_valid = self._data_are_valid()
+
+        if not data_are_valid:
+            warnings.warn("Data may not be suitable for retrievals due to invalid values")
+
+        self._error_check_model_function()
+
     def _data_are_valid(self, data=None):
         tested_attributes = ['wavelengths', 'spectrum', 'uncertainties']
         valid = True
@@ -221,6 +229,7 @@ class Retrieval:
             frac_remain=0.1,
             l_epsilon=0.3,
             error_checking=True,
+            force_serial_error_checking=False,
             seed=-1):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
@@ -255,6 +264,9 @@ class Retrieval:
                 Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
             error_checking : bool
                 Test the model generating function for typical errors. ONLY TURN THIS OFF IF YOU KNOW WHAT YOU'RE DOING!
+            force_serial_error_checking : bool
+                If True, error checking will be performed process-by-process, instead of with all processes at once.
+                This can prevent memory overflow.
             seed : int
                 Random number generator seed, -ve value for seed from the system clock (for reproducibility)
         """
@@ -273,15 +285,30 @@ class Retrieval:
         self.resume = resume
         self.constant_efficiency_mode = const_efficiency_mode
 
-        if error_checking:
-            data_are_valid = self._data_are_valid()
-
-            if not data_are_valid:
-                warnings.warn("Data may not be suitable for retrievals due to invalid values")
-
-            self._error_check_model_function()
+        if MPI is not None and comm is not None:
+            any_error_checking = comm.allreduce(error_checking, op=MPI.LOR)
         else:
-            print("Error checking is turned off!! You might overwrite your retrieval output files!")
+            any_error_checking = error_checking
+
+        if error_checking:
+            if force_serial_error_checking and MPI is not None and comm is not None:
+                for i in range(comm.Get_size()):
+                    if rank == i:
+                        self._check_errors()
+                    else:
+                        print(f"rank {rank} waiting: serial error checking in progress...")
+
+                    comm.barrier()
+            else:
+                self._check_errors()
+        else:
+            if any_error_checking:
+                print(f"Process {rank} skipping error checking, "
+                      f"waiting for other processes to complete error checking...")
+            else:
+                print("Error checking is turned off!! You might overwrite your retrieval output files!")
+
+        comm.barrier()
 
         if self.ultranest:
             self._run_ultranest(n_live_points=n_live_points,
