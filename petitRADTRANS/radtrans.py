@@ -1960,9 +1960,7 @@ class Radtrans:
                 * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
                 layers)
         """
-        # How many layers are there?
-        struc_len = np.size(pressures)
-        freq_len = np.size(opacities, axis=1)
+        n_frequencies = np.size(opacities, axis=1)
 
         # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
         # (temperature, pressure, mmw), gravity, reference pressure and radius.
@@ -1991,10 +1989,9 @@ class Radtrans:
         # Bring continuum scattering opacities in right shape for matrix operations later.
         # Reminder: when calling this function, continuum absorption opacities have already
         # been added to line_struc_kappas.
-        continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, freq_len, 1, struc_len))
+        continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, n_frequencies, 1, pressures.size))
 
-        # Calculate the inverse mean free paths
-        print(f"{copy_opacities=}")
+        # Calculate the inverse mean free paths (g, species, frequencies, levels)
         if copy_opacities:
             transparencies = copy.deepcopy(opacities)  # opacities will not be modified, but memory usage is increased
         else:
@@ -2013,43 +2010,42 @@ class Radtrans:
         transparencies[:, :, :, 1:] += transparencies[:, :, :, :-1]
 
         # Prepare matrix for delta path lengths during optical depth integration
-        diff_s = np.zeros((struc_len, struc_len))
+        diff_s = np.zeros((pressures.size, pressures.size))
 
         # Calculate matrix of delta path lengths
-        r_ik = (radius_hydrostatic_equilibrium.reshape(1, struc_len) ** 2.
-                - radius_hydrostatic_equilibrium.reshape(struc_len, 1) ** 2.)
+        r_ik = (radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.
+                - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.)
         r_ik[r_ik < 0.] = 0.
         r_ik = np.sqrt(r_ik)
         diff_s[1:, 1:] = - r_ik[1:, 1:] + r_ik[1:, :-1]
 
-        # Calculate optical depths
+        # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
         transparencies = np.einsum('ijkl,ml', transparencies, diff_s, out=transparencies, optimize=True)
 
         # Delete unnecessary intermediate array
         del diff_s
 
-        # Calculate transmittances (peak memory usage)
+        # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
         transparencies *= -1
-
         transparencies = np.exp(transparencies, out=transparencies)
 
         if weights_gauss.size == 1:
             # Get rid of the g-dimension
-            transparencies = transparencies[0]
+            transparencies = transparencies[0]  # (frequencies, species, levels)
         else:
             # Integrate over correlated-k's g-coordinate
             transparencies = np.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
 
-        transparencies = np.swapaxes(transparencies, 1, 0)
+        transparencies = np.swapaxes(transparencies, 1, 0)  # (species, frequencies, levels)
 
         if transparencies.shape[0] == 1:
             # Get rid of the species dimension
-            transparencies = transparencies[0]
+            transparencies = transparencies[0]  # (frequencies, levels)
         else:
             # Multiply transmittances of all absorber species
-            transparencies = np.prod(transparencies, axis=0)
+            transparencies = np.prod(transparencies, axis=0)  # (frequencies, levels)
 
-        # Calculate transparencies
+        # Calculate transparencies (1 - transmittances)
         transparencies *= -1
         transparencies += 1
 
@@ -2061,9 +2057,9 @@ class Radtrans:
         # - pi cancels when calculating the radius from the area below
         transparencies *= radius_hydrostatic_equilibrium
         transparencies[:, 1:] += transparencies[:, :-1]
-        transparencies = transparencies[:, 1:]
+        transparencies = transparencies[:, 1:]  # get rid of unnecessary layer
         transparencies *= annulus_radius_increments
-        transit_radii = np.sum(transparencies, axis=1)
+        transit_radii = np.sum(transparencies, axis=1)  # (frequencies)
 
         # Transform area to transmission radius
         transit_radii = np.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.)
