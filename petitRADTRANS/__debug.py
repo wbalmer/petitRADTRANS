@@ -60,4 +60,4 @@ def malloc_top_lines_snapshot(label: str = '', n_lines: int = 3) -> None:
     snapshot = tracemalloc.take_snapshot()
     print(f'\n{label}')
     display_top(snapshot)
-    print(f'\n')
+    print('\n')
