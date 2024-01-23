@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a141] - 2024-01-19
+## [3.0.0-a142] - 2024-01-23
 ### Added
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
@@ -79,14 +79,15 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Fixed
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
-- Re-binning correlated-k opacities no longer require to re-launch petitRADTRANS.
+- Re-binning correlated-k opacities requires to re-launch petitRADTRANS.
 - Function `chemistry.volume_mixing_ratios2mass_fractions` always returning an empty dict.
 - Zero opacity values in k-tables creating NaNs when using `exo-k` to bin them down.
+- Emission scattering mode impacting transmission spectra (slight change in the result).
 - Oscillating telluric lines depth when generating shifted and re-binned mock observations with `SpectralModel`.
-- Importing the chemical table no longer triggers its loading.
-- Importing the PHOENIX stellar spectra table no longer triggers its loading.
-- Relevance threshold when combining correlated-k opacities is less strict.
+- Too strict relevance threshold when combining correlated-k opacities.
 - Debugging text displayed in the `Radtrans` photospheric radius calculation.
+- Incorrect behaviour: importing the chemical table triggers its loading.
+- Incorrect behaviour: importing the PHOENIX stellar spectra table triggers its loading.
 - Incorrect behaviour: plotting when running in "evaluate" mode of the retrieval package.
 
 ## [2.9.0] - 2023-11-28
