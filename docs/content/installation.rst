@@ -1,59 +1,59 @@
 Installation
 ============
 
-Before installation: download the opacity data
-______________________________________________
+Prerequisites for basic installation
+____________________________________
 
-Before you install pRT, please download the opacity data, at least the
-low-resolution version (:math:`\lambda/\Delta\lambda=1000`), as it
-provides all relevant input files for pRT to run, and contains the
-necessary folder structure if you want to install high-resolution
-opacities later (:math:`\lambda/\Delta\lambda=10^6`).
+To install petitRADTRANS, without retrievals, you need to install:
+    - Python 3.9+,
+    - a fortran compiler, for example ``gfortran``.
 
-Thus, to get started download the `opacity and input data
-<https://keeper.mpdl.mpg.de/f/78b3c66857924b5aacdd/?dl=1>`_
-(12.1 GB), unzip them, and put the "input_data" folder somewhere on
-your computer (it does not matter where).
+Further installation instructions to use retrievals are displayed in the next section.
 
-Next, please add the following environment variable to your
-“.bash_profile”, “.bashrc”, or ".zshrc" file (depending on your operating system and shell type)
-by typing 
+Linux
+`````
+On Linux, install Python and the fortran compiler with:
 
 .. code-block:: bash
 
-   echo 'export pRT_input_data_path="absolute/path/of/the/folder/input_data"' >>~/.bash_profile
+    sudo apt-get install python python-pip gfortran
 
-for Mac OS and
+On some distributions, ``python`` may need to be replaced with ``python3``.
+
+Note that a general Python recommendation is to use a `Python virtual environment <https://docs.python.org/3/library/venv.html>`_, to prevent potential conflicts.
+
+Windows
+```````
+**Using WSL:** before starting a pure Windows installation, consider using the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL). This is highly recommended in order to make the most out of pRT on Windows. Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case. **It is also highly recommended to put the "input_data" folder on the WSL side** (see below) to get the fastest performances during retrievals.
+
+On Windows, a fortran compiler can be acquired through `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
+
+A Python installer is available on the `Python website <https://www.python.org/>`_.
+
+pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl.localhost\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
+
+Mac Os
+``````
+On Mac OS, be sure to have `homebrew <https://brew.sh/>`_ installed.
+
+To ensure a safe installation, execute first:
 
 .. code-block:: bash
 
-   echo 'export pRT_input_data_path="absolute/path/of/the/folder/input_data"' >>~/.bashrc
+   brew doctor
 
-for Linux. Now you are ready to go and can proceed with the actual
-installation of pRT.
+A list of suggestions and fixes may be displayed. It is highly recommended to go through all of them before proceeding.
 
-.. attention::
-   Don’t forget to adapt the path in the line above! If you are
-   uncertain what the absolute path of the input_data folder is, then
-   switch to that folder in the terminal, type “pwd”, and press Enter.
-   You can then just copy-paste that path. Then close and reopen the
-   terminal such that it will read the environment variable correctly.
+**Important note:** ``brew install`` is highly recommended to install all the dependencies, as this minimizes the risk of conflicts and issues.
 
-If you want to also use high-resolution opacity
-data please follow these steps here, but note that they can be
-installed at any point after the pRT installation:
+Then, install a fortran compiler with:
 
-The high resolution (:math:`\lambda/\Delta\lambda=10^6`) opacity data
-(about 240 GB if you want to get all species) can be
-accessed and downloaded `via Keeper here`_. To
-install them, create a folder called "line_by_line" in the
-"input_data/opacities/lines" folder. Then put the folder of the absorber
-species you downloaded in there.
+.. code-block:: bash
 
-.. _`via Keeper here`: https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/
+   brew install gcc
 
-If you want to run retrievals: install Multinest
-________________________________________________
+Prerequisite for retrievals: Multinest
+______________________________________
 
 If you want to use pRT's retrieval package, you need to install Multinest.
 This is because for retrievals pRT uses the PyMultiNest package,
@@ -61,30 +61,56 @@ which is a Python wrapper of the nested sampling code called MultiNest.
 To install Multinest, please follow the instructions provided on the
 `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
 
-After installation, it is important to copy the resulting library files to a location where PyMultiNest can find them.
-In that case you also need to copy the ``multinest/lib/*`` files generated during the installation
-into the ``lib`` folder that your Python binary sees.
-If you use anaconda, this folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``,
-at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your ``LD_LIBRARY_PATH``")
-does not appear to work, at least not on a Mac.
-If using conda on Mac OS, you will also need the `mpi4py` package, which must be installed with 
+**Important note for Windows:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
+
+After installation, link the resulting library files in order to allow PyMultiNest to find them.
+This can be done by including the ``multinest/lib/`` to your ``LD_LIBRARY_PATH``.
+
+Add this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
+
+.. code-block:: bash
+
+    LD_LIBRARY_PATH=/path/to/multinest/lib:$LD_LIBRARY_PATH
+
+Mac+Anaconda known issue
+````````````````````````
+The above may not work on a Mac when using ``anaconda``.
+In that case you may also need to copy the ``multinest/lib/*`` files generated during the installation
+into the ``lib`` folder that your Python binary sees. This folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``.
+You may also need the conda version of the ``mpi4py`` package, which must be installed with:
 
 .. code-block:: bash
 
    conda install mpi4py
 
-Installation of petitRADTRANS via pip install
-_____________________________________________
-pRT version 2.x requires a python version between 3.8 and 3.11 inclusive (version 3.12 compatibility will be added in version 3.0).
-Make sure you have numpy and a fortran compiler (e.g., gfortran) installed. Then, to install pRT via pip install just type
+In case of troubles, following the instructions of ``brew doctor`` may help.
+
+Pre-installation packages
+_________________________
+Before starting the installation of pRT, make sure to install the following Python packages with:
 
 .. code-block:: bash
 
-   pip install petitRADTRANS
+   pip install numpy meson-python ninja
 
-in a terminal. Note that you must also have downloaded the low-resolution
-opacities either before or after to actually run pRT, see
-`above <#pre-installation-download-the-opacity-data>`_.
+On some distributions, ``pip`` may need to be replaced with ``pip3``.
+
+
+Installation of petitRADTRANS via pip install
+_____________________________________________
+To install pRT via pip install just execute:
+
+.. code-block:: bash
+
+   pip install petitRADTRANS --no-build-isolation
+
+in a terminal. Be sure to add the ``--no-build-isolation`` flag.
+
+To be able to use the retrieval module, execute:
+
+.. code-block:: bash
+
+   pip install petitRADTRANS[retrievals] --no-build-isolation
 
 Compiling pRT from source
 _________________________
@@ -92,57 +118,52 @@ _________________________
 Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via
 
 .. code-block:: bash
-		
+
    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
-- In the terminal, enter the petitRADTRANS folder
-- Before continuing to the next step, make sure you have numpy and a fortran compiler (e.g., gfortran) installed.
-- Execute the following command in the terminal: ``pip install .``
+- In the terminal, enter the petitRADTRANS folder.
+- Execute the following command in the terminal:
 
-Windows 10 and 11 instructions
+.. code-block:: bash
+
+    pip install . --no-build-isolation
+
+Be sure to add the ``--no-build-isolation`` flag.
+
+To be able to use the retrieval module, execute:
+
+.. code-block:: bash
+
+    pip install .[retrievals] --no-build-isolation
+
+The input_data folder
 _____________________
 
-The installation of pRT on Windows machines, just as in the Linux/Mac case, requires C and Fortran compilers. Those can be obtained from, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_. The installation process is otherwise the same as in Linux.
+pRT relies on data (opacities, stellar spectra, planet data, pre-calculated chemical abundances) to perform its calculations.
+Those data will be downloaded automatically as needed. By default, the files are downloaded into the `<home>/petitRADTRANS/input_data` directory, where `<home>` is your home folder (shortcut `~` in most OS).
+This can be changed by modifying the pRT config file (see relevant section).
 
-**Important note:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see below).
-
-**Using WSL:** it is highly recommended to use the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL) in order to make the most out of pRT on Windows. Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case. **It is also highly recommended to put the "input_data" folder on the WSL side** to get the fastest performances during retrievals.
-
-pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl$\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
-
-Instructions for Apple silicon (M1/M2/M3)
-_________________________________________
-
-petitRADTRANS should natively install on Apple silicon machines (so M1, M2 or M3 chips).
-Just make sure you have numpy, Apple's command line tools and
-the `Apple silicon version of gfortran <https://github.com/fxcoudert/gfortran-for-macOS/releases>`_ installed.
+Alternatively, the data can be accessed and downloaded `via Keeper here <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_. The planet data are fetched from the `Nasa Exoplanet Archive <https://exoplanetarchive.ipac.caltech.edu/>`_.
 
 Testing the installation
 ________________________
 
-Open a new terminal window (this will source the ``pRT_input_data_path``). Then open python and type
+Open a new terminal window. Then open python and type:
 
 .. code-block:: python
 		
-   from petitRADTRANS import Radtrans
-   atmosphere = Radtrans(line_species = ['CH4'])
+   from petitRADTRANS.radtrans import Radtrans
+   radtrans = Radtrans(line_species=['CH4'])
 
-This should produce the following output:
+If you have not already manually downloaded the CH4 correlated-k opacities, this should trigger the download of the opacity file.
 
-.. code-block:: bash
-		
-     Read line opacities of CH4...
-    Done.
-
-
-Common issues
-_____________
-
-It may happen that after installation you get the following error message when trying to import pRT:
+The last lines of the output should be:
 
 .. code-block:: bash
 
-    ImportError: cannot import name 'fort_input' from partially initialized module 'petitRADTRANS' (most likely due to a circular import)
+    Loading Radtrans opacities...
+     Loading line opacities of species 'CH4' from file '/path/to/input_data/opacities/lines/correlated_k/CH4/12C-1H4/12C-1H4__YT34to10.R1000_0.3-50mu.ktable.petitRADTRANS.h5'... Done.
+     Successfully loaded all line opacities
+    Successfully loaded all opacities
 
-This usually occurs if there are multiple (conflicting) Python installations. In this case, we recommend
-installing pRT in a new (clean) Python environment (e.g., using conda).
+The warning about the pressure can be ignored.
