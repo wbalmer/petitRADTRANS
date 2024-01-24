@@ -4,7 +4,7 @@ Installation
 Prerequisites
 _____________
 
-- A working Python installation, including the numpy package.
+- A working Python installation (between version 3.8 and 3.11 inclusive), including the numpy package.
 - A Fortran compiler (e.g. “gfortran”)
 
 
