@@ -40,9 +40,11 @@ To ensure a safe installation, execute first:
 
 .. code-block:: bash
 
-   brew doctor
+    brew update
+    brew upgrade
+    brew doctor
 
-A list of suggestions and fixes may be displayed. It is highly recommended to go through all of them before proceeding.
+A list of suggestions and fixes may be displayed when executing `brew doctor`. It is highly recommended to go through all of them before proceeding.
 
 **Important note:** ``brew install`` is highly recommended to install all the dependencies, as this minimizes the risk of conflicts and issues.
 
@@ -50,7 +52,7 @@ Then, install a fortran compiler with:
 
 .. code-block:: bash
 
-   brew install gcc
+    brew install gcc
 
 Prerequisite for retrievals: Multinest
 ______________________________________
@@ -81,9 +83,9 @@ You may also need the conda version of the ``mpi4py`` package, which must be ins
 
 .. code-block:: bash
 
-   conda install mpi4py
+    conda install mpi4py
 
-In case of troubles, following the instructions of ``brew doctor`` may help.
+In case of troubles, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help.
 
 Pre-installation packages
 _________________________
@@ -91,7 +93,7 @@ Before starting the installation of pRT, make sure to install the following Pyth
 
 .. code-block:: bash
 
-   pip install numpy meson-python ninja
+    pip install numpy meson-python ninja
 
 On some distributions, ``pip`` may need to be replaced with ``pip3``.
 
@@ -102,7 +104,7 @@ To install pRT via pip install just execute:
 
 .. code-block:: bash
 
-   pip install petitRADTRANS --no-build-isolation
+    pip install petitRADTRANS --no-build-isolation
 
 in a terminal. Be sure to add the ``--no-build-isolation`` flag.
 
@@ -110,7 +112,7 @@ To be able to use the retrieval module, execute:
 
 .. code-block:: bash
 
-   pip install petitRADTRANS[retrievals] --no-build-isolation
+    pip install petitRADTRANS[retrievals] --no-build-isolation
 
 Compiling pRT from source
 _________________________
@@ -119,7 +121,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
 
 .. code-block:: bash
 
-   git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
+    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder.
 - Execute the following command in the terminal:
@@ -152,8 +154,8 @@ Open a new terminal window. Then open python and type:
 
 .. code-block:: python
 		
-   from petitRADTRANS.radtrans import Radtrans
-   radtrans = Radtrans(line_species=['CH4'])
+    from petitRADTRANS.radtrans import Radtrans
+    radtrans = Radtrans(line_species=['CH4'])
 
 If you have not already manually downloaded the CH4 correlated-k opacities, this should trigger the download of the opacity file.
 
