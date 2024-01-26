@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a142] - 2024-01-23
+## [3.0.0-a143] - 2024-01-26
 ### Added
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Deprecated `molecular_weight` constant.
 
 ### Fixed
+- Bug in petitRADTRANS/plotlib/plotlib.py' `plot_radtrans_opacities` method.
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
 - Re-binning correlated-k opacities requires to re-launch petitRADTRANS.

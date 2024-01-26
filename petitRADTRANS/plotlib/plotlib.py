@@ -1,5 +1,6 @@
 import copy
 import os
+import warnings
 
 import corner
 import matplotlib.pyplot as plt
@@ -988,7 +989,6 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
             n_frequencies=radtrans.frequencies.size,
             line_opacities_grid=radtrans.lines_loaded_opacities['opacity_grid'],
             line_opacities_temperature_pressure_grid=radtrans.lines_loaded_opacities['temperature_pressure_grid'],
-            has_custom_line_opacities_tp_grid=radtrans.lines_loaded_opacities['has_custom_tp_grid'],
             line_opacities_temperature_grid_size=radtrans.lines_loaded_opacities['temperature_grid_size'],
             line_opacities_pressure_grid_size=radtrans.lines_loaded_opacities['pressure_grid_size']
         )
@@ -1030,7 +1030,13 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         )
 
         for s in species:
-            opacities_weights[s] = mass_fractions[s.split('_')[0]]
+            if s in mass_fractions:
+                opacities_weights[s] = mass_fractions[s]
+            else:
+                chem_spec = s.split('.', 1)[0].split('_', 1)[0].split('-', 1)[0]
+                warnings.warn('Name of line absorber not found in chemical abundance table.'
+                              ' Weighted '+s+' with chemical mass fraction of species '+chem_spec+'.')
+                opacities_weights[s] = mass_fractions[chem_spec]
     else:
         for s in species:
             opacities_weights[s] = mass_fractions[s]
