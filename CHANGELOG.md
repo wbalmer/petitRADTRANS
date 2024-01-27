@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a143] - 2024-01-26
+## [3.0.0-a144] - 2024-01-27
 ### Added
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Better test suite workflow.
 
 ### Changed
+- retrievals_data.py in get_chisq: scale_err is now applied after 10^b error scaling, not before.
 - TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
   - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
   - temporarily silented the overflow warning message until a solution to trigger the message less often is found.

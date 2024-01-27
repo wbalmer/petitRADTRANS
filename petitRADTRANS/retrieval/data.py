@@ -483,11 +483,11 @@ class Data:
         elif "uncertainty_scaling_b" in parameters.keys():
             b_val = parameters["uncertainty_scaling_b"].value
 
-        if self.scale_err:
-            f_err = f_err * parameters[self.name + "_scale_factor"].value
-
         if b_val is not None:
             f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
+
+        if self.scale_err:
+            f_err = f_err * parameters[self.name + "_scale_factor"].value
 
         log_l = 0.0
         log_l_per_datapoint = None
