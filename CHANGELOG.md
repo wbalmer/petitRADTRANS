@@ -4,8 +4,9 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a144] - 2024-01-27
+## [3.0.0-a145] - 2024-01-29
 ### Added
+- `petitRADTRANS.retrieval.save_best_fit_outputs()` now returns `best_fit_spectra` if `only_return_best_fit_spectra==True`.
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.

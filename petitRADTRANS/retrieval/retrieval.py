@@ -1284,7 +1284,7 @@ class Retrieval:
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
 
-    def save_best_fit_outputs(self, parameters):
+    def save_best_fit_outputs(self, parameters, only_return_best_fit_spectra=False):
         # Save sampled outputs if necessary.
         for name, dd in self.configuration.data.items():
             # Only calculate spectra within a given
@@ -1339,16 +1339,20 @@ class Retrieval:
             else:
                 # TODO: This will overwrite the best fit spectrum with
                 # whatever is ran through the loglike function. Not good.
-                np.savetxt(
-                    os.path.join(
-                        self.output_directory,
-                        'evaluate_' + self.configuration.retrieval_name,
-                        'model_spec_best_fit_'
+                if not only_return_best_fit_spectra:
+                    np.savetxt(
+                        os.path.join(
+                            self.output_directory,
+                            'evaluate_' + self.configuration.retrieval_name,
+                            'model_spec_best_fit_'
+                        )
+                        + name.replace('/', '_').replace('.', '_') + '.dat',
+                        np.column_stack((wlen_model, spectrum_model))
                     )
-                    + name.replace('/', '_').replace('.', '_') + '.dat',
-                    np.column_stack((wlen_model, spectrum_model))
-                )
+
                 self.best_fit_spectra[name] = [wlen_model, spectrum_model]
+
+        return self.best_fit_spectra
 
     def get_samples(self,
                     ultranest=False,
@@ -2443,7 +2447,7 @@ class Retrieval:
 
     def plot_spectra(self, samples_use, parameters_read, model_generating_function=None, prt_reference=None,
                      refresh=True, mode="bestfit", marker_color_type=None, marker_cmap=None, marker_label='',
-                     only_save_best_fit_specs=False):
+                     only_save_best_fit_spectra=False):
         """
         Plot the best fit spectrum, the data from each dataset and the residuals between the two.
         Saves a file to OUTPUT_DIR/evaluate_RETRIEVAL_NAME/RETRIEVAL_NAME_MODE_spec.pdf
@@ -2478,7 +2482,7 @@ class Retrieval:
                 Colormap to use for marker colors.
             marker_label : str
                 Label to add to colorbar corresponding to marker colors.
-            only_save_best_fit_specs : bool
+            only_save_best_fit_spectra : bool
                 If False (default value), the plot_spectra routine will run as per usual, producing a plot
                 of the best-fit or median-parameter forward model and the data.
                 If True, only the best-fit models will be calculated for every dataset, and saved in the
@@ -2530,7 +2534,7 @@ class Retrieval:
             # First get the fit for each dataset for the residual plots
             # self.log_likelihood(sample_use, 0, 0)
             self.save_best_fit_outputs(self.best_fit_parameters)
-            if only_save_best_fit_specs:
+            if only_save_best_fit_spectra:
                 return None, None, None
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
