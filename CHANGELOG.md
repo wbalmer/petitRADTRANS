@@ -4,9 +4,8 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a145] - 2024-01-29
+## [3.0.0-a146] - 2024-02-02
 ### Added
-- `petitRADTRANS.retrieval.save_best_fit_outputs()` now returns `best_fit_spectra` if `only_return_best_fit_spectra==True`.
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -27,7 +26,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to return only the best fit spectra are calculated and no plot is produced.
 - Possibility to return the gases and clouds opacities calculated by the `Radtrans` object.
 - Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
-- Possibility to print the log-likelihood to the console if desired, for retrieval debugging (False by default)
+- Possibility to print the log-likelihood to the console if desired, for retrieval debugging.
+- Possibility for function `retrieval.save_best_fit_outputs()` to return the best fit spectra.
 - Some helpful error and warning messages.
 - Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
   (see `concatenate_flux_epochs_variability` and its use in the data class.)
@@ -35,7 +35,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Better test suite workflow.
 
 ### Changed
-- retrievals_data.py in get_chisq: scale_err is now applied after 10^b error scaling, not before.
 - TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
   - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
   - temporarily silented the overflow warning message until a solution to trigger the message less often is found.
@@ -60,6 +59,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
 - Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
+- In function `retrievals.data.get_chisq`, variable `scale_err` is now applied after 10^b error scaling, not before.
 - Rules for opacites and species names are now clearly defined, based on the ExoMol format.
 - Structure of directory input_data now is akin to ExoMol.
 - Line-by-line opacities are now read from HDF5 files.
@@ -79,9 +79,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Deprecated `molecular_weight` constant.
 
 ### Fixed
-- Bug in petitRADTRANS/plotlib/plotlib.py' `plot_radtrans_opacities` method.
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
+- Bug in function `plot_radtrans_opacities` (TODO: what was it?).
 - Re-binning correlated-k opacities requires to re-launch petitRADTRANS.
 - Function `chemistry.volume_mixing_ratios2mass_fractions` always returning an empty dict.
 - Zero opacity values in k-tables creating NaNs when using `exo-k` to bin them down.

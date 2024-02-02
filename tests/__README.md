@@ -29,7 +29,9 @@ Tox will automatically execute any function in any module across all the project
 ├── <numerous test modules>        <- modules containing the testing functions
 └── utils.py                       <- module containing initialisation and comparison functions
 ```
-The test functions that will be executed by tox are in the test modules. To minimize loading time, there is one module per required `Radtrans` object. Other test modules are here to sort tests. Most modules import module `context` to ensure that the local version of the code is tested. There is also a `relative_tolerance` variable set at the beginning to indicate the relative tolerance when comparing the results with the last validated ones. In order to keep things clean in the long run: if a test goes wrong, **avoid increasing the tolerance**. Instead, try first to understand the origin of the difference. It is your responsibility as a developer to understand and explain changes in results coming from the changes you made within the code.
+The test functions that will be executed by tox are in the test modules. To minimize loading time, there is one module per required `Radtrans` object. Other test modules are here to sort tests. Most modules import module `context` to ensure that the local version of the code is tested. There is also a `relative_tolerance` variable set at the beginning to indicate the relative tolerance when comparing the results with the last validated ones. 
+
+In order to keep things clean in the long run: if a test goes wrong, **avoid increasing the tolerance**. Instead, try first to understand the origin of the difference. It is your responsibility as a developer to understand and explain changes in results coming from the changes you made within the code.
 
 Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an AssertionError is raised, an error file is automatically generated in the "errors" directory. The error file is a .npz file containing 4 keys: 
 - `test_result`, the result of the current test, 

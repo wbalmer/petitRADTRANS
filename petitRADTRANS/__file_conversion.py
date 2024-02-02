@@ -124,6 +124,10 @@ def _chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input
         'table': os.path.join(path, "species.dat")
     }
 
+    if not os.path.isfile(dat_files['FeH']):
+        warnings.warn('missing chemistry file, skipping conversion')
+        return
+
     log10_metallicities = np.genfromtxt(dat_files['FeH'])
     co_ratios = np.genfromtxt(dat_files['C/O'])
     temperature = np.genfromtxt(dat_files['T'])
@@ -1617,6 +1621,7 @@ def _get_prt2_correlated_k_names():
 
 def _get_prt2_line_by_line_names():
     return LockedDict.build_and_lock({
+        '15NH3': '15N-1H3__HITRAN.R1e6_0.3-28mu',
         'Al': None,
         'B': None,
         'Be': None,
@@ -1641,6 +1646,7 @@ def _get_prt2_line_by_line_names():
         'FeH_main_iso': '56Fe-1H__MoLLIST.R1e6_0.3-28mu',
         'H2_12': '1H-2H__HITRAN.R1e6_0.3-28mu',
         'H2_main_iso': '1H2__HITRAN.R1e6_0.3-28mu',
+        'H217O_HITRAN': '1H2-17O__HITRAN.R1e6_0.3-28mu',
         'H2O_162': '1H-2H-16O__HITEMP.R1e6_0.3-28mu',
         'H2O_171': '1H2-17O__HITEMP.R1e6_0.3-28mu',
         'H2O_172': '1H-2H-17O__HITEMP.R1e6_0.3-28mu',
@@ -1651,17 +1657,23 @@ def _get_prt2_line_by_line_names():
         'H2S_main_iso': '1H2-32S__HITRAN.R1e6_0.3-28mu',
         'HCN_main_iso': '1H-12C-14N__Harris.R1e6_0.3-28mu',
         'K': '39K__Allard.R1e6_0.3-28mu',
-        'K_allard_cold': '39K__AllardCold.R1e6_0.3-28mu',
+        'K_allard_cold': '39K__Allard.R1e6_0.3-28mu',
+        'K_burrows': '39K__Burrows.R1e6_0.3-28mu',
+        'K_lor_cut': '39K__LorCut.R1e6_0.3-28mu',
         'Li': None,
         'Mg': None,
         'Mg+': None,
         'N': None,
         'Na_allard': '23Na__AllardOld.R1e6_0.3-28mu',
         'Na_allard_new': '23Na__Allard.R1e6_0.3-28mu',
+        'Na_burrows': '23Na__Burrows.R1e6_0.3-28mu',
+        'Na_lor_cut': '23Na__LorCut.R1e6_0.3-28mu',
         'NH3_main_iso': '14N-1H3__BYTe.R1e6_0.3-28mu',
+        'NH3_main_iso_HITRAN': '14N-1H3__HITRAN.R1e6_0.3-28mu',
         'NH3_Coles_main_iso': '14N-1H3__CoYuTe.R1e6_0.3-28mu',
         'O3_main_iso': None,
         'OH_main_iso': None,
+        'PH3_HITRAN': '31P-1H3__HITRAN.R1e6_0.3-28mu',
         'PH3_main_iso': None,
         'Si': None,
         'SiO_main_iso': None,
@@ -1676,6 +1688,7 @@ def _get_prt2_line_by_line_names():
         'TiO_49_Plez': '49Ti-16O__Plez.R1e6_0.3-28mu',
         'TiO_50_Exomol_McKemmish': '50Ti-16O__Toto.R1e6_0.3-28mu',
         'TiO_50_Plez': '50Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso_Exomol_McKemmish': 'Ti-O-NatAbund__TotoMcKemmish.R1e6_0.3-28mu',
         'TiO_all_iso_Plez': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
         'TiO_all_iso_exo': 'Ti-O-NatAbund__Toto.R1e6_0.3-28mu',
         'V': None,
@@ -1694,8 +1707,8 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     # Initialize infos
     kurucz_website = 'http://kurucz.harvard.edu/'
     molliere2019_doi = '10.1051/0004-6361/201935470'
-    # hitran_doi = '10.1016/j.jqsrt.2013.07.002'
-    # hitemp_doi = '10.1016/j.jqsrt.2010.05.001'
+    burrows2003_doi = '10.1086/345412'
+    vald_website = 'http://vald.astro.uu.se/'
 
     molaverdikhani_email = 'karan.molaverdikhani@colorado.edu'
 
@@ -1707,6 +1720,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     molmass_dict = copy.deepcopy(doi_dict)
 
     doi_dict.update({
+        '15NH3': '10.1016/j.jqsrt.2021.107949',
         'Al': kurucz_website,
         'B': kurucz_website,
         'Be': kurucz_website,
@@ -1731,27 +1745,34 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'FeH_main_iso': molliere2019_doi,  # TODO not in the docs
         'H2_12': molliere2019_doi,  # TODO not in the referenced paper
         'H2_main_iso': molliere2019_doi,
-        'H2O_162': molliere2019_doi,  # TODO not in the referenced paper
-        'H2O_171': molliere2019_doi,  # TODO not in the referenced paper
-        'H2O_172': molliere2019_doi,  # TODO not in the referenced paper
-        'H2O_181': molliere2019_doi,  # TODO not in the referenced paper
-        'H2O_182': molliere2019_doi,  # TODO not in the referenced paper
+        'H217O_HITRAN': '10.1016/j.jqsrt.2013.07.002',
+        'H2O_162': '10.1016/j.jqsrt.2013.07.002',  # TODO not in the referenced paper
+        'H2O_171': '10.1016/j.jqsrt.2013.07.002',  # TODO not in the referenced paper
+        'H2O_172': '10.1016/j.jqsrt.2013.07.002',  # TODO not in the referenced paper
+        'H2O_181': '10.1016/j.jqsrt.2013.07.002',  # TODO not in the referenced paper
+        'H2O_182': '10.1016/j.jqsrt.2013.07.002',  # TODO not in the referenced paper
         'H2O_main_iso': molliere2019_doi,
         'H2O_pokazatel_main_iso': '10.1093/mnras/sty1877',
         'H2S_main_iso': molliere2019_doi,
         'HCN_main_iso': molliere2019_doi,
         'K': molliere2019_doi,
-        'K_allard_cold': 'unknown',  # TODO not in the referenced paper nor in the docs
+        'K_allard_cold': molliere2019_doi,  # TODO not in the referenced paper nor in the docs
+        'K_lor_cut': vald_website,  # TODO not in the referenced paper nor in the docs
+        'K_burrows': burrows2003_doi,
         'Li': kurucz_website,
         'Mg': kurucz_website,
         'Mg+': kurucz_website,
         'N': kurucz_website,
-        'Na_allard': molliere2019_doi,
-        'Na_allard_new': 'unknown',  # TODO difference unclear with "old" version
+        'Na_allard': '10.1051/0004-6361/201935593',  # incorrect mass
+        'Na_allard_new': '10.1051/0004-6361/201935593',  # same as above but with the correct mass
+        'Na_lor_cut': vald_website,
+        'Na_burrows': burrows2003_doi,
         'NH3_main_iso': 'unknown',  # TODO referenced twice in the docs! Which one is it?
+        'NH3_main_iso_HITRAN': '10.1016/j.jqsrt.2013.07.002',
         'NH3_Coles_main_iso': '10.1093/mnras/stz2778',
         'O3_main_iso': molliere2019_doi,
         'OH_main_iso': molliere2019_doi,
+        'PH3_HITRAN': '10.1016/j.jqsrt.2013.07.002',
         'PH3_main_iso': '10.1093/mnras/stu2246',
         'Si': kurucz_website,
         'SiO_main_iso': '10.1093/mnras/stt1105',
@@ -1766,6 +1787,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'TiO_49_Plez': molliere2019_doi,
         'TiO_50_Exomol_McKemmish': '10.1093/mnras/stz1818',
         'TiO_50_Plez': molliere2019_doi,
+        'TiO_all_iso_Exomol_McKemmish': '10.1093/mnras/stz1818',
         'TiO_all_iso_Plez': molliere2019_doi,
         'TiO_all_iso_exo': molliere2019_doi,
         'V': kurucz_website,
@@ -1776,6 +1798,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': kurucz_website
     })
     contributor_dict.update({
+        '15NH3': 'None',
         'Al': molaverdikhani_email,
         'B': molaverdikhani_email,
         'Be': molaverdikhani_email,
@@ -1800,6 +1823,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'FeH_main_iso': 'None',
         'H2_12': 'None',
         'H2_main_iso': 'None',
+        'H217O_HITRAN': 'None',
         'H2O_162': 'None',
         'H2O_171': 'None',
         'H2O_172': 'None',
@@ -1811,16 +1835,22 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'HCN_main_iso': 'None',
         'K': 'None',
         'K_allard_cold': 'None',
+        'K_burrows': 'None',
+        'K_lor_cut': 'None',
         'Li': molaverdikhani_email,
         'Mg': molaverdikhani_email,
         'Mg+': molaverdikhani_email,
         'N': molaverdikhani_email,
         'Na_allard': 'None',
         'Na_allard_new': 'None',
+        'Na_burrows': 'None',
+        'Na_lor_cut': 'None',
         'NH3_main_iso': 'None',
+        'NH3_main_iso_HITRAN': 'None',
         'NH3_Coles_main_iso': 'gandhi@strw.leidenuniv.nl',
         'O3_main_iso': 'None',
         'OH_main_iso': 'None',
+        'PH3_HITRAN': 'None',
         'PH3_main_iso': 'adriano.miceli@stud.unifi.it',
         'Si': molaverdikhani_email,
         'SiO_main_iso': 'None',
@@ -1835,6 +1865,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'TiO_49_Plez': 'None',
         'TiO_50_Exomol_McKemmish': 'None',
         'TiO_50_Plez': 'None',
+        'TiO_all_iso_Exomol_McKemmish': 'None',
         'TiO_all_iso_Plez': 'None',
         'TiO_all_iso_exo': 'None',
         'V': molaverdikhani_email,
@@ -1845,6 +1876,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': molaverdikhani_email
     })
     description_dict.update({
+        '15NH3': 'None',
         'Al': kurucz_description,
         'B': kurucz_description,
         'Be': kurucz_description,
@@ -1869,26 +1901,33 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'FeH_main_iso': 'None',
         'H2_12': 'None',
         'H2_main_iso': 'None',
-        'H2O_162': 'None',
-        'H2O_171': 'None',
-        'H2O_172': 'None',
-        'H2O_181': 'None',
-        'H2O_182': 'None',
+        'H217O_HITRAN': "Using HITRAN's air broadening prescription",
+        'H2O_162': "Using HITRAN's air broadening prescription",
+        'H2O_171': "Using HITRAN's air broadening prescription",
+        'H2O_172': "Using HITRAN's air broadening prescription",
+        'H2O_181': "Using HITRAN's air broadening prescription",
+        'H2O_182': "Using HITRAN's air broadening prescription",
         'H2O_main_iso': 'None',
         'H2O_pokazatel_main_iso': 'None',
         'H2S_main_iso': 'None',
         'HCN_main_iso': 'None',
         'K': 'None',
-        'K_allard_cold': 'None',
+        'K_allard_cold': "Using Allard wings",
+        'K_burrows': 'None',
+        'K_lor_cut': 'Using Voigt wings with cutoff at 4500 cm^-1',
         'Li': kurucz_description,
         'Mg': kurucz_description,
         'Mg+': kurucz_description,
         'N': kurucz_description,
         'Na_allard': 'None',
-        'Na_allard_new': 'None',
+        'Na_allard_new': 'Using Allard wings',
+        'Na_burrows': 'None',
+        'Na_lor_cut': 'Using Voigt wings with cutoff at 4500 cm^-1',
         'NH3_main_iso': 'None',
+        'NH3_main_iso_HITRAN': 'None',
         'O3_main_iso': 'None',
         'OH_main_iso': 'None',
+        'PH3_HITRAN': "Using HITRAN's air broadening prescription",
         'PH3_main_iso': 'None',
         'Si': kurucz_description,
         'SiO_main_iso': 'None',
@@ -1903,6 +1942,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'TiO_49_Plez': 'None',
         'TiO_50_Exomol_McKemmish': 'None',
         'TiO_50_Plez': 'None',
+        'TiO_all_iso_Exomol_McKemmish': 'None',
         'TiO_all_iso_Plez': 'None',
         'TiO_all_iso_exo': 'None',
         'V': kurucz_description,
@@ -1913,6 +1953,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': kurucz_description
     })
     molmass_dict.update({
+        '15NH3': get_species_molar_mass('15N') + get_species_molar_mass('1H3'),
         'Al': get_species_molar_mass('Al'),
         'B': get_species_molar_mass('B'),
         'Be': get_species_molar_mass('Be'),
@@ -1937,6 +1978,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'FeH_main_iso': get_species_molar_mass('FeH'),
         'H2_12': get_species_molar_mass('HD'),
         'H2_main_iso': get_species_molar_mass('H2'),
+        'H217O_HITRAN': get_species_molar_mass('1H') + get_species_molar_mass('17O') + get_species_molar_mass('1H'),
         'H2O_162': get_species_molar_mass('1H') + get_species_molar_mass('16O') + get_species_molar_mass('2H'),
         'H2O_171': get_species_molar_mass('1H') + get_species_molar_mass('17O') + get_species_molar_mass('1H'),
         'H2O_172': get_species_molar_mass('1H') + get_species_molar_mass('17O') + get_species_molar_mass('2H'),
@@ -1948,15 +1990,21 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'HCN_main_iso': get_species_molar_mass('HCN'),
         'K': get_species_molar_mass('K'),
         'K_allard_cold': get_species_molar_mass('K'),
+        'K_burrows': get_species_molar_mass('K'),
+        'K_lor_cut': get_species_molar_mass('K'),
         'Li': get_species_molar_mass('Li'),
         'Mg': get_species_molar_mass('Mg'),
         'Mg+': get_species_molar_mass('Mg') - get_species_molar_mass('e-'),
         'N': get_species_molar_mass('N'),
         'Na_allard': get_species_molar_mass('Na'),
         'Na_allard_new': get_species_molar_mass('Na'),
+        'Na_burrows': get_species_molar_mass('Na'),
+        'Na_lor_cut': get_species_molar_mass('Na'),
         'NH3_main_iso': get_species_molar_mass('NH3'),
+        'NH3_main_iso_HITRAN': get_species_molar_mass('NH3'),
         'O3_main_iso': get_species_molar_mass('O3'),
         'OH_main_iso': get_species_molar_mass('OH'),
+        'PH3_HITRAN': get_species_molar_mass('PH3'),
         'PH3_main_iso': get_species_molar_mass('PH3'),
         'Si': get_species_molar_mass('Si'),
         'SiO_main_iso': get_species_molar_mass('SiO'),
@@ -1971,6 +2019,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'TiO_49_Plez': get_species_molar_mass('49Ti') + get_species_molar_mass('16O'),
         'TiO_50_Exomol_McKemmish': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
         'TiO_50_Plez': get_species_molar_mass('50Ti') + get_species_molar_mass('16O'),
+        'TiO_all_iso_Exomol_McKemmish': get_species_molar_mass('TiO-NatAbund'),
         'TiO_all_iso_Plez': get_species_molar_mass('TiO-NatAbund'),
         'TiO_all_iso_exo': get_species_molar_mass('TiO-NatAbund'),
         'V': get_species_molar_mass('V'),
@@ -2193,6 +2242,11 @@ def _refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_
             if not os.path.isdir(old_subpath):
                 print("No planet yet, skipping planet_data refactor...")
                 os.mkdir(new_subpath)
+                continue
+        else:
+            if not os.path.isdir(old_subpath) and not os.path.isdir(new_subpath):
+                print(f"Incomplete input_data dict, skipping {old_input_data_subpaths[key]} refactor...")
+                os.makedirs(new_subpath)
                 continue
 
         old_subpath_is_dir = os.path.isdir(old_subpath)
