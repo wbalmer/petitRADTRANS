@@ -71,11 +71,11 @@ def make_petitradtrans_test_config_file(filename):
                 'mass_fractions': {
                     'H2': 0.74,
                     'He': 0.24,
-                    'H2O_HITEMP': 0.001,
-                    'H2O_main_iso': 0.001,
-                    'CH4': 0.001,
-                    'CO-NatAbund': 0.1,
-                    'Mg2SiO4(s)_crystalline__DHS': 0.0
+                    '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
+                    '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
+                    '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
+                    'C-O-NatAbund__HITRAN.R1e6_0.3-28mu': 0.1,
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu': 0.0
                  },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
@@ -110,15 +110,21 @@ def make_petitradtrans_test_config_file(filename):
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,
                     'line_species_correlated_k': [
-                        'H2O_HITEMP',
-                        'CH4'
+                        '1H2-16O__HITEMP.R1000_0.1-250mu',
+                        '12C-1H4__YT34to10.R1000_0.3-50mu'
                     ],
                     'line_species_line_by_line': [
-                        'H2O_main_iso',
-                        'CO-NatAbund'
+                        '1H2-16O__HITEMP.R1e6_0.3-28mu',
+                        'C-O-NatAbund__HITRAN.R1e6_0.3-28mu'
                     ],
-                    'rayleigh_species': ['H2', 'He'],
-                    'continuum_opacities': ['H2-H2', 'H2-He'],
+                    'rayleigh_species': [
+                        'H2',
+                        'He'
+                    ],
+                    'continuum_opacities': [
+                        "H2--H2-NatAbund__BoRi.R831_0.6-250mu",
+                        "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
+                    ],
                     'wavelength_range_correlated_k': [0.9, 1.2],
                     'wavelength_range_line_by_line': [2.3000, 2.3025]
                 },
@@ -128,7 +134,7 @@ def make_petitradtrans_test_config_file(filename):
                    'cloud_pressure': 0.01,
                    'haze_factor': 10.0,
                    'cloud_species': {
-                       'Mg2SiO4(s)_crystalline__DHS': {
+                       'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu': {
                            'mass_fraction': 5e-7,
                            'radius': 5e-5,  # (cm)
                            'f_sed': 2.0,

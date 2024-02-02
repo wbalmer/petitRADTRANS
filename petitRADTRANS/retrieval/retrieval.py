@@ -494,10 +494,12 @@ class Retrieval:
         species = []
 
         for line in self.configuration.line_species:
+            _line = line.split('.', 1)[0]  # remove possible previous spectral info
+
             matches = get_opacity_input_file(
                 path_input_data=self.path,
                 category='correlated_k_opacities',
-                species=join_species_all_info(line, spectral_info=get_resolving_power_string(resolution)),
+                species=join_species_all_info(_line, spectral_info=get_resolving_power_string(resolution)),
                 find_all=True,
                 search_online=False
             )
@@ -832,10 +834,12 @@ class Retrieval:
                     species = []
 
                     for spec in self.configuration.line_species:
+                        spec = spec.split('.', 1)[0]  # remove possible previous spectral info
+
                         species.append(join_species_all_info(
                             spec,
-                            spectral_info=get_resolving_power_string(dd.model_resolution))
-                        )
+                            spectral_info=get_resolving_power_string(dd.model_resolution)
+                        ))
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,
                     # we just use the default species.

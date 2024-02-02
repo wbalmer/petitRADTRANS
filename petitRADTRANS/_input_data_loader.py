@@ -865,6 +865,16 @@ def get_cloud_aliases(name: str) -> str:
     if name in cloud_directories:
         filename = cloud_directories[name]
     else:
+        if spectral_info is None:
+            spectral_info = ''
+        else:
+            spectral_info = '.' + spectral_info
+
+        if method is None:
+            method = ''
+        else:
+            method = '__' + method
+
         # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
         if 'NatAbund' not in name and not _has_isotope(name):
             if '(s)' not in name and '(l)' not in name:
@@ -872,17 +882,9 @@ def get_cloud_aliases(name: str) -> str:
 
             species, info = name.split('(', 1)
 
-            if spectral_info is None:
-                spectral_info = ''
-            else:
-                spectral_info = '.' + spectral_info
-
-            if method is None:
-                method = ''
-            else:
-                method = '__' + method
-
             name = species + '-NatAbund(' + info + method + spectral_info
+        else:
+            name = name + method + spectral_info
 
         return name
 

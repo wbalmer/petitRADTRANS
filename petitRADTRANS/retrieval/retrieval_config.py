@@ -251,6 +251,8 @@ class RetrievalConfig:
 
         if not eq:
             for spec in self.line_species:
+                spec = spec.split('.', 1)[0]  # remove possible previous spectral info
+
                 self.parameters[spec] = Parameter(
                     spec,
                     True,
