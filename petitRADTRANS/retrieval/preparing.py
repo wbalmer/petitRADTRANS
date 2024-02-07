@@ -58,8 +58,42 @@ def __init_pipeline_outputs(spectrum, reduction_matrix, uncertainties):
     return spectral_data_corrected, reduction_matrix, pipeline_uncertainties
 
 
-def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inverted, c, shape_a, shape_c):
-    """SYSREM iteration.
+def __sysrem_iteration_orders_a(spectrum_uncertainties_squared, uncertainties_squared_inverted, a):
+    """SYSREM iteration for all orders at once. Starting with a.
+    For the first iteration, a should be 1.
+    The inputs are chosen in order to maximize speed.
+
+    Args:
+        spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
+        uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
+        a: 2-D matrix (..., exposures, wavelengths) containing the a-priori "airmass"
+
+    Returns:
+        The lower-rank estimation of the spectrum (systematics), and the estimated "extinction coefficients"
+    """
+    _spectrum_uncertainties_squared = np.moveaxis(spectrum_uncertainties_squared, -1, 0)  # (wavelength, ...)
+    _uncertainties_squared_inverted = np.moveaxis(uncertainties_squared_inverted, -1, 0)  # (wavelength, ...)
+
+    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
+    c = np.sum(a * _spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(a ** 2 * _uncertainties_squared_inverted, axis=-1)  # (wavelength, order)
+
+    c = c.T  # (..., wavelength)
+
+    _spectrum_uncertainties_squared = np.moveaxis(spectrum_uncertainties_squared, -2, 0)  # (exposure, ...)
+    _uncertainties_squared_inverted = np.moveaxis(uncertainties_squared_inverted, -2, 0)  # (exposure, ...)
+
+    # Get the "airmass" (time variation of a pixel), not related to the true airmass
+    a = np.sum(c * _spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(c ** 2 * _uncertainties_squared_inverted, axis=-1)
+
+    a = a.T  # (..., exposure)
+
+    return np.einsum('...j,...k->...jk', a, c), a
+
+
+def __sysrem_iteration_orders_c(spectrum_uncertainties_squared, uncertainties_squared_inverted, c):
+    """SYSREM iteration for all orders at once. Starting with c.
     For the first iteration, c should be 1.
     The inputs are chosen in order to maximize speed.
 
@@ -67,75 +101,29 @@ def __sysrem_iteration(spectrum_uncertainties_squared, uncertainties_squared_inv
         spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
         uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
         c: 2-D matrix (..., exposures, wavelengths) containing the a-priori "extinction coefficients"
-        shape_a: intermediate shape for "airmass" estimation (wavelength, ..., exposure)
-        shape_c: intermediate shape for "extinction coefficients" estimation (exposure, ..., wavelength)
 
     Returns:
         The lower-rank estimation of the spectrum (systematics), and the estimated "extinction coefficients"
     """
-    # Get the "airmass" (time variation of a pixel), not related to the true airmass
-    a = np.sum(c * spectrum_uncertainties_squared, axis=-1) / \
-        np.sum(c ** 2 * uncertainties_squared_inverted, axis=-1)
-
-    # Tile into a (..., exposure, wavelength) matrix
-    a = np.moveaxis(
-        a * np.ones(shape_a),
-        0,
-        -1
-    )
-
-    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
-    c = np.sum(a * spectrum_uncertainties_squared, axis=-2) / \
-        np.sum(a ** 2 * uncertainties_squared_inverted, axis=-2)
-
-    # Tile into a (..., exposure, wavelength) matrix
-    c = np.moveaxis(
-        c * np.ones(shape_c),
-        0,
-        -2
-    )
-
-    return a * c, c
-
-
-def __sysrem_iteration2(spectrum_uncertainties_squared, uncertainties_squared_inverted, a, shape_a, shape_c):
-    """SYSREM iteration.
-    For the first iteration, c should be 1.
-    The inputs are chosen in order to maximize speed.
-
-    Args:
-        spectrum_uncertainties_squared: spectral data to correct over the uncertainties ** 2 (..., exposure, wavelength)
-        uncertainties_squared_inverted: invers of the squared uncertainties on the data (..., exposure, wavelength)
-        a: 2-D matrix (..., exposures, wavelengths) containing the a-priori "airmass"
-        shape_a: intermediate shape for "airmass" estimation (wavelength, ..., exposure)
-        shape_c: intermediate shape for "extinction coefficients" estimation (exposure, ..., wavelength)
-
-    Returns:
-        The lower-rank estimation of the spectrum (systematics), and the estimated "extinction coefficients"
-    """
-    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
-    c = np.sum(a * spectrum_uncertainties_squared, axis=-2) / \
-        np.sum(a ** 2 * uncertainties_squared_inverted, axis=-2)
-
-    # Tile into a (..., exposure, wavelength) matrix
-    c = np.moveaxis(
-        c * np.ones(shape_c),
-        0,
-        -2
-    )
+    _spectrum_uncertainties_squared = np.moveaxis(spectrum_uncertainties_squared, -2, 0)  # (exposure, ...)
+    _uncertainties_squared_inverted = np.moveaxis(uncertainties_squared_inverted, -2, 0)  # (exposure, ...)
 
     # Get the "airmass" (time variation of a pixel), not related to the true airmass
-    a = np.sum(c * spectrum_uncertainties_squared, axis=-1) / \
-        np.sum(c ** 2 * uncertainties_squared_inverted, axis=-1)
+    a = np.sum(c * _spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(c ** 2 * _uncertainties_squared_inverted, axis=-1)
 
-    # Tile into a (..., exposure, wavelength) matrix
-    a = np.moveaxis(
-        a * np.ones(shape_a),
-        0,
-        -1
-    )
+    a = a.T  # (..., exposure)
 
-    return a * c, a
+    _spectrum_uncertainties_squared = np.moveaxis(spectrum_uncertainties_squared, -1, 0)  # (wavelength, ...)
+    _uncertainties_squared_inverted = np.moveaxis(uncertainties_squared_inverted, -1, 0)  # (wavelength, ...)
+
+    # Recalculate the best fitting "extinction coefficients", not related to the true extinction coefficients
+    c = np.sum(a * _spectrum_uncertainties_squared, axis=-1) / \
+        np.sum(a ** 2 * _uncertainties_squared_inverted, axis=-1)  # (wavelength, order)
+
+    c = c.T  # (..., wavelength)
+
+    return np.einsum('...j,...k->...jk', a, c), c
 
 
 def bias_pipeline_metric(reduced_true_model, reduced_mock_observations,
@@ -584,10 +572,10 @@ def trim_spectrum(spectrum, uncertainties=None, wavelengths=None, airmass=None, 
     return np.ma.masked_where(mask, spectrum)
 
 
-def preparing_pipeline(spectrum, uncertainties=None,
-                       wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
-                       apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
-                       uncertainties_as_weights=False, full=False, **kwargs):
+def polyfit(spectrum, uncertainties=None,
+            wavelengths=None, airmass=None, tellurics_mask_threshold=0.1, polynomial_fit_degree=1,
+            apply_throughput_removal=True, apply_telluric_lines_removal=True, correct_uncertainties=True,
+            uncertainties_as_weights=False, full=False, **kwargs):
     """Removes the telluric lines and variable throughput of some data.
     If airmass is None, the Earth atmospheric transmittance is assumed to be time-independent, so telluric transmittance
     will be fitted using the weighted arithmetic mean. Otherwise, telluric transmittance are fitted with a polynomial.
@@ -657,12 +645,12 @@ def preparing_pipeline(spectrum, uncertainties=None,
         return prepared_data
 
 
-def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
-                              n_iterations_max=10, convergence_criterion=1e-3,
-                              tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
-                              apply_throughput_removal=True, apply_telluric_lines_removal=True,
-                              correct_uncertainties=True, uncertainties_as_weights=False,
-                              subtract=True, remove_mean=True, full=False, verbose=False, **kwargs):
+def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
+           n_iterations_max=10, convergence_criterion=1e-3,
+           tellurics_mask_threshold=0.8, polynomial_fit_degree=1,
+           apply_throughput_removal=True, apply_telluric_lines_removal=True,
+           correct_uncertainties=True, uncertainties_as_weights=False,
+           subtract=True, remove_mean=True, full=False, verbose=False, **kwargs):
     """SYSREM preparing pipeline.
     SYSREM tries to find the coefficients a and c such as:
         S**2 = sum_ij ((spectrum_ij - a_j * c_i) / uncertainties)**2
@@ -753,13 +741,6 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
     if verbose:
         print("Starting SysRem...")
 
-    spectrum_shape = list(reduced_data.shape)
-    shape_a = copy.copy(spectrum_shape)
-    shape_c = copy.copy(spectrum_shape)
-
-    shape_a.insert(0, shape_a.pop(-1))  # (..., order, exposure)
-    shape_c.insert(0, shape_c.pop(-2))  # (..., order, wavelength)
-
     systematics = np.zeros(reduced_data.shape)
 
     # Iterate
@@ -781,12 +762,10 @@ def preparing_pipeline_sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
         systematics = np.zeros(reduced_data.shape)
 
         for i in range(n_iterations_max):
-            systematics, c = __sysrem_iteration(
+            systematics, c = __sysrem_iteration_orders_a(
                 spectrum_uncertainties_squared=spectrum_uncertainties_squared,
                 uncertainties_squared_inverted=uncertainties_squared_inverted,
-                c=c,
-                shape_a=shape_a,
-                shape_c=shape_c
+                a=c
             )
             systematics[np.nonzero(np.logical_not(np.isfinite(systematics)))] = 0
 

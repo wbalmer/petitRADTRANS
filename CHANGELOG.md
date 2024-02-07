@@ -4,10 +4,8 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a147] - 2024-02-02
+## [3.0.0-a148] - 2024-02-07
 ### Added
-- Added save_best_fit_outputs_external_variability to retrieval/retrieval.py. This allows to speed up calculations, since it makes use of external_prt_reference properly.
-- Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -21,17 +19,20 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `utils.bayes_factor2sigma` to convert Bayes factor significance into "sigma" significance.
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 - Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
+- Function `retrieval.retrieval.save_best_fit_outputs_external_variability` to speed up calculations, since it makes use of `external_prt_reference` properly.
 - Constant `e_molar_mass` to physical constants.
+- SysRem preparing pipeline.
 - More control over uncertainty_scaling_b: can now also be done per observation "types" (e.g., different MRS channels see the same b).
 - Possibility for the forward model to return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
 - Possibility to return only the best fit spectra are calculated and no plot is produced.
 - Possibility to return the gases and clouds opacities calculated by the `Radtrans` object.
 - Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
 - Possibility to print the log-likelihood to the console if desired, for retrieval debugging.
-- Possibility for function `retrieval.save_best_fit_outputs()` to return the best fit spectra.
-- Some helpful error and warning messages.
+- Possibility for function `retrieval.retrieval.save_best_fit_outputs` to return the best fit spectra.
 - Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
-  (see `concatenate_flux_epochs_variability` and its use in the data class.)
+  (see `concatenate_flux_epochs_variability` and its use in the data class).
+- Handling of column flux mixing in `retrieval.retrieval.save_best_fit_outputs`.
+- Some helpful error and warning messages.
 - Argument `seed` to function `Retrieval.run`, for reproducibility.
 - Better test suite workflow.
 
@@ -58,7 +59,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Some functions have moved from the module `Radtrans` to another, more specific module.
 - Input data path is now stored in a config file within the folder \<HOME\>/.petitRADTRANS, generated when installing the package or using it for the first time.
 - Attribute `SpectralModel.times` is now inside `SpectralModel.model_parameters`.
-- Function `preparing_pipeline` now only masks invalid points instead of the entire column/line where the point was.
+- Function `polyfit` now only masks invalid points instead of the entire column/line where the point was.
 - In `SpectralModel`, orbital longitudes and radial velocity semi-amplitudes are know calculated instead of fixed.
 - In function `retrievals.data.get_chisq`, variable `scale_err` is now applied after 10^b error scaling, not before.
 - Rules for opacites and species names are now clearly defined, based on the ExoMol format.

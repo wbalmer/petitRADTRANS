@@ -24,7 +24,7 @@ from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import RetrievalParameter
-from petitRADTRANS.retrieval.preparing import preparing_pipeline
+from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
@@ -2296,7 +2296,7 @@ class SpectralModel(Radtrans):
         if np.ndim(spectrum.mask) == 0:
             spectrum.mask = np.zeros(spectrum.shape, dtype=bool)
 
-        return preparing_pipeline(
+        return polyfit(
             spectrum=spectrum,
             uncertainties=uncertainties,
             wavelengths=wavelengths,
