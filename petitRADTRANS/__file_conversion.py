@@ -1621,6 +1621,7 @@ def _get_prt2_correlated_k_names():
 
 def _get_prt2_line_by_line_names():
     return LockedDict.build_and_lock({
+        '13CH4': '13C-1H4__HITRAN.R1e6_0.3-28mu',
         '15NH3': '15N-1H3__HITRAN.R1e6_0.3-28mu',
         'Al': None,
         'B': None,
@@ -1720,6 +1721,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
     molmass_dict = copy.deepcopy(doi_dict)
 
     doi_dict.update({
+        '13CH4': '10.1016/j.jqsrt.2021.107949',
         '15NH3': '10.1016/j.jqsrt.2021.107949',
         'Al': kurucz_website,
         'B': kurucz_website,
@@ -1798,6 +1800,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': kurucz_website
     })
     contributor_dict.update({
+        '13CH4': 'None',
         '15NH3': 'None',
         'Al': molaverdikhani_email,
         'B': molaverdikhani_email,
@@ -1876,6 +1879,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': molaverdikhani_email
     })
     description_dict.update({
+        '13CH4': 'None',
         '15NH3': 'None',
         'Al': kurucz_description,
         'B': kurucz_description,
@@ -1925,6 +1929,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Na_lor_cut': 'Using Voigt wings with cutoff at 4500 cm^-1',
         'NH3_main_iso': 'None',
         'NH3_main_iso_HITRAN': 'None',
+        'NH3_Coles_main_iso': 'None',
         'O3_main_iso': 'None',
         'OH_main_iso': 'None',
         'PH3_HITRAN': "Using HITRAN's air broadening prescription",
@@ -1953,6 +1958,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Y': kurucz_description
     })
     molmass_dict.update({
+        '13CH4': get_species_molar_mass('13C') + get_species_molar_mass('1H4'),
         '15NH3': get_species_molar_mass('15N') + get_species_molar_mass('1H3'),
         'Al': get_species_molar_mass('Al'),
         'B': get_species_molar_mass('B'),
@@ -2002,6 +2008,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'Na_lor_cut': get_species_molar_mass('Na'),
         'NH3_main_iso': get_species_molar_mass('NH3'),
         'NH3_main_iso_HITRAN': get_species_molar_mass('NH3'),
+        'NH3_Coles_main_iso': get_species_molar_mass('NH3'),
         'O3_main_iso': get_species_molar_mass('O3'),
         'OH_main_iso': get_species_molar_mass('OH'),
         'PH3_HITRAN': get_species_molar_mass('PH3'),
