@@ -1358,6 +1358,65 @@ class Retrieval:
 
         return self.best_fit_spectra
 
+    def save_best_fit_outputs_external_variability(self, parameters, only_return_best_fit_spectra=False):
+        # Save sampled outputs if necessary.
+        for name, dd in self.configuration.data.items():
+
+            if dd.external_radtrans_reference is None:
+                # Only calculate spectra within a given
+                # wlen range once
+                if dd.scale or dd.scale_err:
+                    dd.scale_factor = parameters[name + "_scale_factor"].value
+                if dd.offset_bool:
+                    dd.offset = parameters[name + "_offset"].value
+                if name + "_b" in parameters.keys():
+                    dd.bval = parameters[name + "_b"].value
+
+                if dd.external_radtrans_reference is None:
+                    # Compute the model
+                    ret_val = \
+                        dd.model_generating_function(dd.radtrans_object,
+                                                     parameters,
+                                                     False,
+                                                     amr=self.configuration.amr)
+                    if len(ret_val) == 3:
+                        wlen_model, spectrum_model, additional_logl = ret_val
+                    elif len(ret_val) == 4 and dd.variability_atmospheric_column_model_flux_return_mode:
+                        wlen_model, spectrum_model, additional_logl, atmospheric_model_column_fluxes = ret_val
+                        spectrum_model = dd.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
+                                                                          parameters,
+                                                                          dd.name)
+                    else:
+                        wlen_model, spectrum_model = ret_val
+
+                self.best_fit_spectra[name] = [wlen_model, spectrum_model]
+
+            for name_2, dd_2 in self.configuration.data.items():
+                if dd_2.external_radtrans_reference is not None:
+                    if dd_2.external_radtrans_reference == name:
+                        if dd_2.variability_atmospheric_column_model_flux_return_mode:
+                            spectrum_model_2 = dd_2.atmospheric_column_flux_mixer(atmospheric_model_column_fluxes,
+                                                                              parameters,
+                                                                              dd_2.name)
+                            self.best_fit_spectra[name_2] = [wlen_model, spectrum_model_2]
+                        else:
+                            self.best_fit_spectra[name_2] = [wlen_model, spectrum_model]
+
+
+        for name, dd in self.configuration.data.items():
+            if not only_return_best_fit_spectra:
+                np.savetxt(
+                    os.path.join(
+                        self.output_directory,
+                        'evaluate_' + self.configuration.retrieval_name,
+                        'model_spec_best_fit_'
+                    )
+                    + name.replace('/', '_').replace('.', '_') + '.dat',
+                    np.column_stack((wlen_model, self.best_fit_spectra[name]))
+                )
+
+        return self.best_fit_spectra
+
     def get_samples(self,
                     ultranest=False,
                     names=None,

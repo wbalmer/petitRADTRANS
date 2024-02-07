@@ -4,8 +4,9 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a146] - 2024-02-02
+## [3.0.0-a147] - 2024-02-02
 ### Added
+- Added save_best_fit_outputs_external_variability to retrieval/retrieval.py. This allows to speed up calculations, since it makes use of external_prt_reference properly.
 - Added atmospheric_column_flux_mixer handling to save_best_fit_outputs in retrieval.py.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
