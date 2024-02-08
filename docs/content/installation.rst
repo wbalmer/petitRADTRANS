@@ -8,7 +8,7 @@ To install petitRADTRANS, without retrievals, you need to install:
     - Python 3.9+,
     - a fortran compiler, for example ``gfortran``.
 
-Further installation instructions to use retrievals are displayed in the next section.
+**Retrievals:** further installation instructions are displayed in the :ref:`the next section<retrievalsSection>`.
 
 Linux
 `````
@@ -53,6 +53,8 @@ Then, install a fortran compiler with:
 .. code-block:: bash
 
     brew install gcc
+
+.. _retrievalsSection:
 
 Prerequisite for retrievals: Multinest
 ______________________________________
