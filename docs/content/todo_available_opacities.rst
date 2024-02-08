@@ -3,311 +3,338 @@
 TODO: Available opacity species
 ===============================
 
-Line absorbers
-______________
+Line species
+____________
 
-Please see the `Installation <installation.html>`_ section for how to
-obtain and use the opacities listed below. For adding more opacity species not listed here,
-please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the Exomol opacities calculated
-in the pRT format, available from the `Exomol website <http://www.exomol.com/data/data-types/opacity/>`_.
+The line opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
 
-.. important::
-   For all opacity species below, the species name must show up in the mass fraction dictionary *exactly* if
-   you want to distinguish between different line lists or isotopologues of the same molecule. For example, if
-   you include ``'CO_12_HITEMP'`` and ``'CO_13_HITEMP'`` as line absorbers, these keys must also exist in the
-   mass fraction dictionary when calculating a spectrum. If you do not include various istopologues or multiple
-   line lists for the same molecule, it is enough to just specify a ``'CO'`` abundance. This is because pRT will
-   cut off everything of the species name starting from the first ``_`` if an identical match is not found in
-   the mass fraction dictionary. Concrete example: if you load the ``'Na_allard'`` line list, but there is
-   no ``'Na_allard'`` entry in the mass fraction dictionary, pRT will instead look for a ``'Na'`` entry in the
-   dictionary. This option thus allows you to neglect the (potentially annoying) line list flags when setting up the mass
-   fraction dictionary.
-
-Default line absorbers, low resolution mode (``"c-k"``, :math:`\lambda/\Delta\lambda=1000`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-**These are the default line absorbers contained in the input_data folder you download during the** `installation <installation.html>`_.
-
-In low resolution mode (``"c-k"``), most of the molecular opacities are calculated considering
-only the main isotopologue. This is different only for CO and TiO, where the contribution of all isotopologues is
-considered. For CO because the secondary isotopes of carbon, for example :math:`\rm ^{13}C`, are quite abundant
-when compared to the main isotope, that is :math:`\rm ^{12}C/^{13}C\sim 100`, and because CO has very strong and
-sparse lines. Not including these lines therefore has a noticeable effect already at low resolution. For TiO all
-isotopologues are included because the relative ratios between the Ti isotopes are quite large. Apart from these
-two species, the main isotopologue treatment compared very well to codes including all isotopologues, at this low
-resolution, see `Baudino et al. (2017) <http://adsabs.harvard.edu/abs/2017ApJ...850..150B>`_.
+To add more opacities, please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the Exomol opacities calculated in the pRT format, available from the `Exomol website <http://www.exomol.com/data/data-types/opacity/>`_.
 
 .. important::
-   Please cite the reference mentioned in the description (click the link) when making use of a line species listed below.
+   Please cite the reference mentioned in the description (click the link) when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
+
+File naming convention
+^^^^^^^^^^^^^^^^^^^^^^
+
+In petitRADTRANS, species follow a naming convention similar to that of `ExoMol <https://www.exomol.com/>`_. It is indicated below.
+
+- Species names are based on their chemical formula.
+- Elements in the chemical formula are separated by ``-``.
+- The number in front of the element indicates its isotope, when relevant.
+- The number after the element indicates its quantity in the molecule, when relevant.
+- Opacities considering the natural (i.e. Earth) abundance of isotopologue are indicated with the string ``-NatAbund`` after the chemical formula.
+- The charge of the species is indicated after the formula, starting with ``_``. The character ``p`` is used for positive charges and ``n`` for negative charges.
+- The number in front of the charge indicates the charge amount.
+- The source of the opacity is indicated after the charge, starting with ``__``.
+- The spectral information of the opacity is indicated after the source, starting with ``.``.
+- The character ``R`` indicates constant resolving power (:math:`\lambda/\Delta\lambda` constant).
+- The string ``DeltaWavenumber`` indicates constant spacing in wavenumber (:math:`\Delta\nu` constant).
+- The string ``DeltaWavelength`` indicates constant spacing in wavelength (:math:`\Delta\lambda` constant).
+- The number coming after the above indicates the spacing.
+- The wavelength range, in µm, is indicated afterward, starting with a ``_`` and ending with ``mu``. The upper and lower boundaries are separated with ``-``.
+
+.. important::
+	1. In petitRADTRANS, writing the full opacity name in a script is often not necessary.
+   	2. The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
+
+"Low-resolution" opacities (``"c-k"``, :math:`\lambda/\Delta\lambda=1000`)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated considering only the main isotopologue. Most of the time, the differences with including all isotopologues, at these resolving powers, are negligible (see comparison with `Baudino et al., 2017 <https://www.doi.org/10.3847/1538-4357/aa95be>`_).
+
+For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
+
+All ``c-k`` opacities have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
+
+The available correlated-k opacities are listed below. When multiple source are available for species, the recommended one is indicated in bold.
 
 .. list-table::
    :widths: 10 10 10 10
    :header-rows: 1
 
    * - Species name
-     - Required in mass fraction dictionary*
+     - Short file name*
      - Reference
      - Contributor
+   * - Al
+     - 27Al__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - Al+
+     - 27Al_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - AlH
-     - AlH
+     - 27Al-1H__AlHambra
      - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+18 <https://doi.org/10.1093/mnras/sty1524>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
    * - AlO
-     - AlO
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Patrascu+15 <http://dx.doi.org/10.1093/mnras/stv507>`_
+     - 27Al-16O__ATP
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Patrascu+15 <http://dx.doi.org/10.1093/mnras/stv507>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
    * - C2H2
-     - C2H2
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Chubb+20 <https://doi.org/10.1093/mnras/staa229>`_
+     - 12C2-1H2__aCeTY
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Chubb+20 <https://doi.org/10.1093/mnras/staa229>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
    * - C2H4
-     - C2H4
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Mant+18 <https://doi.org/10.1093/mnras/sty1239>`_
+     - 12C2-1H4__MaYTY
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Mant+18 <https://doi.org/10.1093/mnras/sty1239>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - CH4
-     - CH4
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+17 <https://doi.org/10.1051/0004-6361/201731026>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - CO2
-     - CO2
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+20 <https://doi.org/10.1093/mnras/staa1874>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - CO_all_iso_HITEMP
-     - CO_all_iso_HITEMP
-     - All isotopologues, HITEMP/Kurucz, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - CO_12_HITEMP
-     - CO_12_HITEMP
-     - :math:`\rm ^{12}CO` isotopologue, HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - CO_13_HITEMP
-     - CO_13_HITEMP
-     - :math:`\rm ^{13}CO` isotopologue, HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - CO_all_iso_Chubb
-     - CO_all_iso_Chubb
-     - All isotopologues, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - CO_13_Chubb
-     - CO_13_Chubb
-     - :math:`\rm ^{13}CO` isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - Ca+
+     - 40Ca_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - CaH
-     - CaH
+     - 40Ca-1H
      - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Li+12 <http://dx.doi.org/10.1016/j.jqsrt.2011.09.010>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - CH3D
+     - 12C-1H3-2H__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - CH4
+     - 12C-1H4__HITEMP
+     - **???**
+     - **???**
+   * - **CH4**
+     - 12C-1H4__YT34
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+17 <https://doi.org/10.1051/0004-6361/201731026>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - 13CH3D
+     - 13C-1H3-2H__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - 13CH4
+     - 13C-1H4__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - CO
+     - C-O-NatAbund__HITEMP
+     - All isotopologues, HITEMP/Kurucz, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - **CO**
+     - C-O-NatAbund__Chubb
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - 12CO
+     - 12C-16O__HITEMP
+     - HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - 13CO
+     - 13C-16__HITEMP
+     - HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - **13CO**
+     - 13C-16O__Li2015
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - CO2
+     - 12C-16O2__UCL
+     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_
+     - --
    * - CrH
-     - CrH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Burrows+02 <http://dx.doi.org/10.1086/342242>`_
+     - 52Cr-1H__MoLLIST
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Burrows+02 <http://dx.doi.org/10.1086/342242>`_
      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - FeH
-     - FeH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Wende+10 <http://dx.doi.org/10.1051/0004-6361/201015220>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - H2O_HITEMP
-     - H2O_HITEMP
-     - Main isotopologue, HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+   * - CS2
+     - C-S2-NatAbund__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
      - --
-   * - H2O_Exomol
-     - H2O_Exomol
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Polyanski+18 <https://doi.org/10.1093/mnras/sty1877>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - H2S
-     - H2S
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Azzam+16 <http://dx.doi.org/10.1093/mnras/stw1133>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - HCN
-     - HCN
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barber+14 <http://mnras.oxfordjournals.org/content/437/2/1828.abstract>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - K_allard
-     - K_allard
-     - Main isotopologue, VALD, Allard wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - K_burrows
-     - K_burrows
-     - Main isotopologue, VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
-     - --
-   * - K_lor_cut
-     - K_lor_cut
-     - Main isotopologue, VALD, Lorentzian wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - MgH
-     - MgH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gharib-Nezhad+13 <http://dx.doi.org/10.1093/mnras/stt510>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - MgO
-     - MgO
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Tennyson+19 <https://doi.org/10.1093/mnras/stz912>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - NH3
-     - NH3
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Coles+19 <https://doi.org/10.1093/mnras/stz2778>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - NaH
-     - NaH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Rivlin+15 <http://dx.doi.org/10.1093/mnras/stv979>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - Na_allard
-     - Na_allard
-     - Main isotopologue, VALD, `new Allard wings <https://ui.adsabs.harvard.edu/abs/2019yCat..36280120A/abstract>`_, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - Na_burrows
-     - Na_burrows
-     - Main isotopologue, VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
-     - --
-   * - Na_lor_cut
-     - Na_lor_cut
-     - Main isotopologue, VALD, Lorentzian wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - O2
-     - O2
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - O3
-     - O3
-     - Main isotopologue, HITRAN, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - OH
-     - OH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Brooke+16 <http://dx.doi.org/10.1016/j.jqsrt.2015.07.021>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - PH3
-     - PH3
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Sousa-Silva+14 <http://dx.doi.org/10.1093/mnras/stu2246>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - SH
-     - SH
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gorman+19 <https://doi.org/10.1093/mnras/stz2517>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - SiO
-     - SiO
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barton+13 <https://doi.org/10.1093/mnras/stt1105>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - SiO2
-     - SiO2
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Owens+20 <http://dx.doi.org/10.1093/mnras/staa1287>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - TiO_all_Plez
-     - TiO_all_Plez
-     - All isotopologues, B. Plez, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - TiO_48_Plez
-     - TiO_48_Plez
-     - :math:`\rm ^{48}TiO` isotopologue, B. Plez, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - TiO_all_Exomol
-     - TiO_all_Exomol
-     - All isotopologues, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - TiO_48_Exomol
-     - TiO_48_Exomol
-     - :math:`\rm ^{48}TiO` isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-   * - VO_Plez
-     - VO_Plez
-     - Main isotopologue, B. Plez,, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-     - --
-   * - VO
-     - VO
-     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+16 <http://dx.doi.org/10.1093/mnras/stw1969>`_
-     - `K. Chubb <klc20@st-andrews.ac.uk>`_
-
-*: see information box at the top of the page for mass fraction key handling.
-
-Contributed atom and ion opacities:
-
-.. list-table::
-   :widths: 10 10 10 10 10
-   :header-rows: 1
-
-   * - Name
-     - Mass frac.*
-     - Ref. line list / broad.
-     - P (bar), T (K) range
-     - Contributor
-   * - Al
-     - Al
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-   * - Al+
-     - Al+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-   * - Ca
-     - Ca
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-   * - Ca+
-     - Ca+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Fe
-     - Fe
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 56Fe__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Fe+
-     - Fe+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 56Fe_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - FeH
+     - 56Fe-1H__MoLLIST
+     - Main isotopologue, `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Wende+10 <http://dx.doi.org/10.1051/0004-6361/201015220>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - H2
+     - 1H2__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - H2O
+     - 1H2-16O__HITEMP
+     - HITEMP, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - **H2O**
+     - 1H2-16O__POKAZATEL
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Polyanski+18 <https://doi.org/10.1093/mnras/sty1877>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - H2-17O
+     - 1H2-17O__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - H2-18O
+     - 1H2-18O__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - HDO
+     - 1H-2H-16O__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
+   * - H2S
+     - 1H2-32S__AYT2
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Azzam+16 <http://dx.doi.org/10.1093/mnras/stw1133>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - HCN
+     - 1H-12C-14N__Harris
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barber+14 <http://mnras.oxfordjournals.org/content/437/2/1828.abstract>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - **K**
+     - 39K_Allard
+     - VALD, Allard wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - K
+     - 39K__Burrows
+     - VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
+     - --
+   * - K
+     - 39K_LorCut
+     - VALD, Lorentzian wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
    * - Li
-     - Li
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_    
+     - 3Li__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Mg
-     - Mg
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - Mg__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Mg+
-     - Mg+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 24Mg_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - MgH
+     - 24Mg-1H__MoLLIST
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gharib-Nezhad+13 <http://dx.doi.org/10.1093/mnras/stt510>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - MgO
+     - 24Mg-16O__LiTY
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Tennyson+19 <https://doi.org/10.1093/mnras/stz912>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - **Na**
+     - 23Na_Allard
+     - VALD, `new Allard wings <https://ui.adsabs.harvard.edu/abs/2019yCat..36280120A/abstract>`_, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - Na
+     - 23Na__Burrows
+     - Main isotopologue, VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
+     - --
+   * - Na
+     - 23Na_LorCut
+     - VALD, Lorentzian wings, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - NaH
+     - 23Na-1H
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Rivlin+15 <http://dx.doi.org/10.1093/mnras/stv979>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - NH3
+     - 14N-1H3__CoYuTe
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Coles+19 <https://doi.org/10.1093/mnras/stz2778>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - 15NH3
+     - 15N-1H3__HITRAN
+     - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+     - --
    * - O
-     - O
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 16O__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - O2
+     - 16O2__HITRAN
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - O16-O17
+     - 16O-17O__HITRAN
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - O16-O18
+     - 16O-18O__HITRAN
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - O3
+     - 16O3__HITRAN
+     - HITRAN, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - OH
+     - 16O-1H__MoLLIST
+     - M`ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Brooke+16 <http://dx.doi.org/10.1016/j.jqsrt.2015.07.021>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - PH3
+     - 31P-1H3__SAlTY
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Sousa-Silva+14 <http://dx.doi.org/10.1093/mnras/stu2246>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - SH
+     - 32S-1H__GYT
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gorman+19 <https://doi.org/10.1093/mnras/stz2517>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
    * - Si
-     - Si
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 28Si__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Si+
-     - Si+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 28Si_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - SiO
+     - 28Si-16O__SiOUVenIR
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barton+13 <https://doi.org/10.1093/mnras/stt1105>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - SiO2
+     - 28Si-16O2__OYT3
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Owens+20 <http://dx.doi.org/10.1093/mnras/staa1287>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - SO2
+     - 32Si-16O2__ExoAmes
+     - **???**
+     - **???**
    * - Ti
-     - Ti
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 48Ti__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Ti+
-     - Ti+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 48Ti_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - **TiO**
+     - Ti-O__McKemmish
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
+   * - TiO
+     - Ti-O-NatAbund_Plez
+     - B. Plez, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - 48TiO
+     - 48Ti-16O__Plez
+     - B. Plez, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - **48TiO**
+     - 48Ti-16O__McKemmish
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
    * - V
-     - V
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - 51V__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - V+
-     - V+
-     - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
-     - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
+     - V_p__Kurucz
+     - `Kurucz <http://kurucz.harvard.edu>`_
      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
+   * - VO
+     - 51V-16O__Plez
+     - B. Plez,, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+     - --
+   * - **VO**
+     - 51V-16O__VOMYT
+     - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+16 <http://dx.doi.org/10.1093/mnras/stw1969>`_
+     - `K. Chubb <klc20@st-andrews.ac.uk>`_
 
-*: see information box at the top of the page for mass fraction key handling.
+*: discarding the spectral information.
+
 
 **Line absorbers, high resolution mode** (``"lbl"``, with :math:`\lambda/\Delta\lambda=10^6`)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -559,7 +586,7 @@ Contributed atom and ion opacities, high resolution mode
      - Li
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
      - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_    
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Mg
      - Mg
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
@@ -574,7 +601,7 @@ Contributed atom and ion opacities, high resolution mode
      - N
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
      - :math:`10^{-6}`-:math:`10^{3}`, 80-4000
-     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_       
+     - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
    * - Si
      - Si
      - `Kurucz <http://kurucz.harvard.edu>`_, :math:`\gamma_{\rm nat+VdW},\sigma_{\rm therm}`
@@ -609,7 +636,7 @@ _______________
 .. list-table::
    :widths: 10 10 80
    :header-rows: 1
-		 
+
    * - Species name
      - Required in mass fraction dictionary
      - Description
@@ -697,15 +724,15 @@ _______________
    * - SiC(c)_cd
      - SiC(c)
      - Crystalline, DHS (irregular shape)
-   
-		 
+
+
 Rayleigh scatterers
 ___________________
 
 .. list-table::
    :widths: 10 10
    :header-rows: 1
-		 
+
    * - Species name
      - Required in mass fraction dictionary
    * - H2
@@ -732,7 +759,7 @@ _________________________
 .. list-table::
    :widths: 10 10 80
    :header-rows: 1
-		 
+
    * - Species name
      - Required in mass fraction dictionary
      - Descripton
