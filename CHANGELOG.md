@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a148] - 2024-02-07
+## [3.0.0-a149] - 2024-02-08
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - The combination of correlated-k opacities are now using the faster merge sorting algorithm.
 - Significantly improved the CIA interpolation performances. This might cause small changes in some results (most of the time the relative change should be < 1e-6).
 - Significantly improved transmission spectra calculation performances.
+- Significantly improved the `polyfit` preparing pipeline performances by using `numpy.polyfit` instead of the recommended `numpy.polynomial.Polynomial.fit`.
 - Slightly improved Feautrier radiative transfer calculation performances (`calculate_flux`).
 - Improved memory usage of object `Radtrans`.
 - Object `Radtrans` is now imported using `from petitRADTRANS.radtrans import Radtrans` (was `from petitRADTRANS import Radtrans`) for more stable installation.

@@ -227,10 +227,18 @@ def remove_telluric_lines_fit(spectrum, reduction_matrix, airmass, uncertainties
         # Fit each wavelength column
         for k, log_wavelength_column in enumerate(log_order_t):
             if weights[i, np.nonzero(weights[i, :, k]), k].size > degrees_of_freedom:
-                fit_parameters = np.polynomial.Polynomial.fit(
+                # The "preferred" numpy polyfit method is actually much slower than the "old" one
+                # fit_parameters = np.polynomial.Polynomial.fit(
+                #     x=airmass, y=log_wavelength_column, deg=polynomial_fit_degree, w=weights[i, :, k]
+                # )
+                # fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)  # convert() takes the longest
+
+                # The "old" way >5 times faster
+                fit_parameters = np.polyfit(
                     x=airmass, y=log_wavelength_column, deg=polynomial_fit_degree, w=weights[i, :, k]
                 )
-                fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)
+                fit_function = np.poly1d(fit_parameters)
+
                 telluric_lines_fits[i, :, k] = fit_function(airmass)
             else:
                 telluric_lines_fits[i, :, k] = 0
@@ -406,12 +414,20 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         else:
             raise ValueError(f"wavelengths must have at most 3 dimensions, but has {np.ndim(wavelengths)}")
 
-        # Fit each observation
+        # Fit each order
         for j, exposure in enumerate(order):
-            fit_parameters = np.polynomial.Polynomial.fit(
+            # The "preferred" numpy polyfit method is actually much slower than the "old" one
+            # fit_parameters = np.polynomial.Polynomial.fit(
+            #     x=wvl, y=exposure, deg=polynomial_fit_degree, w=weights[i, j, :]
+            # )
+            # fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)  # convert() takes the longest
+
+            # The "old" way >5 times faster
+            fit_parameters = np.polyfit(
                 x=wvl, y=exposure, deg=polynomial_fit_degree, w=weights[i, j, :]
             )
-            fit_function = np.polynomial.Polynomial(fit_parameters.convert().coef)
+            fit_function = np.poly1d(fit_parameters)
+
             throughput_fits[i, j, :] = fit_function(wvl)
 
         # Apply mask where estimate is lower than the threshold, as well as the data mask
