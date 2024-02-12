@@ -27,6 +27,7 @@ from petitRADTRANS.retrieval.parameter import RetrievalParameter
 from petitRADTRANS.retrieval.preparing import polyfit
 from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
+from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
 from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask
 
@@ -1718,6 +1719,119 @@ class SpectralModel(Radtrans):
             )
 
         return convolved_spectrum
+
+    @classmethod
+    def from_retrieval(
+            cls,
+            retrieval_directory: str,
+            sample_extraction_method: callable = 'median',
+            sample_extraction_method_parameters: dict[str] = None,
+            model_file: str = None,
+            retrieval_name: str = None,
+            pressures: np.ndarray[float] = None,
+            wavelength_boundaries: np.ndarray[float] = None,
+            line_species: list[str] = None,
+            gas_continuum_contributors: list[str] = None,
+            rayleigh_species: list[str] = None,
+            cloud_species: list[str] = None,
+            line_opacity_mode: str = 'c-k',
+            line_by_line_opacity_sampling: int = 1,
+            scattering_in_emission: bool = False,
+            emission_angle_grid: np.ndarray[float] = None,
+            anisotropic_cloud_scattering: bool = 'auto',
+            path_input_data: str = None,
+            radial_velocity_semi_amplitude_function: callable = None,
+            radial_velocities_function: callable = None,
+            relative_velocities_function: callable = None,
+            orbital_longitudes_function: callable = None,
+            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
+    ):
+        def __get_median_samples(_samples):
+            return {key: np.median(value) for key, value in _samples.items()}
+
+        def __get_best_fit_samples(_samples):
+            min_log_likelihood_index = np.argmin(_samples['log_likelihood'])
+            return {key: value[min_log_likelihood_index] for key, value in _samples.items()}
+
+        available_extraction_methods = {
+            'median': __get_median_samples,
+            'best': __get_best_fit_samples
+        }
+
+        if isinstance(sample_extraction_method, str):
+            if sample_extraction_method not in available_extraction_methods:
+                quote = "'"
+                raise ValueError(f"sample extraction method '{sample_extraction_method}' is not available, "
+                                 f"available methods are {quote + ', '.join(available_extraction_methods) + quote}, "
+                                 f"alternatively, use a function directly")
+            else:
+                sample_extraction_method = available_extraction_methods[sample_extraction_method]
+
+        if sample_extraction_method_parameters is None:
+            sample_extraction_method_parameters = {}
+
+        if model_file is not None:
+            print(f"Loading model from file '{model_file}'...")
+            new_spectral_model = cls.load(
+                filename=model_file,
+                path_input_data=path_input_data
+            )
+        else:
+            new_spectral_model = cls(
+                pressures=pressures,
+                wavelength_boundaries=wavelength_boundaries,
+                line_species=line_species,
+                gas_continuum_contributors=gas_continuum_contributors,
+                rayleigh_species=rayleigh_species,
+                cloud_species=cloud_species,
+                line_opacity_mode=line_opacity_mode,
+                line_by_line_opacity_sampling=line_by_line_opacity_sampling,
+                scattering_in_emission=scattering_in_emission,
+                emission_cos_angle_grid=emission_angle_grid,
+                anisotropic_cloud_scattering=anisotropic_cloud_scattering,
+                path_input_data=path_input_data,
+                radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
+                radial_velocities_function=radial_velocities_function,
+                relative_velocities_function=relative_velocities_function,
+                orbital_longitudes_function=orbital_longitudes_function,
+                temperatures=temperatures,
+                mass_mixing_ratios=mass_mixing_ratios,
+                mean_molar_masses=mean_molar_masses,
+                wavelengths=wavelengths,
+                transit_radii=transit_radii,
+                fluxes=fluxes,
+                **model_parameters
+            )
+
+        samples_dict = get_pymultinest_sample_dict(
+            output_dir=retrieval_directory,
+            name=retrieval_name,
+            add_log_likelihood=True,
+            add_stats=False
+        )
+
+        sample_selection = sample_extraction_method(
+            samples_dict, **sample_extraction_method_parameters
+        )
+
+        # Get fixed parameters by filtering out the retrieved parameters
+        fixed_parameters = {}
+
+        for parameter, value in new_spectral_model.model_parameters.items():
+            if parameter not in sample_selection and 'log10_' + parameter not in sample_selection:
+                fixed_parameters[parameter] = copy.deepcopy(value)
+
+        parameters, _ = new_spectral_model.__retrieval_parameters_interface(
+            retrieved_parameters=sample_selection,
+            fixed_parameters=fixed_parameters,
+            line_species=new_spectral_model.line_species,
+            n_layers=new_spectral_model.pressures.size
+        )
+
+        new_spectral_model.model_parameters.update(parameters)
+
+        return new_spectral_model
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None,
                                             **kwargs
