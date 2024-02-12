@@ -321,6 +321,57 @@ class SpectralModel(Radtrans):
             radial_velocities, orbital_longitudes, is_orbiting
 
     @staticmethod
+    def __retrieval_parameters_interface(retrieved_parameters, fixed_parameters, line_species, n_layers):
+        # TODO Change model generating function template to not include pt_plot_mode
+        if fixed_parameters is None:
+            fixed_parameters = {}
+
+        # Build model parameters
+        parameters = {}
+
+        # Add fixed parameters
+        for key, value in fixed_parameters.items():
+            parameters[key] = value
+
+        # Add free parameters, convert from Parameter object to dictionary
+        for key, value in retrieved_parameters.items():
+            parameters[key] = copy.deepcopy(value)
+
+        for key, value in parameters.items():
+            if hasattr(value, 'value'):
+                parameters[key] = parameters[key].value
+
+        # Handle uncertainties scaling factor (beta)
+        if 'beta' in parameters:
+            beta = copy.deepcopy(parameters['beta'])
+        elif 'log10_beta' in parameters:
+            beta = copy.deepcopy(10 ** parameters['log10_beta'])
+        else:
+            beta = None
+
+        # Put retrieved species into imposed mass fractions
+        imposed_mass_fractions = {}
+
+        for species in line_species:
+            if species in parameters:
+                imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
+
+                del parameters[species]
+
+        # TODO add cloud MMR model(s)
+
+        for species in parameters['imposed_mass_fractions']:
+            if species in parameters and species not in line_species:
+                imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
+
+                del parameters[species]
+
+        for key, value in imposed_mass_fractions.items():
+            parameters['imposed_mass_fractions'][key] = value
+
+        return parameters, beta
+
+    @staticmethod
     def _compute_metallicity_wrap(planet_mass=None,
                                   star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
                                   verbose=False, **kwargs):
@@ -2400,52 +2451,12 @@ class SpectralModel(Radtrans):
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
                                             convolve=False, rebin=False, prepare=False):
-        # TODO Change model generating function template to not include pt_plot_mode
-        if fixed_parameters is None:
-            fixed_parameters = {}
-
-        # Build model parameters
-        p = {}
-
-        # Add fixed parameters
-        for key, value in fixed_parameters.items():
-            p[key] = value
-
-        # Add free parameters, convert from Parameter object to dictionary
-        for key, value in parameters.items():
-            p[key] = copy.deepcopy(value)
-
-        for key, value in p.items():
-            if hasattr(value, 'value'):
-                p[key] = p[key].value
-
-        # Handle uncertainties scaling factor (beta)
-        if 'beta' in p:
-            beta = copy.deepcopy(p['beta'])
-        elif 'log10_beta' in p:
-            beta = copy.deepcopy(10 ** p['log10_beta'])
-        else:
-            beta = None
-
-        # Put retrieved species into imposed mass fractions
-        imposed_mass_fractions = {}
-
-        for species in prt_object.line_species:
-            if species in p:
-                imposed_mass_fractions[species] = 10 ** p[species] * np.ones(prt_object.pressures.shape)
-
-                del p[species]
-
-        # TODO add cloud MMR model(s)
-
-        for species in p['imposed_mass_fractions']:
-            if species in p and species not in prt_object.line_species:
-                imposed_mass_fractions[species] = 10 ** p[species] * np.ones(prt_object.pressures.shape)
-
-                del p[species]
-
-        for key, value in imposed_mass_fractions.items():
-            p['imposed_mass_fractions'][key] = value
+        p, beta = SpectralModel.__retrieval_parameters_interface(
+            retrieved_parameters=parameters,
+            fixed_parameters=fixed_parameters,
+            line_species=prt_object.line_species,
+            n_layers=prt_object.pressures.size
+        )
 
         # Calculate the spectrum
         wavelengths, model = prt_object.calculate_spectrum(
