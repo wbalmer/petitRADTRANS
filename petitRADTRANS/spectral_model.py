@@ -2646,8 +2646,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_cos_angle_grid: np.ndarray[float] = None,
-            emission_cos_angle_grid_weights: np.ndarray[float] = None,
+            emission_angle_grid: np.ndarray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
             radial_velocity_semi_amplitude_function: callable = None,
@@ -2716,7 +2715,7 @@ class SpectralModel(Radtrans):
         )
 
         # Get the wavelengths boundaries from the velocity range
-        wavelengths_boundaries = SpectralModel.compute_optimal_wavelength_boundaries(
+        wavelength_boundaries = SpectralModel.compute_optimal_wavelength_boundaries(
             rebinned_wavelengths=rebinned_wavelengths,
             shift_wavelengths_function=shift_wavelengths_function,
             relative_velocities=retrieval_velocities,
@@ -2726,7 +2725,7 @@ class SpectralModel(Radtrans):
         # Generate a SpectralModel using the calculated wavelength boundaries
         new_spectral_model = cls(
             pressures=pressures,
-            wavelength_boundaries=wavelengths_boundaries,
+            wavelength_boundaries=wavelength_boundaries,
             line_species=line_species,
             gas_continuum_contributors=gas_continuum_contributors,
             rayleigh_species=rayleigh_species,
@@ -2734,8 +2733,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode=line_opacity_mode,
             line_by_line_opacity_sampling=line_by_line_opacity_sampling,
             scattering_in_emission=scattering_in_emission,
-            emission_cos_angle_grid=emission_cos_angle_grid,
-            emission_cos_angle_grid_weights=emission_cos_angle_grid_weights,
+            emission_angle_grid=emission_angle_grid,
             anisotropic_cloud_scattering=anisotropic_cloud_scattering,
             path_input_data=path_input_data,
             radial_velocity_semi_amplitude_function=radial_velocity_semi_amplitude_function,
