@@ -2013,6 +2013,8 @@ class SpectralModel(Radtrans):
                 for key, value in parameters[parameter].items():
                     parameters[key] = value
 
+                del parameters[parameter]
+
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
             **parameters
