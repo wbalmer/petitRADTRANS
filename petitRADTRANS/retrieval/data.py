@@ -69,12 +69,12 @@ class Data:
                 This may be desired in the case where medium-resolution spectra are
                 required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
                 :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-                may make sense to carry out the calculations with lbl_opacity_sampling = 10e5,
+                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10e5,
                 for example, and then re-binning to the final desired resolution:
                 this may save time! The user should verify whether this leads to
                 solutions which are identical to the re-binned results of the fiducial
                 :math:`10^6` resolution. If not, this parameter must not be used.
-                Note the difference between this parameter and the lbl_opacity_sampling
+                Note the difference between this parameter and the line_by_line_opacity_sampling
                 parameter in the RadTrans class - the actual desired resolution should
                 be set here.
             system_distance : float
