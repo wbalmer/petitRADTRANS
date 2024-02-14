@@ -82,14 +82,10 @@ class Radtrans:
                 correlated-k assumption. if equal to ``'lbl'``: use high-resolution mode, at
                 :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line treatment.
             line_by_line_opacity_sampling (Optional[int]):
-                Will be ``None`` by default. If integer positive value, and if ``mode == 'lbl'`` is ``True``, then this
-                will only consider every lbl_opacity_sampling-nth point of the high-resolution opacities.
-                This may be desired in the case where medium-resolution spectra are required with a
-                :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than :math:`10^6`, which is the resolution
-                of the ``lbl`` mode. In this case it may make sense to carry out the calculations with
-                lbl_opacity_sampling = 10, for example, and then re-binning to the final desired resolution: this may
-                save time! The user should verify whether this leads to solutions which are identical to the re-binned
-                results of the fiducial :math:`10^6` resolution. If not, this parameter must not be used.
+                If ``mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
+                high-resolution opacities. This can be used to save time and RAM.
+                The user should verify whether this leads to solutions which are identical to the results of the
+                non down-sampled :math:`10^6` resolution.
             scattering_in_emission (Optional[bool]):
                 Will be ``False`` by default.
                 If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
@@ -2808,7 +2804,7 @@ class Radtrans:
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
             cloud_f_sed: float = None,
-            eddy_diffusion_coefficient: float = None,
+            eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
@@ -2858,7 +2854,7 @@ class Radtrans:
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
                 cloud_f_sed (Optional[float]):
                     cloud settling parameter
-                eddy_diffusion_coefficient (Optional):
+                eddy_diffusion_coefficients (Optional):
                     the atmospheric eddy diffusion coefficient in cgs
                     (i.e. :math:`\\rm cm^2/s`),
                     at each atmospheric layer
@@ -2907,7 +2903,7 @@ class Radtrans:
                 cloud_photosphere_median_optical_depth=None,
                 cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
                 cloud_f_sed=cloud_f_sed,
-                eddy_diffusion_coefficients=eddy_diffusion_coefficient,
+                eddy_diffusion_coefficients=eddy_diffusion_coefficients,
                 cloud_particles_mean_radii=cloud_particles_mean_radii,
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
@@ -3429,7 +3425,7 @@ class Radtrans:
         return line_opacities_grid
 
     @staticmethod
-    def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, lbl_opacity_sampling=1):
+    def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, line_by_line_opacity_sampling=1):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
             frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to s-1
@@ -3440,10 +3436,9 @@ class Radtrans:
             ))[0]
             selection = np.array([selection[0], selection[-1]])
 
-            if lbl_opacity_sampling > 1:
+            if line_by_line_opacity_sampling > 1:
                 # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-                selection[0] -= lbl_opacity_sampling - 1  # array is ordered by increasing wvn, so decreasing wvl
-
+                selection[0] -= line_by_line_opacity_sampling - 1  # array is ordered by increasing wavenumber
             line_opacities_grid = f['xsecarr'][:, :, selection[0]:selection[-1] + 1]
             # line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
             # Divide by mass to convert cross-sections to opacities
@@ -3452,15 +3447,15 @@ class Radtrans:
 
         line_opacities_grid = line_opacities_grid[:, :, ::-1]
 
-        if lbl_opacity_sampling > 1:
-            line_opacities_grid = line_opacities_grid[:, :, ::lbl_opacity_sampling]
+        if line_by_line_opacity_sampling > 1:
+            line_opacities_grid = line_opacities_grid[:, :, ::line_by_line_opacity_sampling]
 
         if line_opacities_grid.shape[-1] != frequencies.size:
             frequency_grid = frequency_grid[selection[0]:selection[-1] + 1]
             frequency_grid = frequency_grid[::-1]
 
-            if lbl_opacity_sampling > 1:
-                frequency_grid = frequency_grid[::lbl_opacity_sampling]
+            if line_by_line_opacity_sampling > 1:
+                frequency_grid = frequency_grid[::line_by_line_opacity_sampling]
 
             raise ValueError(f"file selected frequencies size is "
                              f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
@@ -3540,7 +3535,7 @@ class Radtrans:
                     self._lines_loaded_opacities['opacity_grid'][species] = self.load_hdf5_line_opacity_table(
                         file_path_hdf5=hdf5_file,
                         frequencies=self._frequencies,
-                        lbl_opacity_sampling=self._line_by_line_opacity_sampling
+                        line_by_line_opacity_sampling=self._line_by_line_opacity_sampling
                     )
 
                 print(" Done.")
