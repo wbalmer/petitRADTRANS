@@ -13,4 +13,4 @@ Tutorial
    notebooks/planet
    notebooks/Rebinning_opacities
    notebooks/nat_cst_utility
-   notebooks/poor_man
+   notebooks/interpolating_chemical_equilibrium_abundances
