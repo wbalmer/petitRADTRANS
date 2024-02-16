@@ -159,7 +159,7 @@ def calculate_co_added_ccf_snr(co_added_cross_correlation, rest_velocities, vr_p
 def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_ccf=None,
                  model_velocities=None, normalize_ccf=True, calculate_ccf_snr=True, ccf_sum_axes=None,
                  radial_velocity_semi_amplitude=None, system_observer_radial_velocities=None, orbital_longitudes=None,
-                 orbital_inclination=90.0, line_spread_function_fwhm=None, pixels_per_resolution_element=2,
+                 line_spread_function_fwhm=None, pixels_per_resolution_element=2,
                  co_added_ccf_peak_width=None,
                  velocity_interval_extension_factor=0.25, kp_factor=2.0, n_kp=None, n_vr=None,
                  radial_velocity_function=None, **kwargs):
@@ -178,7 +178,6 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         ccf_sum_axes: iterable listing the axes on which to sum the CCF before computing the co-added CCF
         system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
         orbital_longitudes: 1D array containing the orbital longitudes of the data
-        orbital_inclination: (deg) orbital inclination of the planet
         radial_velocity_semi_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
         line_spread_function_fwhm: (cm.s-1) Full Width at Half-Maximum of the instrument line spread function (LSF)
         co_added_ccf_peak_width: (cm.s-1) width of the CCF peak, for the SNR, 3 times the LSF px size by default
@@ -255,7 +254,6 @@ def ccf_analysis(wavelengths_data, data, wavelengths_model, model, velocities_cc
         velocities_ccf=velocities_ccf,
         system_observer_radial_velocities=system_observer_radial_velocities,
         orbital_longitudes=orbital_longitudes,
-        orbital_inclination=orbital_inclination,
         kp_factor=kp_factor,
         n_kp=n_kp,
         n_vr=n_vr,
@@ -643,7 +641,7 @@ def get_co_added_ccf_peak_properties(co_added_cross_correlation, kp_space, vr_sp
 
 def get_co_added_ccf_velocity_space(radial_velocity_semi_amplitude, velocities_ccf,
                                     system_observer_radial_velocities, orbital_longitudes,
-                                    orbital_inclination=90.0, kp_factor=2.0,
+                                    kp_factor=2.0,
                                     n_kp=None, n_vr=None, radial_velocity_function=None, **kwargs):
     # Initializations
     if n_kp is None:

@@ -356,7 +356,6 @@ def test_line_by_line_spectral_model_transmission_ccf():
                 radial_velocity_semi_amplitude=spectral_model.model_parameters['radial_velocity_semi_amplitude'],
                 system_observer_radial_velocities=spectral_model.model_parameters['system_observer_radial_velocities'],
                 orbital_longitudes=spectral_model.model_parameters['orbital_longitudes'],
-                orbital_inclination=spectral_model.model_parameters['orbital_inclination'],
                 line_spread_function_fwhm=line_spread_function_fwhm,
                 pixels_per_resolution_element=test_parameters['ccf_analysis_parameters'][
                     'pixels_per_resolution_element'],
