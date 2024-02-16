@@ -10,6 +10,7 @@ Tutorial
    notebooks/emis_scat
    notebooks/analysis
    retrieval_examples
+   notebooks/planet
    notebooks/Rebinning_opacities
    notebooks/nat_cst_utility
    notebooks/poor_man
