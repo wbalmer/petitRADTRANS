@@ -106,11 +106,11 @@ class SpectralModel(Radtrans):
             line_by_line_opacity_sampling:
                 Will be ``None`` by default. If integer positive value, and if
                 ``mode == 'lbl'`` is ``True``, then this will only consider every
-                lbl_opacity_sampling-nth point of the high-resolution opacities.
+                line_by_line_opacity_sampling-nth point of the high-resolution opacities.
                 This may be desired in the case where medium-resolution spectra are
                 required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
                 :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-                may make sense to carry out the calculations with lbl_opacity_sampling = 10,
+                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10,
                 for example, and then re-binning to the final desired resolution:
                 this may save time! The user should verify whether this leads to
                 solutions which are identical to the re-binned results of the fiducial
@@ -1774,7 +1774,7 @@ class SpectralModel(Radtrans):
         if model_file is not None:
             print(f"Loading model from file '{model_file}'...")
             new_spectral_model = cls.load(
-                filename=model_file,
+                file=model_file,
                 path_input_data=path_input_data
             )
         else:
@@ -2141,12 +2141,12 @@ class SpectralModel(Radtrans):
         )
 
     @classmethod
-    def load(cls, filename, path_input_data=None):
+    def load(cls, file, path_input_data=None):
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
         # Update the SpectralModel attributes from the file
-        with h5py.File(filename, 'r') as f:
+        with h5py.File(file, 'r') as f:
             parameters = hdf52dict(f)
 
         del parameters['units']
