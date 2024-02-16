@@ -15,7 +15,7 @@ from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equi
 from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmospheric_layer,
                                            mass_fractions2volume_mixing_ratios, simplify_species_list)
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from petitRADTRANS.math import gaussian_weights_running
+from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
     rebin_spectrum
