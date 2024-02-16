@@ -227,15 +227,7 @@ class SpectralModel(Radtrans):
             raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
 
     def __check_model_parameters_relevance(self):
-        default_parameters = []
-
-        for function in dir(self):
-            if (callable(getattr(self, function))
-                    and (function[0] != '_' or getattr(self, function) is self.__init_velocities)):
-                signature = inspect.signature(getattr(self, function))
-
-                for parameter in signature.parameters:
-                    default_parameters.append(parameter)
+        default_parameters = self.get_default_parameters(sort=False, spectral_model_specific=False)
 
         for parameter in self.model_parameters:
             if 'log10_' in parameter:
@@ -1832,6 +1824,67 @@ class SpectralModel(Radtrans):
         new_spectral_model.model_parameters.update(parameters)
 
         return new_spectral_model
+
+    def get_default_parameters(self, sort=True, spectral_model_specific=True):
+        """Get all the default SpectralModel parameters."""
+        def __list_arguments(_object, exclude_functions=None, include_functions=None):
+            if exclude_functions is None:
+                exclude_functions = []
+
+            if include_functions is None:
+                include_functions = []
+
+            _arguments = set()
+
+            for function in dir(_object):
+                if (
+                        callable(getattr(_object, function))
+                        and (function[0] != '_' or getattr(_object, function) in include_functions)
+                        and getattr(_object, function) not in exclude_functions
+                ):
+                    signature = inspect.signature(getattr(_object, function))
+
+                    for parameter in signature.parameters:
+                        _arguments.add(parameter)
+
+            return _arguments
+
+        default_parameters = __list_arguments(
+            self,
+            exclude_functions=[
+                self.calculate_spectrum,
+                self.get_default_parameters,
+                self.init_data,
+                self.init_retrieval,
+                self.load,
+                self.get_telluric_transmittances,
+                self.modify_spectrum,
+                self.remove_mask,
+                self.retrieval_model_generating_function,
+                self.run_retrieval,
+                self.save,
+                self.save_parameters
+            ],
+            include_functions=[
+                self.__init_velocities
+            ]
+        )
+
+        if spectral_model_specific:
+            radtrans_parameters = np.array(list(__list_arguments(Radtrans)))
+
+            default_parameters = set(
+                parameter
+                for parameter in default_parameters
+                if parameter not in radtrans_parameters
+            )
+
+        default_parameters = np.array(list(default_parameters))
+
+        if sort:
+            default_parameters = np.sort(default_parameters)
+
+        return default_parameters
 
     def get_spectral_calculation_parameters(self, pressures=None, wavelengths=None,
                                             **kwargs
