@@ -774,10 +774,10 @@ class Planet:
             source_mid_transit_time = self.transit_midpoint_time
 
             if source_mid_transit_time_error_lower is not None:
-                warnings.warn(f"overriding source_mid_transit_time_error_lower")
+                warnings.warn("overriding source_mid_transit_time_error_lower")
 
             if source_mid_transit_time_error_upper is not None:
-                warnings.warn(f"overriding source_mid_transit_time_error_upper")
+                warnings.warn("overriding source_mid_transit_time_error_upper")
 
             source_mid_transit_time_error_lower = self.transit_midpoint_time_error_lower
             source_mid_transit_time_error_upper = self.transit_midpoint_time_error_upper
