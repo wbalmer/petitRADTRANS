@@ -404,7 +404,7 @@ class SpectralModel(Radtrans):
             transit_duration: duration of the planet total transit (T14)
             orbital_period: period of the planet orbit
         """
-        impact_parameter_squared = Planet.calculate_impact_parameter(
+        impact_parameter_squared = Planet.compute_impact_parameter(
             orbit_semi_major_axis=orbit_semi_major_axis,
             orbital_inclination=orbital_inclination,
             star_radius=star_radius
@@ -1384,18 +1384,18 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_orbital_longitudes(times_to_longitude_start, orbital_period, longitude_start=0, **kwargs):
-        return Planet.get_orbital_phases(
-            phase_start=longitude_start * 360,
+        return Planet.compute_orbital_longitudes(
+            times=times_to_longitude_start,
             orbital_period=orbital_period,
-            times=times_to_longitude_start
-        ) * 360  # degrees
+            longitude_start=np.deg2rad(longitude_start),
+            rad2deg=True
+        )
 
     @staticmethod
     def compute_radial_velocities(orbital_longitudes, radial_velocity_semi_amplitude,
-                                  orbital_inclination=90.0, **kwargs):
-        return Planet.calculate_radial_velocity(
+                                  **kwargs):
+        return Planet.compute_radial_velocity(
                 radial_velocity_semi_amplitude=radial_velocity_semi_amplitude,
-                orbital_inclination=orbital_inclination,
                 orbital_longitude=orbital_longitudes
             )
 
@@ -1432,7 +1432,7 @@ class SpectralModel(Radtrans):
         Returns:
             (cm.s-1) the planet orbital radial velocity semi-amplitude
         """
-        return Planet.calculate_orbital_velocity(
+        return Planet.compute_orbital_velocity(
             star_mass=star_mass,
             orbit_semi_major_axis=orbit_semi_major_axis
         )

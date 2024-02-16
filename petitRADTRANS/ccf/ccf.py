@@ -653,7 +653,7 @@ def get_co_added_ccf_velocity_space(radial_velocity_semi_amplitude, velocities_c
         n_vr = np.size(velocities_ccf)
 
     if radial_velocity_function is None:
-        radial_velocity_function = Planet.calculate_radial_velocity
+        radial_velocity_function = Planet.compute_radial_velocity
 
     n_exposures = np.size(orbital_longitudes)
 
@@ -668,9 +668,7 @@ def get_co_added_ccf_velocity_space(radial_velocity_semi_amplitude, velocities_c
     planet_observer_radial_velocities = system_observer_radial_velocities + np.array([
         radial_velocity_function(
             radial_velocity_semi_amplitude=kp,
-            orbital_inclination=orbital_inclination,
             orbital_longitude=orbital_longitudes,  # phase to longitude (deg)
-            **kwargs
         ) for kp in kps
     ])
 

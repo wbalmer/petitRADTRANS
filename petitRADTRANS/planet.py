@@ -13,7 +13,7 @@ from astropy.time import Time
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.config import petitradtrans_config_parser
-from petitRADTRANS.math import calculate_uncertainty
+from petitRADTRANS.math import calculate_uncertainty, longitude2phase, phase2longitude
 
 
 class Planet:
@@ -434,302 +434,8 @@ class Planet:
         else:
             self.units = units
 
-    def calculate_planetary_equilibrium_temperature(self):
-        """
-        Calculate the equilibrium temperature of a planet.
-        """
-        equilibrium_temperature = \
-            self.star_effective_temperature * np.sqrt(self.star_radius / (2 * self.orbit_semi_major_axis)) \
-            * (1 - self.bond_albedo) ** 0.25
-
-        partial_derivatives = np.array([
-            equilibrium_temperature / self.star_effective_temperature,  # dt_eq/dt_eff
-            0.5 * equilibrium_temperature / self.star_radius,  # dt_eq/dr*
-            - 0.5 * equilibrium_temperature / self.orbit_semi_major_axis  # dt_eq/dd
-        ])
-        uncertainties = np.abs(np.array([
-            [self.star_effective_temperature_error_lower, self.star_effective_temperature_error_upper],
-            [self.star_radius_error_lower, self.star_radius_error_upper],
-            [self.orbit_semi_major_axis_error_lower, self.orbit_semi_major_axis_error_upper]
-        ]))
-
-        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
-
-        return equilibrium_temperature, errors[1], -errors[0]
-
-    def get_filename(self):
-        return self.generate_filename(self.name)
-
-    def save(self, filename=None):
-        if filename is None:
-            filename = self.get_filename()
-
-        with h5py.File(filename, 'w') as f:
-            for key in self.__dict__:
-                if key == 'units':
-                    continue
-
-                data_set = f.create_dataset(
-                    name=key,
-                    data=self.__dict__[key]
-                )
-
-                if self.units[key] != 'N/A':
-                    data_set.attrs['units'] = self.units[key]
-
-    @classmethod
-    def from_tab_file(cls, filename, use_best_mass=True):
-        """Read from a NASA Exoplanet Archive Database .tab file.
-        Args:
-            filename: file to read
-            use_best_mass: if True, use NASA Exoplanet Archive Database 'bmass' argument instead of 'mass'.
-
-        Returns:
-            planets: a list of Planet objects
-        """
-        with open(filename, 'r') as f:
-            line = f.readline()
-            line = line.strip()
-
-            # Skip header
-            while line[0] == '#':
-                line = f.readline()
-                line = line.strip()
-
-            # Read column names
-            columns_name = line.split('\t')
-
-            planet_name_index = columns_name.index('pl_name')
-
-            planets = {}
-
-            # Read data
-            for line in f:
-                line = line.strip()
-                columns = line.split('\t')
-
-                new_planet = cls(columns[planet_name_index])
-                keys = []
-
-                for i, value in enumerate(columns):
-                    # Clearer keynames
-                    keys.append(columns_name[i])
-
-                    if value != '':
-                        try:
-                            value = float(value)
-                        except ValueError:
-                            pass
-
-                        value, keys[i] = Planet.__convert_nasa_exoplanet_archive(
-                            value, keys[i], use_best_mass=use_best_mass
-                        )
-                    else:
-                        value = None
-
-                    if keys[i] in new_planet.__dict__:
-                        new_planet.__dict__[keys[i]] = value
-
-                # Try to calculate the planet mass and radius if missing
-                if new_planet.radius == 0 and new_planet.mass > 0 and new_planet.density > 0:
-                    new_planet.radius = (3 * new_planet.mass / (4 * np.pi * new_planet.density)) ** (1 / 3)
-
-                    partial_derivatives = np.array([
-                        new_planet.radius / (3 * new_planet.mass),  # dr/dm
-                        - new_planet.radius / (3 * new_planet.density)  # dr/drho
-                    ])
-                    uncertainties = np.abs(np.array([
-                        [new_planet.mass_error_lower, new_planet.mass_error_upper],
-                        [new_planet.density_error_lower, new_planet.density_error_upper]
-                    ]))
-
-                    new_planet.radius_error_lower, new_planet.radius_error_upper = \
-                        calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
-                elif new_planet.mass == 0 and new_planet.radius > 0 and new_planet.density > 0:
-                    new_planet.mass = new_planet.density * 4 / 3 * np.pi * new_planet.radius ** 3
-
-                    partial_derivatives = np.array([
-                        new_planet.mass / new_planet.density,  # dm/drho
-                        3 * new_planet.radius / new_planet.radius  # dm/dr
-                    ])
-                    uncertainties = np.abs(np.array([
-                        [new_planet.density_error_lower, new_planet.density_error_upper],
-                        [new_planet.radius_error_lower, new_planet.radius_error_upper]
-                    ]))
-
-                    new_planet.mass_error_lower, new_planet.mass_error_upper = \
-                        calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
-
-                # Try to calculate the star radius if missing
-                if new_planet.star_radius == 0 and new_planet.star_mass > 0:
-                    if new_planet.star_reference_gravity > 0:
-                        new_planet.star_radius, \
-                            new_planet.star_radius_error_upper, new_planet.star_radius_error_lower = \
-                            new_planet.reference_gravity2radius(
-                                new_planet.star_reference_gravity,
-                                new_planet.star_mass,
-                                reference_gravity_error_upper=new_planet.star_reference_gravity_error_upper,
-                                reference_gravity_error_lower=new_planet.star_reference_gravity_error_lower,
-                                mass_error_upper=new_planet.star_mass_error_upper,
-                                mass_error_lower=new_planet.star_mass_error_lower
-                            )
-                    elif new_planet.star_density > 0:
-                        new_planet.star_radius = \
-                            (3 * new_planet.star_mass / (4 * np.pi * new_planet.star_density)) ** (1 / 3)
-
-                        partial_derivatives = np.array([
-                            new_planet.star_radius / (3 * new_planet.star_mass),  # dr/dm
-                            - new_planet.star_radius / (3 * new_planet.star_density)  # dr/drho
-                        ])
-                        uncertainties = np.abs(np.array([
-                            [new_planet.star_mass_error_lower, new_planet.star_mass_error_upper],
-                            [new_planet.star_density_error_lower, new_planet.star_density_error_upper]
-                        ]))
-
-                        new_planet.star_radius_error_lower, new_planet.star_radius_error_upper = \
-                            calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
-
-                if 'reference_gravity' not in keys and new_planet.radius > 0 and new_planet.mass > 0:
-                    new_planet.reference_gravity, \
-                        new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
-                        new_planet.mass2reference_gravity(
-                            new_planet.mass,
-                            new_planet.radius,
-                            mass_error_upper=new_planet.mass_error_upper,
-                            mass_error_lower=new_planet.mass_error_lower,
-                            radius_error_upper=new_planet.radius_error_upper,
-                            radius_error_lower=new_planet.radius_error_lower
-                        )
-
-                if 'equilibrium_temperature' not in keys \
-                        and new_planet.orbit_semi_major_axis > 0 \
-                        and new_planet.star_effective_temperature > 0 \
-                        and new_planet.star_radius > 0:
-                    new_planet.equilibrium_temperature, \
-                        new_planet.equilibrium_temperature_error_upper, \
-                        new_planet.equilibrium_temperature_error_lower = \
-                        new_planet.calculate_planetary_equilibrium_temperature()
-
-                planets[new_planet.name] = new_planet
-
-        return planets
-
-    @classmethod
-    def from_votable(cls, votable):
-        new_planet = cls('new_planet')
-        parameter_dict = {}
-
-        for key in votable.keys():
-            # Clearer keynames
-            value, key = Planet.__convert_nasa_exoplanet_archive(votable[key], key)
-            parameter_dict[key] = value
-
-        parameter_dict = new_planet.select_best_in_column(parameter_dict)
-
-        for key in parameter_dict:
-            if key in new_planet.__dict__:
-                new_planet.__dict__[key] = parameter_dict[key]
-
-        if 'reference_gravity' not in parameter_dict and new_planet.radius > 0:
-            new_planet.reference_gravity, \
-                new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
-                new_planet.mass2reference_gravity(
-                    new_planet.mass,
-                    new_planet.radius,
-                    mass_error_upper=new_planet.mass_error_upper,
-                    mass_error_lower=new_planet.mass_error_lower,
-                    radius_error_upper=new_planet.radius_error_upper,
-                    radius_error_lower=new_planet.radius_error_lower
-                )
-
-        if 'equilibrium_temperature' not in parameter_dict:
-            new_planet.equilibrium_temperature, \
-                new_planet.equilibrium_temperature_error_upper, new_planet.equilibrium_temperature_error_lower = \
-                new_planet.calculate_planetary_equilibrium_temperature()
-
-        return new_planet
-
-    @classmethod
-    def from_votable_file(cls, filename):
-        with warnings.catch_warnings():
-            # Temporarily filter the archive-induced units warnings
-            warnings.filterwarnings('ignore', category=u.UnitsWarning)
-            astro_table = Table.read(filename)
-
-        return cls.from_votable(astro_table)
-
-    @classmethod
-    def get(cls, name):
-        filename = cls.generate_filename(name)
-
-        return cls.get_from(name, filename)
-
     @staticmethod
-    def get_default_directory(path_input_data=None):
-        if path_input_data is None:
-            path_input_data = petitradtrans_config_parser.get_input_data_path()
-
-        return os.path.abspath(os.path.join(path_input_data, 'planet_data'))
-
-    @classmethod
-    def get_from(cls, name, filename):
-        if not os.path.exists(filename):
-            filename_vot = filename.rsplit('.', 1)[0] + '.vot'  # search for votable
-
-            if not os.path.exists(filename_vot):
-                print(f"file '{filename_vot}' not found, downloading...")
-
-                directory = os.path.dirname(filename_vot)
-
-                if not os.path.isdir(directory):
-                    os.mkdir(directory)
-
-                cls.download_from_nasa_exoplanet_archive(name)
-            else:
-                warnings.warn(f"intermediate vot file found ('{filename_vot}') but not the corresponding final file "
-                              f"('{filename}')\n"
-                              f"This may indicate an incomplete or corrupted download. If conversion to HDF5 fails, "
-                              f"consider removing the vot file.")
-
-            # Save into HDF5 and remove the VO table
-            new_planet = cls.from_votable_file(filename_vot)
-            new_planet.save()
-            os.remove(filename_vot)
-
-            return new_planet
-        else:
-            return cls.load(name, filename)
-
-    @classmethod
-    def load(cls, name, filename=None):
-        new_planet = cls(name)
-
-        if filename is None:
-            filename = new_planet.get_filename()
-
-        with h5py.File(filename, 'r') as f:
-            for key in f:
-                if isinstance(f[key][()], bytes):
-                    value = str(f[key][()], 'utf-8')
-                else:
-                    value = f[key][()]
-
-                new_planet.__dict__[key] = value
-
-                if 'units' in f[key].attrs:
-                    if key in new_planet.units:
-                        if f[key].attrs['units'] != new_planet.units[key]:
-                            raise ValueError(f"units of key '{key}' must be '{new_planet.units[key]}', "
-                                             f"but is '{f[key].attrs['units']}'")
-                    else:
-                        new_planet.units[key] = f[key].attrs['units']
-                else:
-                    new_planet.units[key] = 'N/A'
-
-        return new_planet
-
-    @staticmethod
-    def __convert_nasa_exoplanet_archive(value, key, verbose=False, use_best_mass=False):
+    def _convert_nasa_exoplanet_archive(value, key, verbose=False, use_best_mass=False):
         skip_unit_conversion = False
 
         # Heads
@@ -949,245 +655,7 @@ class Planet:
         return value, key
 
     @staticmethod
-    def bjd_utc2bjd_tdb(times_utc, ra, dec, site_name=None, latitude=None, longitude=None, height=None):
-        observer_location, target_coordinates = Planet.get_astropy_coordinates(
-            ra=ra,
-            dec=dec,
-            site_name=site_name,
-            latitude=latitude,
-            longitude=longitude,
-            height=height
-        )
-
-        times_utc = Time(times_utc, format='jd', scale='utc')
-        times_tdb = times_utc.tdb + times_utc.light_travel_time(target_coordinates, location=observer_location)
-
-        return times_tdb.value
-
-    @staticmethod
-    def calculate_full_transit_duration(total_transit_duration, planet_radius, star_radius, impact_parameter):
-        k = planet_radius / star_radius
-
-        return total_transit_duration * np.sqrt(
-            ((1 - k) ** 2 - impact_parameter ** 2)
-            / ((1 + k) ** 2 - impact_parameter ** 2)
-        )
-
-    @staticmethod
-    def calculate_impact_parameter(orbit_semi_major_axis, orbital_inclination, star_radius):
-        return orbit_semi_major_axis * np.cos(np.deg2rad(orbital_inclination)) / star_radius
-
-    @staticmethod
-    def calculate_mid_transit_time_from_source(observation_day,
-                                               source_mid_transit_time,
-                                               source_mid_transit_time_error_lower, source_mid_transit_time_error_upper,
-                                               orbital_period, orbital_period_error_lower, orbital_period_error_upper,
-                                               day2second=True):
-        n_orbits = np.ceil((observation_day - source_mid_transit_time) / orbital_period)
-        observation_mid_transit_time = source_mid_transit_time + n_orbits * orbital_period
-
-        derivatives = np.array([
-            1,  # dT0 / dT0_source
-            n_orbits  # dT0 / dP
-        ])
-
-        uncertainties = np.abs(np.array([
-            [source_mid_transit_time_error_lower, source_mid_transit_time_error_upper],
-            [orbital_period_error_lower, orbital_period_error_upper],
-        ]))
-
-        errors = calculate_uncertainty(derivatives, uncertainties)
-
-        if day2second:
-            observation_mid_transit_time = np.mod(observation_mid_transit_time, 1) * cst.s_cst.day
-            errors[0] *= cst.s_cst.day
-            errors[1] *= cst.s_cst.day
-
-        return observation_mid_transit_time, errors[1], -errors[0], n_orbits
-
-    @staticmethod
-    def calculate_radial_velocity(radial_velocity_semi_amplitude, orbital_inclination,
-                                  orbital_longitude, **kwargs):
-        """Calculate the planet radial velocity as seen by an observer.
-
-        Args:
-            radial_velocity_semi_amplitude: maximum radial velocity for an inclination angle of 90 degree
-            orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
-                observation, i.e. 90 degree: edge view, 0 degree: top view
-            orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
-                planet position, i.e. if the planet orbital inclination is 0 degree, 0 degree: mid-primary transit
-                point, 180 degree: mid-secondary eclipse point
-
-        Returns:
-
-        """
-        kp = radial_velocity_semi_amplitude * np.sin(np.deg2rad(orbital_inclination))  # (cm.s-1)
-
-        return kp * np.sin(np.deg2rad(orbital_longitude))
-
-    @staticmethod
-    def calculate_orbital_velocity(star_mass, orbit_semi_major_axis):
-        """Calculate an approximation of the orbital velocity.
-        This equation is valid if the mass of the object is negligible compared to the mass of the star, and if the
-        eccentricity of the object is close to 0.
-
-        Args:
-            star_mass: (g) mass of the star
-            orbit_semi_major_axis: (cm) semi-major axis of the orbit of the object
-
-        Returns: (cm.s-1) the mean orbital velocity, assuming 0 eccentricity and mass_object << mass_star
-        """
-        return np.sqrt(cst.G * star_mass / orbit_semi_major_axis)
-
-    @staticmethod
-    def generate_filename(name, directory=None):
-        if directory is None:
-            directory = Planet.get_default_directory()
-
-        return f"{directory}{os.path.sep}planet_{name.replace(' ', '_')}.h5"
-
-    @staticmethod
-    def get_astropy_coordinates(ra, dec, site_name=None, latitude=None, longitude=None, height=None):
-        if site_name is not None:
-            observer_location = EarthLocation.of_site(site_name)
-        else:
-            observer_location = EarthLocation.from_geodetic(
-                lat=latitude * u.deg,
-                lon=longitude * u.deg,
-                height=height * u.m
-            )
-
-        target_coordinates = SkyCoord(
-            ra=ra * u.deg,
-            dec=dec * u.deg
-        )
-
-        return observer_location, target_coordinates
-
-    @staticmethod
-    def get_airmass(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
-                    time_format='mjd'):
-        observer_location, target_coordinates = Planet.get_astropy_coordinates(
-            ra=ra,
-            dec=dec,
-            site_name=site_name,
-            latitude=latitude,
-            longitude=longitude,
-            height=height
-        )
-
-        frame = AltAz(
-            obstime=Time(time, format=time_format),
-            location=observer_location
-        )
-
-        taget_altaz = target_coordinates.transform_to(frame)
-
-        return taget_altaz.secz
-
-    @staticmethod
-    def get_barycentric_velocities(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
-                                   time_format='mjd'):
-        observer_location, target_coordinates = Planet.get_astropy_coordinates(
-            ra=ra,
-            dec=dec,
-            site_name=site_name,
-            latitude=latitude,
-            longitude=longitude,
-            height=height
-        )
-
-        return target_coordinates.radial_velocity_correction(
-            obstime=Time(time, format=time_format),
-            location=observer_location
-        ).value * 1e2  # m.s-1 to cm.s-1
-
-    @staticmethod
-    def get_simple_transit_curve(time_from_mid_transit, planet_radius, star_radius,
-                                 planet_orbital_velocity=None, star_mass=None, orbit_semi_major_axis=None):
-        """
-        Assume no inclination, circular orbit, observer infinitely far away, spherical objects, perfectly sharp and
-        black planet and perfectly sharp and uniformly luminous star.
-
-        Args:
-            time_from_mid_transit: (s) time from mid-transit, 0 is the mid-transit time, < 0 before and > 0 after
-            planet_radius: (cm) radius of the planet
-            star_radius: (cm) radius of the star
-            planet_orbital_velocity: (cm.s-1) planet velocity along its orbit.
-            star_mass: (g) mass of the star
-            orbit_semi_major_axis: (cm) planet orbit semi major axis
-
-        Returns:
-
-        """
-        if planet_orbital_velocity is None:
-            planet_orbital_velocity = Planet.calculate_orbital_velocity(star_mass, orbit_semi_major_axis)
-
-        planet_center_to_star_center = planet_orbital_velocity * time_from_mid_transit
-
-        if np.abs(planet_center_to_star_center) >= star_radius + planet_radius:
-            return 1.0  # planet is not transiting yet
-        elif np.abs(planet_center_to_star_center) <= star_radius - planet_radius:
-            return 1 - (planet_radius / star_radius) ** 2  # planet is fully transiting
-        else:
-            # Get the vertical coordinate intersection between the two discs
-            x_intersection = (star_radius ** 2 - planet_radius ** 2 + planet_center_to_star_center ** 2) \
-                             / (2 * planet_center_to_star_center)
-            y_intersection = np.sqrt(star_radius ** 2 - np.abs(x_intersection) ** 2)
-
-            # Get the half angle between the two intersection points and the center of each disc
-            theta_half_intersection_planet = np.arcsin(y_intersection / planet_radius)
-            theta_half_intersection_star = np.arcsin(y_intersection / star_radius)
-
-            if np.abs(planet_center_to_star_center) < star_radius:
-                theta_half_intersection_planet = np.pi - theta_half_intersection_planet
-
-            # Calculate the area of the sector between the 2 intersection point for the 2 discs
-            planet_sector_area = planet_radius ** 2 * theta_half_intersection_planet
-            star_sector_area = star_radius ** 2 * theta_half_intersection_star
-
-            # Calculate the area of the triangles formed by the 2 intersection points and the center of each disc
-            planet_triangle_area = 0.5 * planet_radius ** 2 * np.sin(2 * theta_half_intersection_planet)
-            star_triangle_area = 0.5 * star_radius ** 2 * np.sin(2 * theta_half_intersection_star)
-
-            return 1 - (planet_sector_area - planet_triangle_area + star_sector_area - star_triangle_area) \
-                / (np.pi * star_radius ** 2)
-
-    @staticmethod
-    def get_orbital_phases(phase_start, orbital_period, times):
-        """Calculate orbital phases assuming low eccentricity.
-
-        Args:
-            phase_start: planet phase at the start of observations
-            orbital_period: (s) orbital period of the planet
-            times: (s) time array
-
-        Returns:
-            The orbital phases for the given time
-        """
-        phases = phase_start + times / orbital_period
-        add = np.zeros(times.size)
-        add[np.less(phases, 0)] = - 1
-
-        return add + np.mod(phases, 1.0)
-
-    @staticmethod
-    def download_from_nasa_exoplanet_archive(name):
-        service = pyvo.dal.TAPService("https://exoplanetarchive.ipac.caltech.edu/TAP")
-        result_set = service.search(f"select * from ps where pl_name = '{name}'")
-
-        astro_table = result_set.to_table()
-        filename = Planet.generate_filename(name).rsplit('.', 1)[0] + '.vot'
-
-        with warnings.catch_warnings():
-            # Temporarily filter the archive-induced units warnings
-            warnings.filterwarnings("ignore", category=astropy.io.votable.exceptions.W50)
-            astro_table.write(filename, format='votable')
-
-        return astro_table
-
-    @staticmethod
-    def select_best_in_column(dictionary):
+    def _select_best_in_column(dictionary):
         parameter_dict = {}
         tails = ['_error_upper', '_error_lower', '_limit_flag', '_str']
 
@@ -1221,6 +689,629 @@ class Planet:
                         parameter_dict[key + tail] = dictionary[key + tail][wh][0]
 
         return parameter_dict
+
+    @staticmethod
+    def bjd_utc2bjd_tdb(times_utc, ra, dec, site_name=None, latitude=None, longitude=None, height=None):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        times_utc = Time(times_utc, format='jd', scale='utc')
+        times_tdb = times_utc.tdb + times_utc.light_travel_time(target_coordinates, location=observer_location)
+
+        return times_tdb.value
+
+    def calculate_airmass(self, time, site_name=None, latitude=None, longitude=None, height=None,
+                          time_format='mjd'):
+        return self.compute_airmass(
+            ra=self.ra,
+            dec=self.dec,
+            time=time,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height,
+            time_format=time_format
+        )
+
+    def calculate_barycentric_velocities(self, time, site_name=None, latitude=None, longitude=None, height=None,
+                                         time_format='mjd'):
+        return self.compute_barycentric_velocities(
+            ra=self.ra,
+            dec=self.dec,
+            time=time,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height,
+            time_format=time_format
+        )
+
+    def calculate_equilibrium_temperature(self):
+        """
+        Calculate the equilibrium temperature of a planet.
+        """
+
+        return self.compute_equilibrium_temperature(
+            orbit_semi_major_axis=self.orbit_semi_major_axis,
+            star_effective_temperature=self.star_effective_temperature,
+            star_radius=self.star_radius,
+            bond_albedo=self.bond_albedo,
+            orbit_semi_major_axis_error_lower=self.orbit_semi_major_axis_error_lower,
+            orbit_semi_major_axis_error_upper=self.orbit_semi_major_axis_error_upper,
+            star_effective_temperature_error_lower=self.star_effective_temperature_error_lower,
+            star_effective_temperature_error_upper=self.star_effective_temperature_error_upper,
+            star_radius_error_lower=self.star_radius_error_lower,
+            star_radius_error_upper=self.star_radius_error_upper
+        )
+
+    def calculate_full_transit_duration(self):
+        return self.compute_full_transit_duration(
+            total_transit_duration=self.transit_duration,
+            planet_radius=self.radius,
+            star_radius=self.star_radius,
+            impact_parameter=self.calculate_impact_parameter()
+        )
+
+    def calculate_impact_parameter(self):
+        return self.compute_impact_parameter(
+            orbit_semi_major_axis=self.orbit_semi_major_axis,
+            orbital_inclination=self.orbital_inclination,
+            star_radius=self.star_radius
+        )
+
+    def calculate_mid_transit_time(self, observation_day,
+                                   source_mid_transit_time=None,
+                                   source_mid_transit_time_error_lower=None,
+                                   source_mid_transit_time_error_upper=None,
+                                   day2second=True):
+        if source_mid_transit_time is None:
+            source_mid_transit_time = self.transit_midpoint_time
+
+            if source_mid_transit_time_error_lower is not None:
+                warnings.warn(f"overriding source_mid_transit_time_error_lower")
+
+            if source_mid_transit_time_error_upper is not None:
+                warnings.warn(f"overriding source_mid_transit_time_error_upper")
+
+            source_mid_transit_time_error_lower = self.transit_midpoint_time_error_lower
+            source_mid_transit_time_error_upper = self.transit_midpoint_time_error_upper
+
+        return self.compute_mid_transit_time_from_source(
+            observation_day=observation_day,
+            source_mid_transit_time=source_mid_transit_time / cst.s_cst.day,
+            source_mid_transit_time_error_lower=source_mid_transit_time_error_lower / cst.s_cst.day,
+            source_mid_transit_time_error_upper=source_mid_transit_time_error_upper / cst.s_cst.day,
+            orbital_period=self.orbital_period / cst.s_cst.day,
+            orbital_period_error_lower=self.orbital_period_error_lower / cst.s_cst.day,
+            orbital_period_error_upper=self.orbital_period_error_upper / cst.s_cst.day,
+            day2second=day2second
+        )
+
+    def calculate_orbital_longitudes(self, times, longitude_start=0, rad2deg=True):
+        return self.compute_orbital_longitudes(
+            times=times,
+            orbital_period=self.orbital_period,
+            longitude_start=longitude_start,
+            rad2deg=rad2deg
+        )
+
+    def calculate_orbital_phases(self, times, phase_start=0):
+        return self.compute_orbital_phases(
+            times=times,
+            orbital_period=self.orbital_period,
+            phase_start=phase_start
+        )
+
+    def calculate_orbital_velocity(self):
+        return self.compute_orbital_velocity(
+            star_mass=self.star_mass,
+            orbit_semi_major_axis=self.orbit_semi_major_axis
+        )
+
+    def calculate_radial_velocity(self, orbital_longitude):
+        return self.compute_radial_velocity(
+            radial_velocity_semi_amplitude=self.calculate_radial_velocity_semi_amplitude(),
+            orbital_longitude=orbital_longitude
+        )
+
+    def calculate_radial_velocity_semi_amplitude(self):
+        return self.compute_radial_velocity_semi_amplitude(
+            orbital_velocity=self.calculate_orbital_velocity(),
+            orbital_inclination=self.orbital_inclination
+        )
+
+    @staticmethod
+    def compute_airmass(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
+                        time_format='mjd'):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        frame = AltAz(
+            obstime=Time(time, format=time_format),
+            location=observer_location
+        )
+
+        target_alt_az = target_coordinates.transform_to(frame)
+
+        return target_alt_az.secz
+
+    @staticmethod
+    def compute_barycentric_velocities(ra, dec, time, site_name=None, latitude=None, longitude=None, height=None,
+                                       time_format='mjd'):
+        observer_location, target_coordinates = Planet.get_astropy_coordinates(
+            ra=ra,
+            dec=dec,
+            site_name=site_name,
+            latitude=latitude,
+            longitude=longitude,
+            height=height
+        )
+
+        return target_coordinates.radial_velocity_correction(
+            obstime=Time(time, format=time_format),
+            location=observer_location
+        ).value * 1e2  # m.s-1 to cm.s-1
+
+    @staticmethod
+    def compute_equilibrium_temperature(orbit_semi_major_axis, star_effective_temperature, star_radius,
+                                        bond_albedo: float = 0,
+                                        orbit_semi_major_axis_error_lower: float = 0,
+                                        orbit_semi_major_axis_error_upper: float = 0,
+                                        star_effective_temperature_error_lower: float = 0,
+                                        star_effective_temperature_error_upper: float = 0,
+                                        star_radius_error_lower: float = 0,
+                                        star_radius_error_upper: float = 0
+                                        ):
+        """
+        Calculate the equilibrium temperature of a planet.
+        """
+        equilibrium_temperature = \
+            star_effective_temperature * np.sqrt(star_radius / (2 * orbit_semi_major_axis)) \
+            * (1 - bond_albedo) ** 0.25
+
+        partial_derivatives = np.array([
+            equilibrium_temperature / star_effective_temperature,  # dt_eq/dt_eff
+            0.5 * equilibrium_temperature / star_radius,  # dt_eq/dr*
+            - 0.5 * equilibrium_temperature / orbit_semi_major_axis  # dt_eq/dd
+        ])
+        uncertainties = np.abs(np.array([
+            [star_effective_temperature_error_lower, star_effective_temperature_error_upper],
+            [star_radius_error_lower, star_radius_error_upper],
+            [orbit_semi_major_axis_error_lower, orbit_semi_major_axis_error_upper]
+        ]))
+
+        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+        return equilibrium_temperature, errors[1], -errors[0]
+
+    @staticmethod
+    def compute_full_transit_duration(total_transit_duration, planet_radius, star_radius, impact_parameter):
+        k = planet_radius / star_radius
+
+        return total_transit_duration * np.sqrt(
+            ((1 - k) ** 2 - impact_parameter ** 2)
+            / ((1 + k) ** 2 - impact_parameter ** 2)
+        )
+
+    @staticmethod
+    def compute_impact_parameter(orbit_semi_major_axis, orbital_inclination, star_radius):
+        return orbit_semi_major_axis * np.cos(np.deg2rad(orbital_inclination)) / star_radius
+
+    @staticmethod
+    def compute_mid_transit_time_from_source(observation_day,
+                                             source_mid_transit_time,
+                                             source_mid_transit_time_error_lower, source_mid_transit_time_error_upper,
+                                             orbital_period, orbital_period_error_lower, orbital_period_error_upper,
+                                             day2second=True):
+        n_orbits = np.ceil((observation_day - source_mid_transit_time) / orbital_period)
+        observation_mid_transit_time = source_mid_transit_time + n_orbits * orbital_period
+
+        derivatives = np.array([
+            1,  # dT0 / dT0_source
+            n_orbits  # dT0 / dP
+        ])
+
+        uncertainties = np.abs(np.array([
+            [source_mid_transit_time_error_lower, source_mid_transit_time_error_upper],
+            [orbital_period_error_lower, orbital_period_error_upper],
+        ]))
+
+        errors = calculate_uncertainty(derivatives, uncertainties)
+
+        if day2second:
+            observation_mid_transit_time = np.mod(observation_mid_transit_time, 1) * cst.s_cst.day
+            errors[0] *= cst.s_cst.day
+            errors[1] *= cst.s_cst.day
+
+        return observation_mid_transit_time, errors[1], -errors[0], n_orbits
+
+    @staticmethod
+    def compute_orbital_longitudes(times, orbital_period, longitude_start, rad2deg: bool = True):
+        """Calculate orbital longitudes assuming low eccentricity.
+
+        Args:
+            times: (s) time array
+            orbital_period: (s) orbital period of the planet
+            longitude_start: (rad) planet longitude at the start of observations
+            rad2deg: if True, convert the longitudes from radians to degrees
+
+        Returns:
+            The orbital longitudes at the given times
+        """
+        orbital_phases = Planet.compute_orbital_phases(
+            times=times,
+            orbital_period=orbital_period,
+            phase_start=longitude2phase(longitude_start)
+        )
+
+        return phase2longitude(orbital_phases, rad2deg=rad2deg)
+
+    @staticmethod
+    def compute_orbital_phases(phase_start, orbital_period, times):
+        """Calculate orbital phases assuming low eccentricity.
+
+        Args:
+            phase_start: planet phase at the start of observations
+            orbital_period: (s) orbital period of the planet
+            times: (s) time array
+
+        Returns:
+            The orbital phases for the given time
+        """
+        phases = phase_start + times / orbital_period
+        add = np.zeros(times.size)
+        add[np.less(phases, 0)] = - 1
+
+        return add + np.mod(phases, 1.0)
+
+    @staticmethod
+    def compute_orbital_velocity(star_mass, orbit_semi_major_axis):
+        """Calculate an approximation of the orbital velocity.
+        This equation is valid if the mass of the object is negligible compared to the mass of the star, and if the
+        eccentricity of the object is close to 0.
+
+        Args:
+            star_mass: (g) mass of the star
+            orbit_semi_major_axis: (cm) semi-major axis of the orbit of the object
+
+        Returns: (cm.s-1) the mean orbital velocity, assuming 0 eccentricity and mass_object << mass_star
+        """
+        return np.sqrt(cst.G * star_mass / orbit_semi_major_axis)
+
+    @staticmethod
+    def compute_radial_velocity(radial_velocity_semi_amplitude, orbital_longitude):
+        """Calculate the planet radial velocity as seen by an observer.
+
+        Args:
+            radial_velocity_semi_amplitude: (cm.s-1) radial velocity semi amplitude of the planet (aka Kp).
+            orbital_longitude: (degree) angle between the closest point from the observer on the planet orbit and the
+                planet position, i.e. if the planet orbital inclination is 0 degree, 0 degree: mid-primary transit
+                point, 180 degree: mid-secondary eclipse point
+
+        Returns:
+
+        """
+        return radial_velocity_semi_amplitude * np.sin(np.deg2rad(orbital_longitude))
+
+    @staticmethod
+    def compute_radial_velocity_semi_amplitude(orbital_velocity, orbital_inclination):
+        """
+
+        Args:
+            orbital_velocity:
+            orbital_inclination: (degree) angle between the normal of the planet orbital plane and the axis of
+                observation, i.e. 90 degree: edge view, 0 degree: top view
+
+        Returns:
+
+        """
+        return orbital_velocity * np.sin(np.deg2rad(orbital_inclination))
+
+    @staticmethod
+    def download_from_nasa_exoplanet_archive(name):
+        service = pyvo.dal.TAPService("https://exoplanetarchive.ipac.caltech.edu/TAP")
+        result_set = service.search(f"select * from ps where pl_name = '{name}'")
+
+        astro_table = result_set.to_table()
+        filename = Planet.generate_filename(name).rsplit('.', 1)[0] + '.vot'
+
+        with warnings.catch_warnings():
+            # Temporarily filter the archive-induced units warnings
+            warnings.filterwarnings("ignore", category=astropy.io.votable.exceptions.W50)
+            astro_table.write(filename, format='votable')
+
+        return astro_table
+
+    @classmethod
+    def from_tab_file(cls, filename, use_best_mass=True):
+        """Read from a NASA Exoplanet Archive Database .tab file.
+        Args:
+            filename: file to read
+            use_best_mass: if True, use NASA Exoplanet Archive Database 'bmass' argument instead of 'mass'.
+
+        Returns:
+            planets: a list of Planet objects
+        """
+        with open(filename, 'r') as f:
+            line = f.readline()
+            line = line.strip()
+
+            # Skip header
+            while line[0] == '#':
+                line = f.readline()
+                line = line.strip()
+
+            # Read column names
+            columns_name = line.split('\t')
+
+            planet_name_index = columns_name.index('pl_name')
+
+            planets = {}
+
+            # Read data
+            for line in f:
+                line = line.strip()
+                columns = line.split('\t')
+
+                new_planet = cls(columns[planet_name_index])
+                keys = []
+
+                for i, value in enumerate(columns):
+                    # Clearer keynames
+                    keys.append(columns_name[i])
+
+                    if value != '':
+                        try:
+                            value = float(value)
+                        except ValueError:
+                            pass
+
+                        value, keys[i] = Planet._convert_nasa_exoplanet_archive(
+                            value, keys[i], use_best_mass=use_best_mass
+                        )
+                    else:
+                        value = None
+
+                    if keys[i] in new_planet.__dict__:
+                        new_planet.__dict__[keys[i]] = value
+
+                # Try to calculate the planet mass and radius if missing
+                if new_planet.radius == 0 and new_planet.mass > 0 and new_planet.density > 0:
+                    new_planet.radius = (3 * new_planet.mass / (4 * np.pi * new_planet.density)) ** (1 / 3)
+
+                    partial_derivatives = np.array([
+                        new_planet.radius / (3 * new_planet.mass),  # dr/dm
+                        - new_planet.radius / (3 * new_planet.density)  # dr/drho
+                    ])
+                    uncertainties = np.abs(np.array([
+                        [new_planet.mass_error_lower, new_planet.mass_error_upper],
+                        [new_planet.density_error_lower, new_planet.density_error_upper]
+                    ]))
+
+                    new_planet.radius_error_lower, new_planet.radius_error_upper = \
+                        calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+                elif new_planet.mass == 0 and new_planet.radius > 0 and new_planet.density > 0:
+                    new_planet.mass = new_planet.density * 4 / 3 * np.pi * new_planet.radius ** 3
+
+                    partial_derivatives = np.array([
+                        new_planet.mass / new_planet.density,  # dm/drho
+                        3 * new_planet.radius / new_planet.radius  # dm/dr
+                    ])
+                    uncertainties = np.abs(np.array([
+                        [new_planet.density_error_lower, new_planet.density_error_upper],
+                        [new_planet.radius_error_lower, new_planet.radius_error_upper]
+                    ]))
+
+                    new_planet.mass_error_lower, new_planet.mass_error_upper = \
+                        calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+                # Try to calculate the star radius if missing
+                if new_planet.star_radius == 0 and new_planet.star_mass > 0:
+                    if new_planet.star_reference_gravity > 0:
+                        new_planet.star_radius, \
+                            new_planet.star_radius_error_upper, new_planet.star_radius_error_lower = \
+                            new_planet.reference_gravity2radius(
+                                new_planet.star_reference_gravity,
+                                new_planet.star_mass,
+                                reference_gravity_error_upper=new_planet.star_reference_gravity_error_upper,
+                                reference_gravity_error_lower=new_planet.star_reference_gravity_error_lower,
+                                mass_error_upper=new_planet.star_mass_error_upper,
+                                mass_error_lower=new_planet.star_mass_error_lower
+                            )
+                    elif new_planet.star_density > 0:
+                        new_planet.star_radius = \
+                            (3 * new_planet.star_mass / (4 * np.pi * new_planet.star_density)) ** (1 / 3)
+
+                        partial_derivatives = np.array([
+                            new_planet.star_radius / (3 * new_planet.star_mass),  # dr/dm
+                            - new_planet.star_radius / (3 * new_planet.star_density)  # dr/drho
+                        ])
+                        uncertainties = np.abs(np.array([
+                            [new_planet.star_mass_error_lower, new_planet.star_mass_error_upper],
+                            [new_planet.star_density_error_lower, new_planet.star_density_error_upper]
+                        ]))
+
+                        new_planet.star_radius_error_lower, new_planet.star_radius_error_upper = \
+                            calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+                if 'reference_gravity' not in keys and new_planet.radius > 0 and new_planet.mass > 0:
+                    new_planet.reference_gravity, \
+                        new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
+                        new_planet.mass2reference_gravity(
+                            new_planet.mass,
+                            new_planet.radius,
+                            mass_error_upper=new_planet.mass_error_upper,
+                            mass_error_lower=new_planet.mass_error_lower,
+                            radius_error_upper=new_planet.radius_error_upper,
+                            radius_error_lower=new_planet.radius_error_lower
+                        )
+
+                if 'equilibrium_temperature' not in keys \
+                        and new_planet.orbit_semi_major_axis > 0 \
+                        and new_planet.star_effective_temperature > 0 \
+                        and new_planet.star_radius > 0:
+                    new_planet.equilibrium_temperature, \
+                        new_planet.equilibrium_temperature_error_upper, \
+                        new_planet.equilibrium_temperature_error_lower = \
+                        new_planet.calculate_equilibrium_temperature()
+
+                planets[new_planet.name] = new_planet
+
+        return planets
+
+    @classmethod
+    def from_votable(cls, votable):
+        new_planet = cls('new_planet')
+        parameter_dict = {}
+
+        for key in votable.keys():
+            # Clearer keynames
+            value, key = Planet._convert_nasa_exoplanet_archive(votable[key], key)
+            parameter_dict[key] = value
+
+        parameter_dict = new_planet._select_best_in_column(parameter_dict)
+
+        for key in parameter_dict:
+            if key in new_planet.__dict__:
+                new_planet.__dict__[key] = parameter_dict[key]
+
+        if 'reference_gravity' not in parameter_dict and new_planet.radius > 0:
+            new_planet.reference_gravity, \
+                new_planet.reference_gravity_error_upper, new_planet.reference_gravity_error_lower = \
+                new_planet.mass2reference_gravity(
+                    new_planet.mass,
+                    new_planet.radius,
+                    mass_error_upper=new_planet.mass_error_upper,
+                    mass_error_lower=new_planet.mass_error_lower,
+                    radius_error_upper=new_planet.radius_error_upper,
+                    radius_error_lower=new_planet.radius_error_lower
+                )
+
+        if 'equilibrium_temperature' not in parameter_dict:
+            new_planet.equilibrium_temperature, \
+                new_planet.equilibrium_temperature_error_upper, new_planet.equilibrium_temperature_error_lower = \
+                new_planet.calculate_equilibrium_temperature()
+
+        return new_planet
+
+    @classmethod
+    def from_votable_file(cls, filename):
+        with warnings.catch_warnings():
+            # Temporarily filter the archive-induced units warnings
+            warnings.filterwarnings('ignore', category=u.UnitsWarning)
+            astro_table = Table.read(filename)
+
+        return cls.from_votable(astro_table)
+
+    @staticmethod
+    def generate_filename(name, directory=None):
+        if directory is None:
+            directory = Planet.get_default_directory()
+
+        return f"{directory}{os.path.sep}planet_{name.replace(' ', '_')}.h5"
+
+    @classmethod
+    def get(cls, name):
+        filename = cls.generate_filename(name)
+
+        return cls.get_from(name, filename)
+
+    @staticmethod
+    def get_astropy_coordinates(ra, dec, site_name=None, latitude=None, longitude=None, height=None):
+        if site_name is not None:
+            observer_location = EarthLocation.of_site(site_name)
+        else:
+            observer_location = EarthLocation.from_geodetic(
+                lat=latitude * u.deg,
+                lon=longitude * u.deg,
+                height=height * u.m
+            )
+
+        target_coordinates = SkyCoord(
+            ra=ra * u.deg,
+            dec=dec * u.deg
+        )
+
+        return observer_location, target_coordinates
+
+    @staticmethod
+    def get_default_directory(path_input_data=None):
+        if path_input_data is None:
+            path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+        return os.path.abspath(os.path.join(path_input_data, 'planet_data'))
+
+    def get_filename(self):
+        return self.generate_filename(self.name)
+
+    @classmethod
+    def get_from(cls, name, filename):
+        if not os.path.exists(filename):
+            filename_vot = filename.rsplit('.', 1)[0] + '.vot'  # search for votable
+
+            if not os.path.exists(filename_vot):
+                print(f"file '{filename_vot}' not found, downloading...")
+
+                directory = os.path.dirname(filename_vot)
+
+                if not os.path.isdir(directory):
+                    os.mkdir(directory)
+
+                cls.download_from_nasa_exoplanet_archive(name)
+            else:
+                warnings.warn(f"intermediate vot file found ('{filename_vot}') but not the corresponding final file "
+                              f"('{filename}')\n"
+                              f"This may indicate an incomplete or corrupted download. If conversion to HDF5 fails, "
+                              f"consider removing the vot file.")
+
+            # Save into HDF5 and remove the VO table
+            new_planet = cls.from_votable_file(filename_vot)
+            new_planet.save()
+            os.remove(filename_vot)
+
+            return new_planet
+        else:
+            return cls.load(name, filename)
+
+    @classmethod
+    def load(cls, name, filename=None):
+        new_planet = cls(name)
+
+        if filename is None:
+            filename = new_planet.get_filename()
+
+        with h5py.File(filename, 'r') as f:
+            for key in f:
+                if isinstance(f[key][()], bytes):
+                    value = str(f[key][()], 'utf-8')
+                else:
+                    value = f[key][()]
+
+                new_planet.__dict__[key] = value
+
+                if 'units' in f[key].attrs:
+                    if key in new_planet.units:
+                        if f[key].attrs['units'] != new_planet.units[key]:
+                            raise ValueError(f"units of key '{key}' must be '{new_planet.units[key]}', "
+                                             f"but is '{f[key].attrs['units']}'")
+                    else:
+                        new_planet.units[key] = f[key].attrs['units']
+                else:
+                    new_planet.units[key] = 'N/A'
+
+        return new_planet
 
     @staticmethod
     def mass2reference_gravity(mass, radius,
@@ -1355,3 +1446,20 @@ class Planet:
             errors = (0., 0.)
 
         return mass, errors[1], -errors[0]
+
+    def save(self, filename=None):
+        if filename is None:
+            filename = self.get_filename()
+
+        with h5py.File(filename, 'w') as f:
+            for key in self.__dict__:
+                if key == 'units':
+                    continue
+
+                data_set = f.create_dataset(
+                    name=key,
+                    data=self.__dict__[key]
+                )
+
+                if self.units[key] != 'N/A':
+                    data_set.attrs['units'] = self.units[key]

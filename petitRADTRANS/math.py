@@ -180,6 +180,10 @@ def gaussian_weights_running(sigmas: np.ndarray, truncate: float = 4.0) -> np.nd
     return np.transpose(phi_x.T / phi_x.sum(axis=1))
 
 
+def longitude2phase(longitude: float):
+    return longitude / (2 * np.pi)
+
+
 def mean_uncertainty(uncertainties: np.ndarray) -> float:
     """Calculate the uncertainty of the mean of an array.
 
@@ -216,6 +220,15 @@ def median_uncertainties(uncertainties: np.ndarray) -> float:
 
 def normalize(array: np.ndarray, axis: int = None) -> np.ndarray:
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
+
+
+def phase2longitude(phase: float, rad2deg: bool = False):
+    longitude = phase * 2 * np.pi
+
+    if rad2deg:
+        longitude = np.rad2deg(longitude)
+
+    return longitude
 
 
 def resolving_space(start, stop, resolving_power):
