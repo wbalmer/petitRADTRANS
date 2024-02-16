@@ -154,9 +154,14 @@ class PetitradtransConfigParser(configparser.ConfigParser):
         if path_tail != 'input_data':
             path = os.path.join(path, 'input_data')
 
+        # Ensure that we are in the home directory when '~' is used
+        if not os.path.isdir(os.path.abspath(path)) and '~' + os.path.sep in path:
+            path = os.path.abspath(path).rsplit('~' + os.path.sep, 1)[1]
+            path = os.path.join(os.path.abspath(str(Path.home())), path)
+
         self.power_set('Paths', 'pRT_input_data_path', os.path.abspath(path))
 
-        print(f"Input data path changed to '{path}'")
+        print(f"Input data path changed to '{os.path.abspath(path)}'")
 
         self.load()
 
