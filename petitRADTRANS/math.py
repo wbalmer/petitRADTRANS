@@ -218,6 +218,38 @@ def normalize(array: np.ndarray, axis: int = None) -> np.ndarray:
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
 
 
+def resolving_space(start, stop, resolving_power):
+    # Check for inputs validity
+    if start > stop:
+        raise ValueError(f"start ({start}) must be lower than stop {stop}")
+
+    if resolving_power <= 0:
+        raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
+
+    # Get maximum space length
+    size_max = int(np.ceil((stop - start) / (start / resolving_power)))
+
+    if not np.isfinite(size_max) or size_max < 0:
+        raise ValueError(f"invalid maximum size ({size_max})")
+
+    # Start generating space
+    space = [start]
+    i = 0
+
+    for i in range(size_max):
+        if space[-1] >= stop:
+            break
+
+        space.append(space[-1] + space[-1] / resolving_power)
+
+    if i == size_max - 1 and space[-1] < stop:
+        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({space[-1]} < {stop})")
+    elif space[-1] > stop:
+        del space[-1]  # ensure that the space is within the [start, stop] interval
+
+    return np.array(space)
+
+
 def running_mean(x: np.ndarray, n: int) -> np.ndarray:
     cum_sum = np.cumsum(np.insert(x, 0, 0))
 

@@ -2355,7 +2355,7 @@ class SpectralModel(Radtrans):
 
                 # Get the intermediate wavelength grid at the same resolving power than the current shifted grids
                 diff = np.max(np.diff(rebinned_wavelengths))
-                _rebinned_wavelengths = SpectralModel.resolving_space(
+                _rebinned_wavelengths = resolving_space(
                     start=np.min(rebinned_wavelengths) - diff,
                     stop=np.max(rebinned_wavelengths) + diff,
                     resolving_power=current_resolving_power
@@ -2480,38 +2480,6 @@ class SpectralModel(Radtrans):
 
     def prepare_spectrum(self, spectrum, **kwargs):
         return self.preparing_pipeline(spectrum, **kwargs)
-
-    @staticmethod
-    def resolving_space(start, stop, resolving_power):
-        # Check for inputs validity
-        if start > stop:
-            raise ValueError(f"start ({start}) must be lower than stop {stop}")
-
-        if resolving_power <= 0:
-            raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
-
-        # Get maximum space length
-        size_max = int(np.ceil((stop - start) / (start / resolving_power)))
-
-        if not np.isfinite(size_max) or size_max < 0:
-            raise ValueError(f"invalid maximum size ({size_max})")
-
-        # Start generating space
-        space = [start]
-        i = 0
-
-        for i in range(size_max):
-            if space[-1] >= stop:
-                break
-
-            space.append(space[-1] + space[-1] / resolving_power)
-
-        if i == size_max - 1 and space[-1] < stop:
-            raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({space[-1]} < {stop})")
-        elif space[-1] > stop:
-            del space[-1]  # ensure that the space is within the [start, stop] interval
-
-        return np.array(space)
 
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
