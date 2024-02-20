@@ -938,7 +938,7 @@ class SpectralModel(Radtrans):
                 self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
 
         # Prepared spectrum
-        if prepare:  # TODO change to prepare
+        if prepare:
             spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
                 self.prepare_spectrum(
                     spectrum=spectrum,
@@ -2412,7 +2412,7 @@ class SpectralModel(Radtrans):
                     start=np.min(rebinned_wavelengths) - diff,
                     stop=np.max(rebinned_wavelengths) + diff,
                     resolving_power=current_resolving_power
-                )  # TODO these wavelengths should be obtainable from a function
+                )
 
                 _, spectrum = SpectralModel._rebin_wrap(  # TODO rebin wrap should not be hidden
                     wavelengths=wavelengths,
