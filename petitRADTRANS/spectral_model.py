@@ -2263,7 +2263,7 @@ class SpectralModel(Radtrans):
                         instrumental_deformations=None, noise_matrix=None,
                         rebinned_wavelengths=None, relative_velocities=None, radial_velocities=None,
                         planet_radius=None,
-                        star_spectrum_wavelengths=None, star_flux=None,
+                        star_spectrum_wavelengths=None, star_flux=None, star_observed_spectrum=None,
                         is_observed=False, star_radius=None, system_distance=None,
                         scale_function=None, shift_wavelengths_function=None,
                         transit_fractional_light_loss_function=None, convolve_function=None,
@@ -2298,6 +2298,9 @@ class SpectralModel(Radtrans):
             ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
         star_spectrum = star_flux
+
+        if star_observed_spectrum is not None:
+            star_observed_spectrum = None  # reset star_observed_spectrum
 
         if rebin and telluric_transmittances is not None:  # TODO test if it works
             wavelengths_0 = copy.deepcopy(rebinned_wavelengths)
@@ -2336,15 +2339,11 @@ class SpectralModel(Radtrans):
                     wavelengths=wavelengths
                 )
 
-                # spectrum = spectrum + star_spectrum
-
                 star_observed_spectrum = flux2irradiance(
                     flux=star_spectrum,
                     source_radius=star_radius,
                     target_distance=system_distance
                 )
-            else:
-                star_observed_spectrum = None
 
             spectrum = flux2irradiance(
                 flux=spectrum,
