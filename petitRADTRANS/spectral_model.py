@@ -1869,6 +1869,9 @@ class SpectralModel(Radtrans):
             ]
         )
 
+        default_parameters.add('preparation_matrix')
+        default_parameters.add('prepared_uncertainties')
+
         if spectral_model_specific:
             radtrans_parameters = np.array(list(__list_arguments(Radtrans)))
 
