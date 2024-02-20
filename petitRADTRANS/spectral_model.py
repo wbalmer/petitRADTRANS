@@ -1469,7 +1469,7 @@ class SpectralModel(Radtrans):
                                     star_flux_function, stellar_intensities_function,
                                     radial_velocity_semi_amplitude_function, radial_velocities_function,
                                     relative_velocities_function, orbital_longitudes_function,
-                                    wavelengths=None, pressures=None, line_species=None,
+                                    wavelengths=None, pressures=None, line_species=None, is_around_star=False,
                                     metallicity_function=None,
                                     mass2surface_gravity_function=None, surface_gravity2mass_function=None,
                                     **kwargs):
@@ -1502,21 +1502,20 @@ class SpectralModel(Radtrans):
 
         # Calculate star radiosities
         if 'mode' in kwargs:
-            if kwargs['mode'] == 'emission' and 'is_around_star' in kwargs:
-                if kwargs['is_around_star']:
-                    if 'star_flux' not in kwargs:
-                        kwargs['star_spectrum_wavelengths'], kwargs['star_flux'] = \
-                            star_flux_function(
-                                **kwargs
-                            )
+            if kwargs['mode'] == 'emission' and is_around_star:
+                if 'star_flux' not in kwargs:
+                    kwargs['star_spectrum_wavelengths'], kwargs['star_flux'] = \
+                        star_flux_function(
+                            **kwargs
+                        )
 
-                    kwargs['stellar_intensities'] = stellar_intensities_function(
-                        wavelengths=wavelengths,
-                        **kwargs
-                    )
-                else:
-                    kwargs['star_flux'] = None
-                    kwargs['stellar_intensities'] = np.zeros(wavelengths.size)
+                kwargs['stellar_intensities'] = stellar_intensities_function(
+                    wavelengths=wavelengths,
+                    **kwargs
+                )
+            elif not is_around_star:
+                kwargs['star_flux'] = None
+                kwargs['stellar_intensities'] = np.zeros(wavelengths.size)
 
         if 'relative_velocities' in kwargs:
             kwargs['relative_velocities'], \
