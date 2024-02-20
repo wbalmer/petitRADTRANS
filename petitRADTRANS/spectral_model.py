@@ -1143,7 +1143,7 @@ class SpectralModel(Radtrans):
                     filling_species: np.ones(pressures.size)
                 }
             elif hasattr(filling_species, '__iter__'):
-                filling_species = {species: None for species in filling_species}
+                filling_species = {species: np.ones(pressures.size) for species in filling_species}
             elif filling_species is None:
                 filling_species = {}
 
