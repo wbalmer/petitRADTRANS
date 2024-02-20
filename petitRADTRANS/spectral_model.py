@@ -366,8 +366,8 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def _compute_metallicity_wrap(planet_mass=None,
-                                  star_metallicity=1.0, atmospheric_mixing=1.0, alpha=-0.68, beta=7.2,
-                                  verbose=False, **kwargs):
+                                  star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
+                                  metallicity_mass_scaling=7.2, verbose=False, **kwargs):
         if verbose:
             print("metallicity set to None, calculating it using scaled metallicity...")
 
@@ -375,8 +375,8 @@ class SpectralModel(Radtrans):
             planet_mass=planet_mass,
             star_metallicity=star_metallicity,
             atmospheric_mixing=atmospheric_mixing,
-            metallicity_mass_coefficient=alpha,
-            metallicity_mass_scaling=beta
+            metallicity_mass_coefficient=metallicity_mass_coefficient,
+            metallicity_mass_scaling=metallicity_mass_scaling
         )
 
         if metallicity <= 0:
