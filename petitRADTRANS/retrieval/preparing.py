@@ -126,15 +126,15 @@ def __sysrem_iteration_orders_c(spectrum_uncertainties_squared, uncertainties_sq
     return np.einsum('...j,...k->...jk', a, c), c
 
 
-def bias_pipeline_metric(reduced_true_model, reduced_mock_observations,
-                         mock_observations_reduction_matrix=None, mock_noise=None):
-    if mock_observations_reduction_matrix is None:
-        mock_observations_reduction_matrix = np.ones(reduced_true_model.shape)
+def bias_pipeline_metric(prepared_true_model, prepared_mock_observations,
+                         mock_observations_preparation_matrix=None, mock_noise=None):
+    if mock_observations_preparation_matrix is None:
+        mock_observations_preparation_matrix = np.ones(prepared_true_model.shape)
 
     if mock_noise is None:
-        mock_noise = np.zeros(reduced_true_model.shape)
+        mock_noise = np.zeros(prepared_true_model.shape)
 
-    return 1 - (reduced_true_model - mock_noise * mock_observations_reduction_matrix) / reduced_mock_observations
+    return 1 - (prepared_true_model - mock_noise * mock_observations_preparation_matrix) / prepared_mock_observations
 
 
 def remove_noisy_wavelength_channels(spectrum, reduction_matrix, mean_subtract=False):
