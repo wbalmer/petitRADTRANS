@@ -1851,13 +1851,12 @@ class SpectralModel(Radtrans):
         default_parameters = __list_arguments(
             self,
             exclude_functions=[
-                self.calculate_spectrum,
                 self.get_default_parameters,
                 self.init_data,
                 self.init_retrieval,
                 self.load,
+                self.get_true_parameters,
                 self.get_telluric_transmittances,
-                self.modify_spectrum,
                 self.remove_mask,
                 self.retrieval_model_generating_function,
                 self.run_retrieval,
@@ -1971,6 +1970,32 @@ class SpectralModel(Radtrans):
             rewrite=rewrite,
             **kwargs
         )
+
+    def get_true_parameters(self, retrieved_parameters):
+        """Get the true value of retrieved parameters.
+        Intended to be used with plot_result_corner, for retrieval on simulated data.
+
+        Args:
+            retrieved_parameters: parameters retrieved during the retrieval
+
+        Returns:
+            The true value of the retrieved parameters, in the correct format for plot_result_corner.
+        """
+        true_parameters = {}
+
+        for parameter in retrieved_parameters:
+            if parameter not in self.model_parameters and 'log10_' not in parameter:
+                true_parameters[parameter] = (
+                    np.mean(np.log10(self.model_parameters['imposed_mass_fractions'][parameter]))
+                )
+            elif parameter not in self.model_parameters and 'log10_' in parameter:
+                _parameter = copy.deepcopy(parameter)
+                parameter = parameter.split('log10_', 1)[1]
+                true_parameters[_parameter] = np.mean(np.log10(self.model_parameters[parameter]))
+            else:
+                true_parameters[parameter] = np.mean(self.model_parameters[parameter])
+
+        return true_parameters
 
     def get_volume_mixing_ratios(self):
         return mass_fractions2volume_mixing_ratios(
