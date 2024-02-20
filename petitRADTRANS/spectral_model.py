@@ -2837,7 +2837,7 @@ class SpectralModel(Radtrans):
         if times is not None:
             if mid_transit_time is None:
                 mid_transit_time = np.mean(mid_transit_times_range)
-            else:
+            elif mid_transit_times_range is not None:
                 if (mid_transit_time > np.max(mid_transit_times_range)
                         or mid_transit_time < np.min(mid_transit_times_range)):
                     raise ValueError(f"mid_transit_time must be within mid_transit_times_range "
