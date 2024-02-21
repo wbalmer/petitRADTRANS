@@ -2221,7 +2221,7 @@ class SpectralModel(Radtrans):
         )
 
     @classmethod
-    def load(cls, file, path_input_data=None):
+    def load(cls, file, path_input_data=None, overwrite=False):
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
@@ -2233,12 +2233,13 @@ class SpectralModel(Radtrans):
 
         radtrans_attributes = Radtrans.__dict__
 
-        discarded_radtrans_attributes = [
-            '_cias_loaded_opacities',
-            '_clouds_loaded_opacities',
-            '_lines_loaded_opacities',
-            '_frequency_bins_edges'
-        ]
+        discarded_radtrans_attributes = {
+            '_cias_loaded_opacities': None,
+            '_clouds_loaded_opacities': None,
+            '_lines_loaded_opacities': None,
+            '_frequency_bins_edges': None,
+            '_frequencies': None
+        }
 
         # Convert Radtrans properties to input names
         for parameter in list(parameters.keys()):
@@ -2248,7 +2249,7 @@ class SpectralModel(Radtrans):
                         parameters[parameter] = path_input_data
                     elif parameter in discarded_radtrans_attributes:
                         # Remove hidden and opacity-related parameters
-                        del parameters[parameter]
+                        discarded_radtrans_attributes[parameter] = parameters.pop(parameter)
                         continue
 
                     parameters[parameter[1:]] = parameters.pop(parameter)
@@ -2264,6 +2265,43 @@ class SpectralModel(Radtrans):
         new_spectrum_model = cls(
             **parameters
         )
+
+        def __check_new_parameters(loaded_parameters, new_parameters, dataset='.'):
+            if isinstance(loaded_parameters, dict):
+                for _key in loaded_parameters:
+                    __check_new_parameters(
+                        loaded_parameters[_key],
+                        new_parameters[_key],
+                        f"{dataset}/{_key}"
+                    )
+            elif loaded_parameters is None:
+                return
+            elif loaded_parameters.dtype == '<U2':
+                return
+            elif not np.allclose(
+                    loaded_parameters,
+                    new_parameters,
+                    atol=0,
+                    rtol=10**-(sys.float_info.dig + 1)
+            ):
+                warnings.warn(f"parameter '{dataset}' in loaded SpectralModel is different from the re-generated "
+                              f"parameter\n"
+                              f"This may be due to the use of different (default) opacities"
+                              )
+                return
+
+            return
+
+        for parameter in discarded_radtrans_attributes:
+            if not overwrite:
+                __check_new_parameters(
+                    loaded_parameters=discarded_radtrans_attributes[parameter],
+                    new_parameters=new_spectrum_model.__dict__[parameter],
+                    dataset=parameter
+                )
+            else:
+                print(f"Overwriting new parameter '{parameter}' with loaded parameter...")
+                new_spectrum_model.__dict__[parameter] = discarded_radtrans_attributes[parameter]
 
         return new_spectrum_model
 
