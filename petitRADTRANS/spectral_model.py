@@ -1310,17 +1310,17 @@ class SpectralModel(Radtrans):
         return mass_fractions
 
     @staticmethod
-    def compute_mean_molar_masses(mass_mixing_ratios, **kwargs):
+    def compute_mean_molar_masses(mass_fractions, **kwargs):
         """Calculate the mean molar masses.
 
         Args:
-            mass_mixing_ratios: dictionary of the mass mixing ratios of the model
+            mass_fractions: dictionary of the mass fractions of the model
             **kwargs: used to store unnecessary parameters
 
         Returns:
 
         """
-        return compute_mean_molar_masses(mass_mixing_ratios)
+        return compute_mean_molar_masses(mass_fractions)
 
     @staticmethod
     def compute_optimal_wavelength_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
@@ -1464,7 +1464,7 @@ class SpectralModel(Radtrans):
                 * star_metallicity * atmospheric_mixing)
 
     @staticmethod
-    def compute_spectral_parameters(temperature_profile_function, mass_mixing_ratios_function,
+    def compute_spectral_parameters(temperature_profile_function, mass_fractions_function,
                                     mean_molar_masses_function,
                                     star_flux_function, stellar_intensities_function,
                                     radial_velocity_semi_amplitude_function, radial_velocities_function,
@@ -1486,7 +1486,7 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-        mass_mixing_ratios = mass_mixing_ratios_function(
+        mass_fractions = mass_fractions_function(
             pressures=pressures,
             line_species=line_species,
             temperatures=temperatures,  # use the newly calculated temperature profile to obtain the mass mixing ratios
@@ -1496,7 +1496,7 @@ class SpectralModel(Radtrans):
         # Find the mean molar mass in each layer
         mean_molar_mass = mean_molar_masses_function(
             pressures=pressures,
-            mass_mixing_ratios=mass_mixing_ratios,
+            mass_fractions=mass_fractions,
             **kwargs
         )
 
@@ -1530,7 +1530,7 @@ class SpectralModel(Radtrans):
                     **kwargs
                 )
 
-        return temperatures, mass_mixing_ratios, mean_molar_mass, kwargs
+        return temperatures, mass_fractions, mean_molar_mass, kwargs
 
     @staticmethod
     def compute_star_flux(star_effective_temperature, **kwargs):
@@ -1735,7 +1735,7 @@ class SpectralModel(Radtrans):
             radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
-            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
     ):
         def __get_median_samples(_samples):
@@ -1787,7 +1787,7 @@ class SpectralModel(Radtrans):
                 relative_velocities_function=relative_velocities_function,
                 orbital_longitudes_function=orbital_longitudes_function,
                 temperatures=temperatures,
-                mass_mixing_ratios=mass_mixing_ratios,
+                mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 wavelengths=wavelengths,
                 transit_radii=transit_radii,
@@ -1907,7 +1907,7 @@ class SpectralModel(Radtrans):
 
         functions_dict = {
             'temperature_profile_function': self.compute_temperature_profile,
-            'mass_mixing_ratios_function': self.compute_mass_fractions,
+            'mass_fractions_function': self.compute_mass_fractions,
             'mean_molar_masses_function': self.compute_mean_molar_masses,
             'star_flux_function': self.compute_star_flux,
             'stellar_intensities_function': self.compute_stellar_intensities,
@@ -2769,9 +2769,9 @@ class SpectralModel(Radtrans):
                     else:
                         imposed_mass_fractions = parameters[parameter]
 
-                    for species, mass_mixing_ratios in imposed_mass_fractions.items():
+                    for species, mass_fractions in imposed_mass_fractions.items():
                         if species not in kwargs[parameter]:
-                            kwargs[parameter][species] = copy.copy(mass_mixing_ratios)
+                            kwargs[parameter][species] = copy.copy(mass_fractions)
                 elif parameter in kwargs:
                     raise TypeError(f"got multiple values for parameter '{parameter}'; "
                                     f"this may be caused by "
@@ -2827,7 +2827,7 @@ class SpectralModel(Radtrans):
             radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
-            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
     ):
         # Initialization
@@ -2915,7 +2915,7 @@ class SpectralModel(Radtrans):
             relative_velocities_function=relative_velocities_function,
             orbital_longitudes_function=orbital_longitudes_function,
             temperatures=temperatures,
-            mass_mixing_ratios=mass_mixing_ratios,
+            mass_fractions=mass_fractions,
             mean_molar_masses=mean_molar_masses,
             wavelengths=wavelengths,
             transit_radii=transit_radii,
