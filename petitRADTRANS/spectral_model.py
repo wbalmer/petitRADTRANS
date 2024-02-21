@@ -2252,7 +2252,11 @@ class SpectralModel(Radtrans):
                         discarded_radtrans_attributes[parameter] = parameters.pop(parameter)
                         continue
 
-                    parameters[parameter[1:]] = parameters.pop(parameter)
+                    if parameter == '_pressures':
+                        print("Converting pressures from CGS to bar for Radtrans input...")
+                        parameters[parameter[1:]] = parameters.pop(parameter) * 1e-6  # cgs to bar
+                    else:
+                        parameters[parameter[1:]] = parameters.pop(parameter)
                 elif '_Radtrans__' in parameter:
                     del parameters[parameter]
             elif parameter == 'model_parameters':
