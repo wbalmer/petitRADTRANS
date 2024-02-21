@@ -1552,14 +1552,15 @@ class SpectralModel(Radtrans):
         )
 
         if temperature_profile_mode == 'isothermal':
-            if isinstance(temperature, (float, int)):
+            if np.size(temperature) == 1:
                 temperatures = np.ones(np.shape(pressures)) * temperature
             elif np.size(temperature) == np.size(pressures):
                 temperatures = np.asarray(temperature)
             else:
                 raise ValueError(f"could not initialize isothermal temperature profile ; "
-                                 f"possible inputs are float, int, "
-                                 f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)})")
+                                 f"possible inputs are a scalar, "
+                                 f"or a 1-D array of the same size of parameter 'pressures' ({np.size(pressures)}), "
+                                 f"but was: {temperature}")
         elif temperature_profile_mode == 'guillot':
             temperatures = temperature_profile_function_guillot_metallic(
                 pressures=pressures,  # TODO change TP pressure to CGS
