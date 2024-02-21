@@ -11,7 +11,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.0.0a152"
+version = "3.0.0a153"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"

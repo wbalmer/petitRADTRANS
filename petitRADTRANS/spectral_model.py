@@ -878,29 +878,27 @@ class SpectralModel(Radtrans):
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                            prepare=False):
+        # Add modification parameters to model parameters
+        for parameter, value in locals().items():
+            if (
+                (parameter not in self.model_parameters or update_parameters)
+                and parameter not in ['self', 'parameters', 'update_parameters']
+            ):
+                self.model_parameters[parameter] = value
+
+        # Initialize parameters
         if parameters is None:
             parameters = self.model_parameters
 
+        # Update parameters
         if update_parameters:
-            parameters['mode'] = mode
-            parameters['telluric_transmittances_wavelengths'] = telluric_transmittances_wavelengths
-            parameters['telluric_transmittances'] = telluric_transmittances
-            parameters['instrumental_deformations'] = instrumental_deformations
-            parameters['noise_matrix'] = noise_matrix
-            parameters['scale'] = scale
-            parameters['shift'] = shift
-            parameters['use_transit_light_loss'] = use_transit_light_loss
-            parameters['convolve'] = convolve
-            parameters['rebin'] = rebin
-            parameters['prepare'] = prepare
-
             self.update_spectral_calculation_parameters(
                 **parameters
             )
 
-            parameters = copy.deepcopy(self.model_parameters)
+            parameters = self.model_parameters
 
-        # Raw spectrum
+        # Calculate base spectrum
         if mode == 'emission':
             self.wavelengths, self.fluxes, additional_outputs = (
                 self.calculate_emission_spectrum(
@@ -918,7 +916,7 @@ class SpectralModel(Radtrans):
         else:
             raise ValueError(f"mode must be 'emission' or 'transmission', not '{mode}'")
 
-        # Modified spectrum
+        # Modify the spectrum
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=copy.copy(self.wavelengths),
             spectrum=spectrum,
@@ -927,17 +925,15 @@ class SpectralModel(Radtrans):
             transit_fractional_light_loss_function=self.compute_transit_fractional_light_loss,
             convolve_function=self.convolve,
             rebin_spectrum_function=self.rebin_spectrum,
-            **self.model_parameters
+            **parameters
         )
 
+        # Store star observed spectrum for debug
         if star_observed_spectrum is not None:
-            if 'star_observed_spectrum' not in parameters:
+            if 'star_observed_spectrum' not in parameters or update_parameters:
                 parameters['star_observed_spectrum'] = star_observed_spectrum
 
-            if update_parameters:
-                self.model_parameters['star_observed_spectrum'] = star_observed_spectrum
-
-        # Prepared spectrum
+        # Prepare the spectrum
         if prepare:
             spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
                 self.prepare_spectrum(
@@ -953,10 +949,6 @@ class SpectralModel(Radtrans):
                     copy.deepcopy(parameters['data_uncertainties'])
             else:
                 parameters['prepared_uncertainties'] = None
-
-        if update_parameters:
-            self.model_parameters['preparation_matrix'] = parameters['preparation_matrix']
-            self.model_parameters['prepared_uncertainties'] = parameters['prepared_uncertainties']
 
         return wavelengths, spectrum
 
