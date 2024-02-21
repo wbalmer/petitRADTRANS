@@ -52,7 +52,7 @@ class SpectralModel(Radtrans):
             radial_velocities_function: callable = None,
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
-            temperatures=None, mass_mixing_ratios=None, mean_molar_masses=None,
+            temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
     ):
         """Essentially a wrapper of Radtrans.
@@ -117,7 +117,7 @@ class SpectralModel(Radtrans):
                 :math:`10^6` resolution. If not, this parameter must not be used.
             temperatures:
                 array containing the temperatures of the model, at each pressure.
-            mass_mixing_ratios:
+            mass_fractions:
                 dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
             mean_molar_masses:
                 dictionary containing the mean_molar_masses of the model, at each pressure.
@@ -155,7 +155,7 @@ class SpectralModel(Radtrans):
         # TODO if spectrum generation parameters are not None, change functions to get them so that they return the initialised value # noqa: E501
         # Spectrum generation base parameters
         self.temperatures = temperatures
-        self.mass_fractions = mass_mixing_ratios
+        self.mass_fractions = mass_fractions
         self.mean_molar_masses = mean_molar_masses
 
         # Spectrum parameters
