@@ -4,7 +4,7 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a153] - 2024-02-21
+## [3.0.0-a154] - 2024-02-22
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `retrieval.retrieval.save_best_fit_outputs_external_variability` to speed up calculations, since it makes use of `external_prt_reference` properly.
 - Constant `e_molar_mass` to physical constants.
 - SysRem preparing pipeline.
+- Arguments of `SpectralModel.calculate_spectrum` in `model_parameters`.
 - More control over uncertainty_scaling_b: can now also be done per observation "types" (e.g., different MRS channels see the same b).
 - Possibility for the forward model to return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
 - Possibility to return only the best fit spectra are calculated and no plot is produced.

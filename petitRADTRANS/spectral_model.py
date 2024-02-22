@@ -878,14 +878,6 @@ class SpectralModel(Radtrans):
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
                            prepare=False):
-        # Add modification parameters to model parameters
-        for parameter, value in locals().items():
-            if (
-                (parameter not in self.model_parameters or update_parameters)
-                and parameter not in ['self', 'parameters', 'update_parameters']
-            ):
-                self.model_parameters[parameter] = value
-
         # Initialize parameters
         if parameters is None:
             parameters = self.model_parameters
@@ -897,6 +889,18 @@ class SpectralModel(Radtrans):
             )
 
             parameters = self.model_parameters
+
+        # Add modification parameters to model parameters
+        modification_parameters = inspect.signature(self.calculate_spectrum).parameters
+        local_variables = locals()
+
+        if 'modification_parameters' not in self.model_parameters:
+            self.model_parameters['modification_parameters'] = {}
+
+        for parameter in modification_parameters:
+            if parameter not in ['self', 'parameters']:
+                self.model_parameters['modification_parameters'][parameter] = local_variables[parameter]
+                parameters[parameter] = self.model_parameters['modification_parameters'][parameter]
 
         # Calculate base spectrum
         if mode == 'emission':
@@ -1861,6 +1865,7 @@ class SpectralModel(Radtrans):
             ]
         )
 
+        default_parameters.add('modification_parameters')
         default_parameters.add('preparation_matrix')
         default_parameters.add('prepared_uncertainties')
 
