@@ -605,6 +605,108 @@ module fortran_inputs
         end subroutine load_cloud_opacities
 
 
+        subroutine load_cloud_opacities_external(path_to_species_opacity_folder, &
+                                        n_clouds, n_cloud_wavelength_bins, &
+                                        clouds_absorption_opacities, &
+                                        clouds_scattering_opacities, clouds_asymmetry_parameters, cloud_wavelengths, &
+                                        clouds_particles_radii_bins, clouds_particles_radii)
+            ! """
+            ! Subroutine to read in the molecular opacities (c-k or line-by-line)
+            ! """
+            implicit none
+
+            integer, parameter :: N_cloud_rad_bins = 130
+
+            character(len=*), intent(in) :: path_to_species_opacity_folder
+            integer, intent(in) :: n_clouds, n_cloud_wavelength_bins
+            double precision, intent(out) :: &
+                clouds_absorption_opacities(N_cloud_rad_bins,n_cloud_wavelength_bins,n_clouds), &
+                clouds_scattering_opacities(N_cloud_rad_bins,n_cloud_wavelength_bins,n_clouds), &
+                clouds_asymmetry_parameters(N_cloud_rad_bins,n_cloud_wavelength_bins,n_clouds), &
+                cloud_wavelengths(n_cloud_wavelength_bins), &
+                clouds_particles_radii_bins(N_cloud_rad_bins+1), clouds_particles_radii(N_cloud_rad_bins)
+
+            integer :: i_cloud, i_cloud_lamb, i_size, i_lamb
+            integer :: io
+
+            character(len=species_string_max_length)  :: buff_line
+            double precision :: buffer
+
+            ! Read in cloud opacities
+            clouds_absorption_opacities = 0d0
+            clouds_scattering_opacities = 0d0
+            clouds_asymmetry_parameters = 0d0
+
+            open(unit=10, file=trim(adjustl(path_to_species_opacity_folder))// &
+               '/bin_borders.dat', status='old')
+            read(10, *)
+
+            do i_cloud_lamb = 1, N_cloud_rad_bins
+                read(10, *) clouds_particles_radii_bins(i_cloud_lamb)
+            end do
+
+            read(10, *) clouds_particles_radii_bins(N_cloud_rad_bins+1)
+            close(10)
+
+            open(unit=11, file=trim(adjustl(path_to_species_opacity_folder))// &
+               '/particle_sizes.dat', status='old')
+            read(11, *)
+
+            do i_cloud_lamb = 1, N_cloud_rad_bins
+                read(11, '(A80)') buff_line
+                read(buff_line(17:len(buff_line)),*) clouds_particles_radii(i_cloud_lamb)
+            end do
+
+            close(11)
+
+            open(unit=10, file=trim(adjustl(path_to_species_opacity_folder))// &
+               '/opa_0001.dat', status='old')
+            do i_cloud_lamb = 1,11
+                read(10, *)
+            end do
+
+            do i_cloud_lamb = 1, n_cloud_wavelength_bins
+                read(10, *) cloud_wavelengths(i_cloud_lamb)
+                cloud_wavelengths(i_cloud_lamb) = cloud_wavelengths(i_cloud_lamb) / 1d4
+            end do
+
+            close(10)
+
+            do i_cloud = 1, n_clouds
+
+                write(*, *) ' Loading opacity of cloud species...'
+
+                open(unit=11,file=trim(adjustl(path_to_species_opacity_folder))// &
+                  '/particle_sizes.dat', status='old')
+                read(11, *)
+
+                do i_size = 1, N_cloud_rad_bins
+                    read(11, '(A80)') buff_line
+                    open(unit=10, file=trim(adjustl(path_to_species_opacity_folder))// &
+                         '/'//trim(adjustl(buff_line(1:17))), status='old')
+
+                    do i_lamb = 1,11
+                        read(10, *)
+                    end do
+
+                    do i_lamb = 1, n_cloud_wavelength_bins
+                        read(10, *) buffer, clouds_absorption_opacities(i_size,i_lamb,i_cloud), &
+                            clouds_scattering_opacities(i_size,i_lamb,i_cloud), &
+                            clouds_asymmetry_parameters(i_size,i_lamb,i_cloud)
+                    end do
+
+                    close(10)
+                end do
+
+                close(11)
+            end do
+
+            write(*, *) 'Done.'
+            write(*, *)
+
+        end subroutine load_cloud_opacities_external
+
+
         subroutine load_frequencies(path_input_data, n_frequencies, frequencies, frequency_bins_edges)
             ! """
             ! Subroutine to read in frequency grid
