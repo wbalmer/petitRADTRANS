@@ -131,27 +131,6 @@ def _get_base_cloud_names():
         'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline.R39_0.1-250mu'
     })
 
-'''
-def _get_base_cloud_names():
-    return LockedDict.build_and_lock({
-        'Al2O3(s)_crystalline': 'Al2O3-NatAbund(s)_crystalline_167.R39_0.1-250mu',
-        'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_229.R39_0.1-250mu',
-        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_194.R39_0.1-250mu',
-        'H2O(l)': 'H2-O-NatAbund(l).R39_0.1-250mu',
-        'H2OSO4(l)': 'H2-O-S-O4-NatAbund(l).R39_0.1-250mu',
-        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_225.R39_0.1-250mu',
-        'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline_062.R39_0.1-250mu',
-        'Mg05Fe05SiO3(s)_amorphous': 'Mg05-Fe05-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgAl2O4(s)_crystalline': 'Mg-Al2-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgFeSiO4(s)_amorphous': 'Mg-Fe-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_amorphous': 'Mg-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline_061.R39_0.1-250mu',
-        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline_225.R39_0.1-250mu',
-        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline_216.R39_0.1-250mu'
-    })
-'''
 
 def _get_base_correlated_k_names():
     """Only used for file conversion from pRT2 to pRT3."""
