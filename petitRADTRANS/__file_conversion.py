@@ -3043,7 +3043,10 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
-    output_directory = os.path.join(save_folder, longname.split('__')[0])
+    output_directory = os.path.join(save_folder, longname.split('__')[0].replace('-NatAbund','').replace('-',''))
+    if not os.path.isdir(output_directory):
+        os.mkdir(output_directory)
+    output_directory = os.path.join(output_directory, longname.split('__')[0])
     if not os.path.isdir(output_directory):
         os.mkdir(output_directory)
     hdf5_opacity_file = os.path.join(
