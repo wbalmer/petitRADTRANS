@@ -3026,7 +3026,7 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
 
 def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_folder,
                                                        longname,
-                                                       cloud_density,
+                                                       cloud_material_density,
                                                        save_folder='converted_cloud_opacities',
                                                        doi=None,
                                                        description=None):
@@ -3114,7 +3114,7 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
 
         dataset = fh5.create_dataset(
             name='particles_density',
-            data=cloud_density
+            data=cloud_material_density
         )
         dataset.attrs['long_name'] = 'Average density of the cloud particles'
         dataset.attrs['units'] = 'g.cm^-3'

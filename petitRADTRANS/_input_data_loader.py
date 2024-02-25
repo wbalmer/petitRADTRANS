@@ -787,7 +787,8 @@ def check_opacity_name(opacity_name: str):
             r'(\(l\))'  # liquid state, no additional information required
             r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
             r'(crystalline(_\d{3})?'  # crystalline form, can be followed by the space group number (from 001 to 230)
-            r'|amorphous(_[A-Z]{1,5})?)'  # amorphous form, can be followed by the amorphous phase name
+            r'|amorphous(_[A-Z]{1,5})?'  # amorphous form, can be followed by the amorphous phase name
+            r'|structureunclear)'
             r')?'  # end clouds formatting
             r'(__(\d|[A-Z]|[a-z]|-)+)?'  # source or method
             r'(\.(R|DeltaWavenumber|DeltaWavelength)\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling mode and value
@@ -801,21 +802,21 @@ def check_opacity_name(opacity_name: str):
             f"\t- must begin with a number (up to 3 digits) or an uppercase letter\n"
             f"\t- must contains a valid chemical formula\n"
             f"\t- can have isotopes, that should be separated with '-'\n"
-            f"\t- can contains '-NatAbund' to signal a mix of isotopes "
+            f"\t- can contain '-NatAbund' to signal a mix of isotopes "
             f"(incompatible with providing isotopic information)\n"
-            f"\t- can contains '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
+            f"\t- can contain '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
             f"signal a ion \n"
-            f"\t- can contains '(l)' for clouds of liquid particles\n"
-            f"\t- can contains '(s)' for clouds of solid particles\n"
+            f"\t- can contain '(l)' for clouds of liquid particles\n"
+            f"\t- can contain '(s)' for clouds of solid particles\n"
             f"\t\t* must contains 'crystalline' or 'amorphous' for clouds with solid particles\n"
             f"\t\t\t- 'crystalline' can be followed by a 3 digit number referring to the crystal space group number\n"
             f"\t\t\t- 'amorphous' can be followed by up to 5 characters referring to the amorphous state name\n"
-            f"\t- can contains a source or method, starting with '__'\n"
-            f"\t- can contains spectral information, starting with '.'\n"
+            f"\t- can contain a source or method, starting with '__'\n"
+            f"\t- can contain spectral information, starting with '.'\n"
             f"\t\t* spectral information must start with 'R', 'DeltaWavenumber' or 'DeltaWavelength', indicating "
             f"respectively opacities evenly spectrally spaced in resolving power, wavenumber or wavelength\n"
             f"\t\t* spectral spacing must end with a number (integers with or without an exponent format) \n"
-            f"\t\t* can contains the spectral range in micron in the format '_<float>-<float>mu', following spectral "
+            f"\t\t* can contain the spectral range in micron in the format '_<float>-<float>mu', following spectral "
             f"spacing\n"
             f"Valid examples:\n"
             f"\t- 'H2O'\n"
