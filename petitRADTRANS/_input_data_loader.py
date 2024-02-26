@@ -878,7 +878,10 @@ def get_cloud_aliases(name: str) -> str:
         # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
         if 'NatAbund' not in name and not _has_isotope(name):
             if '(s)' not in name and '(l)' not in name:
-                raise ValueError(f"not a valid cloud name: '{name}'")
+                raise ValueError(f"cloud species name '{name}' lacks condensed matter state information\n"
+                                 f"For liquid particles, cloud species names must include '(l)' (e.g. 'H2O(l)').\n"
+                                 f"For solid particles, the cloud species must include '(s)_crystalline' for crystals "
+                                 f"or '(s)_amorphous' for amorphous solids (e.g. 'MgSiO3(s)_crystalline').")
 
             species, info = name.split('(', 1)
 
