@@ -4,8 +4,10 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a155] - 2024-02-24
+## [3.0.0-a156] - 2024-02-25
 ### Added
+- Added `structureunclear` to re.findall() for cloud opacity names, this is for optical constants where it is not clear
+  whether they stem from crystalline or amorphous particle measurements.
 - continuum_clouds_opacities_dat2h5_external_species() in __file_conversion.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -76,6 +78,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Code clean-up.
 
 ### Removed
+- Space group info for cloud species in _get_base_cloud_names().
 - Multiple `Radtrans` attributes, some are now function outputs.
 - Function `get_radtrans` of object `SpectralModel`, as `SpectralModel` is now a child of `Radtrans`.
 - Class `ReadOpacities`, now merged with `Radtrans`.
@@ -84,6 +87,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Deprecated `molecular_weight` constant.
 
 ### Fixed
+- Added again the porosity density decrease for DHS.
 - Crash when using photospheric cloud with null mass fractions.
 - Bug in retrieval model that would break the log-likelihood calculation in case of an external_prt_reference.
 - Bug in function `plot_radtrans_opacities` (TODO: what was it?).

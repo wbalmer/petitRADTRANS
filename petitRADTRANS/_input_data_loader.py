@@ -111,25 +111,24 @@ def _get_base_cia_names():
         'CO2--CO2': 'CO2--CO2-NatAbund.DeltaWavelength1e-6_3-100mu',
     })
 
-
 def _get_base_cloud_names():
     return LockedDict.build_and_lock({
-        'Al2O3(s)_crystalline': 'Al2O3-NatAbund(s)_crystalline_167.R39_0.1-250mu',
+        'Al2O3(s)_crystalline': 'Al2-O3-NatAbund(s)_crystalline.R39_0.1-250mu',
         'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_229.R39_0.1-250mu',
-        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_194.R39_0.1-250mu',
+        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline.R39_0.1-250mu',
         'H2O(l)': 'H2-O-NatAbund(l).R39_0.1-250mu',
         'H2OSO4(l)': 'H2-O-S-O4-NatAbund(l).R39_0.1-250mu',
-        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_225.R39_0.1-250mu',
+        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline.R39_0.1-250mu',
         'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline_062.R39_0.1-250mu',
+        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline.R39_0.1-250mu',
         'Mg05Fe05SiO3(s)_amorphous': 'Mg05-Fe05-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgAl2O4(s)_crystalline': 'Mg-Al2-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgFeSiO4(s)_amorphous': 'Mg-Fe-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgSiO3(s)_amorphous': 'Mg-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline_061.R39_0.1-250mu',
-        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline_225.R39_0.1-250mu',
-        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline_216.R39_0.1-250mu'
+        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline.R39_0.1-250mu'
     })
 
 
@@ -767,7 +766,8 @@ def check_opacity_name(opacity_name: str):
             r'(\(l\))'  # liquid state, no additional information required
             r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
             r'(crystalline(_\d{3})?'  # crystalline form, can be followed by the space group number (from 001 to 230)
-            r'|amorphous(_[A-Z]{1,5})?)'  # amorphous form, can be followed by the amorphous phase name
+            r'|amorphous(_[A-Z]{1,5})?'  # amorphous form, can be followed by the amorphous phase name
+            r'|structureunclear)'
             r')?'  # end clouds formatting
             r'(__(\d|[A-Z]|[a-z]|-)+)?'  # source or method
             r'(\.(R|DeltaWavenumber|DeltaWavelength)\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling mode and value
@@ -781,21 +781,21 @@ def check_opacity_name(opacity_name: str):
             f"\t- must begin with a number (up to 3 digits) or an uppercase letter\n"
             f"\t- must contains a valid chemical formula\n"
             f"\t- can have isotopes, that should be separated with '-'\n"
-            f"\t- can contains '-NatAbund' to signal a mix of isotopes "
+            f"\t- can contain '-NatAbund' to signal a mix of isotopes "
             f"(incompatible with providing isotopic information)\n"
-            f"\t- can contains '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
+            f"\t- can contain '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
             f"signal a ion \n"
-            f"\t- can contains '(l)' for clouds of liquid particles\n"
-            f"\t- can contains '(s)' for clouds of solid particles\n"
+            f"\t- can contain '(l)' for clouds of liquid particles\n"
+            f"\t- can contain '(s)' for clouds of solid particles\n"
             f"\t\t* must contains 'crystalline' or 'amorphous' for clouds with solid particles\n"
             f"\t\t\t- 'crystalline' can be followed by a 3 digit number referring to the crystal space group number\n"
             f"\t\t\t- 'amorphous' can be followed by up to 5 characters referring to the amorphous state name\n"
-            f"\t- can contains a source or method, starting with '__'\n"
-            f"\t- can contains spectral information, starting with '.'\n"
+            f"\t- can contain a source or method, starting with '__'\n"
+            f"\t- can contain spectral information, starting with '.'\n"
             f"\t\t* spectral information must start with 'R', 'DeltaWavenumber' or 'DeltaWavelength', indicating "
             f"respectively opacities evenly spectrally spaced in resolving power, wavenumber or wavelength\n"
             f"\t\t* spectral spacing must end with a number (integers with or without an exponent format) \n"
-            f"\t\t* can contains the spectral range in micron in the format '_<float>-<float>mu', following spectral "
+            f"\t\t* can contain the spectral range in micron in the format '_<float>-<float>mu', following spectral "
             f"spacing\n"
             f"Valid examples:\n"
             f"\t- 'H2O'\n"

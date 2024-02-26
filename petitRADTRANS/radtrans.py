@@ -3337,7 +3337,11 @@ class Radtrans:
                         (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
                     )
 
-                clouds_particles_densities[i] = f['particles_density'][()]
+                density_scale_factor = 1.
+                if 'DHS' in hdf5_file:
+                    # Decrease cloud particle density due to porosity
+                    density_scale_factor = 0.75
+                clouds_particles_densities[i] = f['particles_density'][()] * density_scale_factor
                 clouds_absorption_opacities[:, :, i] = f['absorption_opacities'][:]
                 clouds_scattering_opacities[:, :, i] = f['scattering_opacities'][:]
                 clouds_asymmetry_parameters[:, :, i] = f['asymmetry_parameters'][:]
