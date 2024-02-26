@@ -627,7 +627,6 @@ module fortran_inputs
                 clouds_particles_radii_bins(N_cloud_rad_bins+1), clouds_particles_radii(N_cloud_rad_bins)
 
             integer :: i_cloud, i_cloud_lamb, i_size, i_lamb
-            integer :: io
 
             character(len=species_string_max_length)  :: buff_line
             double precision :: buffer
