@@ -210,7 +210,7 @@ class PetitradtransConfigParser(configparser.ConfigParser):
             self.save()
 
 
-def get_input_data_subpaths():
+def get_input_data_subpaths() -> LockedDict[str, str]:
     return LockedDict.build_and_lock({
         "cia_opacities": os.path.join("opacities", "continuum", "collision_induced_absorptions"),
         "clouds_opacities": os.path.join("opacities", "continuum", "clouds"),

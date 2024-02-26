@@ -37,7 +37,7 @@ except ImportError:
     comm = None
 
 
-def __get_prt2_input_data_subpaths():
+def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
     old_input_data_subpaths = LockedDict()
     old_input_data_subpaths.update(get_input_data_subpaths())
     old_input_data_subpaths.lock()
