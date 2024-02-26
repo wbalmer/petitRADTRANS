@@ -110,6 +110,7 @@ def _chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input
         path = os.path.join(
             path_input_data, get_input_data_subpaths()['pre_calculated_chemistry'], 'equilibrium_chemistry'
         )
+
     hdf5_file = os.path.join(path, 'equilibrium_chemistry.chemtable.petitRADTRANS.h5')
 
     if os.path.isfile(hdf5_file) and not rewrite:
@@ -2845,7 +2846,7 @@ def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
     return hdul
 
 
-def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_species, doi, molmass,
+def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_species, doi,
                                       cloud_species_mode=None,
                                       path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                       description=None,
@@ -2876,7 +2877,7 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
             f"(see https://petitradtrans.readthedocs.io/en/latest/content/available_opacities.html)"
         )
 
-    n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
+    n_cloud_wavelength_bins = len(np.genfromtxt(reference_file)[:, 0])
 
     if cloud_path is None:
         cloud_path = os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities'])
@@ -3017,22 +3018,27 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
 
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
-    n_cloud_wavelength_bins = int(len(np.genfromtxt(os.path.join(path_to_species_opacity_folder,'opa_0001.dat'))[:, 0]))
+    n_cloud_wavelength_bins = len(np.genfromtxt(os.path.join(path_to_species_opacity_folder, 'opa_0001.dat'))[:, 0])
 
-    cloud_absorption_opacities, cloud_scattering_opacities, cloud_asymmetry_parameter,\
-         cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
-                = finput.load_cloud_opacities_external(path_to_species_opacity_folder, 1,
-                                                       n_cloud_wavelength_bins
-                                                       )
+    (cloud_absorption_opacities, cloud_scattering_opacities, cloud_asymmetry_parameter, cloud_wavelengths,
+     cloud_particles_radius_bins, cloud_particles_radii) = finput.load_cloud_opacities_external(
+        path_to_species_opacity_folder,
+        1,
+        n_cloud_wavelength_bins
+     )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
-    output_directory = os.path.join(save_folder, longname.split('__')[0].replace('-NatAbund','').replace('-',''))
+    output_directory = os.path.join(save_folder, longname.split('__')[0].replace('-NatAbund', '').replace('-', ''))
+
     if not os.path.isdir(output_directory):
         os.mkdir(output_directory)
+
     output_directory = os.path.join(output_directory, longname.split('__')[0])
+
     if not os.path.isdir(output_directory):
         os.mkdir(output_directory)
+
     hdf5_opacity_file = os.path.join(
         output_directory, longname
     )
@@ -3098,7 +3104,7 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         dataset = fh5.create_dataset(
             name='mol_name',
             shape=(1,),
-            data=longname.replace('-NatAbund','').replace('-','')
+            data=longname.replace('-NatAbund', '').replace('-', '')
         )
         dataset.attrs['long_name'] = 'Name of the species described.'
 
@@ -3131,6 +3137,7 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         dataset.attrs['units'] = 'cm^-1'
 
     print("Done.")
+
 
 def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopologue_name,
                          source, natural_abundance='', charge='', cloud_info=''):
