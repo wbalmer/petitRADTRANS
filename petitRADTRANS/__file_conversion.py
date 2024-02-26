@@ -884,14 +884,6 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
             dataset.attrs['units'] = 'None'
 
             dataset = fh5.create_dataset(
-                name='mol_mass',
-                shape=(1,),
-                data=float(molmass_dict[key])
-            )
-            dataset.attrs['long_name'] = 'Mass of the species'
-            dataset.attrs['units'] = 'AMU'
-
-            dataset = fh5.create_dataset(
                 name='particles_density',
                 data=cloud_particles_densities[i]
             )
@@ -2969,14 +2961,6 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
         dataset.attrs['units'] = 'None'
 
         dataset = fh5.create_dataset(
-            name='mol_mass',
-            shape=(1,),
-            data=float(molmass)
-        )
-        dataset.attrs['long_name'] = 'Mass of the species'
-        dataset.attrs['units'] = 'AMU'
-
-        dataset = fh5.create_dataset(
             name='particles_density',
             data=cloud_particles_densities[i]
         )
@@ -3103,14 +3087,6 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         )
         dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
         dataset.attrs['units'] = 'None'
-
-        dataset = fh5.create_dataset(
-            name='mol_mass',
-            shape=(1,),
-            data=0. #float(molmass) # Not needed for cloud file!
-        )
-        dataset.attrs['long_name'] = 'Mass of the species'
-        dataset.attrs['units'] = 'AMU'
 
         dataset = fh5.create_dataset(
             name='particles_density',
