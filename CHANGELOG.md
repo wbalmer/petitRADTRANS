@@ -4,11 +4,8 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a156] - 2024-02-25
+## [3.0.0-a157] - 2024-02-26
 ### Added
-- Added `structureunclear` to re.findall() for cloud opacity names, this is for optical constants where it is not clear
-  whether they stem from crystalline or amorphous particle measurements.
-- continuum_clouds_opacities_dat2h5_external_species() in __file_conversion.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -33,6 +30,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to initialize a `Radtrans` object with CIA opacities, cloud opacities, or no opacities.
 - Possibility to print the log-likelihood to the console if desired, for retrieval debugging.
 - Possibility for function `retrieval.retrieval.save_best_fit_outputs` to return the best fit spectra.
+- Possibility to set the clouds particles porosity factor.
 - Treatment to allow for concatenated fluxes (from different epochs) for variability retrievals.
   (see `concatenate_flux_epochs_variability` and its use in the data class).
 - Handling of column flux mixing in `retrieval.retrieval.save_best_fit_outputs`.
@@ -48,6 +46,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
 - Function `Radtrans.calculate_transit_radii` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
+- Complete rework of the input_data file naming convention.
 - The combination of correlated-k opacities are now using the faster merge sorting algorithm.
 - Significantly improved the CIA interpolation performances. This might cause small changes in some results (most of the time the relative change should be < 1e-6).
 - Significantly improved transmission spectra calculation performances.

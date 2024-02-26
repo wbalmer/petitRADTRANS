@@ -11,7 +11,8 @@ from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS._input_data_loader import (
     _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases,
-    get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string
+    get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string,
+    split_species_all_info
 )
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -577,6 +578,31 @@ class Radtrans:
             'H-': Radtrans._compute_h_minus_opacities
         }
 
+    @staticmethod
+    def __init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
+        if clouds_particles_porosity_factor is None:
+            clouds_particles_porosity_factor = {species: -np.inf for species in cloud_species}
+
+        for species in cloud_species:
+            _, _, _, _, source, _ = split_species_all_info(get_cloud_aliases(species))
+
+            if source == 'DHS':
+                if clouds_particles_porosity_factor[species] == 0:
+                    warnings.warn(f"cloud species '{species}' opacity calculation method is using the DHS method, "
+                                  f"the porosity factor should be > 0 (0.25 is used by default)")
+                elif not np.isfinite(clouds_particles_porosity_factor[species]):
+                    clouds_particles_porosity_factor[species] = 0.25
+            else:
+                if not np.isfinite(clouds_particles_porosity_factor[species]):
+                    clouds_particles_porosity_factor[species] = 0
+
+            if clouds_particles_porosity_factor[species] < 0 or clouds_particles_porosity_factor[species] >= 1:
+                raise ValueError(f"clouds particles porosity factor "
+                                 f"must be >= 0 (full particles) and < 1 (empty particles), "
+                                 f"but is {clouds_particles_porosity_factor[species]} for species '{species}'")
+
+        return clouds_particles_porosity_factor
+
     def __set_sum_opacities(self, emission):
         self.__sum_opacities = False
 
@@ -689,6 +715,7 @@ class Radtrans:
                              opaque_cloud_top_pressure=None,
                              cloud_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
                              cloud_particles_radius_distribution="lognormal", cloud_hansen_a=None, cloud_hansen_b=None,
+                             clouds_particles_porosity_factor=None,
                              cloud_f_sed=None, eddy_diffusion_coefficients=None,
                              haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
                              gray_opacity=None, cloud_photosphere_median_optical_depth=None,
@@ -830,6 +857,11 @@ class Radtrans:
                                  f"({list(mass_fractions.keys())}) "
                                  f"and cloud_species keys ({self._cloud_species})")
 
+            clouds_particles_porosity_factor = self.__init_clouds_particles_porosity_factor(
+                clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+                cloud_species=self._cloud_species
+            )
+
             self.__scattering_in_transmission = True
 
             (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
@@ -852,6 +884,7 @@ class Radtrans:
                     cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                     cloud_hansen_a=cloud_hansen_a,
                     cloud_hansen_b=cloud_hansen_b,
+                    clouds_particles_porosity_factor=clouds_particles_porosity_factor,
                     photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
                     return_cloud_contribution=return_cloud_contribution
                 )
@@ -1221,6 +1254,7 @@ class Radtrans:
                                  cloud_particles_mean_radii=None,
                                  cloud_particles_radius_distribution="lognormal",
                                  cloud_hansen_a=None, cloud_hansen_b=None,
+                                 clouds_particles_porosity_factor=None,
                                  photospheric_cloud_optical_depths=None,
                                  return_cloud_contribution=False):
         """Calculate cloud opacities for a defined atmospheric structure.
@@ -1248,9 +1282,8 @@ class Radtrans:
         _cloud_species_mass_fractions = np.zeros((pressures.size, n_clouds), dtype='d', order='F')
         cloud_absorption_opacities = None
         cloud_anisotropic_scattering_opacities = None
-        _cloud_particles_mean_radii = np.zeros(
-            (pressures.size, n_clouds), dtype='d', order='F'
-        )
+        _cloud_particles_mean_radii = np.zeros((pressures.size, n_clouds), dtype='d', order='F')
+        _cloud_particles_density = np.zeros(n_clouds, dtype='d', order='F')
         atmospheric_densities = pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         # Initialize Hansen's b coefficient
@@ -1274,9 +1307,17 @@ class Radtrans:
                 raise ValueError(f"The Hansen distribution width (cloud_hansen_b) must be an array, a dict, "
                                  f"or a float, but is of type '{type(cloud_hansen_b)}' ({cloud_hansen_b})")
 
-        # Initialize cloud species mass fractions and cloud_particles_mean_radii
+        # Initialize cloud species mass fractions, densities, and mean radii
         for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
             _cloud_species_mass_fractions[:, i_spec] = cloud_species_mass_fractions[cloud_name]
+
+            if clouds_particles_porosity_factor is not None:
+                _cloud_particles_density[i_spec] = (
+                    clouds_loaded_opacities['particles_densities'][i_spec]
+                    * (1 - clouds_particles_porosity_factor[cloud_name])
+                )
+            else:
+                _cloud_particles_density[i_spec] = clouds_loaded_opacities['particles_densities']
 
             if cloud_particles_mean_radii is not None:
                 _cloud_particles_mean_radii[:, i_spec] = cloud_particles_mean_radii[cloud_name]
@@ -1290,7 +1331,7 @@ class Radtrans:
                  cloud_scattering_reduction_factor) = \
                     Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
-                        clouds_particles_densities=clouds_loaded_opacities['particles_densities'],
+                        clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
                         cloud_particles_mean_radii=_cloud_particles_mean_radii,
                         cloud_particles_distribution_std=cloud_particle_radius_distribution_std,
@@ -2394,6 +2435,7 @@ class Radtrans:
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: dict[str, np.ndarray[float]] = None,
             cloud_hansen_b: dict[str, np.ndarray[float]] = None,
+            clouds_particles_porosity_factor: dict[str, float] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: np.ndarray[float] = None,
             haze_factor: float = 1.0,
@@ -2454,6 +2496,9 @@ class Radtrans:
                     A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
                     layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
                     the particle area (1/cloud_hansen_a^2)
+                clouds_particles_porosity_factor (Optional[dict]):
+                    A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
+                    are calculated using the Distribution of Hollow Spheres (DHS) method.
                 cloud_f_sed (Optional[float]):
                     cloud settling parameter
                 eddy_diffusion_coefficients (Optional[float]):
@@ -2598,6 +2643,7 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b,
+                clouds_particles_porosity_factor=clouds_particles_porosity_factor,
                 cloud_f_sed=cloud_f_sed,
                 eddy_diffusion_coefficients=eddy_diffusion_coefficients,
                 haze_factor=haze_factor,
@@ -2803,6 +2849,7 @@ class Radtrans:
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
+            clouds_particles_porosity_factor: dict[str, float] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
@@ -2907,7 +2954,8 @@ class Radtrans:
                 cloud_particles_mean_radii=cloud_particles_mean_radii,
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
-                cloud_hansen_b=cloud_hansen_b
+                cloud_hansen_b=cloud_hansen_b,
+                clouds_particles_porosity_factor=clouds_particles_porosity_factor
             )
         )
 
@@ -2953,6 +3001,7 @@ class Radtrans:
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
+            clouds_particles_porosity_factor: dict[str, float] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
@@ -3020,6 +3069,9 @@ class Radtrans:
                     included cloud species and for each atmospheric layer,
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
+                clouds_particles_porosity_factor (Optional[dict]):
+                    A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
+                    are calculated using the Distribution of Hollow Spheres (DHS) method.
                 cloud_f_sed (Optional[float]):
                     cloud settling parameter
                 eddy_diffusion_coefficients (Optional):
@@ -3104,6 +3156,7 @@ class Radtrans:
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
+            clouds_particles_porosity_factor=clouds_particles_porosity_factor,
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
             additional_scattering_opacities_function=additional_scattering_opacities_function
@@ -3337,11 +3390,7 @@ class Radtrans:
                         (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
                     )
 
-                density_scale_factor = 1.
-                if 'DHS' in hdf5_file:
-                    # Decrease cloud particle density due to porosity
-                    density_scale_factor = 0.75
-                clouds_particles_densities[i] = f['particles_density'][()] * density_scale_factor
+                clouds_particles_densities[i] = f['particles_density'][()]
                 clouds_absorption_opacities[:, :, i] = f['absorption_opacities'][:]
                 clouds_scattering_opacities[:, :, i] = f['scattering_opacities'][:]
                 clouds_asymmetry_parameters[:, :, i] = f['asymmetry_parameters'][:]
