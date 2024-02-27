@@ -111,24 +111,25 @@ def _get_base_cia_names():
         'CO2--CO2': 'CO2--CO2-NatAbund.DeltaWavelength1e-6_3-100mu',
     })
 
+
 def _get_base_cloud_names():
     return LockedDict.build_and_lock({
-        'Al2O3(s)_crystalline': 'Al2-O3-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'Al2O3(s)_crystalline': 'Al2-O3-NatAbund(s)_crystalline_000.R39_0.1-250mu',
         'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline.R39_0.1-250mu',
-        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_000.R39_0.1-250mu',
         'H2O(l)': 'H2-O-NatAbund(l).R39_0.1-250mu',
         'H2OSO4(l)': 'H2-O-S-O4-NatAbund(l).R39_0.1-250mu',
-        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_000.R39_0.1-250mu',
         'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline.R39_0.1-250mu',
+        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline_000.R39_0.1-250mu',
         'Mg05Fe05SiO3(s)_amorphous': 'Mg05-Fe05-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgAl2O4(s)_crystalline': 'Mg-Al2-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgFeSiO4(s)_amorphous': 'Mg-Fe-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
         'MgSiO3(s)_amorphous': 'Mg-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
-        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline.R39_0.1-250mu',
-        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline.R39_0.1-250mu',
-        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline.R39_0.1-250mu'
+        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline_000.R39_0.1-250mu'
     })
 
 
@@ -767,7 +768,7 @@ def check_opacity_name(opacity_name: str):
             r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
             r'(crystalline(_\d{3})?'  # crystalline form, can be followed by the space group number (from 001 to 230)
             r'|amorphous(_[A-Z]{1,5})?'  # amorphous form, can be followed by the amorphous phase name
-            r'|structureunclear)'
+            r'|structureUnclear)'  # exceptionally used when the form is not specified by the opacity provider
             r')?'  # end clouds formatting
             r'(__(\d|[A-Z]|[a-z]|-)+)?'  # source or method
             r'(\.(R|DeltaWavenumber|DeltaWavelength)\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling mode and value
