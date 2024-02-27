@@ -211,21 +211,6 @@ class SpectralModel(Radtrans):
         # Check relevance of model parameters
         self.__check_model_parameters_relevance()
 
-    @staticmethod
-    def __check_missing_model_parameters(model_parameters, explanation_message_=None, *args):
-        missing = []
-
-        for parameter_name in args:
-            if parameter_name not in model_parameters:
-                missing.append(parameter_name)
-
-        if len(missing) >= 1:
-            joint = "', '".join(missing)
-
-            base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
-
-            raise TypeError(SpectralModel._explained_error(base_error_message, explanation_message_))
-
     def __check_model_parameters_relevance(self):
         default_parameters = self.get_default_parameters(sort=False, spectral_model_specific=False)
 
