@@ -1346,7 +1346,7 @@ class Radtrans:
                  cloud_scattering_reduction_factor) = \
                     fcore.compute_cloud_hansen_opacities(
                         atmospheric_densities,
-                        clouds_loaded_opacities['particles_densities'],
+                        _cloud_particles_density,
                         _cloud_species_mass_fractions,
                         _cloud_particles_mean_radii,
                         cloud_hansen_b,
@@ -1393,7 +1393,7 @@ class Radtrans:
                 _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius(
                     reference_gravity,
                     atmospheric_densities,
-                    clouds_loaded_opacities['particles_densities'],
+                    _cloud_particles_density,
                     temperatures,
                     mean_molar_masses,
                     f_seds,
@@ -1405,7 +1405,7 @@ class Radtrans:
                  cloud_scattering_reduction_factor) = \
                     Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
-                        clouds_particles_densities=clouds_loaded_opacities['particles_densities'],
+                        clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
                         cloud_particles_mean_radii=_cloud_particles_mean_radii,
                         cloud_particles_distribution_std=cloud_particle_radius_distribution_std,
@@ -1419,7 +1419,7 @@ class Radtrans:
                 _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius_hansen(
                     reference_gravity,
                     atmospheric_densities,
-                    clouds_loaded_opacities['particles_densities'],
+                    _cloud_particles_density,
                     temperatures,
                     mean_molar_masses,
                     f_seds,
@@ -1431,7 +1431,7 @@ class Radtrans:
                  cloud_scattering_reduction_factor) = \
                     fcore.compute_cloud_hansen_opacities(
                         atmospheric_densities,
-                        clouds_loaded_opacities['particles_densities'],
+                        _cloud_particles_density,
                         _cloud_species_mass_fractions,
                         _cloud_particles_mean_radii,
                         cloud_hansen_b,
