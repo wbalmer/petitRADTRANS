@@ -13,14 +13,14 @@ ____________
 
 To add more line opacities, please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the Exomol opacities calculated in the pRT format, available from the `Exomol website <http://www.exomol.com/>`_.
 
-.. _nameingConvention:
+.. _namingConvention:
 
 File naming convention
 ^^^^^^^^^^^^^^^^^^^^^^
 
-In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/>`_. The isotopes are explicited, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
+In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
 
-Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no istopic information is given, the main isotoplogue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
+Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotoplogue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
 
 .. important::
      The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
@@ -44,13 +44,13 @@ Below are some working opacity name examples:
   * ``Ca+``
   * ``1H-2H-18O__HITEMP.R1e6_0.3-28mu``
 
-Herafter are the explicit file naming rules for line species:
+Hereafter are the explicit file naming rules for line species:
 
 - Species names are based on their chemical formula.
 - Elements in the chemical formula are separated by ``-``.
 - The number in front of the element indicates its isotope, when relevant.
 - The number after the element indicates its quantity in the molecule, when relevant.
-- Opacities combining isotopologues follwing their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number should be present next to the elements.
+- Opacities combining isotopologues following their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number should be present next to the elements.
 - The charge of the species is indicated after the formula, starting with ``_``. The character ``p`` is used for positive charges and ``n`` for negative charges.
 - The number in front of the charge indicates the charge amount.
 - The source of the opacity is indicated after the charge, starting with ``__``.
@@ -60,7 +60,7 @@ Herafter are the explicit file naming rules for line species:
 - The string ``DeltaWavelength`` indicates constant spacing in wavelength (:math:`\Delta\lambda` constant).
 - The number coming after the above indicates the spacing.
 - The wavelength range, in µm, is indicated afterward, starting with a ``_`` and ending with ``mu``. The upper and lower boundaries are separated with ``-``.
-- The nature of the opacity is indicated afterward, starting with a ``.``. It is ``ktable`` for correlated-k opacities, and ``xsec`` for line-by-line opacites.
+- The nature of the opacity is indicated afterward, starting with a ``.``. It is ``ktable`` for correlated-k opacities, and ``xsec`` for line-by-line opacities.
 - The extension of the file is always ``.petitRADTRANS.h5``.
 
 .. _lowResolution:
@@ -72,7 +72,7 @@ In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated
 
 For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
 
-All ``c-k`` opacities refrenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
+All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
 
 .. important::
      Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/>`_ can be used directly.
@@ -371,7 +371,7 @@ The available correlated-k opacities are listed below. When multiple source are 
 High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-All ``lbl`` opacities refrenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
+All ``lbl`` opacities referenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
 
 .. important::
      Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/>`_ can be used directly.
@@ -686,7 +686,7 @@ Gas continuum sources follow a naming convention similar to that of the :ref:`li
 Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
 .. important::
-	If a ``gas_continuum_contributors`` opacity name refer to a single species, it must be added to the ``mass_fractions`` dictionary. If a ``gas_continuum_contributors`` opacity name is a CIA, the ``mass_fractions`` dictionary keys must contains the colliding species.
+    If a ``gas_continuum_contributors`` opacity name refer to a single species, it must be added to the ``mass_fractions`` dictionary. If a ``gas_continuum_contributors`` opacity name is a CIA, the ``mass_fractions`` dictionary keys must contains the colliding species.
 
 Below are some working opacity name examples:
 
@@ -702,9 +702,9 @@ Below are some working opacity name examples:
   * ``He-H2``
   * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
 
-Herafter are the explicit file naming rules for line species:
+Hereafter are the explicit file naming rules for line species:
 
-- Gas continuum species names follow the same convention as the :ref:`line species<nameingConvention>`, with the following additions.
+- Gas continuum species names follow the same convention as the :ref:`line species<namingConvention>`, with the following additions.
 - For collision induced absorptions, the two colliding species are separated with ``--``. The ``-NatAbund`` flag must be placed after the two species.
 - The extension of the file is always ``.ciatable.petitRADTRANS.h5``.
 
@@ -767,12 +767,12 @@ _______________
 File naming convention
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Cloud species follow a naming convention similar to that of the :ref:`line species<nameingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans``-like objects.
+Cloud species follow a naming convention similar to that of the :ref:`line species<namingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans``-like objects.
 
 Most of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
 The source indication (after ``__`` in the file name) is used to indicate the method of the opacity calculation:
-- ``DHS`` stands for "Double-shelled Hollow Spheres" particles. Opacities calculated with this particle shpae are generally considered more realistic.
+- ``DHS`` stands for "Double-shelled Hollow Spheres" particles. Opacities calculated with this particle shape are generally considered more realistic.
 - ``Mie`` stands for spheric particles, (opacities calculated with Mie Scattering).
 
 .. important::
@@ -794,24 +794,26 @@ Below are some working opacity name examples:
   * ``Fe(s)_crystalline__DHS``
   * ``H2-O-NatAbund(s)_crystalline_194__Mie.R39_0.1-250mu``
 
-Herafter are the explicit file naming rules for line species:
+Hereafter are the explicit file naming rules for line species:
 
 - Cloud species names follow the same convention as the :ref:`line species<nameingConvention>`, with the following additions.
 - After the full chemical formula and the ``-NatAbund`` flag, if relevant, the physical state of the condensate is indicated between parenthesis: ``(s)`` for solids, ``(l)`` for liquids
 - For **solid** condensates **only**, after the state:
 
   * the internal structure of the condensate particles is indicated after a ``_``, it can be either ``crystalline`` or ``amorphous``,
+  * in the rare case where the internal structure of the condensate particles is not indicated by the source providing the opacities, the label ``unclearStructure`` is used instead,
+  * for ``amorphous`` solids, a string indicating the amorphous state in front of a ``_`` **can** be added,
   * for ``crystalline`` solids, 3 numbers in front of a ``_`` **must** be added, indicating the `space group <https://en.wikipedia.org/wiki/List_of_space_groups>`_,
-  * for ``amorphous`` solids, a string indicating the amorphous state in front of a ``_`` **can** be added.
+  * when the space group of crystals is not provided by the source or has not been verified yet, the number ``000`` is used (space group number range from ``001`` to ``230``).
 
-- For **liquid** condensates, the above requirments for solids do not apply.
+- For **liquid** condensates, the above requirements for solids do not apply.
 - The source and spectral information that follows obey the same rules as for the line species.
 - The extension of the file is always ``.cotable.petitRADTRANS.h5``.
 
 Available cloud opacities
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-All clouds opacities refrenced here have a resolving power of 39 and cover **at least** wavelengths 0.1 to 250 µm. Particle size grid may vary.
+All clouds opacities referenced here have a resolving power of 39 and cover **at least** wavelengths 0.1 to 250 µm. Particle size grid may vary.
 
 All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes.
 
