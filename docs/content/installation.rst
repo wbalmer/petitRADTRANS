@@ -171,3 +171,24 @@ The last lines of the output should be:
     Successfully loaded all opacities
 
 The warning about the pressure can be ignored.
+
+Troubleshooting the installation
+````````````````````````````````
+
+**Temporary directory issue**: when importing ``Radtrans``, you may see one of those two errors:
+
+.. code-block:: python
+
+    # For a pip install
+    ModuleNotFoundError: No module named 'petitRADTRANS.<fortran_extension>'
+
+    # For an editable pip install
+    FileNotFoundError: [Errno 2] No such file or directory: '/a/temporary/directory/overlay/bin/ninja'
+
+The issue is often caused by your setup installing the fortran extensions inside a temporary directory, that is then automatically removed. Try these fixes in that order:
+    - Ensure that you added the ``--no-build-isolation`` flag to the installation command. This should fix the issue in almost all cases.
+    - Ensure that all the installing elements of your setup (``pip``, ``conda``, fortran compiler, etc.) are up-to-date and installed cleanly.
+    - If you are on Mac, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
+    - In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the last one. You may need to perform manual cleaning to free space on your disk.
+
+**Other issues**: you can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
