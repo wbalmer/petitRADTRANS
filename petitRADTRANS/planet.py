@@ -1020,11 +1020,18 @@ class Planet:
         return orbital_velocity * np.sin(np.deg2rad(orbital_inclination))
 
     @staticmethod
-    def download_from_nasa_exoplanet_archive(name):
-        service = pyvo.dal.TAPService("https://exoplanetarchive.ipac.caltech.edu/TAP")
-        result_set = service.search(f"select * from ps where pl_name = '{name}'")
+    def download_from_nasa_exoplanet_archive(search_request,
+                                             tap_service="https://exoplanetarchive.ipac.caltech.edu/TAP"):
+        service = pyvo.dal.TAPService(tap_service)
+        result_set = service.search(search_request)
 
-        astro_table = result_set.to_table()
+        return result_set.to_table()
+
+    @staticmethod
+    def download_planet_from_nasa_exoplanet_archive(name):
+        astro_table = Planet.download_from_nasa_exoplanet_archive(
+            search_request=f"select * from ps where pl_name = '{name}'"
+        )
         filename = Planet.generate_filename(name).rsplit('.', 1)[0] + '.vot'
 
         with warnings.catch_warnings():
@@ -1269,7 +1276,7 @@ class Planet:
                 if not os.path.isdir(directory):
                     os.mkdir(directory)
 
-                cls.download_from_nasa_exoplanet_archive(name)
+                cls.download_planet_from_nasa_exoplanet_archive(name)
             else:
                 warnings.warn(f"intermediate vot file found ('{filename_vot}') but not the corresponding final file "
                               f"('{filename}')\n"

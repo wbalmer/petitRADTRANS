@@ -14,6 +14,7 @@ from petitRADTRANS.chemistry.clouds import (
     return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
+from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import update_figure_font_size
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 
@@ -910,6 +911,237 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
 
     if save:
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
+
+
+def plot_planet_context(planet_name: str, mass_radius_uncertainty_tolerance: float = 0.15,
+                        fig_size: tuple[float, float] = (6.4, 4.8), figure_font_size: float = 12,
+                        plot_annotations: bool = True, plot_planet_references: bool = True, tight_layout: bool = True,
+                        save: bool = False, figure_directory: str = './', figure_name: str = 'result_corner',
+                        image_format: str = 'png') -> None:
+    """Plot an exoplanet mass-radius scatter plot highlighting a planet using the NASA Exoplanet Archive.
+
+    Args:
+        planet_name:
+            Name of the planet to highlight.
+        mass_radius_uncertainty_tolerance:
+            Plot only planets with a maximum relative mass and radius uncertainty lower to this value.
+        fig_size:
+            Size of the figure.
+        figure_font_size:
+            Base size of the figure font.
+        plot_annotations:
+            If True, plot the mass limits between rocky planets, sub-neptunes, ice giants and gas giants.
+        plot_planet_references:
+            If True, place Earth, Neptune and Jupiter on the scatter plot.
+        tight_layout:
+            If True, apply tight layout on the figure.
+        save:
+            If True, save the figure.
+        figure_directory:
+            Directory in which to save the figure.
+        figure_name:
+            Name of the figure.
+        image_format:
+            Image format of the saved figure.
+    """
+    # Get planet data
+    print("Fetching for Nasa Exoplanet Archive Planetary Systems Composite Parameters Table...")
+    composite_astro_table = Planet.download_from_nasa_exoplanet_archive(
+        search_request="select pl_name, pl_bmasse, pl_bmasseerr1, pl_bmasseerr2, pl_rade, pl_radeerr1, pl_radeerr2 "
+                       "from pscomppars"
+    )
+    planet = Planet.get(planet_name)
+    planet_mass = planet.mass / cst.m_earth
+    planet_radius = planet.radius / cst.r_earth
+
+    jupiter_radius = cst.r_jup / cst.r_earth
+    jupiter_mass = cst.m_jup / cst.m_earth
+
+    neptune_radius = 24622e5 / cst.r_earth  # https://doi.org/10.1007/s10569-007-9072-y
+    neptune_mass = 1.0243e29 / cst.m_earth  # https://web.archive.org/web/20100701192119/http://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html  # noqa E501
+
+    # Select the planets to plot
+    selected_scatter_planets = []
+    selected_radii = []
+    selected_masses = []
+
+    print("Selecting planets...")
+    for row in composite_astro_table.as_array():
+        row = [column for column in row]
+        row = row[1:]  # discard planet name (requested in composite_astro_table for debug)
+
+        # Replace masks with nan to prevent warning that masks have been automatically replaced by nan
+        for i, column in enumerate(row):
+            if np.ma.is_masked(column):
+                row[i] = np.nan
+
+        row = np.ma.masked_invalid(row)
+
+        # Calculate normalized mass and radius uncertainties
+        mass_uncertainty = np.ma.max(np.ma.abs(row[1:3]))
+        radius_uncertainty = np.ma.max(np.ma.abs(row[4:]))
+
+        if np.ma.is_masked(mass_uncertainty) or np.ma.is_masked(row[0]):
+            mass_uncertainty = np.nan
+        elif row[0] <= 0:
+            mass_uncertainty = np.nan
+        else:
+            mass_uncertainty /= row[0]
+
+        if np.ma.is_masked(radius_uncertainty) or np.ma.is_masked(row[3]):
+            radius_uncertainty = np.nan
+        elif row[3] <= 0:
+            radius_uncertainty = np.nan
+        else:
+            radius_uncertainty /= row[3]
+
+        # Get the maximum uncertainty
+        max_uncertainty = np.max(np.array((mass_uncertainty, radius_uncertainty)))
+
+        # For the mass histogram, ignore the planets for which the mass is unknown
+        if not np.ma.is_masked(row[0]):
+            selected_masses.append(row[0])
+
+        # For the radius histogram, ignore the planets for which the radius is unknown
+        if not np.ma.is_masked(row[3]):
+            selected_radii.append(row[3])
+
+        # For the scatter plot, ignore the planets for which max uncertainty is too large or unknown
+        if np.isnan(max_uncertainty) or max_uncertainty > mass_radius_uncertainty_tolerance:
+            continue
+
+        selected_scatter_planets.append(np.ma.abs(row))
+
+    # Plot the figure
+    print("Drawing plot...")
+    fig = plt.figure(figsize=fig_size)
+
+    update_figure_font_size(figure_font_size)
+
+    # Add a gridspec with two rows and two columns and a ratio of 1 to 4 between the size of the marginal axes and the
+    # main axes in both directions
+    # Also adjust the subplot parameters for a square plot
+    gs = fig.add_gridspec(2, 2,  width_ratios=(1, 4), height_ratios=(4, 1),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.00, hspace=0.00)
+    # Create the Axes
+    ax = fig.add_subplot(gs[0, 1])
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.tick_params(direction='in', top=False, right=False, labelleft=False, labelbottom=False, which='both')
+    ax_histx = fig.add_subplot(gs[1, 1], sharex=ax)
+    ax_histx.set_yscale('linear')
+    ax_histx.tick_params(direction='in', top=False, right=False, which='both')
+    ax_histx.minorticks_on()
+    ax_histy = fig.add_subplot(gs[0, 0], sharey=ax)
+    ax_histy.set_xscale('linear')
+    ax_histy.tick_params(direction='in', top=False, right=False, which='both')
+    ax_histy.minorticks_on()
+
+    # Draw the scatter plot
+    ax.errorbar(
+        x=np.array(selected_scatter_planets)[:, 0],
+        y=np.array(selected_scatter_planets)[:, 3],
+        xerr=np.array(selected_scatter_planets)[:, 1:3].T,
+        yerr=np.array(selected_scatter_planets)[:, 4:].T,
+        color='darkgrey',
+        linestyle='',
+        marker='+'
+    )
+
+    x_lim = ax.get_xlim()
+    y_lim = ax.get_ylim()
+
+    # Annotations
+    if plot_annotations:
+        mass_limit_rocky = 1.9  # super-earth lower limit (https://doi.org/10.1038/nature08679)
+        mass_limit_sub_neptune = 10  # super-earth higher limit (https://doi.org/10.1038/nature08679)
+        mass_limit_ice_giant = 0.41 * cst.m_jup / cst.m_earth  # self-cmpompression limit (https://doi.org/10.3847/1538-4357/834/1/17)  # noqa E501
+
+        ax.vlines(x=mass_limit_rocky, ymin=y_lim[0], ymax=y_lim[1], color='darkgrey', ls='--', zorder=3)
+        ax.text(x=mass_limit_rocky, y=y_lim[1], c='darkgrey', s='Rocky planets ', ha='right', va='top',
+                fontsize=figure_font_size * 0.8, zorder=4, rotation='vertical')
+
+        ax.vlines(x=mass_limit_sub_neptune, ymin=y_lim[0], ymax=y_lim[1] * 0.8, color='darkgrey', ls=':', zorder=3)
+        ax.text(x=mass_limit_sub_neptune, y=y_lim[1] * 0.8, c='darkgrey', s='?', ha='center', va='bottom',
+                fontsize=figure_font_size * 0.8, zorder=4, rotation='horizontal')
+        ax.annotate(
+            '', xy=(mass_limit_rocky, y_lim[1] * 0.8),
+            xytext=(mass_limit_sub_neptune - mass_limit_rocky, y_lim[1] * 0.8),
+            arrowprops=dict(arrowstyle="<|-|>", color='darkgrey')
+        )
+        ax.text(
+            x=(mass_limit_sub_neptune + mass_limit_rocky) / 2, y=y_lim[1] * 0.8,
+            c='darkgrey', s='Super-earths/ \nSub-Neptunes ', ha='right', va='top',
+            fontsize=figure_font_size * 0.8, zorder=4, rotation='vertical'
+        )
+
+        # Self-compression limit (https://doi.org/10.3847/1538-4357/834/1/17)
+        ax.vlines(x=mass_limit_ice_giant, ymin=y_lim[0], ymax=y_lim[1], color='darkgrey', ls='--', zorder=3)
+        ax.text(x=mass_limit_ice_giant, y=y_lim[1], c='darkgrey', s='Ice giants ', ha='right', va='top',
+                fontsize=figure_font_size * 0.8, zorder=4, rotation='horizontal')
+        ax.text(x=mass_limit_ice_giant, y=y_lim[1], c='darkgrey', s=' Gas giants', ha='left', va='top',
+                fontsize=figure_font_size * 0.8, zorder=4, rotation='horizontal')
+
+    # Planet references
+    if plot_planet_references:
+        # Earth
+        ax.scatter(x=[1], y=[1], c='k', marker='o', zorder=3)
+        ax.text(x=1, y=1, c='k', s='Earth', ha='left', va='top',
+                fontsize=figure_font_size, zorder=4)
+
+        # Neptune
+        ax.scatter(x=[neptune_mass], y=[neptune_radius], c='b', marker='o', zorder=3)
+        ax.text(x=neptune_mass, y=neptune_radius, c='b', s='Neptune', ha='left', va='top',
+                fontsize=figure_font_size, zorder=4)
+
+        # Jupiter
+        ax.scatter(x=[jupiter_mass], y=[jupiter_radius], c='C1', marker='o', zorder=3)
+        ax.text(x=jupiter_mass, y=jupiter_radius, c='C1', s='Jupiter', ha='left', va='top',
+                fontsize=figure_font_size, zorder=4)
+
+    # Highlight the planet
+    ax.scatter(x=[planet_mass], y=[planet_radius], c='r', marker='o', zorder=3)
+    ax.text(x=planet_mass, y=planet_radius, c='r', s=planet.name, ha='left', va='bottom',
+            fontsize=figure_font_size, zorder=4)
+    ax.hlines(y=planet_radius, xmin=x_lim[0], xmax=planet_mass, color='r', ls=':', zorder=3)
+    ax.vlines(x=planet_mass, ymin=y_lim[0], ymax=planet_radius, color='r', ls=':', zorder=3)
+
+    # Radius histogram
+    logbins = np.logspace(
+        np.log10(np.min(selected_radii)), np.log10(np.max(selected_radii)), 50
+    )
+    ax_histy.hist(
+        np.array(selected_radii), color='w', ec='k',
+        histtype='bar', orientation='horizontal', bins=logbins
+    )
+    ax_histy.set_ylim(y_lim)
+    ax_y_xlim = ax_histy.get_xlim()
+    ax_histy.hlines(y=planet_radius, xmin=0, xmax=ax_y_xlim[1], color='r', ls=':', zorder=3)
+    ax_histy.set_xlim(ax_y_xlim)
+    ax_histy.set_ylabel(r'Radius (R$_\oplus$)')
+    ax_histy_xticks = ax_histy.get_xticks()
+
+    # Mass histogram
+    logbins = np.logspace(
+        np.log10(np.min(selected_masses)), np.log10(np.max(selected_masses)), 50
+    )
+    ax_histx.hist(
+        np.array(selected_masses), color='w', ec='k',
+        histtype='bar', orientation='vertical', bins=logbins
+    )
+    ax_histx.set_xlim(x_lim)
+    ax_x_ylim = ax_histx.get_ylim()
+    ax_histx.vlines(x=planet_mass, ymin=0, ymax=ax_x_ylim[1], color='r', ls=':', zorder=3)
+    ax_histx.set_ylim(ax_x_ylim)
+    ax_histx.set_xlabel(r'Mass (M$_\oplus$)')
+    ax_histx.set_yticks(np.array(ax_histy_xticks[:-1]) / 2)
+
+    if tight_layout:
+        fig.tight_layout()
+
+    if save:
+        fig.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
 
 
 def plot_posterior(data, label=None, true_value=None, cmp=None, bins=15, color='C0',
