@@ -3014,7 +3014,8 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
                                                        cloud_material_density,
                                                        save_folder='converted_cloud_opacities',
                                                        doi=None,
-                                                       description=None):
+                                                       description=None,
+                                                       wavelength_limit=None):
 
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
@@ -3026,6 +3027,11 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         1,
         n_cloud_wavelength_bins
      )
+
+    if wavelength_limit is not None:
+        index_bad = (cloud_wavelengths < wavelength_limit[0]*1e-4) | (cloud_wavelengths > wavelength_limit[1]*1e-4)
+        cloud_absorption_opacities[:, index_bad, :] = 0
+        cloud_scattering_opacities[:, index_bad, :] = 0
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
