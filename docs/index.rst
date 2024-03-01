@@ -3,6 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+==============================================
 petitRADTRANS: exoplanet spectra for everyone!
 ==============================================
 
@@ -59,7 +60,7 @@ For the easiest cases this may correspond to simply dropping a file
 into the pRT opacity folder.
 
 Developers
-___________
+==========
 
 - Paul Mollière
 - Evert Nasedkin
@@ -69,13 +70,14 @@ ___________
 - Nick Wogan
 
 Contributors
-________________
+============
+
 - Karan Molaverdikhani
 - Mantas Zilinskas
 
 .. toctree::
    :maxdepth: 2
-   :caption: Guide:
+   :caption: Guide
 
    content/installation
    content/version3_preview
@@ -83,9 +85,10 @@ ________________
    content/available_opacities
    content/retrieval_examples
    content/opa_add
+   content/contributing
 
 .. toctree::
    :maxdepth: 2
-   :caption: Code documentation:
+   :caption: Code documentation
 
    content/nat_cst_doc
