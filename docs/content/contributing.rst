@@ -24,6 +24,13 @@ When reporting an issue, make sure of the following:
     - for large scripts or console outputs (more than ~20 lines), please use attached files,
     - if your issue is resolved (by yourself or a developer), **please report it**: this can help other people and also the developer team.
 
+Adding new opacities
+====================
+
+You can add new opacities following the instruction in the :doc:`corresponding section <opa_add>`.
+
+If you add opacities which are not available through the Exomol website, and if you are particularly nice, you can share these opacities with us. We would then make them available to the other petitRADTRANS users via this website, while properly attributing your contribution.
+
 Contribute code
 ===============
 
