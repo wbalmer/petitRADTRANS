@@ -45,6 +45,41 @@ module fortran_inputs
         end subroutine count_file_line_number
 
 
+        subroutine count_file_line_number_sequential(file, n_lines)
+            ! """
+            ! Subroutine to get a opacities array size in the high-res case.
+            ! """
+            implicit none
+
+            character(len=*), intent(in) :: file
+            integer, intent(out) :: n_lines
+
+            integer          :: io
+            doubleprecision :: dump
+
+            open(unit=49, file=trim(adjustl(file)), form='unformatted', access='sequential', status='old')
+
+            n_lines = 0
+
+            do
+                read(49, iostat=io) dump
+                n_lines = n_lines + 1
+
+                if (mod(n_lines, 500000) == 0) then
+                    write(*, *) n_lines, dump, io  ! check that we are reading the file and not stalling
+                end if
+
+                if(io < 0) then
+                    exit
+                end if
+            end do
+
+            close(49)
+
+            n_lines = n_lines - 1
+        end subroutine count_file_line_number_sequential
+
+
         subroutine find_line_by_line_frequency_loading_boundaries(wavelength_min, wavelength_max, file, &
                                                                   n_frequencies, start_index)
             ! """
@@ -323,6 +358,31 @@ module fortran_inputs
 
             close(49)
         end subroutine load_all_line_by_line_opacities
+
+        subroutine load_all_line_by_line_opacities_sequential(file, n_frequencies, opacities)
+            ! """
+            ! Subroutine to read all the opacities array in the high-res case.
+            ! """
+            implicit none
+
+            character(len=*), intent(in)     :: file
+            integer, intent(in) :: n_frequencies
+            double precision, intent(out) :: opacities(n_frequencies)
+
+            integer          :: i
+
+            open(unit=49, file=trim(adjustl(file)), form = 'unformatted', access='sequential', status='old')
+
+            do i = 1, n_frequencies
+                read(49) opacities(i)
+
+                if (mod(i, 500000) == 0) then
+                    write(*, '(I0, " / ", I0)') i, n_frequencies  ! check that we are reading the file and not stalling
+                end if
+            end do
+
+            close(49)
+        end subroutine load_all_line_by_line_opacities_sequential
 
 
         subroutine load_cia_opacities(collision, directory, &
