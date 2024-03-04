@@ -1,8 +1,9 @@
+============
 Installation
 ============
 
 Prerequisites for basic installation
-____________________________________
+====================================
 
 To install petitRADTRANS, without retrievals, you need to install:
     - Python 3.9+,
@@ -11,7 +12,7 @@ To install petitRADTRANS, without retrievals, you need to install:
 **Retrievals:** further installation instructions are displayed in the :ref:`the next section<retrievalsSection>`.
 
 Linux
-`````
+-----
 On Linux, install Python and the fortran compiler with:
 
 .. code-block:: bash
@@ -23,7 +24,7 @@ On some distributions, ``python`` may need to be replaced with ``python3``.
 Note that a general Python recommendation is to use a `Python virtual environment <https://docs.python.org/3/library/venv.html>`_, to prevent potential conflicts.
 
 Windows
-```````
+-------
 **Using WSL:** before starting a pure Windows installation, consider using the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL). This is highly recommended in order to make the most out of pRT on Windows. Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case. **It is also highly recommended to put the "input_data" folder on the WSL side** (see below) to get the fastest performances during retrievals.
 
 On Windows, a fortran compiler can be acquired through `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
@@ -33,7 +34,7 @@ A Python installer is available on the `Python website <https://www.python.org/>
 pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl.localhost\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
 
 Mac Os
-``````
+------
 On Mac OS, be sure to have `homebrew <https://brew.sh/>`_ installed.
 
 To ensure a safe installation, execute first:
@@ -57,7 +58,7 @@ Then, install a fortran compiler with:
 .. _retrievalsSection:
 
 Prerequisite for retrievals: Multinest
-______________________________________
+======================================
 
 If you want to use pRT's retrieval package, you need to install Multinest.
 This is because for retrievals pRT uses the PyMultiNest package,
@@ -77,7 +78,7 @@ Add this line at the end of your environment setup file ".bash_profile", ".bashr
     LD_LIBRARY_PATH=/path/to/multinest/lib:$LD_LIBRARY_PATH
 
 Mac+Anaconda known issue
-````````````````````````
+------------------------
 The above may not work on a Mac when using ``anaconda``.
 In that case you may also need to copy the ``multinest/lib/*`` files generated during the installation
 into the ``lib`` folder that your Python binary sees. This folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``.
@@ -90,7 +91,8 @@ You may also need the conda version of the ``mpi4py`` package, which must be ins
 In case of troubles, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help.
 
 Pre-installation packages
-_________________________
+=========================
+
 Before starting the installation of pRT, make sure to install the following Python packages with:
 
 .. code-block:: bash
@@ -101,7 +103,8 @@ On some distributions, ``pip`` may need to be replaced with ``pip3``.
 
 
 Installation of petitRADTRANS via pip install
-_____________________________________________
+=============================================
+
 To install pRT via pip install just execute:
 
 .. code-block:: bash
@@ -117,7 +120,7 @@ To be able to use the retrieval module, execute:
     pip install petitRADTRANS[retrievals] --no-build-isolation
 
 Compiling pRT from source
-_________________________
+=========================
 
 Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via
 
@@ -141,7 +144,7 @@ To be able to use the retrieval module, execute:
     pip install .[retrievals] --no-build-isolation
 
 The input_data folder
-_____________________
+=====================
 
 pRT relies on data (opacities, stellar spectra, planet data, pre-calculated chemical abundances) to perform its calculations.
 Those data will be downloaded automatically as needed. By default, the files are downloaded into the `<home>/petitRADTRANS/input_data` directory, where `<home>` is your home folder (shortcut `~` in most OS).
@@ -150,7 +153,7 @@ This can be changed by modifying the pRT config file (see getting started sectio
 Alternatively, the data can be accessed and downloaded `via Keeper here <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_. The planet data are fetched from the `Nasa Exoplanet Archive <https://exoplanetarchive.ipac.caltech.edu/>`_.
 
 Testing the installation
-________________________
+========================
 
 Open a new terminal window. Then open python and type:
 
@@ -173,7 +176,7 @@ The last lines of the output should be:
 The warning about the pressure can be ignored.
 
 Troubleshooting the installation
-````````````````````````````````
+--------------------------------
 
 **Temporary directory issue**: when importing ``Radtrans``, you may see one of those two errors:
 
@@ -186,9 +189,9 @@ Troubleshooting the installation
     FileNotFoundError: [Errno 2] No such file or directory: '/a/temporary/directory/overlay/bin/ninja'
 
 The issue is often caused by your setup installing the fortran extensions inside a temporary directory, that is then automatically removed. Try these fixes in that order:
-    - Ensure that you added the ``--no-build-isolation`` flag to the installation command. This should fix the issue in almost all cases.
-    - Ensure that all the installing elements of your setup (``pip``, ``conda``, fortran compiler, etc.) are up-to-date and installed cleanly.
-    - If you are on Mac, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
-    - In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the last one. You may need to perform manual cleaning to free space on your disk.
+- Ensure that you added the ``--no-build-isolation`` flag to the installation command. This should fix the issue in almost all cases.
+- Ensure that all the installing elements of your setup (``pip``, ``conda``, fortran compiler, etc.) are up-to-date and installed cleanly.
+- If you are on Mac, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
+- In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the previous one. You may need to perform manual cleaning to free space on your disk.
 
 **Other issues**: you can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
