@@ -19,8 +19,16 @@ import petitRADTRANS
 nbsphinx_allow_errors = True
 
 sys.path.insert(0, os.path.abspath('../'))
-autodoc_mock_imports = ['petitRADTRANS', 'numpy', 'scipy', 'glob',
-                        'os', 'sys', 'pdb', 'h5py']
+autodoc_mock_imports = [
+    'petitRADTRANS',
+    'numpy',
+    'scipy',
+    'glob',
+    'os',
+    'sys',
+    'pdb',
+    'h5py'
+]
 
 # -- Project information -----------------------------------------------------
 
@@ -140,8 +148,13 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'petitRADTRANS.tex', 'petitRADTRANS Documentation',
-     u'Paul Molli\u00E8re', 'manual'),
+    (
+        master_doc,
+        'petitRADTRANS.tex',
+        'petitRADTRANS Documentation',
+        u'Paul Molli\u00E8re',
+        'manual'
+    ),
 ]
 
 
@@ -150,8 +163,13 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'petitradtrans', 'petitRADTRANS Documentation',
-     [author], 1)
+    (
+        master_doc,
+        'petitradtrans',
+        'petitRADTRANS Documentation',
+        [author],
+        1
+    )
 ]
 
 
@@ -161,9 +179,15 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'petitRADTRANS', 'petitRADTRANS Documentation',
-     author, 'petitRADTRANS', 'One line description of project.',
-     'Miscellaneous'),
+    (
+        master_doc,
+        'petitRADTRANS',
+        'petitRADTRANS Documentation',
+        author,
+        'petitRADTRANS',
+        'One line description of project.',
+        'Miscellaneous'
+    ),
 ]
 
 
