@@ -80,11 +80,11 @@ Contributors
    :caption: Guide
 
    content/installation
-   content/version3_preview
+   content/new_version_preview
    content/tutorial
    content/available_opacities
    content/retrieval_examples
-   content/opa_add
+   content/adding_opacities
    content/contributing
 
 .. toctree::
