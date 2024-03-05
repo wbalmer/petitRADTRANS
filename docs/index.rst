@@ -48,6 +48,8 @@ For this you will have to setup your own retrieval framework, however (you can m
 
 petitRADTRANS is available under the MIT License, and documented in
 `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_, for the general code, and `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_, `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_, for the scattering implementation. Please cite these papers if you make use of petitRADTRANS in your work.
+If you are interested in contributing to petitRADTRANS, feel free to reach out to the development team about your contibution.
+New features can be added by forking the package from gitlab, implementing your feature, and submitting a pull request. 
 
 .. _contact: molliere@mpia.de
 

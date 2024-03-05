@@ -1,7 +1,7 @@
 hst_example_clear_spec
-2023-11-20, 23:04:42
-/home/sam/Documents/pRT_workshop/petitRADTRANS/petitRADTRANS/retrieval/examples/transmission/
-Live points: 400
+2024-03-05, 17:35:00
+/Users/nasedkin/python-packages/petitRADTRANS/petitRADTRANS/retrieval/examples/transmission/
+Live points: 40
 
 Fixed Parameters
     Rstar = 45290070000.000
@@ -18,7 +18,7 @@ Free Parameters, Prior^-1(0), Prior^-1(1)
 
 Data
 HST
-    /home/sam/Documents/pRT_workshop/petitRADTRANS/petitRADTRANS/retrieval/examples/transmission/observations/HST/hst_example_clear_spec.txt
+    /Users/nasedkin/python-packages/petitRADTRANS/petitRADTRANS/retrieval/examples/transmission/observations/HST/hst_example_clear_spec.txt
     Model Function = retrieval_model_spec_iso
     distance = 3.0856775814913675e+19
     data resolution = 60
