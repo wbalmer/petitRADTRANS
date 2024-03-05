@@ -1,42 +1,36 @@
 ============
 Contributing
 ============
-
 We welcome all kind of contributions to petitRADTRANS.
 
 Suggestions and reporting issues
 ================================
-
 We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_.
 
 Alternatively, you can directly contact members of the development team via e-mail.
 
 Guidelines to report an issue
 -----------------------------
-
-While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues you can advantageously (i.e. have a quicker, more useful answer) use Q&A platforms such as `stackeoverflow <https://stackoverflow.co/>`_. In case of doubt, contact the petitRADTRANS team, and we will do our best to help you.
+While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues you can advantageously (i.e. have a quicker, more useful answer) use Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. In case of doubt, contact the petitRADTRANS team, and we will do our best to help you.
 
 When reporting an issue, make sure of the following:
     - use a clear title for the issue,
-    - take a few lines to describe your issue,
+    - add a few lines to describe your issue,
     - add relevant information,
     - always include an example that can be used by the developers to reproduce your issue,
     - for large scripts or console outputs (more than ~20 lines), please use attached files,
-    - if your issue is resolved (by yourself or a developer), **please report it**: this can help other people and also the developer team.
+    - if your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
 
 Adding new opacities
 ====================
+You can add new opacities following the instruction in the :doc:`corresponding section <adding_opacities>`.
 
-You can add new opacities following the instruction in the :doc:`corresponding section <opa_add>`.
-
-If you add opacities which are not available through the Exomol website, and if you are particularly nice, you can share these opacities with us. We would then make them available to the other petitRADTRANS users via this website, while properly attributing your contribution.
+If you add opacities which are not available through the ExoMol website, and if you are particularly nice, you can share these opacities with us. We would then make them available to the other petitRADTRANS users via this website, while properly attributing your contribution.
 
 Contribute code
 ===============
-
 Development setup and how to submit changes
 -------------------------------------------
-
 If you would like to make a fix or add a feature to petitRADTRANS, you may proceed as follows:
     1. Install `Git <https://git-scm.com/>`_.
     2. Sign up to `Gitlab <https://gitlab.com/>`_.
@@ -73,7 +67,6 @@ You may contact by mail members of the development team to inform them about you
 
 Guidelines before creating a merge request
 ------------------------------------------
-
 - All code should have :ref:`tests<test_suite>`.
 - All code should be documented, functions intended to be used by the user must at least have complete docstrings.
 - The test suite (including eventually the tests of your new feature) must raise no error. This include flake8/style errors. You may ask the developer team in case you need help solving these errors.
@@ -84,7 +77,6 @@ Guidelines before creating a merge request
 
 Stylistic guidelines
 --------------------
-
 These guidelines are intended to create a consistency within the code, facilitating usage, readability, and maintenance in the long term.
 
 In case of doubt, look at existing code for guidance. Before committing, take the time to re-read yourself and ensure that you respected the guidelines. Fixing existing code to make it more inline with those guidelines is strongly encouraged.
@@ -195,10 +187,8 @@ In case of doubt, look at existing code for guidance. Before committing, take th
 
 The petitRADTRANS test suite
 ----------------------------
-
 How to run the tests?
 ~~~~~~~~~~~~~~~~~~~~~
-
 1. Install `tox <https://tox.wiki/>`_.
 2. Within the petitRADTRANS root directory, execute the command ``tox`` in a console.
 
@@ -214,7 +204,7 @@ Tox will automatically execute any function in any module across all the project
     .. code-block::
 
         .
-        ├── data                           <- contains the test paramters
+        ├── data                           <- contains the test parameters
         |   ├── config_test_radtrans.json  <- the parameters for the test suite
         |   ├── <several .npz/.dat files>  <- data files used in tests
         |   └── test_stats.json            <- results of the last validated retrieval test
@@ -242,7 +232,6 @@ This file can be used for diagnostic.
 
 Creating a new test
 ~~~~~~~~~~~~~~~~~~~
-
 Tests are used both to ensure that every functionality of the code work, but also that they work **as expected**. It follows that a proper test should:
 - Ensure that a function runs.
 - Ensure that the results from the function is what is expected.
@@ -285,7 +274,6 @@ In order to create a test, you can use the petitRADTRANS tools and follow these 
 
 Resetting all reference files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 In rare cases, for example when pushing a new major version, it might be interesting to reset all reference files.
 This operation should not be taken lightly as this can have significant consequences on the code's reproducibility and behaviour.
 To easily do this operation, execute the following:
@@ -299,7 +287,6 @@ Before the reset, you will go through a checklist. Please take the time to read 
 
 Versioning
 ----------
-
 petitRADTRANS adheres to `Semantic Versioning <http://semver.org>`_.
 
 The code's version must be updated in the following files:

@@ -4,7 +4,6 @@ Installation
 
 Prerequisites for basic installation
 ====================================
-
 To install petitRADTRANS, without retrievals, you need to install:
     - Python 3.9+,
     - a fortran compiler, for example ``gfortran``.
@@ -57,30 +56,29 @@ Then, install a fortran compiler with:
 
 .. _retrievalsSection:
 
-Prerequisite for retrievals: Multinest
+Prerequisite for retrievals: MultiNest
 ======================================
-
-If you want to use pRT's retrieval package, you need to install Multinest.
+If you want to use pRT's retrieval package, you need to install MultiNest.
 This is because for retrievals pRT uses the PyMultiNest package,
 which is a Python wrapper of the nested sampling code called MultiNest.
-To install Multinest, please follow the instructions provided on the
+To install MultiNest, please follow the instructions provided on the
 `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
 
 **Important note for Windows:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
 
 After installation, link the resulting library files in order to allow PyMultiNest to find them.
-This can be done by including the ``multinest/lib/`` to your ``LD_LIBRARY_PATH``.
+This can be done by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``.
 
 Add this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
 
 .. code-block:: bash
 
-    LD_LIBRARY_PATH=/path/to/multinest/lib:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/path/to/MultiNest/lib:$LD_LIBRARY_PATH
 
 Mac+Anaconda known issue
 ------------------------
 The above may not work on a Mac when using ``anaconda``.
-In that case you may also need to copy the ``multinest/lib/*`` files generated during the installation
+In that case you may also need to copy the ``MultiNest/lib/*`` files generated during the installation
 into the ``lib`` folder that your Python binary sees. This folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``.
 You may also need the conda version of the ``mpi4py`` package, which must be installed with:
 
@@ -92,7 +90,6 @@ In case of troubles, executing ``brew upgrade``, ``brew update``, then following
 
 Pre-installation packages
 =========================
-
 Before starting the installation of pRT, make sure to install the following Python packages with:
 
 .. code-block:: bash
@@ -104,7 +101,6 @@ On some distributions, ``pip`` may need to be replaced with ``pip3``.
 
 Installation of petitRADTRANS via pip install
 =============================================
-
 To install pRT via pip install just execute:
 
 .. code-block:: bash
@@ -121,7 +117,6 @@ To be able to use the retrieval module, execute:
 
 Compiling pRT from source
 =========================
-
 Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via
 
 .. code-block:: bash
@@ -145,7 +140,6 @@ To be able to use the retrieval module, execute:
 
 The input_data folder
 =====================
-
 pRT relies on data (opacities, stellar spectra, planet data, pre-calculated chemical abundances) to perform its calculations.
 Those data will be downloaded automatically as needed. By default, the files are downloaded into the `<home>/petitRADTRANS/input_data` directory, where `<home>` is your home folder (shortcut `~` in most OS).
 This can be changed by modifying the pRT config file (see getting started section).
@@ -154,7 +148,6 @@ Alternatively, the data can be accessed and downloaded `via Keeper here <https:/
 
 Testing the installation
 ========================
-
 Open a new terminal window. Then open python and type:
 
 .. code-block:: python
@@ -177,7 +170,6 @@ The warning about the pressure can be ignored.
 
 Troubleshooting the installation
 --------------------------------
-
 **Temporary directory issue**: when importing ``Radtrans``, you may see one of those two errors:
 
 .. code-block:: python

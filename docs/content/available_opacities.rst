@@ -1,26 +1,22 @@
-.. _avail_opas:
-
+==============================
 WIP: Available opacity species
 ==============================
-
 All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
 
 .. important::
    Please cite the reference mentioned in the description (click the link) when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
 Line species
-____________
-
-To add more line opacities, please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the Exomol opacities calculated in the pRT format, available from the `Exomol website <http://www.exomol.com/>`_.
+============
+To add more line opacities, please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <http://www.ExoMol.com/>`_.
 
 .. _namingConvention:
 
 File naming convention
-^^^^^^^^^^^^^^^^^^^^^^
+----------------------
+In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.ExoMol.com/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
 
-In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
-
-Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotoplogue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
+Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotopologue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
 
 .. important::
      The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
@@ -66,8 +62,7 @@ Hereafter are the explicit file naming rules for line species:
 .. _lowResolution:
 
 Low-resolution opacities (``"c-k"``, :math:`\lambda/\Delta\lambda=1000`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
+------------------------------------------------------------------------
 In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated considering only the main isotopologue. Most of the time, the differences with including all isotopologues, at these resolving powers, are negligible (see comparison with `Baudino et al., 2017 <https://www.doi.org/10.3847/1538-4357/aa95be>`_).
 
 For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
@@ -75,7 +70,7 @@ For some species such as CO and TiO, the contribution of all isotopologues is co
 All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
 
 .. important::
-     Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/>`_ can be used directly.
+     Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
 
 The available correlated-k opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -369,12 +364,11 @@ The available correlated-k opacities are listed below. When multiple source are 
 .. _highResolution:
 
 High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
+-------------------------------------------------------------------------
 All ``lbl`` opacities referenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
 
 .. important::
-     Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/>`_ can be used directly.
+     Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
 
 The available line-by-line opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -476,7 +470,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - FeH
       - 56Fe-1H__MoLLIST
-      - Exomol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - H2 **!!**
       - **!!None!!**
@@ -492,7 +486,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - **H2O**
       - 1H2-16O__POKAZATEL
-      - Exomol, `Pokazatel et al. (2018) <https://doi.org/10.1093/mnras/sty1877>`_
+      - ExoMol, `Pokazatel et al. (2018) <https://doi.org/10.1093/mnras/sty1877>`_
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_
     * - HDO
       - 1H-2H-16O__HITRAN
@@ -520,7 +514,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - HCN
       - 1H-12C-14N__Harris
-      - Main isotopologue, Exomol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - Main isotopologue, ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **K**
       - 39K__Allard
@@ -564,11 +558,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - NH3
       - 14N-1H3__HITRAN
-      - Exomol, `Yurchenko et al. (2011) <http://dx.doi.org/10.1111/j.1365-2966.2011.18261.x>`_
+      - ExoMol, `Yurchenko et al. (2011) <http://dx.doi.org/10.1111/j.1365-2966.2011.18261.x>`_
       - --
     * - **NH3**
       - 14N-1H3__CoYuTe
-      - Exomol, `Coles et al. (2019) <https://doi.org/10.1093/mnras/stz2778>`_
+      - ExoMol, `Coles et al. (2019) <https://doi.org/10.1093/mnras/stz2778>`_
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_ (400--1600 K)
     * - O3 **!!**
       - **!!None!!**
@@ -576,7 +570,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - OH
       - 16O-1H__MoLLIST
-      - Exomol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - PH3
       - 31P-1H3__HITRAN
@@ -584,7 +578,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - **PH3**
       - 31P-1H3__SAlTY
-      - Exomol, `Sousa-Silva et al. (2014) <http://dx.doi.org/10.1093/mnras/stu2246>`_, converted from `DACE <https://dace.unige.ch/dashboard/>`_
+      - ExoMol, `Sousa-Silva et al. (2014) <http://dx.doi.org/10.1093/mnras/stu2246>`_, converted from `DACE <https://dace.unige.ch/dashboard/>`_
       - `Adriano Miceli <adriano.miceli@stud.unifi.it>`_
     * - Si **!!**
       - **!!None!!**
@@ -592,7 +586,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - SiO
       - 28Si-16O__EBJT
-      - Exomol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - Ti **!!**
       - **!!None!!**
@@ -628,23 +622,23 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - TiO_46_Exomol_McKemmish **!!**
       - **!!None!!**
-      - Exomol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_47_Exomol_McKemmish **???**
       - **TiO_47_exo_new???**
-      - Exomol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_48_Exomol_McKemmish **???**
       - **TiO_48_exo_new???**
-      - Exomol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_49_Exomol_McKemmish **!!**
       - **!!None!!**
-      - Exomol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_50_Exomol_McKemmish **!!**
       - **!!None!!**
-      - Exomol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - V **!!**
       - **!!None!!**
@@ -676,12 +670,10 @@ The available line-by-line opacities are listed below. When multiple source are 
 .. _continuum:
 
 Gas continuum opacity sources
-_____________________________
-
+=============================
 File naming convention
-^^^^^^^^^^^^^^^^^^^^^^
-
-Gas continuum sources follow a naming convention similar to that of the :ref:`line species<nameingConvention>`. For collision-induced absorptions (CIA), the 2 colliding species are separated with ``--``.
+----------------------
+Gas continuum sources follow a naming convention similar to that of the :ref:`line species<namingConvention>`. For collision-induced absorptions (CIA), the 2 colliding species are separated with ``--``.
 
 Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
@@ -709,8 +701,7 @@ Hereafter are the explicit file naming rules for line species:
 - The extension of the file is always ``.ciatable.petitRADTRANS.h5``.
 
 Available collision-induced absorptions
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
+---------------------------------------
 The available collision-induced absorptions are listed below.
 
 .. important::
@@ -755,25 +746,22 @@ The available collision-induced absorptions are listed below.
       - **???**
 
 Other gas continuum contributors
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
+--------------------------------
 In addition to CIA, petitRADTRANS can also calculate the H- (bound-free and free-free) absorptions. In that case, the ``H-`` string must be present in the ``gas_continuum_contributors`` list. In the ``mass_fractions`` dictionary, the keys ``H-`` and ``e-`` must be present as well.
 
 .. _clouds:
 
 Cloud opacities
-_______________
-
+===============
 File naming convention
-^^^^^^^^^^^^^^^^^^^^^^
-
+----------------------
 Cloud species follow a naming convention similar to that of the :ref:`line species<namingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans``-like objects.
 
 Most of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
 The source indication (after ``__`` in the file name) is used to indicate the method of the opacity calculation:
 - ``DHS`` stands for "Double-shelled Hollow Spheres" particles. Opacities calculated with this particle shape are generally considered more realistic.
-- ``Mie`` stands for spheric particles, (opacities calculated with Mie Scattering).
+- ``Mie`` stands for spherical particles, (opacities calculated with Mie Scattering).
 
 .. important::
      The ``cloud_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
@@ -796,7 +784,7 @@ Below are some working opacity name examples:
 
 Hereafter are the explicit file naming rules for line species:
 
-- Cloud species names follow the same convention as the :ref:`line species<nameingConvention>`, with the following additions.
+- Cloud species names follow the same convention as the :ref:`line species<namingConvention>`, with the following additions.
 - After the full chemical formula and the ``-NatAbund`` flag, if relevant, the physical state of the condensate is indicated between parenthesis: ``(s)`` for solids, ``(l)`` for liquids
 - For **solid** condensates **only**, after the state:
 
@@ -811,8 +799,7 @@ Hereafter are the explicit file naming rules for line species:
 - The extension of the file is always ``.cotable.petitRADTRANS.h5``.
 
 Available cloud opacities
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
+-------------------------
 All clouds opacities referenced here have a resolving power of 39 and cover **at least** wavelengths 0.1 to 250 µm. Particle size grid may vary.
 
 All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes.
@@ -877,8 +864,7 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
 
 
 Rayleigh scatterers
-___________________
-
+-------------------
 In contrast with the above opacities, Rayleigh scattering absorptions are not stored into files but calculated on-the-fly by petitRADTRANS.
 
 .. caution::
