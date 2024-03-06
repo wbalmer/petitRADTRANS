@@ -3,12 +3,11 @@ WIP: Available opacity species
 ==============================
 All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
 
-.. important::
-   Please cite the reference mentioned in the description (click the link) when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
+.. important:: Please cite the reference mentioned in the description (click the link) when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
 Line species
 ============
-To add more line opacities, please see `Adding opacities <opa_add.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <http://www.ExoMol.com/>`_.
+To add more line opacities, please see `Adding opacities <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <http://www.ExoMol.com/>`_.
 
 .. _namingConvention:
 
@@ -18,27 +17,26 @@ In petitRADTRANS, line species opacities follow a naming convention identical to
 
 Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotopologue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
 
-.. important::
-     The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
+.. important:: The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
 
 Below are some working opacity name examples:
 
-* File names:
+- File names:
 
-  * ``1H2-16O__POKAZATEL.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
-  * ``C-O-NatAbund__HITEMP.R250_0.1-250mu.ktable.petitRADTRANS.h5``
-  * ``1H-12C-14N__Harris.R1e6_0.3-28mu.xsec.petitRADTRANS.h5``
-  * ``39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
+    * ``1H2-16O__POKAZATEL.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
+    * ``C-O-NatAbund__HITEMP.R250_0.1-250mu.ktable.petitRADTRANS.h5``
+    * ``1H-12C-14N__Harris.R1e6_0.3-28mu.xsec.petitRADTRANS.h5``
+    * ``39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
 
-* Names valid in scripts:
+- Names valid in scripts:
 
-  * ``H2O``
-  * ``H2O__POKAZATEL``
-  * ``H2O.R1000``
-  * ``H2-17O``
-  * ``CO-NatAbund``
-  * ``Ca+``
-  * ``1H-2H-18O__HITEMP.R1e6_0.3-28mu``
+    * ``H2O``
+    * ``H2O__POKAZATEL``
+    * ``H2O.R1000``
+    * ``H2-17O``
+    * ``CO-NatAbund``
+    * ``Ca+``
+    * ``1H-2H-18O__HITEMP.R1e6_0.3-28mu``
 
 Hereafter are the explicit file naming rules for line species:
 
@@ -69,8 +67,7 @@ For some species such as CO and TiO, the contribution of all isotopologues is co
 
 All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
 
-.. important::
-     Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
+.. important:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
 
 The available correlated-k opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -367,8 +364,7 @@ High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
 -------------------------------------------------------------------------
 All ``lbl`` opacities referenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
 
-.. important::
-     Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
+.. important:: Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
 
 The available line-by-line opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -677,22 +673,21 @@ Gas continuum sources follow a naming convention similar to that of the :ref:`li
 
 Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
-.. important::
-    If a ``gas_continuum_contributors`` opacity name refer to a single species, it must be added to the ``mass_fractions`` dictionary. If a ``gas_continuum_contributors`` opacity name is a CIA, the ``mass_fractions`` dictionary keys must contains the colliding species.
+.. important:: If a ``gas_continuum_contributors`` opacity name refer to a single species, it must be added to the ``mass_fractions`` dictionary. If a ``gas_continuum_contributors`` opacity name is a CIA, the ``mass_fractions`` dictionary keys must contains the colliding species.
 
 Below are some working opacity name examples:
 
-* File names:
+- File names:
 
-  * ``H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS.h5``
-  * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
+    * ``H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS.h5``
+    * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
 
-* Names valid in scripts:
+- Names valid in scripts:
 
-  * ``H2-H2``
-  * ``H2--He``
-  * ``He-H2``
-  * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
+    * ``H2-H2``
+    * ``H2--He``
+    * ``He-H2``
+    * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
 
 Hereafter are the explicit file naming rules for line species:
 
@@ -704,9 +699,6 @@ Available collision-induced absorptions
 ---------------------------------------
 The available collision-induced absorptions are listed below.
 
-.. important::
-     On.
-
 .. list-table::
     :widths: 10 10 80
     :header-rows: 1
@@ -714,7 +706,7 @@ The available collision-induced absorptions are listed below.
     * - Species name
       - File name
       - Reference
-    * - CO2-CO2
+    * - CO2--CO2
       - **???**
       - **???**
     * - H2--H2
@@ -788,11 +780,11 @@ Hereafter are the explicit file naming rules for line species:
 - After the full chemical formula and the ``-NatAbund`` flag, if relevant, the physical state of the condensate is indicated between parenthesis: ``(s)`` for solids, ``(l)`` for liquids
 - For **solid** condensates **only**, after the state:
 
-  * the internal structure of the condensate particles is indicated after a ``_``, it can be either ``crystalline`` or ``amorphous``,
-  * in the rare case where the internal structure of the condensate particles is not indicated by the source providing the opacities, the label ``unclearStructure`` is used instead,
-  * for ``amorphous`` solids, a string indicating the amorphous state in front of a ``_`` **can** be added,
-  * for ``crystalline`` solids, 3 numbers in front of a ``_`` **must** be added, indicating the `space group <https://en.wikipedia.org/wiki/List_of_space_groups>`_,
-  * when the space group of crystals is not provided by the source or has not been verified yet, the number ``000`` is used (space group number range from ``001`` to ``230``).
+    * the internal structure of the condensate particles is indicated after a ``_``, it can be either ``crystalline`` or ``amorphous``,
+    * in the rare case where the internal structure of the condensate particles is not indicated by the source providing the opacities, the label ``unclearStructure`` is used instead,
+    * for ``amorphous`` solids, a string indicating the amorphous state in front of a ``_`` **can** be added,
+    * for ``crystalline`` solids, 3 numbers in front of a ``_`` **must** be added, indicating the `space group <https://en.wikipedia.org/wiki/List_of_space_groups>`_,
+    * when the space group of crystals is not provided by the source or has not been verified yet, the number ``000`` is used (space group number range from ``001`` to ``230``).
 
 - For **liquid** condensates, the above requirements for solids do not apply.
 - The source and spectral information that follows obey the same rules as for the line species.
@@ -804,6 +796,8 @@ All clouds opacities referenced here have a resolving power of 39 and cover **at
 
 All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes.
 
+.. important:: Currently no space group information are given for the crystal species. **We plan to add them in the future.**
+
 .. list-table::
     :widths: 10 10 80
     :header-rows: 1
@@ -812,22 +806,22 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
       - Short file name*
       - Reference
     * - Al2O3(s)_crystalline
-      - Al2-O3-NatAbund(s)_crystalline_167
+      - Al2-O3-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - Fe(s)_amorphous
       - Fe-NatAbund(s)_amorphous
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - Fe(s)_crystalline
-      - Fe-NatAbund(s)_crystalline_229
+      - Fe-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - H2O(l)
       - H2-O-NatAbund(l)__Mie
       - **???**
     * - H2O(s)_crystalline
-      - H2-O-NatAbund(s)_crystalline_194
+      - H2-O-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - KCl(s)_crystalline
-      - K-Cl-NatAbund(s)_crystalline_225
+      - K-Cl-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - Mg05Fe05SiO3(s)_amorphous
       - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous
@@ -836,7 +830,7 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
       - Mg2-Si-O4-NatAbund(s)_amorphous
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - Mg2SiO4(s)_crystalline
-      - Mg2-Si-O4-NatAbund(s)_crystalline_062
+      - Mg2-Si-O4-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - MgAl2O4(s)_amorphous
       - Mg-Al2-O4-NatAbund(s)_amorphous
@@ -851,38 +845,35 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
       - Mg-Si-O3-NatAbund(s)_amorphous
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - MgSiO3(s)_crystalline
-      - Mg-Si-O3-NatAbund(s)_crystalline_061
+      - Mg-Si-O3-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - Na2S(s)_crystalline
-      - Na2-S-NatAbund(s)_crystalline_225
+      - Na2-S-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
     * - SiC(s)_crystalline
-      - Si-C-NatAbund(s)_crystalline_216
+      - Si-C-NatAbund(s)_crystalline_000
       - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
 
 \*: discarding the source (for solids) and spectral information.
 
-
 Rayleigh scatterers
 -------------------
-In contrast with the above opacities, Rayleigh scattering cross sections are based on
-wavelength-dependent fits to measurements, which are not stored into files but calculated
-based on reported best-fit parameters on-the-fly in petitRADTRANS.
+In contrast with the above opacities, Rayleigh scattering cross-sections are are not stored into files. Instead, the cross-sections are calculated using wavelength-dependent best-fit parameters to measurements (see sources below) on-the-fly in petitRADTRANS.
 
 .. caution::
-   For the high resolution mode of pRT (``mode = 'lbl'``) the numerical cost of calculating Rayleigh cross sections becomes
-   noticeable. Currently, the H2 and He Rayleigh scattering cross-sections benefit from an optimised code and are
-   faster to calculate than the other listed species.
-   **We intend to optimise all the Rayleigh scattering absorption calculations in a future update**.
-   For low-resolution calculations (``mode = 'c-k'``) the cost of calculating Rayleigh cross sections is negligible.
+    For the high resolution mode of pRT (``mode='lbl'``) the numerical cost of calculating Rayleigh cross sections becomes noticeable. Currently, the H2 and He Rayleigh scattering cross-sections benefit from an optimised code and are faster to calculate than the other listed species.
 
-The Rayleigh scattering cross sections available in pRT are listed below:
+    **We intend to optimise all the Rayleigh scattering absorption calculations in a future update**.
 
-* CH4 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-* CO (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-* CO2 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-* **H2** (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
-* H2O (`Harvey et al. 1998 <https://ui.adsabs.harvard.edu/abs/1998JPCRD..27..761H/abstract>`_)
-* **He** (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
-* N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
-* O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+    For low-resolution calculations (``mode='c-k'``) the cost of calculating Rayleigh cross sections is negligible.
+
+The Rayleigh scattering cross-sections available in pRT are listed below:
+
+- CH4 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+- CO (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+- CO2 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+- **H2** (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
+- H2O (`Harvey et al. 1998 <https://ui.adsabs.harvard.edu/abs/1998JPCRD..27..761H/abstract>`_)
+- **He** (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
+- N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+- O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
