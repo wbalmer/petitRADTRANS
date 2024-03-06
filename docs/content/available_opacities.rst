@@ -865,19 +865,24 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
 
 Rayleigh scatterers
 -------------------
-In contrast with the above opacities, Rayleigh scattering absorptions are not stored into files but calculated on-the-fly by petitRADTRANS.
+In contrast with the above opacities, Rayleigh scattering cross sections are based on
+wavelength-dependent fits to measurements, which are not stored into files but calculated
+based on reported best-fit parameters on-the-fly in petitRADTRANS.
 
 .. caution::
-   Currently, the H2 and He Rayleigh scattering absorptions benefit from an optimised code and are much faster to calculate than the other listed absorptions.
+   For the high resolution mode of pRT (``mode = 'lbl'``) the numerical cost of calculating Rayleigh cross sections becomes
+   noticeable. Currently, the H2 and He Rayleigh scattering cross-sections benefit from an optimised code and are
+   faster to calculate than the other listed species.
    **We intend to optimise all the Rayleigh scattering absorption calculations in a future update**.
+   For low-resolution calculations (``mode = 'c-k'``) the cost of calculating Rayleigh cross sections is negligible.
 
-The available Rayleigh scattering absorptions are listed below:
+The Rayleigh scattering cross sections available in pRT are listed below:
 
-* CH4
-* CO
-* CO2
-* **H2**
-* H2O
-* **He**
-* N2
-* O2
+* CH4 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+* CO (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+* CO2 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
+* **H2** (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
+* H2O (`Harvey et al. 1998 <https://ui.adsabs.harvard.edu/abs/1998JPCRD..27..761H/abstract>`_)
+* **He** (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
+* N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+* O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
