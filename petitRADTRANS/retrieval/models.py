@@ -50,23 +50,23 @@ PGLOBAL = np.logspace(-6, 3, 1000)
 def _compute_gravity(parameters):
     if 'log_g' in parameters.keys() and 'mass' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
-        r_pl, _, _ = Planet.reference_gravity2radius(
+        planet_radius, _, _ = Planet.reference_gravity2radius(
             reference_gravity=gravity,
             mass=parameters['mass'].value
         )
     elif 'log_g' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
-        r_pl = parameters['R_pl'].value
+        planet_radius = parameters['planet_radius'].value
     elif 'mass' in parameters.keys():
-        r_pl = parameters['R_pl'].value
+        planet_radius = parameters['planet_radius'].value
         gravity, _, _ = Planet.mass2reference_gravity(
             mass=parameters['mass'].value,
-            radius=r_pl
+            radius=planet_radius
         )
     else:
-        raise KeyError("Pick two of log_g, R_pl and mass priors!")
+        raise KeyError("Pick two of log_g, planet_radius and mass priors!")
 
-    return gravity, r_pl
+    return gravity, planet_radius
 
 
 def emission_model_diseq(prt_object,
@@ -90,7 +90,7 @@ def emission_model_diseq(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T3 : Innermost temperature spline [K]
@@ -141,7 +141,7 @@ def emission_model_diseq(prt_object,
     t2 = t3 * (1.0 - parameters['T2'].value)
     t1 = t2 * (1.0 - parameters['T1'].value)
     delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     # Make the P-T profile
     temp_arr = np.array([t1, t2, t3])
@@ -227,7 +227,7 @@ def emission_model_diseq(prt_object,
 
     spectrum_model = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -255,7 +255,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T3 : Innermost temperature spline
@@ -321,7 +321,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     temps_clear = np.array([t1_clear, t2_clear, t3_clear])
     delta_clear = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta_clear'].value)) * 1e6) ** (
         -parameters['alpha_clear'].value)
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_ret_model(  # TODO weird way of calling the function
         (
@@ -387,13 +387,13 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        fsed=fseds,
-        Kzz=kzz,
-        sigma_lnorm=sigma_lnorm,
-        b_hans=b_hans,
-        radius=radii,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -402,7 +402,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
 
     spectrum_model_cloudy = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -416,7 +416,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         mass_fractions=abundances_clear,
         reference_gravity=gravity,
         mean_molar_masses=mmw_clear,
-        contribution=contribution
+        return_contribution=contribution
     )
 
     # Getting the model into correct units
@@ -425,7 +425,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
 
     spectrum_model_clear = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -461,7 +461,7 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T3 : Innermost temperature spline [K]
@@ -513,7 +513,7 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
     delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
     temp_arr = np.array([t1, t2, t3])
 
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_ret_model(
         (  # TODO weird way of calling the function
@@ -563,13 +563,13 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        fsed=fseds,
-        Kzz=kzz,
-        sigma_lnorm=sigma_lnorm,
-        b_hans=b_hans,
-        radius=radii,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -578,7 +578,7 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
 
     spectrum_model_cloudy = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -592,8 +592,8 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -602,7 +602,7 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
 
     spectrum_model_clear = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -633,7 +633,7 @@ def guillot_emission(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T_equ : Equilibrium temperature of the planet
@@ -669,7 +669,7 @@ def guillot_emission(prt_object,
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
@@ -679,7 +679,7 @@ def guillot_emission(prt_object,
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
         p_use,
@@ -719,13 +719,13 @@ def guillot_emission(prt_object,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        fsed=fseds,
-        Kzz=kzz,
-        sigma_lnorm=sigma_lnorm,
-        b_hans=b_hans,
-        radius=radii,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -734,7 +734,7 @@ def guillot_emission(prt_object,
 
     spectrum_model = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
     if contribution:
@@ -756,7 +756,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T_equ : Equilibrium temperature of the planet
@@ -793,7 +793,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
             Only returns the contribution of the clear atmosphere component.
@@ -804,7 +804,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
         p_use,
@@ -844,13 +844,13 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        fsed=fseds,
-        Kzz=kzz,
-        sigma_lnorm=sigma_lnorm,
-        b_hans=b_hans,
-        radius=radii,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -859,7 +859,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
 
     spectrum_model_cloudy = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -873,8 +873,8 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -883,7 +883,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
 
     spectrum_model_clear = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
 
@@ -911,11 +911,11 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  nnodes : number of nodes to interplate, excluding the first and last points.
                             so the total number of nodes is nnodes + 2
-                *  Temps : One parameter for each temperature node
+                *  T{i}  : One parameter for each temperature node
                 *  gamma : weight for penalizing the profile curvature
 
                 Either:
@@ -946,7 +946,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -955,7 +955,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temp_arr = np.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
     if "linear" in parameters.keys():
@@ -999,13 +999,13 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        contribution=contribution,
-        fsed=fseds,
-        Kzz=kzz,
-        sigma_lnorm=sigma_lnorm,
-        b_hans=b_hans,
-        radius=radii,
-        dist=distribution
+        return_contribution=contribution,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=b_hans,
+        cloud_particles_mean_radii=radii,
+        cloud_particles_radius_distribution=distribution
     )
 
     # Getting the model into correct units
@@ -1014,7 +1014,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
 
     spectrum_model = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
     if contribution:
@@ -1036,12 +1036,12 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  N_layers : number of nodes to interplate, excluding the first and last points.
                             so the total number of nodes is nnodes + 2
-                *  T_bottom : Temperature at the base of the atmosphere
-                *  PTslope_* : Temperature gradient for each of the n_layers between which the profile is interpolated.
+                *  T_bottom : temperature at the base of the atmosphere
+                *  PTslope_* : temperature gradient for each of the n_layers between which the profile is interpolated.
 
                 Either:
                   *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
@@ -1071,7 +1071,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
@@ -1080,7 +1080,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     num_layer = parameters['N_layers'].value
     # 1.4 assemble the P-T slopes for these layers
@@ -1145,7 +1145,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
 
     spectrum_model = flux2irradiance(
         f_lambda,
-        r_pl,
+        planet_radius,
         parameters['D_pl'].value
     )
     if contribution:
@@ -1174,7 +1174,7 @@ def guillot_transmission(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T_equ : Equilibrium temperature of the planet
@@ -1212,20 +1212,20 @@ def guillot_transmission(prt_object,
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    p_reference = 100.0
+    reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
-        p_reference = parameters["reference_pressure"].value
+        reference_pressure = parameters["reference_pressure"].value
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
         p_use,
@@ -1259,16 +1259,16 @@ def guillot_transmission(prt_object,
         pressures = p_use
 
     pcloud = None
-    gamma_scat = None
-    kappa_0 = None
+    power_law_opacity_coefficient = None
+    haze_factor = None
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
-    if "gamma_scat" in parameters.keys():
-        gamma_scat = parameters["gamma_scat"].value
-    if "kappa_0" in parameters.keys():
-        kappa_0 = 10 ** parameters["kappa_0"].value
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
     # Calculate the spectrum
     if len(prt_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
@@ -1278,17 +1278,17 @@ def guillot_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            sigma_lnorm=sigma_lnorm,
-            radius=radii,
-            fsed=fseds,
-            Kzz=kzz,
-            kappa_zero=kappa_0,
-            gamma_scat=gamma_scat,
-            b_hans=b_hans,
-            dist=distribution,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            cloud_particle_radius_distribution_std=sigma_lnorm,
+            cloud_particles_mean_radii=radii,
+            cloud_f_sed=fseds,
+            eddy_diffusion_coefficients=kzz,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            cloud_hansen_b=b_hans,
+            cloud_particles_radius_distribution=distribution,
+            return_contribution=contribution
         )
     elif pcloud is not None:
         results = prt_object.calculate_transit_radii(
@@ -1296,11 +1296,11 @@ def guillot_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            planet_radius=r_pl,
-            reference_pressure=p_reference,
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
             opaque_cloud_top_pressure=pcloud,
-            kappa_zero=kappa_0,
-            gamma_scat=gamma_scat,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
             return_contribution=contribution,
             frequencies_to_wavelengths=False
         )
@@ -1310,8 +1310,8 @@ def guillot_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            planet_radius=r_pl,
-            reference_pressure=p_reference,
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
             return_contribution=contribution,
             frequencies_to_wavelengths=False
         )
@@ -1323,7 +1323,7 @@ def guillot_transmission(prt_object,
         frequencies, transit_radii, additional_output = results
 
     wlen_model = cst.c / frequencies / 1e-4
-    spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
     if contribution:
         return wlen_model, spectrum_model, additional_output['transmission_contribution']
     return wlen_model, spectrum_model
@@ -1349,7 +1349,7 @@ def guillot_patchy_transmission(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T_equ : Equilibrium temperature of the planet
@@ -1388,16 +1388,16 @@ def guillot_patchy_transmission(prt_object,
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    p_reference = 100.0
+    reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
-        p_reference = parameters["reference_pressure"].value
+        reference_pressure = parameters["reference_pressure"].value
 
     contribution = False
 
@@ -1405,7 +1405,7 @@ def guillot_patchy_transmission(prt_object,
         contribution = parameters["contribution"].value
 
     # Calculate the spectrum
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
         p_use,
@@ -1442,12 +1442,12 @@ def guillot_patchy_transmission(prt_object,
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            prt_object.cloud_species)
     # Hazes
-    gamma_scat = None
-    kappa_0 = None
-    if "gamma_scat" in parameters.keys():
-        gamma_scat = parameters["gamma_scat"].value
-    if "kappa_0" in parameters.keys():
-        kappa_0 = 10 ** parameters["kappa_0"].value
+    power_law_opacity_coefficient = None
+    haze_factor = None
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
 
     # Calc cloudy spectrum
     wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
@@ -1455,21 +1455,21 @@ def guillot_patchy_transmission(prt_object,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        R_pl=r_pl,
-        P0_bar=p_reference,
-        sigma_lnorm=sigma_lnorm,
-        radius=radii,
-        fsed=fseds,
-        Kzz=kzz,
-        kappa_zero=kappa_0,
-        gamma_scat=gamma_scat,
-        b_hans=b_hans,
-        dist=distribution,
-        contribution=contribution
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_particles_mean_radii=radii,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        cloud_hansen_b=b_hans,
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=contribution
     )
 
     wlen_model *= 1e4
-    spectrum_model_cloudy = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
 
     for cloud in prt_object.cloud_species:
         cname = cloud.split('_')[0]
@@ -1480,13 +1480,13 @@ def guillot_patchy_transmission(prt_object,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        R_pl=r_pl,
-        P0_bar=p_reference,
-        contribution=contribution
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        return_contribution=contribution
     )
 
     wlen_model *= 1e4
-    spectrum_model_clear = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
                      ((1 - patchiness) * spectrum_model_clear)
@@ -1513,7 +1513,7 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  log_P_set : Pressure value to contrain the PT profile, defaults to 10 bar.
                 *  T_set : temperature at P_set to constrain the PT profile. [K]
@@ -1557,21 +1557,21 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned.
     """
     p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
-    p_reference = 100.0
+    reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
-        p_reference = parameters["reference_pressure"].value
+        reference_pressure = parameters["reference_pressure"].value
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     # Set up pressure points, guaranteeing P3>P2>P1 >= P_top
     offset = np.log10(p_use[0])
@@ -1617,12 +1617,12 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            prt_object.cloud_species)
     # Hazes
-    gamma_scat = None
-    kappa_0 = None
-    if "gamma_scat" in parameters.keys():
-        gamma_scat = parameters["gamma_scat"].value
-    if "kappa_0" in parameters.keys():
-        kappa_0 = 10 ** parameters["kappa_0"].value
+    power_law_opacity_coefficient = None
+    haze_factor = None
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
 
     # Calc cloudy spectrum
     wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
@@ -1630,21 +1630,21 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        R_pl=r_pl,
-        P0_bar=p_reference,
-        sigma_lnorm=sigma_lnorm,
-        radius=radii,
-        fsed=fseds,
-        Kzz=kzz,
-        kappa_zero=kappa_0,
-        gamma_scat=gamma_scat,
-        b_hans=b_hans,
-        dist=distribution,
-        contribution=contribution
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_particles_mean_radii=radii,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        cloud_hansen_b=b_hans,
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=contribution
     )
 
     wlen_model *= 1e4
-    spectrum_model_cloudy = (prt_object.transm_rad / parameters['Rstar'].value) ** 2.
+    spectrum_model_cloudy = (prt_object.transm_rad / parameters['stellar_radius'].value) ** 2.
 
     if "patchiness" in parameters.key():
         for cloud in prt_object.cloud_species:
@@ -1656,13 +1656,13 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            return_contribution=contribution
         )
 
         wlen_model *= 1e4
-        spectrum_model_clear = (transit_radii / parameters['Rstar'].value) ** 2.
+        spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
         patchiness = parameters["patchiness"].value
         spectrum_model = (patchiness * spectrum_model_cloudy) + \
                          ((1 - patchiness) * spectrum_model_clear)
@@ -1693,7 +1693,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
                 *  T_int : Interior temperature of the planet [K]
                 *  T_equ : Equilibrium temperature of the planet
@@ -1732,21 +1732,21 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned.
     """
     p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
-    p_reference = 100.0
+    reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
-        p_reference = parameters["reference_pressure"].value
+        reference_pressure = parameters["reference_pressure"].value
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
     # Calculate the spectrum
-    gravity, r_pl = _compute_gravity(parameters)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     if parameters["H2O_Exomol"].value < parameters["CO2"].value:
         return None, None
@@ -1787,12 +1787,12 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
     sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
                                                                            prt_object.cloud_species)
     # Hazes
-    gamma_scat = None
-    kappa_0 = None
-    if "gamma_scat" in parameters.keys():
-        gamma_scat = parameters["gamma_scat"].value
-    if "kappa_0" in parameters.keys():
-        kappa_0 = 10 ** parameters["kappa_0"].value
+    power_law_opacity_coefficient = None
+    haze_factor = None
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
 
     # Calc cloudy spectrum
     wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
@@ -1800,21 +1800,21 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        R_pl=r_pl,
-        P0_bar=p_reference,
-        sigma_lnorm=sigma_lnorm,
-        radius=radii,
-        fsed=fseds,
-        Kzz=kzz,
-        kappa_zero=kappa_0,
-        gamma_scat=gamma_scat,
-        b_hans=b_hans,
-        dist=distribution,
-        contribution=contribution
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_particles_mean_radii=radii,
+        cloud_f_sed=fseds,
+        eddy_diffusion_coefficients=kzz,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        cloud_hansen_b=b_hans,
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=contribution
     )
 
     wlen_model *= 1e4
-    spectrum_model_cloudy = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
 
     for cloud in prt_object.cloud_species:
         cname = cloud.split('_')[0]
@@ -1824,9 +1824,9 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        R_pl=r_pl,
-        P0_bar=p_reference,
-        contribution=contribution
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        return_contribution=contribution
     )
 
     if not contribution:
@@ -1836,7 +1836,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
         frequencies, transit_radii, additional_outputs = results
 
     wlen_model = cst.c / frequencies / 1e-4
-    spectrum_model_clear = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
                      ((1 - patchiness) * spectrum_model_clear)
@@ -1863,9 +1863,9 @@ def isothermal_transmission(prt_object,
                 *  D_pl : Distance to the planet in [cm]
                 Two of
                   *  log_g : Log of surface gravity
-                  *  R_pl : planet radius [cm]
+                  *  planet_radius : planet radius [cm]
                   *  mass : planet mass [g]
-                *  Temp : Interior temperature of the planet [K]
+                *  temperature : Interior temperature of the planet [K]
 
                 Either:
                   *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
@@ -1896,7 +1896,7 @@ def isothermal_transmission(prt_object,
         wlen_model : np.array
             Wavlength array of computed model, not binned to data [um]
         spectrum_model : np.array
-            Computed transmission spectrum R_pl**2/Rstar**2
+            Computed transmission spectrum planet_radius**2/Rstar**2
         contr-em : np.ndarray
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
@@ -1904,14 +1904,14 @@ def isothermal_transmission(prt_object,
     """
 
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    p_reference = 100.0
+    reference_pressure = 100.0
 
     if "reference_pressure" in parameters.keys():
-        p_reference = parameters["reference_pressure"].value
+        reference_pressure = parameters["reference_pressure"].value
 
     # Make the P-T profile
-    temperatures = temperature_profile_function_isothermal(p_use, parameters["Temp"].value)
-    gravity, r_pl = _compute_gravity(parameters)
+    temperatures = temperature_profile_function_isothermal(p_use, parameters["temperature"].value)
+    gravity, planet_radius = _compute_gravity(parameters)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -1939,16 +1939,16 @@ def isothermal_transmission(prt_object,
 
     # Calculate the spectrum
     pcloud = None
-    kappa_0 = None
-    gamma_scat = None
+    haze_factor = None
+    power_law_opacity_coefficient = None
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
-    if "gamma_scat" in parameters.keys():
-        gamma_scat = parameters["gamma_scat"].value
-    if "kappa_0" in parameters.keys():
-        kappa_0 = 10 ** parameters["kappa_0"].value
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
     # Calculate the spectrum
     if len(prt_object.cloud_species) > 0:
         sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
@@ -1958,17 +1958,17 @@ def isothermal_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            sigma_lnorm=sigma_lnorm,
-            radius=radii,
-            fsed=fseds,
-            Kzz=kzz,
-            kappa_zero=kappa_0,
-            gamma_scat=gamma_scat,
-            b_hans=b_hans,
-            dist=distribution,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            cloud_particle_radius_distribution_std=sigma_lnorm,
+            cloud_particles_mean_radii=radii,
+            cloud_f_sed=fseds,
+            eddy_diffusion_coefficients=kzz,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            cloud_hansen_b=b_hans,
+            cloud_particles_radius_distribution=distribution,
+            return_contribution=contribution
         )
     elif pcloud is not None:
         wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
@@ -1976,12 +1976,12 @@ def isothermal_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            Pcloud=pcloud,
-            kappa_zero=kappa_0,
-            gamma_scat=gamma_scat,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            opaque_cloud_top_pressure=pcloud,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            return_contribution=contribution
         )
     else:
         wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
@@ -1989,15 +1989,15 @@ def isothermal_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            kappa_zero=kappa_0,
-            gamma_scat=gamma_scat,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            return_contribution=contribution
         )
 
     wlen_model *= 1e4
-    spectrum_model = (transit_radii / parameters['Rstar'].value) ** 2.
+    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
 
     if contribution:
         return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
@@ -2012,13 +2012,13 @@ def isothermal_transmission(prt_object,
             mass_fractions=abundances,
             reference_gravity=gravity,
             mean_molar_masses=mmw,
-            R_pl=r_pl,
-            P0_bar=p_reference,
-            Pcloud=None,
-            contribution=contribution
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            opaque_cloud_top_pressure=None,
+            return_contribution=contribution
         )
 
-        spectrum_model_clear = (spectrum_model_clear / parameters['Rstar'].value) ** 2.
+        spectrum_model_clear = (spectrum_model_clear / parameters['stellar_radius'].value) ** 2.
         patchiness = parameters["patchiness"].value
         spectrum_model_full = (patchiness * spectrum_model) + \
                               ((1 - patchiness) * spectrum_model_clear)

@@ -62,7 +62,7 @@ full = [
     "matplotlib",
     "corner",
     "seaborn",  # only used in nice_corner
-    "species",  # only used in RetrievalConfig.add_photometry
+    "species>=0.8.0",  # only used in RetrievalConfig.add_photometry
     "ultranest"  # alternative to pymultinest
 ]
 test = [
@@ -75,7 +75,7 @@ test = [
     "ultranest",
     "requests",
     "skycalc-cli",
-    "species",
+    "species>=0.8.0",
     "matplotlib",
     "corner",
     "seaborn"

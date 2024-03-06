@@ -169,7 +169,7 @@ class RetrievalConfig:
 
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
-        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/corr_k/")]
+        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/correlated_k/")]
         files = set([f.split('_R_')[0] for f in files])
         print("\ncorrelated-k opacities")
 

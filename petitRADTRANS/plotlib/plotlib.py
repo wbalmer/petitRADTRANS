@@ -269,7 +269,7 @@ def contour_corner(sampledict,
                    color_list=None,
                    **kwargs):
     """
-    Use the corner package to plotlib the posterior distributions produced by pymultinest.
+    Use the corner package to plot the posterior distributions produced by pymultinest.
 
     Args:
         sampledict : dict
@@ -442,7 +442,6 @@ def contour_corner(sampledict,
             hist2d_kwargs = kwargs["hist2d_kwargs"]
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
-
         if count == 0:
             fig = _corner_wrap(
                 data_list=data_list,

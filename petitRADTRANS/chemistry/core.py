@@ -84,7 +84,6 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 full=True
             )
         )
-
     # Free chemistry abundances
     msum = 0.0
 
@@ -94,10 +93,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Free chemistry species
     for species in line_species:
-        if species.split("_R_")[0] in parameters.keys():
+        if species.split(".R")[0] in parameters.keys():
             if species.split('_')[0] in abundances_interp.keys():
                 msum -= np.max(abundances_interp[species.split('_')[0]])
-            abund = 10 ** parameters[species.split("_R_")[0]].value
+            abund = 10 ** parameters[species.split(".R")[0]].value
             abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
             msum += abund
 
@@ -192,17 +191,18 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             else:
                 fseds[cname] = parameters['fsed'].value
 
-            abundances[cname] = np.zeros_like(temperatures)
-            abundances[cname][pressures < p_bases[cname]] = \
+            abundances[cloud] = np.zeros_like(temperatures)
+            abundances[cloud][pressures < p_bases[cname]] = \
                 clouds[cname] * (
                         pressures[pressures <= p_bases[cname]] / p_bases[cname]
                 ) ** fseds[cname]
 
-        abundances[cname] = abundances[cname][small_index]
+            abundances[cloud] = abundances[cloud][small_index]
 
     for species in line_species:
         sname = species.split('_')[0]
-
+        sname = sname.split('.')[0]
+        sname = sname.split('-')[0]
         # Depending on easychem vs interpolated and different versions of pRT
         # C2H2 is named differently.
         if sname == "C2H2":

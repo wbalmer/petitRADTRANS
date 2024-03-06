@@ -2612,7 +2612,6 @@ class Retrieval:
             # Setup best fit spectrum
             # First get the fit for each dataset for the residual plots
             # self.log_likelihood(sample_use, 0, 0)
-            self.save_best_fit_outputs(self.best_fit_parameters)
             if only_save_best_fit_spectra:
                 return None, None, None
             bf_wlen, bf_spectrum = self.get_best_fit_model(
@@ -2630,6 +2629,7 @@ class Retrieval:
                 verbose=True,
                 show_chi2=True
             )
+            self.save_best_fit_outputs(self.best_fit_parameters)
 
             markersize = None
             if marker_color_type is not None:
@@ -3423,7 +3423,7 @@ class Retrieval:
             p_use_dict = {}
 
             for name, params in parameter_dict.items():
-                samples_use = cp.copy(sample_dict[name])
+                samples_use = cp.copy(sample_dict[name]).T
                 parameters_use = cp.copy(params)
                 parameter_plot_indices = []
                 parameter_ranges = []
@@ -3439,7 +3439,6 @@ class Retrieval:
                     if self.configuration.parameters[pp].corner_transform is not None:
                         samples_use[:, i_p] = \
                             self.configuration.parameters[pp].corner_transform(samples_use[:, i_p])
-
                     parameter_ranges.append(self.configuration.parameters[pp].corner_ranges)
 
                     i_p += 1
@@ -3447,10 +3446,9 @@ class Retrieval:
                 p_plot_inds[name] = parameter_plot_indices
                 p_ranges[name] = parameter_ranges
                 p_use_dict[name] = parameters_use
-                sample_use_dict[name] = samples_use
+                sample_use_dict[name] = cp.copy(samples_use)
 
             output_file = self.get_base_figure_name() + '_corner_plot.pdf'
-
             # from Plotting
             fig = contour_corner(
                 sample_use_dict,
