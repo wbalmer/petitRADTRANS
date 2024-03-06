@@ -1305,7 +1305,8 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_optimal_wavelength_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
-                                              relative_velocities=None, rebin_range_margin_power=15, **kwargs):
+                                              relative_velocities=None, rebin_range_margin_power=15, **kwargs
+                                              ) -> np.ndarray[float]:
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(rebinned_wavelengths, 'dtype'):
             if rebinned_wavelengths.dtype != 'O':
@@ -1318,12 +1319,12 @@ class SpectralModel(Radtrans):
         if np.ndim(wavelengths_flat) > 1:
             wavelengths_flat = np.concatenate(wavelengths_flat)
 
-        rebin_required_interval = [
+        rebin_required_interval = np.array([
             wavelengths_flat[0]
             - (wavelengths_flat[1] - wavelengths_flat[0]) / 2,
             wavelengths_flat[-1]
             + (wavelengths_flat[-1] - wavelengths_flat[-2]) / 2,
-        ]
+        ])
 
         # Take Doppler shifting into account
         rebin_required_interval_shifted = copy.copy(rebin_required_interval)
@@ -1721,11 +1722,11 @@ class SpectralModel(Radtrans):
             wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
     ):
         def __get_median_samples(_samples):
-            return {key: np.median(value) for key, value in _samples.items()}
+            return {_key: np.median(_value) for _key, _value in _samples.items()}
 
         def __get_best_fit_samples(_samples):
             min_log_likelihood_index = np.argmin(_samples['log_likelihood'])
-            return {key: value[min_log_likelihood_index] for key, value in _samples.items()}
+            return {_key: value[min_log_likelihood_index] for _key, _value in _samples.items()}
 
         available_extraction_methods = {
             'median': __get_median_samples,
