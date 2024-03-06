@@ -248,11 +248,30 @@ def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, 
             )
         except TimeoutException as error:
             # Display a more helpful error message than the basic one
+            try:
+                WebDriverWait(driver, 0.1).until(
+                    expected_conditions.presence_of_element_located((By.CLASS_NAME, 'error'))
+                )
+            except TimeoutException as error:  # no error printed on the webpage, likely because the URL is incorrect
+                raise TimeoutException(
+                    f"\n{str(error)}\n"
+                    f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
+                    f"This is likely due to an incorrect URL or to an issue with your internet connection.\n"
+                    f"If the URL ({url}) is incorrect, open your "
+                    f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
+                    f"and change the value of the parameter 'prt_input_data_url'.\n"
+                    f"If the table is present at the requested URL, increase the delay until timeout."
+                )
+
+            # The expected error is printed by the webpage: the URL is correct but the table was not found
             raise TimeoutException(
                 f"\n{str(error)}\n"
                 f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
-                f"Check the URL ({url}) for the presence of a table, as well as your internet connection.\n"
-                f"Alternatively, increase the delay until timeout."
+                f"This is likely due to the absence of the requested table, or to the use of an outdated URL.\n"
+                f"Check the URL ({url}) for the presence of a table.\n"
+                f"If the URL is incorrect, open your "
+                f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
+                f"and change the value of the parameter 'prt_input_data_url'."
             )
 
         # Get the webpage html source once the table has generated

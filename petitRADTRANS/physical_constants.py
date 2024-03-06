@@ -30,13 +30,13 @@ light_year = s_cst.light_year * 1e2
 amu = s_cst.physical_constants['atomic mass constant'][0] * 1e3
 
 # Astronomical constants
-r_sun = a_cst.R_sun.cgs.value
-r_jup = a_cst.R_jup.cgs.value
-r_earth = a_cst.R_earth.cgs.value
-m_sun = a_cst.M_sun.cgs.value
-m_jup = a_cst.M_jup.cgs.value
-m_earth = a_cst.M_earth.cgs.value
-l_sun = a_cst.L_sun.cgs.value
+r_sun = float(a_cst.R_sun.cgs.value)
+r_jup = float(a_cst.R_jup.cgs.value)
+r_earth = float(a_cst.R_earth.cgs.value)
+m_sun = float(a_cst.M_sun.cgs.value)
+m_jup = float(a_cst.M_jup.cgs.value)
+m_earth = float(a_cst.M_earth.cgs.value)
+l_sun = float(a_cst.L_sun.cgs.value)
 
 r_jup_mean = 6.9911e9  # (cm) Jupiter's mean radius
 s_earth = 1.3654e6  # (erg.s-1.cm-2) source: https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2010GL045777

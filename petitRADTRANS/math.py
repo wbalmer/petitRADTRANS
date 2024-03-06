@@ -75,8 +75,9 @@ def calculate_reduced_chi2(data: [float, np.ndarray], model: [float, np.ndarray]
     return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom)
 
 
-def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray, covariance_matrix: np.ndarray = None)\
-        -> np.ndarray:
+def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
+                          covariance_matrix: np.ndarray = None
+                          ) -> np.ndarray:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
     coefficients between x, y, ...

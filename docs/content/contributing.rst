@@ -131,7 +131,7 @@ In case of doubt, look at existing code for guidance. Before committing, take th
         else:
             ...
         some_code
-- Functions call or object instantiation should explicitly display the arguments, one by line, unless there is 1 or less argument or the function is from an external library:
+- Function calls or object instantiations should explicitly display the arguments, one by line, unless there is 1 or less argument or the function is from an external library:
     .. code-block:: python
 
         # Yes
@@ -194,7 +194,7 @@ How to run the tests?
 
 All the tests within the "tests" directory will be executed. A summary will be available at the end of the procedure, including test code coverage.
 
-Before a push, ``tox`` should always be run.
+.. important:: Before a push, ``tox`` should always be run.
 
 Introduction
 ~~~~~~~~~~~~

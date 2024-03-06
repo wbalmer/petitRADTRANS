@@ -913,7 +913,7 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
 
 
 def plot_planet_context(planet_name: str, mass_radius_uncertainty_tolerance: float = 0.15,
-                        fig_size: tuple[float, float] = (6.4, 4.8), figure_font_size: float = 12,
+                        fig_size: tuple[float, float] = (6.4, 5.6), figure_font_size: float = 12,
                         plot_annotations: bool = True, plot_planet_references: bool = True, tight_layout: bool = True,
                         save: bool = False, figure_directory: str = './', figure_name: str = 'result_corner',
                         image_format: str = 'png') -> None:
@@ -1010,6 +1010,12 @@ def plot_planet_context(planet_name: str, mass_radius_uncertainty_tolerance: flo
             continue
 
         selected_scatter_planets.append(np.ma.abs(row))
+
+    print(f" Selection statistics:\n"
+          f"  - Planets in table: {np.size(composite_astro_table.as_array())}\n"
+          f"  - Planets in mass histogram: {len(selected_masses)}\n"
+          f"  - Planets in radius histogram: {len(selected_radii)}\n"
+          f"  - Planets in scatter plot: {len(selected_scatter_planets)}")
 
     # Plot the figure
     print("Drawing plot...")
@@ -1118,6 +1124,7 @@ def plot_planet_context(planet_name: str, mass_radius_uncertainty_tolerance: flo
     ax_y_xlim = ax_histy.get_xlim()
     ax_histy.hlines(y=planet_radius, xmin=0, xmax=ax_y_xlim[1], color='r', ls=':', zorder=3)
     ax_histy.set_xlim(ax_y_xlim)
+    ax_histy.set_xlabel('Count    ')
     ax_histy.set_ylabel(r'Radius (R$_\oplus$)')
     ax_histy_xticks = ax_histy.get_xticks()
 

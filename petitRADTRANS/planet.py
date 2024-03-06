@@ -733,8 +733,7 @@ class Planet:
         )
 
     def calculate_equilibrium_temperature(self):
-        """
-        Calculate the equilibrium temperature of a planet.
+        """Calculate the equilibrium temperature of a planet.
         """
 
         return self.compute_equilibrium_temperature(
@@ -748,6 +747,41 @@ class Planet:
             star_effective_temperature_error_upper=self.star_effective_temperature_error_upper,
             star_radius_error_lower=self.star_radius_error_lower,
             star_radius_error_upper=self.star_radius_error_upper
+        )
+
+    def calculate_intrinsic_temperature(self) -> tuple[float, float, float]:
+        """Calculate the intrinsic temperature of a planet.
+        """
+
+        return self.compute_intrinsic_temperature(
+            mass=self.mass,
+            radius=self.radius,
+            star_age=self.star_age,
+            mass_error_lower=self.mass_error_lower,
+            mass_error_upper=self.mass_error_upper,
+            radius_error_lower=self.radius_error_lower,
+            radius_error_upper=self.radius_error_upper,
+            star_age_error_lower=self.star_age_error_lower,
+            star_age_error_upper=self.star_age_error_upper
+        )
+
+    def calculate_intrinsic_temperature_inflated(self, equilibrium_temperature: float = None) -> float:
+        """Calculate the intrinsic temperature of inflated hot Jupiters.
+        """
+        if not (0.1 * cst.m_jup < self.mass < 10 * cst.m_jup):
+            warnings.warn(f"Thorngren et al. 2019 simplified Eq. 3 was calibrated "
+                          f"for hot Jupiters, with masses between 0.1 and 10 M_Jup, "
+                          f"but this planet's mass is {self.mass / cst.m_jup} M_Jup\n"
+                          f"Take the results with caution")
+
+        if equilibrium_temperature is None:
+            if self.equilibrium_temperature is not None and self.equilibrium_temperature > 0:
+                equilibrium_temperature = self.equilibrium_temperature
+            else:
+                equilibrium_temperature = self.calculate_equilibrium_temperature()
+
+        return self.compute_intrinsic_temperature_inflated(
+            equilibrium_temperature=equilibrium_temperature
         )
 
     def calculate_full_transit_duration(self):
@@ -908,6 +942,163 @@ class Planet:
     @staticmethod
     def compute_impact_parameter(orbit_semi_major_axis, orbital_inclination, star_radius):
         return orbit_semi_major_axis * np.cos(np.deg2rad(orbital_inclination)) / star_radius
+
+    @staticmethod
+    def compute_intrinsic_temperature(mass: float, radius: float, star_age: float,
+                                      mass_error_lower: float = 0.0, mass_error_upper: float = 0.0,
+                                      radius_error_lower: float = 0.0, radius_error_upper: float = 0.0,
+                                      star_age_error_lower: float = 0.0, star_age_error_upper: float = 0.0
+                                      ) -> tuple[float, float, float]:
+        """Calculate the intrinsic temperature of an irradiated planet.
+        The star's age must be greater than 1 Gyr and the planet's mass lower than 1 Jupiter mass.
+
+        Source: Rogers&Seager 2010 https://www.doi.org/10.1088/0004-637X/712/2/974 (Eq. 19 and 20)
+
+        Args:
+            mass: (g) mass of the planet
+            radius: (cm) radius of the planet
+            star_age: (s) age of the planet's star
+            mass_error_lower: (g) lower error on the planet's mass
+            mass_error_upper: (g) upper error on the planet's mass
+            radius_error_lower: (cm) lower error on the planet's radius
+            radius_error_upper: (cm) upper error on the planet's radius
+            star_age_error_lower: (s) lower error on the planet's star's age
+            star_age_error_upper: (s) upper error on the planet's star's age
+
+        Returns:
+            The intrinsic temperature in K, and its associated lower and upper uncertainties.
+        """
+        # Check for model validity
+        if mass > cst.m_jup:
+            warnings.warn(f"the Rogers&Seager 2010 model is valid for planets < 1 M_Jup, "
+                          f"but planet mass is {mass / cst.m_jup} M_jup\n"
+                          f"Take the results with caution")
+
+        if star_age < 1e9 * cst.s_cst.year:
+            warnings.warn(f"the Rogers&Seager 2010 model is valid for star ages > 1 Gyr, "
+                          f"but star age is {star_age / (1e9 * cst.s_cst.year)} Gyr\n"
+                          f"Take the results with caution")
+
+        # Power law constants and respective errors
+        a1 = -12.46
+        a1_error = 0.05
+
+        a_m = 1.74
+        a_m_error = 0.03
+
+        a_r = -0.94
+        a_r_error = 0.09
+
+        a_t = -1.04
+        a_t_error = 0.04
+
+        # Convert parameters to log10 scale
+        log_10 = np.log(10)
+        log10_mass = np.log10(mass / cst.m_earth)
+        log10_radius = np.log10(radius / cst.r_jup)
+        log10_star_age = np.log10(star_age / (1e9 * cst.s_cst.year))
+
+        # Log10 of intrinsic luminosity
+        intrinsic_luminosity = (
+                a1
+                + a_m * log10_mass
+                + a_r * log10_radius
+                + a_t * log10_star_age
+        )
+
+        # Log10 of intrinsic luminosity uncertainties
+        partial_derivatives = np.array([
+            1,  # dL/da1
+            log10_mass,  # dL/da_m
+            log10_radius,  # dL/da_r
+            log10_star_age,  # dL/da_r
+            log_10 / mass,  # dL/dmass
+            log_10 / radius,  # dL / dradius
+            log_10 / star_age,  # dL / dstar_age
+        ])
+        uncertainties = np.abs(np.array([
+            [a1_error, a1_error],
+            [a_m_error, a_m_error],
+            [a_r_error, a_r_error],
+            [a_t_error, a_t_error],
+            [mass_error_lower, mass_error_upper],
+            [radius_error_lower, radius_error_upper],
+            [star_age_error_lower, star_age_error_upper]
+        ]))
+
+        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+        # Intrinsic luminosity and related uncertainties
+        intrinsic_luminosity = 10 ** intrinsic_luminosity  # (unitless)
+        errors = np.abs(intrinsic_luminosity) * np.abs(log_10 * errors)  # propagation of uncertainties
+
+        intrinsic_luminosity *= cst.l_sun  # (erg.s-1)
+        errors *= np.abs(cst.l_sun)
+
+        # Intermediate "temperature" in K4 and related uncertainties
+        thermal_area = 4 * np.pi * cst.sigma * radius ** 2  # (erg.s-1.K-4)
+        hypercubic_temperature = intrinsic_luminosity / thermal_area  # (K4)
+
+        partial_derivatives = np.array([
+            1 / thermal_area,  # dTi/dL
+            -2 * hypercubic_temperature / radius  # dTi/dR
+        ])
+        uncertainties = np.abs(np.array([
+            [errors[0], errors[1]],
+            [radius_error_lower, radius_error_upper]
+        ]))
+
+        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+        # Intrinsic temperature
+        intrinsic_temperature = hypercubic_temperature ** 0.25
+
+        # Intrinsic temperature uncertainties
+        partial_derivatives = np.array([
+            1 / (4 * hypercubic_temperature ** 0.75)  # dT/dLa
+        ])
+        uncertainties = np.abs(np.array([
+            [errors[0], errors[1]]
+        ]))
+
+        errors = calculate_uncertainty(partial_derivatives, uncertainties)  # lower and upper errors
+
+        return float(intrinsic_temperature), float(errors[1]), float(-errors[0])
+
+    @staticmethod
+    def compute_intrinsic_temperature_inflated(equilibrium_temperature: float) -> float:
+        """Calculate the intrinsic temperature of an inflated hot Jupiter.
+        This is valid for hot Jupiters with masses between 0.1 and 10 M_Jup, and equilibrium temperatures between ~700 K
+        and ~2800 K.
+
+        Source: Thorngren et al. 2019 https://www.doi.org/10.3847/2041-8213/ab43d0 (Eq. 3)
+        Corrected source: https://www.doi.org/10.3847/2041-8213/ab6d6c
+
+        The article forget to mention that the flux must be scaled by 1e-9 (in CGS) to match the amplitude of the curve
+        in their Fig. 1.
+
+        Args:
+            equilibrium_temperature: (K) equilibrium temperature of the planet
+
+        Returns:
+            The intrinsic temperature in K, and its associated lower and upper uncertainties.
+        """
+        if not (700 < equilibrium_temperature < 2800):  # eq. temperature boundaries of the models used in the article
+            warnings.warn(f"Thorngren et al. 2019 simplified Eq. 3 was calibrated "
+                          f"for equilibrium temperatures between ~700 K and ~2800 K, "
+                          f"but the equilibrium temperature is {equilibrium_temperature} K\n"
+                          f"Take the results with caution")
+
+        flux = 4 * cst.sigma * equilibrium_temperature ** 4
+
+        scaling_factor = 0.39  # (corrected version)
+        mean = 0.14
+        standard_deviation = 1.095  # (corrected version)
+
+        return (
+            scaling_factor * equilibrium_temperature
+            * np.exp(-(np.log10(flux * 1e-9) - mean) ** 2 / standard_deviation)  # flux scaling required to match Fig. 1
+        )
 
     @staticmethod
     def compute_mid_transit_time_from_source(observation_day,
