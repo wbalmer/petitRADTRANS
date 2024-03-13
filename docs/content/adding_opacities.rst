@@ -13,7 +13,7 @@ These different options are explained in more detail below.
 
 Importing opacity tables from the ExoMol website
 ================================================
-The line lists available on the `ExoMol website <http://www.exomol.com>`_ were recently converted into opacity tables in the format of various retrieval codes, see `Chubb et al. (2020) <https://arxiv.org/abs/2009.00687>`_, including petitRADTRANS. They can be downloaded `on the ExoMol website <http://www.exomol.com/data/data-types/opacity/>`_. These opacity grids have been calculated for temperatures ranging from 100 to 3400 K (:math:`\Delta T = 100 \ {\rm K}` for :math:`T \in [100-2000] \ {\rm K}` and :math:`\Delta T = 200 \ {\rm K}` for :math:`T \in [2000-3400] \ {\rm K}`) and 22 pressure points spaced equidistantly in log-space, from :math:`10^{-5}` to 100 bar. Thermal and pressure broadening have also been included, see `Chubb et al. (2020) <https://arxiv.org/abs/2009.00687>`_ for more information.
+The line lists available on the `ExoMol website <http://www.exomol.com>`_ are available as opacity tables in the format of various retrieval codes, see `Chubb et al. (2020) <https://arxiv.org/abs/2009.00687>`_, including petitRADTRANS. They can be downloaded `on the ExoMol website <http://www.exomol.com/data/data-types/opacity/>`_. These opacity grids have been calculated for temperatures ranging from 100 to 3400 K (:math:`\Delta T = 100 \ {\rm K}` for :math:`T \in [100-2000] \ {\rm K}` and :math:`\Delta T = 200 \ {\rm K}` for :math:`T \in [2000-3400] \ {\rm K}`) and 22 pressure points spaced equidistantly in log-space, from :math:`10^{-5}` to 100 bar. Thermal and pressure broadening have also been included, see `Chubb et al. (2020) <https://arxiv.org/abs/2009.00687>`_ for more information.
 
 .. note:: If you use petitRADTRANS at pressures and temperatures outside of this grid, petitRADTRANS will use the opacity at the grid point closest to the pressure and temperature specified in your calculation.
 
@@ -48,7 +48,6 @@ The DACE opacity database itself is described in
 `Grimm et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021ApJS..253...30G/abstract>`_.
 The website allows to download the cross-section tables as a function
 of pressure and temperature. Proceed as follows:
-
 1. Decide on any P-T range line list that you are interested
 in. Note that their spectral coordinate is wavenumber, in units of
 :math:`{\rm cm}^{-1}`.
@@ -144,8 +143,7 @@ Next, make an input file for carrying out the calculations, in this example we c
       0 gamma 0.06 n 0.5 t0 296 ratio 1.
     end
 
-This calculates the opacity of NaH with the following settings
-
+This calculates the opacity of NaH with the following settings:
 - ``offset`` results in a line cutoff of 60 :math:`{\rm cm}^{-1}`. While being an important effect that also speeds up calculations, the choice of a cutoff is often arbitrary because the physics behind it remain difficult to model, see, for example the discussion in `Grimm & Heng (2015)`_. Here we use the equivalent width of the line decrease function given by `Hartmann et al. (2002)`_, for :math:`\rm CH_4` broadened by :math:`\rm H_2`.
 - NaH has a mass of 24 (in amu)
 - The opacity is calculated at a temperature of 1000 K

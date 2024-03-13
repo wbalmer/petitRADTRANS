@@ -14,3 +14,7 @@ In this section we will give fully implemented examples of retrievals.
     notebooks/retrieval_emission
     notebooks/retrieval_models
     notebooks/retrieval_spectral_model
+    notebooks/ret_emission_master
+    notebooks/ret_emission_retrieval_model
+    notebooks/ret_transmission_master
+    notebooks/ret_transmission_retrieval_model

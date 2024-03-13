@@ -15,10 +15,12 @@
 import os
 import sys
 
-import petitRADTRANS
-nbsphinx_allow_errors = True
+import importlib.metadata
 
 sys.path.insert(0, os.path.abspath('../'))
+
+nbsphinx_allow_errors = True
+
 autodoc_mock_imports = [
     'petitRADTRANS',
     'numpy',
@@ -33,11 +35,11 @@ autodoc_mock_imports = [
 # -- Project information -----------------------------------------------------
 
 project = 'petitRADTRANS'
-copyright = u'2019-2023, Paul Molli\u00E8re'
+copyright = u'2019-2024, Paul Molli\u00E8re'
 author = u'Paul Molli\u00E8re'
 
 # The full version, including alpha/beta/rc tags
-release = petitRADTRANS.__version__
+release = str(importlib.metadata.metadata(project))
 
 
 # -- General configuration ---------------------------------------------------
@@ -77,7 +79,7 @@ master_doc = 'index'
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = 'en'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.

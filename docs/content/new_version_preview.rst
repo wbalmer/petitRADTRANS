@@ -4,7 +4,7 @@ petitRADTRANS 3: most notable changes
 
 Preface
 =======
-petitRADTRANS 3 comes with a lot of quality-of-life features, optimization, and code rationalization, but also with breaking changes. For more details, see the :doc:`detailed changelog <files/Radtrans_v3.0.0_detailed_changelog.xlsx>`.
+petitRADTRANS 3 comes with a lot of quality-of-life features, optimization, and code rationalization, but also with breaking changes. For more details, see the `detailed changelog <../_static/Radtrans_v3.0.0_detailed_changelog.html>`_.
 
 Hereafter is a short summary of the most notables changes.
 

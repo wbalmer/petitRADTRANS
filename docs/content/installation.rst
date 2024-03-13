@@ -5,8 +5,9 @@ Installation
 Prerequisites for basic installation
 ====================================
 To install petitRADTRANS, without retrievals, you need to install:
-    - Python 3.9+,
-    - a fortran compiler, for example ``gfortran``.
+
+- Python 3.9+,
+- a fortran compiler, for example ``gfortran``.
 
 **Retrievals:** further installation instructions are displayed in the :ref:`the next section<retrievalsSection>`.
 
@@ -20,16 +21,28 @@ On Linux, install Python and the fortran compiler with:
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
-Note that a general Python recommendation is to use a `Python virtual environment <https://docs.python.org/3/library/venv.html>`_, to prevent potential conflicts.
+.. Note:: A general Python recommendation is to use a `Python virtual environment <https://docs.python.org/3/library/venv.html>`_, to prevent potential conflicts.
 
 Windows
 -------
-**Using WSL:** before starting a pure Windows installation, consider using the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL). This is highly recommended in order to make the most out of pRT on Windows. Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case. **It is also highly recommended to put the "input_data" folder on the WSL side** (see below) to get the fastest performances during retrievals.
 
-On Windows, a fortran compiler can be acquired through `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
+Recommended: using WSL
+~~~~~~~~~~~~~~~~~~~~~~
+To make the most out of pRT on Windows, it is recommended to use the `Windows Subsystem for Linux <https://learn.microsoft.com/en-us/windows/wsl/install>`_ (WSL).
 
-A Python installer is available on the `Python website <https://www.python.org/>`_.
+Follow the WSL installation instructions from the previous link, then install pRT from the WSL terminal, following the same steps as in the Linux case.
 
+.. important:: It is also highly recommended to put the "input_data" folder on the WSL side** (see below) to get the fastest performances during retrievals.
+
+Native installation prerequisites
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1. Get a fortran compiler through, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
+2. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
+
+.. warning:: It is **not** possible to run parallel (fast) retrievals with a native Windows installation (see the :ref:`MultiNest section<multinest_windows>`).
+
+WSL-native dual installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl.localhost\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
 
 Mac Os
@@ -46,7 +59,7 @@ To ensure a safe installation, execute first:
 
 A list of suggestions and fixes may be displayed when executing `brew doctor`. It is highly recommended to go through all of them before proceeding.
 
-**Important note:** ``brew install`` is highly recommended to install all the dependencies, as this minimizes the risk of conflicts and issues.
+.. important:: ``brew install`` is highly recommended to install all the dependencies, as this minimizes the risk of conflicts and issues.
 
 Then, install a fortran compiler with:
 
@@ -58,16 +71,13 @@ Then, install a fortran compiler with:
 
 Prerequisite for retrievals: MultiNest
 ======================================
-If you want to use pRT's retrieval package, you need to install MultiNest.
-This is because for retrievals pRT uses the PyMultiNest package,
-which is a Python wrapper of the nested sampling code called MultiNest.
-To install MultiNest, please follow the instructions provided on the
-`PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
+If you want to use pRT's retrieval package, you need to install MultiNest. This is because for retrievals pRT uses the PyMultiNest package, which is a Python wrapper of the nested sampling code called MultiNest. To install MultiNest, please follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
 
-**Important note for Windows:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
+.. _multinest_windows:
 
-After installation, link the resulting library files in order to allow PyMultiNest to find them.
-This can be done by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``.
+.. warning:: **Windows native installation:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
+
+After installation, link the resulting library files in order to allow PyMultiNest to find them. This can be done by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``.
 
 Add this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
 
@@ -75,18 +85,7 @@ Add this line at the end of your environment setup file ".bash_profile", ".bashr
 
     LD_LIBRARY_PATH=/path/to/MultiNest/lib:$LD_LIBRARY_PATH
 
-Mac+Anaconda known issue
-------------------------
-The above may not work on a Mac when using ``anaconda``.
-In that case you may also need to copy the ``MultiNest/lib/*`` files generated during the installation
-into the ``lib`` folder that your Python binary sees. This folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``.
-You may also need the conda version of the ``mpi4py`` package, which must be installed with:
-
-.. code-block:: bash
-
-    conda install mpi4py
-
-In case of troubles, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help.
+.. warning:: **Mac+Anaconda known issue:** see the :ref:`troubleshooting section<mac_anaconda_issue>`.
 
 Pre-installation packages
 =========================
@@ -117,26 +116,19 @@ To be able to use the retrieval module, execute:
 
 Compiling pRT from source
 =========================
-Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via
+1. Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRANS.git>`_, or clone it from GitLab via:
+    .. code-block:: bash
 
-.. code-block:: bash
+        git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
+2. In the terminal, enter the petitRADTRANS folder.
+3. Execute the following command in the terminal:
+    .. code-block:: bash
 
-    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
+        pip install . --no-build-isolation
+4. To be able to use the retrieval module, execute:
+    .. code-block:: bash
 
-- In the terminal, enter the petitRADTRANS folder.
-- Execute the following command in the terminal:
-
-.. code-block:: bash
-
-    pip install . --no-build-isolation
-
-Be sure to add the ``--no-build-isolation`` flag.
-
-To be able to use the retrieval module, execute:
-
-.. code-block:: bash
-
-    pip install .[retrievals] --no-build-isolation
+        pip install .[retrievals] --no-build-isolation
 
 The input_data folder
 =====================
@@ -169,8 +161,11 @@ The last lines of the output should be:
 The warning about the pressure can be ignored.
 
 Troubleshooting the installation
---------------------------------
-**Temporary directory issue**: when importing ``Radtrans``, you may see one of those two errors:
+================================
+
+Temporary directory issue
+-------------------------
+When importing ``Radtrans``, you may see one of those two errors:
 
 .. code-block:: python
 
@@ -186,4 +181,18 @@ The issue is often caused by your setup installing the fortran extensions inside
 - If you are on Mac, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
 - In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the previous one. You may need to perform manual cleaning to free space on your disk.
 
-**Other issues**: you can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
+.. _mac_anaconda_issue:
+
+Mac+Anaconda known issue with MultiNest
+---------------------------------------
+Linking the MultiNest libraries the usual way may not work on a Mac when using ``anaconda``. In that case you may also need to copy the ``MultiNest/lib/*`` files generated during the installation into the ``lib`` folder that your Python binary sees. This folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``. You may also need the conda version of the ``mpi4py`` package, which must be installed with:
+
+.. code-block:: bash
+
+    conda install mpi4py
+
+In case of troubles, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help.
+
+Other issues
+------------
+You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
