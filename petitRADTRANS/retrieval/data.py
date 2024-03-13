@@ -438,28 +438,48 @@ class Data:
                                                                            self.name)
                         flux_rebinned = flux_rebinned[index]
             else:
-                if self.data_resolution is not None:
-                    spectrum_model = self.convolve(wlen_model,
-                                                   spectrum_model,
-                                                   self.data_resolution)
+                model_spectra = []
+                column_rebinned_spectra = []
+                if self.atmospheric_column_flux_mixer is not None:
+                    for i_column_flux in range(np.shape(atmospheric_model_column_fluxes)[0]):
+                        model_spectra.append(atmospheric_model_column_fluxes[i_column_flux, :])
+                else:
+                    model_spectra.append(spectrum_model)
 
-                # Rebin to model observation
-                if np.size(wlen_model) == np.size(self.wavelengths):
-                    if np.all(wlen_model == self.wavelengths):
-                        flux_rebinned = copy.deepcopy(spectrum_model)
-                        rebin = False
+                for spectrum_model in model_spectra:
+                    if self.data_resolution is not None:
+                        spectrum_model = self.convolve(wlen_model,
+                                                       spectrum_model,
+                                                       self.data_resolution)
+
+                    # Rebin to model observation
+                    if np.size(wlen_model) == np.size(self.wavelengths):
+                        if np.all(wlen_model == self.wavelengths):
+                            flux_rebinned = copy.deepcopy(spectrum_model)
+                            rebin = False
+                        else:
+                            rebin = True
                     else:
                         rebin = True
-                else:
-                    rebin = True
 
-                if rebin:
-                    flux_rebinned = frebin.rebin_spectrum_bin(
-                        wlen_model,
-                        spectrum_model,
-                        self.wavelengths,
-                        self.wavelength_bin_widths
-                    )
+                    if rebin:
+                        flux_rebinned = frebin.rebin_spectrum_bin(
+                            wlen_model,
+                            spectrum_model,
+                            self.wavelengths,
+                            self.wavelength_bin_widths
+                        )
+
+                    if self.atmospheric_column_flux_mixer is None:
+                        break
+                    else:
+                        column_rebinned_spectra.append(flux_rebinned)
+
+                if self.atmospheric_column_flux_mixer is not None:
+                    column_rebinned_spectra = np.array(column_rebinned_spectra)
+                    flux_rebinned = self.atmospheric_column_flux_mixer(column_rebinned_spectra,
+                                                                       parameters,
+                                                                       self.name)
         else:
             flux_rebinned = \
                 self.photometric_transformation_function(wlen_model,

@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a163] - 2024-03-06
+## [3.0.0-a164] - 2024-03-13
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Better test suite workflow.
 
 ### Changed
+- Added column_flux_mixer treatment to petitRADTRANS/retrieval/data.py's get_chisq() in convolve-rebin mode.
 - TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
   - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
   - temporarily silented the overflow warning message until a solution to trigger the message less often is found.
