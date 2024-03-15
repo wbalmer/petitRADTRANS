@@ -117,11 +117,7 @@ def check_all_close(a, b, **kwargs):
         if b is not None:
             raise AssertionError(f"a is None but b is {b}")
     else:
-        if not np.allclose(
-                a,
-                b,
-                **kwargs
-        ):
+        if not np.allclose(a, b, **kwargs):
             raise AssertionError(f"a and b are not close enough\n"
                                  f"{a=}\n"
                                  f"{b=}\n"
