@@ -4,8 +4,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a164] - 2024-03-13
+## [3.0.0-a165] - 2024-03-15
 ### Added
+- Function make_table_cloud_species_reference_documentation() in petitRADTRANS/utils.py to return the list of cloud references given in docs/content/available_opacities.rst
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.

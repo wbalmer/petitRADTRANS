@@ -12,6 +12,7 @@ class LockedDict(dict):
     """Derivative of dict with a lock.
     Can be used to ensure that no new key is added once the lock is on, to prevent errors due to key typos.
     """
+
     def __init__(self):
         super().__init__()
         self._locked = False
@@ -117,10 +118,10 @@ def check_all_close(a, b, **kwargs):
             raise AssertionError(f"a is None but b is {b}")
     else:
         if not np.allclose(
-                    a,
-                    b,
-                    **kwargs
-                ):
+                a,
+                b,
+                **kwargs
+        ):
             raise AssertionError(f"a and b are not close enough\n"
                                  f"{a=}\n"
                                  f"{b=}\n"
@@ -409,3 +410,29 @@ def user_input(introduction_message: str, input_message: str, failure_message: s
                 continue
 
         return selection
+
+
+def make_table_cloud_species_reference_documentation(path_to_cloud_opacities):
+    """
+    Function to return the list of cloud references given in docs/content/available_opacities.rst.
+    :param path_to_cloud_opacities: path to folder containing the cloud opacities.
+    :return:
+    """
+    import glob
+    species_list = glob.glob(path_to_cloud_opacities + '/*/*/*')
+    return_string = ''
+    for species in species_list:
+        call_name = species.split('/')[-1].split('.R')[0].replace('_000', '')
+        call_name_split = call_name.split('NatAbund')
+        call_name = call_name_split[0].replace('-', '') + call_name_split[1]
+        full_file_name = species.split('/')[-1]
+
+        doi = ''
+        with h5py.File(species, 'r') as f:
+            doi = str(f['DOI'][0])[2:-1]
+
+        return_string += '''\n    * - ''' + call_name + '''
+      - ''' + full_file_name + '''
+      - '''+doi
+
+    print(return_string)

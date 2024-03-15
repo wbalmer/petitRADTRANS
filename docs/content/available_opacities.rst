@@ -749,32 +749,34 @@ File naming convention
 ----------------------
 Cloud species follow a naming convention similar to that of the :ref:`line species<namingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans``-like objects.
 
-Most of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
+All of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
 
 The source indication (after ``__`` in the file name) is used to indicate the method of the opacity calculation:
-- ``DHS`` stands for "Double-shelled Hollow Spheres" particles. Opacities calculated with this particle shape are generally considered more realistic.
+- ``DHS`` stands for "Distribution of Hollow Spheres" particles, as described in `Min et al (2005) <https://ui.adsabs.harvard.edu/abs/2005A%26A...432..909M/abstract>`_. Opacities calculated with this particle shape are generally considered more realistic in case particles are expected to be irregularly shaped (as opposed to spherical).
 - ``Mie`` stands for spherical particles, (opacities calculated with Mie Scattering).
 
 .. important::
-     The ``cloud_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
+     The ``cloud_species`` opacity name handed to the pRT object during initialization and the ``mass_fractions`` dictionary keys must match *exactly*.
 
 Below are some working opacity name examples:
 
 * File names:
 
-  * ``Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5``
+  * ``Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5``
   * ``H2-O-NatAbund(l)__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5``
   * ``Fe-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5``
 
-* Names valid in scripts:
+* Example names valid in scripts when initializing pRT objects or filling abundance dictionaries:
 
-  * ``Mg2SiO4(s)_crystalline``
-  * ``Mg2SiO4(s)_amorphous``
-  * ``H2O(l)``
+  * ``Mg2SiO4(s)_crystalline__DHS``
+  * ``Fe(s)_amorphous__Mie``
+  * ``H2O(l)__Mie``
   * ``Fe(s)_crystalline__DHS``
-  * ``H2-O-NatAbund(s)_crystalline_194__Mie.R39_0.1-250mu``
+  * ``H2O(s)_crystalline__DHS``
+  * ``H2-O-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu``
 
-Hereafter are the explicit file naming rules for line species:
+Hereafter are the explicit file naming rules for line species (note that the while the file names follow a strict naming
+convention, less details can be given when importing the species in pRT, see the example immediately above):
 
 - Cloud species names follow the same convention as the :ref:`line species<namingConvention>`, with the following additions.
 - After the full chemical formula and the ``-NatAbund`` flag, if relevant, the physical state of the condensate is indicated between parenthesis: ``(s)`` for solids, ``(l)`` for liquids
@@ -792,69 +794,222 @@ Hereafter are the explicit file naming rules for line species:
 
 Available cloud opacities
 -------------------------
-All clouds opacities referenced here have a resolving power of 39 and cover **at least** wavelengths 0.1 to 250 µm. Particle size grid may vary.
+All clouds opacities referenced here have a resolving power of 39 and usually cover wavelengths from 0.11 to 250 µm.
+If their coverage is smaller, this is indicated in the full file name. For example, Fe-O-NatAbund(s)_crystalline_000__DHS.R39_0.2-250mu.cotable.petitRADTRANS.h5
+only goes from 0.2 (not 0.11) to 250 µm.
 
-All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes.
+All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes, except for liquid species,
+where we assume a spherical (non-hollow) droplet shape. Consequently only Mie opacities are available for liquid species.
 
-.. important:: Currently no space group information are given for the crystal species. **We plan to add them in the future.**
+.. important:: Currently no space group information are given for the crystal species.
+               Therefore we currently give a space group place holder (000).
+               **We plan to add this information in the future.**
 
 .. list-table::
     :widths: 10 10 80
     :header-rows: 1
 
-    * - Species name
-      - Short file name*
-      - Reference
-    * - Al2O3(s)_crystalline
-      - Al2-O3-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Fe(s)_amorphous
-      - Fe-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Fe(s)_crystalline
-      - Fe-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - H2O(l)
-      - H2-O-NatAbund(l)__Mie
-      - **???**
-    * - H2O(s)_crystalline
-      - H2-O-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - KCl(s)_crystalline
-      - K-Cl-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Mg05Fe05SiO3(s)_amorphous
-      - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Mg2SiO4(s)_amorphous
-      - Mg2-Si-O4-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Mg2SiO4(s)_crystalline
-      - Mg2-Si-O4-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - MgAl2O4(s)_amorphous
-      - Mg-Al2-O4-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - MgAl2O4(s)_crystalline **!!**
-      - **!!None!!**
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - MgFeSiO4(s)_amorphous
-      - Mg-Fe-Si-O4-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - MgSiO3(s)_amorphous
-      - Mg-Si-O3-NatAbund(s)_amorphous
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - MgSiO3(s)_crystalline
-      - Mg-Si-O3-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - Na2S(s)_crystalline
-      - Na2-S-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-    * - SiC(s)_crystalline
-      - Si-C-NatAbund(s)_crystalline_000
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-
-\*: discarding the source (for solids) and spectral information.
+    * - Species name to be handed to pRT object
+      - Long file name
+      - Reference for optical data (mostly DOIs)
+    * - SiC(s)_crystalline__Mie
+      - Si-C-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1988A&A...194..335P
+    * - SiC(s)_crystalline__DHS
+      - Si-C-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1988A&A...194..335P
+    * - Mg2SiO4(s)_amorphous__Mie
+      - Mg2-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1016/S0022-4073(02)00301-1
+    * - Mg2SiO4(s)_amorphous__DHS
+      - Mg2-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1016/S0022-4073(02)00301-1
+    * - CaTiO3(s)_crystalline__Mie
+      - Ca-Ti-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Posch et al. (2003), Ap&SS, 149:437; Ueda et al 1998 J. Phys.: Condens. Matter 10 3669; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - CaTiO3(s)_crystalline__DHS
+      - Ca-Ti-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Posch et al. (2003), Ap&SS, 149:437; Ueda et al 1998 J. Phys.: Condens. Matter 10 3669; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Fe2O3(s)_structureUnclear__DHS
+      - Fe2-O3-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Fe2O3(s)_structureUnclear__Mie
+      - Fe2-O3-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - MgSiO3(s)_crystalline__Mie
+      - Mg-Si-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1998A&A...339..904J, 10.1086/192321
+    * - MgSiO3(s)_crystalline__DHS
+      - Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1998A&A...339..904J, 10.1086/192321
+    * - H2O(l)__Mie
+      - H2-O-NatAbund(l)__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - URI http://hdl.handle.net/10355/11599 : Segelstein, D. J. 1981, Master Thesis, University of Missouri-Kansas City, USA
+    * - ZnS(s)_crystalline__Mie
+      - Zn-S-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Palik & Addamiano (1985) in Palik: "Handbook of Optical Constants of Solids"
+    * - ZnS(s)_crystalline__DHS
+      - Zn-S-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Palik & Addamiano (1985) in Palik: "Handbook of Optical Constants of Solids"
+    * - C(s)_crystalline__DHS
+      - C-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Draine (2003), AJ., 598:1026
+    * - C(s)_crystalline__Mie
+      - C-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Draine (2003), AJ., 598:1026
+    * - H2O(s)_crystalline__Mie
+      - H2-O-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1093/mnras/271.2.481
+    * - H2O(s)_crystalline__DHS
+      - H2-O-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1093/mnras/271.2.481
+    * - KCl(s)_crystalline__DHS
+      - K-Cl-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
+    * - KCl(s)_crystalline__Mie
+      - K-Cl-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
+    * - MnS(s)_structureUnclear__Mie
+      - Mn-S-NatAbund(s)_structureUnclear__Mie.R39_0.1-190mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
+    * - MnS(s)_structureUnclear__DHS
+      - Mn-S-NatAbund(s)_structureUnclear__DHS.R39_0.1-190mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
+    * - SiO2(s)_crystalline__DHS
+      - Si-O2-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Zeidler et al. (2013), A&A, Vol. 553:A81; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - SiO2(s)_crystalline__Mie
+      - Si-O2-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Zeidler et al. (2013), A&A, Vol. 553:A81; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Fe2SiO4(s)_structureUnclear__Mie
+      - Fe2-Si-O4-NatAbund(s)_structureUnclear__Mie.R39_0.4-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Fe2SiO4(s)_structureUnclear__DHS
+      - Fe2-Si-O4-NatAbund(s)_structureUnclear__DHS.R39_0.4-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Cr(s)_structureUnclear__DHS
+      - Cr-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
+    * - Cr(s)_structureUnclear__Mie
+      - Cr-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
+    * - MgFeSiO4(s)_amorphous__Mie
+      - Mg-Fe-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.2-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - MgFeSiO4(s)_amorphous__DHS
+      - Mg-Fe-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.2-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - NaCl(s)_crystalline__Mie
+      - Na-Cl-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Eldrige & Palik (1985) in Palik: "Handbook of Optical Constants of Solids"
+    * - NaCl(s)_crystalline__DHS
+      - Na-Cl-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Eldrige & Palik (1985) in Palik: "Handbook of Optical Constants of Solids"
+    * - Al2O3(s)_crystalline__DHS
+      - Al2-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1006/icar.1995.1055
+    * - Al2O3(s)_crystalline__Mie
+      - Al2-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1006/icar.1995.1055
+    * - FeS(s)_crystalline__Mie
+      - Fe-S-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Pollack et al. (1994) ApJ, 421:615; Henning&Mutschke (1997), A&A, 327:743
+    * - FeS(s)_crystalline__DHS
+      - Fe-S-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Pollack et al. (1994) ApJ, 421:615; Henning&Mutschke (1997), A&A, 327:743
+    * - Fe(s)_amorphous__DHS
+      - Fe-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1086/173677
+    * - Fe(s)_amorphous__Mie
+      - Fe-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1086/173677
+    * - TiC(s)_crystalline__DHS
+      - Ti-C-NatAbund(s)_crystalline_000__DHS.R39_0.1-207mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Koide et al 1990, Phys Rev B, 42,4979; Henning & Mutschke 2001, Spec. Acta Part A57, 815
+    * - TiC(s)_crystalline__Mie
+      - Ti-C-NatAbund(s)_crystalline_000__Mie.R39_0.1-207mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Koide et al 1990, Phys Rev B, 42,4979; Henning & Mutschke 2001, Spec. Acta Part A57, 815
+    * - TiO2(s)_crystalline__Mie
+      - Ti-O2-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Zeidler et al. (2011), A&A 526:A68; Posch et al. (2003), Ap&SS, 149:437; Siefke et al. (2016),  Adv. Opt. Mater. 4:1780; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - TiO2(s)_crystalline__DHS
+      - Ti-O2-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Zeidler et al. (2011), A&A 526:A68; Posch et al. (2003), Ap&SS, 149:437; Siefke et al. (2016),  Adv. Opt. Mater. 4:1780; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Mg05Fe05SiO3(s)_amorphous__DHS
+      - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1994A&A...292..641J
+    * - Mg05Fe05SiO3(s)_amorphous__Mie
+      - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1994A&A...292..641J
+    * - MgO(s)_crystalline__Mie
+      - Mg-O-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Roessler & Huffman (1981) in Palik: "Handbook of Optical Constants of Solids"
+    * - MgO(s)_crystalline__DHS
+      - Mg-O-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Roessler & Huffman (1981) in Palik: "Handbook of Optical Constants of Solids"
+    * - Mg2SiO4(s)_crystalline__Mie
+      - Mg2-Si-O4-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1002/pssb.2220550224
+    * - Mg2SiO4(s)_crystalline__DHS
+      - Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1002/pssb.2220550224
+    * - SiO(s)_amorphous__DHS
+      - Si-O-NatAbund(s)_amorphous__DHS.R39_0.1-100mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
+    * - SiO(s)_amorphous__Mie
+      - Si-O-NatAbund(s)_amorphous__Mie.R39_0.1-100mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
+    * - H2SO4(l)__Mie-25-weight-percent-aqueous
+      - H2-S-O4-NatAbund(l)__Mie-25-weight-percent-aqueous.R39_2.5-25mu.cotable.petitRADTRANS.h5
+      - 10.1364/AO.14.000208
+    * - H2SO4(l)__Mie-50-weight-percent-aqueous
+      - H2-S-O4-NatAbund(l)__Mie-50-weight-percent-aqueous.R39_2.5-25mu.cotable.petitRADTRANS.h5
+      - 10.1364/AO.14.000208
+    * - H2SO4(l)__Mie-96-weight-percent-aqueous
+      - H2-S-O4-NatAbund(l)__Mie-96-weight-percent-aqueous.R39_2.5-25mu.cotable.petitRADTRANS.h5
+      - 10.1364/AO.14.000208
+    * - H2SO4(l)__Mie-85-weight-percent-aqueous
+      - H2-S-O4-NatAbund(l)__Mie-85-weight-percent-aqueous.R39_2.5-25mu.cotable.petitRADTRANS.h5
+      - 10.1364/AO.14.000208
+    * - H2SO4(l)__Mie-75-weight-percent-aqueous
+      - H2-S-O4-NatAbund(l)__Mie-75-weight-percent-aqueous.R39_2.5-25mu.cotable.petitRADTRANS.h5
+      - 10.1364/AO.14.000208
+    * - MgSiO3(s)_amorphous__DHS
+      - Mg-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1016/S0022-4073(02)00301-1
+    * - MgSiO3(s)_amorphous__Mie
+      - Mg-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1016/S0022-4073(02)00301-1
+    * - FeO(s)_crystalline__DHS
+      - Fe-O-NatAbund(s)_crystalline_000__DHS.R39_0.2-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Henning et al. (1995), Astronomy and Astrophysics Supplement, v.112, p.143; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - FeO(s)_crystalline__Mie
+      - Fe-O-NatAbund(s)_crystalline_000__Mie.R39_0.2-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Henning et al. (1995), Astronomy and Astrophysics Supplement, v.112, p.143; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - MgAl2O4(s)_crystalline__DHS
+      - Mg-Al2-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
+    * - MgAl2O4(s)_crystalline__Mie
+      - Mg-Al2-O4-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
+    * - Fe(s)_crystalline__DHS
+      - Fe-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1996A&A...311..291H
+    * - Fe(s)_crystalline__Mie
+      - Fe-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1996A&A...311..291H
+    * - SiO2(s)_amorphous__Mie
+      - Si-O2-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - SiO2(s)_amorphous__DHS
+      - Si-O2-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
+    * - Na2S(s)_crystalline__Mie
+      - Na2-S-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1088/0004-637X/756/2/172
+    * - Na2S(s)_crystalline__DHS
+      - Na2-S-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 10.1088/0004-637X/756/2/172
 
 Rayleigh scatterers
 -------------------
