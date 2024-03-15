@@ -780,16 +780,16 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - CaTiO3(s)_crystalline__Mie
       - Ca-Ti-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Posch et al. (2003), Ap&SS, 149:437; Ueda et al 1998 J. Phys.: Condens. Matter 10 3669; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Cr(s)_structureUnclear__DHS
+    * - Cr(s)__DHS
       - Cr-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
-    * - Cr(s)_structureUnclear__Mie
+    * - Cr(s)__Mie
       - Cr-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
-    * - Fe(s)_amorphous__DHS
+    * - Fe(s)__DHS
       - Fe-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1086/173677
-    * - Fe(s)_amorphous__Mie
+    * - Fe(s)__Mie
       - Fe-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1086/173677
     * - Fe(s)_crystalline__DHS
@@ -798,16 +798,16 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - Fe(s)_crystalline__Mie
       - Fe-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1996A&A...311..291H
-    * - Fe2O3(s)_structureUnclear__DHS
+    * - Fe2O3(s)__DHS
       - Fe2-O3-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2O3(s)_structureUnclear__Mie
+    * - Fe2O3(s)__Mie
       - Fe2-O3-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2SiO4(s)_structureUnclear__DHS
+    * - Fe2SiO4(s)__DHS
       - Fe2-Si-O4-NatAbund(s)_structureUnclear__DHS.R39_0.4-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2SiO4(s)_structureUnclear__Mie
+    * - Fe2SiO4(s)__Mie
       - Fe2-Si-O4-NatAbund(s)_structureUnclear__Mie.R39_0.4-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - FeO(s)_crystalline__DHS
@@ -852,16 +852,16 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - KCl(s)_crystalline__Mie
       - K-Cl-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
-    * - Mg05Fe05SiO3(s)_amorphous__DHS
+    * - Mg05Fe05SiO3(s)__DHS
       - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J
-    * - Mg05Fe05SiO3(s)_amorphous__Mie
+    * - Mg05Fe05SiO3(s)__Mie
       - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J
-    * - Mg2SiO4(s)_amorphous__DHS
+    * - Mg2SiO4(s)__DHS
       - Mg2-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
-    * - Mg2SiO4(s)_amorphous__Mie
+    * - Mg2SiO4(s)__Mie
       - Mg2-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
     * - Mg2SiO4(s)_crystalline__DHS
@@ -876,10 +876,10 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - MgAl2O4(s)_crystalline__Mie
       - Mg-Al2-O4-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
-    * - MgFeSiO4(s)_amorphous__DHS
+    * - MgFeSiO4(s)__DHS
       - Mg-Fe-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.2-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - MgFeSiO4(s)_amorphous__Mie
+    * - MgFeSiO4(s)__Mie
       - Mg-Fe-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.2-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - MgO(s)_crystalline__DHS
@@ -888,10 +888,10 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - MgO(s)_crystalline__Mie
       - Mg-O-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Roessler & Huffman (1981) in Palik: "Handbook of Optical Constants of Solids"
-    * - MgSiO3(s)_amorphous__DHS
+    * - MgSiO3(s)__DHS
       - Mg-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
-    * - MgSiO3(s)_amorphous__Mie
+    * - MgSiO3(s)__Mie
       - Mg-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
     * - MgSiO3(s)_crystalline__DHS
@@ -900,10 +900,10 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - MgSiO3(s)_crystalline__Mie
       - Mg-Si-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1998A&A...339..904J, 10.1086/192321
-    * - MnS(s)_structureUnclear__DHS
+    * - MnS(s)__DHS
       - Mn-S-NatAbund(s)_structureUnclear__DHS.R39_0.1-190mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
-    * - MnS(s)_structureUnclear__Mie
+    * - MnS(s)__Mie
       - Mn-S-NatAbund(s)_structureUnclear__Mie.R39_0.1-190mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
     * - Na2S(s)_crystalline__DHS
@@ -924,16 +924,16 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
     * - SiC(s)_crystalline__Mie
       - Si-C-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1988A&A...194..335P
-    * - SiO(s)_amorphous__DHS
+    * - SiO(s)__DHS
       - Si-O-NatAbund(s)_amorphous__DHS.R39_0.1-100mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
-    * - SiO(s)_amorphous__Mie
+    * - SiO(s)__Mie
       - Si-O-NatAbund(s)_amorphous__Mie.R39_0.1-100mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
-    * - SiO2(s)_amorphous__DHS
+    * - SiO2(s)__DHS
       - Si-O2-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - SiO2(s)_amorphous__Mie
+    * - SiO2(s)__Mie
       - Si-O2-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - SiO2(s)_crystalline__DHS

@@ -1,9 +1,11 @@
 """Stores useful functions to make the docs."""
 import glob
+import h5py
 import os
 
 from petitRADTRANS._input_data_loader import get_input_data_subpaths, join_species_all_info, split_species_all_info
 from petitRADTRANS.config import petitradtrans_config_parser
+
 
 
 def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=None):
@@ -33,6 +35,12 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=Non
             cloud_info=cloud_info,
             source=source
         )
+
+        if not 'H2-S-O4' in call_name:
+            call_name = call_name.replace('-','')
+        else:
+            call_name = call_name.split('__')
+            call_name = call_name[0].replace('-','')+'__'+call_name[1]
 
         with h5py.File(species, 'r') as f:
             doi = f['DOI'][0].decode('utf-8')

@@ -2613,6 +2613,7 @@ class Retrieval:
             # First get the fit for each dataset for the residual plots
             # self.log_likelihood(sample_use, 0, 0)
             if only_save_best_fit_spectra:
+                self.save_best_fit_outputs(self.best_fit_parameters)
                 return None, None, None
             bf_wlen, bf_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
@@ -2629,7 +2630,8 @@ class Retrieval:
                 verbose=True,
                 show_chi2=True
             )
-            self.save_best_fit_outputs(self.best_fit_parameters)
+            if not only_save_best_fit_spectra:
+                self.save_best_fit_outputs(self.best_fit_parameters)
 
             markersize = None
             if marker_color_type is not None:
