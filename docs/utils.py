@@ -31,16 +31,18 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=Non
         cloud_info = cloud_info.rsplit('_', 1)[0]  # discard space group or amorphous name info
 
         call_name = join_species_all_info(
-            name=name,
+            name=name.replace('-',''),
             cloud_info=cloud_info,
             source=source
         )
 
+        '''
         if not 'H2-S-O4' in call_name:
             call_name = call_name.replace('-','')
         else:
             call_name = call_name.split('__')
             call_name = call_name[0].replace('-','')+'__'+call_name[1]
+        '''
 
         with h5py.File(species, 'r') as f:
             doi = f['DOI'][0].decode('utf-8')

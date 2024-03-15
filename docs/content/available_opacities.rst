@@ -3,11 +3,13 @@ WIP: Available opacity species
 ==============================
 All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
 
-.. important:: Please cite the reference mentioned in the description (click the link) when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
+.. important:: petitRADTRANS will automatically download opacity tables if you request a species that is not on your hard drive yet, but available on Keeper. Additional sources of opacities, and how to calculate and add your own, are described in `Adding opacities <adding_opacities.html>`_.
+
+.. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
 Line species
 ============
-To add more line opacities, please see `Adding opacities <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <http://www.ExoMol.com/>`_.
+To add more line opacities in addition to what is listed below, please see `Adding opacities <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <https://www.exomol.com/data/data-types/opacity/>`_.
 
 .. _lowResolution:
 
@@ -17,9 +19,10 @@ In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated
 
 For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
 
-All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. Pressure and temperature grids may vary. All of the opacities are sampled over 16 k-coefficients following the method described in `Baudino et al. (2015) <https://doi.org/10.1051/0004-6361/201526332>`_
+All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. The actual wavelength coverage is given by looking at the full filenames in the table below.
+Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as desribed in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
 
-.. important:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
+.. important:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
 
 The available correlated-k opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -27,10 +30,12 @@ The available correlated-k opacities are listed below. When multiple source are 
     :widths: 10 10 10 10
     :header-rows: 1
 
-    * - Species name
-      - Short file name*
-      - Reference
+    * - Short species name to be handed to pRT object
+      - Unique species name to be handed to pRT object
+      - File name
+      - Reference for optical data (mostly DOIs)
       - Contributor
+
     * - Al
       - 27Al__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
