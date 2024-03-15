@@ -3,9 +3,11 @@ import glob
 import h5py
 import os
 
-from petitRADTRANS._input_data_loader import get_input_data_subpaths, join_species_all_info, split_species_all_info
+from petitRADTRANS._input_data_loader import (
+    _get_base_cloud_names, _split_species_source,
+    get_input_data_subpaths, get_species_basename, join_species_all_info, split_species_all_info
+)
 from petitRADTRANS.config import petitradtrans_config_parser
-
 
 
 def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=None):
@@ -26,15 +28,39 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities=Non
 
     for species in species_list:
         file_name = species.rsplit(os.path.sep, 1)[-1]
+        _file_name = file_name.rsplit('.cotable.petitRADTRANS.h5', 1)[0]  # discard file extension
 
-        name, _, _, cloud_info, source, _ = split_species_all_info(file_name)
-        cloud_info = cloud_info.rsplit('_', 1)[0]  # discard space group or amorphous name info
+        name, natural_abundance, _, cloud_info, source, spectral_info = split_species_all_info(_file_name)
 
-        call_name = join_species_all_info(
-            name=name.replace('-',''),
+        _file_name = join_species_all_info(
+            name=name,
+            natural_abundance=natural_abundance,
             cloud_info=cloud_info,
-            source=source
+            spectral_info=spectral_info
         )
+
+        # Check if file name is in the cloud aliases dictionary
+        if _file_name in _get_base_cloud_names().values():
+            call_name = None
+
+            for key, value in _get_base_cloud_names().items():
+                if value == _file_name:
+                    call_name = key
+
+                    break
+
+            call_name = join_species_all_info(
+                name=call_name,
+                source=source
+            )
+        else:
+            name = get_species_basename(name)  # remove isotope separators
+
+            call_name = join_species_all_info(
+                name=name,
+                cloud_info=cloud_info,
+                source=source
+            )
 
         with h5py.File(species, 'r') as f:
             doi = f['DOI'][0].decode('utf-8')
