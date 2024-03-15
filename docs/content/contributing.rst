@@ -5,21 +5,21 @@ We welcome all kind of contributions to petitRADTRANS.
 
 Suggestions and reporting issues
 ================================
-We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_.
+We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. In that case, please take the time to read the guidelines below.
 
 Alternatively, you can directly contact members of the development team via e-mail.
 
 Guidelines to report an issue
 -----------------------------
-While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues you can advantageously (i.e. have a quicker, more useful answer) use Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. In case of doubt, contact the petitRADTRANS team, and we will do our best to help you.
+- Ensure that the issue is petitRADTRANS-related (see below).
+- Use a clear title for the issue.
+- Add a few lines to describe your issue.
+- Add relevant information.
+- Always include an example that can be used by the developers to reproduce your issue.
+- For large scripts or console outputs (more than ~20 lines), please use attached files.
+- If your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
 
-When reporting an issue, make sure of the following:
-    - use a clear title for the issue,
-    - add a few lines to describe your issue,
-    - add relevant information,
-    - always include an example that can be used by the developers to reproduce your issue,
-    - for large scripts or console outputs (more than ~20 lines), please use attached files,
-    - if your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
+While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues you can advantageously (i.e. have a quicker, more useful answer) use Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. In case of doubt, contact the petitRADTRANS team, and we will do our best to help you.
 
 Adding new opacities
 ====================
@@ -32,38 +32,39 @@ Contribute code
 Development setup and how to submit changes
 -------------------------------------------
 If you would like to make a fix or add a feature to petitRADTRANS, you may proceed as follows:
-    1. Install `Git <https://git-scm.com/>`_.
-    2. Sign up to `Gitlab <https://gitlab.com/>`_.
-    3. `Fork <https://docs.gitlab.com/ee/user/project/repository/forking_workflow.html>`_ petitRADTRANS from the `main repository <https://gitlab.com/mauricemolli/petitRADTRANS>`_.
-        .. note:: If you are registered as a developer of petitRADTRANS, you may directly create a new branch (step 10) instead of a fork.
-    4. `Clone <https://docs.gitlab.com/ee/gitlab-basics/start-using-git.html#clone-a-repository>`_ your fork to work locally.
-    5. Add an upstream remote and fetch it with:
-        .. code-block:: bash
 
-            git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS``
-            git fetch upstream
-    6. Set your ``main`` branch to track upstream using.
-        .. code-block:: bash
+1. Install `Git <https://git-scm.com/>`_.
+2. Sign up to `Gitlab <https://gitlab.com/>`_.
+3. `Fork <https://docs.gitlab.com/ee/user/project/repository/forking_workflow.html>`_ petitRADTRANS from the `main repository <https://gitlab.com/mauricemolli/petitRADTRANS>`_.
+    .. note:: If you are registered as a developer of petitRADTRANS, you may directly create a new branch (step 10) instead of a fork.
+4. `Clone <https://docs.gitlab.com/ee/gitlab-basics/start-using-git.html#clone-a-repository>`_ your fork to work locally.
+5. Add an upstream remote and fetch it with:
+    .. code-block:: bash
 
-            git branch --set-upstream-to=upstream/main
-    7. Follow the petitRADTRANS installation instructions to install your fork. Once you are setup, use the following command:
-        .. code-block:: bash
+        git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS``
+        git fetch upstream
+6. Set your ``main`` branch to track upstream using.
+    .. code-block:: bash
 
-            pip install -e .[test] --no-build-isolation
-    8. Install `tox <https://tox.wiki/>`_.
-    9. Check that the test suite is working by executing ``tox`` in the main directory of you fork.
-    10. Create a new branch using ``git switch --create branch-name``.
-    11. Make your changes.
-    12. Regularly commit your changes using ``git commit -m 'Concise description of the change'``.
-    13. Before pushing, **always** test your changes by executing ``tox``.
-    14. Push to your branch using ``git push``.
-    15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_.
+        git branch --set-upstream-to=upstream/main
+7. Follow the petitRADTRANS installation instructions to install your fork. Once you are setup, use the following command:
+    .. code-block:: bash
+
+        pip install -e .[test] --no-build-isolation
+8. Install `tox <https://tox.wiki/>`_.
+9. Check that the test suite is working by executing ``tox`` in the main directory of you fork.
+10. Create a new branch using ``git switch --create branch-name``.
+11. Make your changes.
+12. Regularly commit your changes using ``git commit -m 'Concise description of the change'``.
+13. Before pushing, **always** test your changes by executing ``tox``.
+14. Push to your branch using ``git push``.
+15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_.
 
 You may contact by mail members of the development team to inform them about your (future) merge request at any time in the development process. Stay available in case modifications are requested by the development team before merging your branch.
 
 .. important:: If you plan for a large addition that takes a lot of time to develop, please inform the development team early. You may be integrated into the development team for a better coordination of development efforts.
 
-.. important:: Make atomic Git commits, accompanying comments should be short but descriptive, starting with a verb in the infinitive.
+.. tip:: Make atomic Git commits, accompanying comments should be short but descriptive, starting with a verb in the infinitive.
 
 Guidelines before creating a merge request
 ------------------------------------------
@@ -290,6 +291,7 @@ Versioning
 petitRADTRANS adheres to `Semantic Versioning <http://semver.org>`_.
 
 The code's version must be updated in the following files:
+
 - CHANGELOG.md
 - meson.build
 - pyproject.toml
