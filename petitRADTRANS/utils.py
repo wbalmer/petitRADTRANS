@@ -419,7 +419,7 @@ def make_table_cloud_species_reference_documentation(path_to_cloud_opacities):
     :return:
     """
     import glob
-    species_list = glob.glob(path_to_cloud_opacities + '/*/*/*')
+    species_list = sorted(glob.glob(path_to_cloud_opacities + '/*/*/*'))
     return_string = ''
     for species in species_list:
         call_name = species.split('/')[-1].split('.R')[0].replace('_000', '')
