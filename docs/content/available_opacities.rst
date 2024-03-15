@@ -27,291 +27,359 @@ Pressure and temperature grids may vary and are thus treated on a per-species ba
 The available correlated-k opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
 .. list-table::
-    :widths: 10 10 10 10
+    :widths: 20 20 20 20 20
     :header-rows: 1
 
     * - Short species name to be handed to pRT object
       - Unique species name to be handed to pRT object
       - File name
-      - Reference for optical data (mostly DOIs)
+      - Reference for line list (mostly DOIs)
       - Contributor
-
-    * - Al
+    * - 27Al
       - 27Al__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Al+
-      - 27Al_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - AlH
+      - 27Al__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 27Al-1H
       - 27Al-1H__AlHambra
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+18 <https://doi.org/10.1093/mnras/sty1524>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - AlO
+      - 27Al-1H__AlHambra.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/sty1524
+      - --
+    * - 27Al-16O
       - 27Al-16O__ATP
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Patrascu+15 <http://dx.doi.org/10.1093/mnras/stv507>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - C2H2
+      - 27Al-16O__ATP.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stv507
+      - --
+    * - 27Al
+      - 27Al__Kurucz
+      - 27Al_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 12C2-1H2
       - 12C2-1H2__aCeTY
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Chubb+20 <https://doi.org/10.1093/mnras/staa229>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - C2H4
+      - 12C2-1H2__aCeTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/staa229
+      - --
+    * - 12C2-1H4
       - 12C2-1H4__MaYTY
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Mant+18 <https://doi.org/10.1093/mnras/sty1239>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - Ca+
-      - 40Ca_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - CaH
-      - 40Ca-1H
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Li+12 <http://dx.doi.org/10.1016/j.jqsrt.2011.09.010>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - CH3D
+      - 12C2-1H4__MaYTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/sty1239
+      - --
+    * - 12C-1H3-2H
       - 12C-1H3-2H__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 12C-1H3-2H__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - CH4
+    * - 12C-1H4
       - 12C-1H4__HITEMP
-      - **???**
-      - **???**
-    * - **CH4**
-      - 12C-1H4__YT34
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Yurchenko+17 <https://doi.org/10.1051/0004-6361/201731026>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - 13CH3D
+      - 12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.3847/1538-4365/ab7a1a
+      - --
+    * - 12C-1H4
+      - 12C-1H4__YT34to10
+      - 12C-1H4__YT34to10.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201731026
+      - --
+    * - 13C-1H3-2H
       - 13C-1H3-2H__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 13C-1H3-2H__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 13CH4
+    * - 13C-1H4
       - 13C-1H4__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 13C-1H4__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
       - --
-    * - CO
-      - C-O-NatAbund__HITEMP
-      - HITEMP/Kurucz, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - **CO**
-      - C-O-NatAbund__Chubb
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - 12CO
+    * - 12C-16O
       - 12C-16O__HITEMP
-      - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 12C-16O__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - 13CO
-      - 13C-16__HITEMP
-      - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+    * - 13C-16O
+      - 13C-16O__HITEMP
+      - 13C-16O__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - **13CO**
+    * - 13C-16O
       - 13C-16O__Li2015
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+15 <https://doi.org/10.1088/0067-0049/216/1/15>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - CO2
-      - 12C-16O2__UCL
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_
+      - 13C-16O__Li2015.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1088/0067-0049/216/1/15
       - --
-    * - CrH
+    * - C-O
+      - C-O__Chubb
+      - C-O-NatAbund__Chubb.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1088/0067-0049/216/1/15
+      - --
+    * - C-O
+      - C-O__HITEMP
+      - C-O-NatAbund__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2010.05.001
+      - --
+    * - 12C-16O2
+      - 12C-16O2__UCL-4000
+      - 12C-16O2__UCL-4000.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - qqq
+      - --
+    * - C-S2
+      - C-S2__HITRAN
+      - C-S2-NatAbund__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
+      - --
+    * - 40Ca-1H
+      - 40Ca-1H__MoLLIST
+      - 40Ca-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2011.09.010
+      - --
+    * - 40Ca
+      - 40Ca__Kurucz
+      - 40Ca_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 52Cr-1H
       - 52Cr-1H__MoLLIST
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Burrows+02 <http://dx.doi.org/10.1086/342242>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - CS2
-      - C-S2-NatAbund__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 52Cr-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1086/342242
       - --
-    * - Fe
+    * - 56Fe
       - 56Fe__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Fe+
-      - 56Fe_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - FeH
+      - 56Fe__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 56Fe-1H
       - 56Fe-1H__MoLLIST
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Wende+10 <http://dx.doi.org/10.1051/0004-6361/201015220>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - H2
+      - 56Fe-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201015220
+      - --
+    * - 56Fe
+      - 56Fe__Kurucz
+      - 56Fe_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 1H2
       - 1H2__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 1H2__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - H2O
-      - 1H2-16O__HITEMP
-      - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - **H2O**
-      - 1H2-16O__POKAZATEL
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Polyanski+18 <https://doi.org/10.1093/mnras/sty1877>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - H2-17O
-      - 1H2-17O__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
-      - --
-    * - H2-18O
-      - 1H2-18O__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
-      - --
-    * - HDO
+    * - 1H-2H-16O
       - 1H-2H-16O__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 1H-2H-16O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - H2S
+    * - 1H2-16O
+      - 1H2-16O__HITEMP
+      - 1H2-16O__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2010.05.001
+      - --
+    * - 1H2-16O
+      - 1H2-16O__POKAZATEL
+      - 1H2-16O__POKAZATEL.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/sty1877
+      - --
+    * - 1H2-17O
+      - 1H2-17O__HITRAN
+      - 1H2-17O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
+      - --
+    * - 1H2-18O
+      - 1H2-18O__HITRAN
+      - 1H2-18O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
+      - --
+    * - 1H2-32S
       - 1H2-32S__AYT2
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Azzam+16 <http://dx.doi.org/10.1093/mnras/stw1133>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - HCN
+      - 1H2-32S__AYT2.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stw1133
+      - --
+    * - 1H-12C-14N
       - 1H-12C-14N__Harris
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barber+14 <http://mnras.oxfordjournals.org/content/437/2/1828.abstract>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - **K**
-      - 39K_Allard
-      - VALD, Allard wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 1H-12C-14N__Harris.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stt2011
       - --
-    * - K
+    * - 39K
+      - 39K__Allard
+      - 39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201935470
+      - --
+    * - 39K
       - 39K__Burrows
-      - VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
+      - 39K__Burrows.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1086/345412
       - --
-    * - K
-      - 39K_LorCut
-      - VALD, Lorentzian wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+    * - 39K
+      - 39K__LorCut
+      - 39K__LorCut.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://vald.astro.uu.se/
       - --
-    * - Li
-      - 3Li__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Mg
-      - Mg__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Mg+
-      - 24Mg_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - MgH
+    * - 7Li
+      - 7Li__Kurucz
+      - 7Li__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 24Mg
+      - 24Mg__Kurucz
+      - 24Mg__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 24Mg-1H
       - 24Mg-1H__MoLLIST
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gharib-Nezhad+13 <http://dx.doi.org/10.1093/mnras/stt510>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - MgO
+      - 24Mg-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stt510
+      - --
+    * - 24Mg-16O
       - 24Mg-16O__LiTY
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Tennyson+19 <https://doi.org/10.1093/mnras/stz912>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - **Na**
-      - 23Na_Allard
-      - VALD, `Allard wings <https://ui.adsabs.harvard.edu/abs/2019yCat..36280120A/abstract>`_, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 24Mg-16O__LiTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stz912
       - --
-    * - Na
-      - 23Na__Burrows
-      - VALD, `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
-      - --
-    * - Na
-      - 23Na_LorCut
-      - VALD, Lorentzian wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - NaH
-      - 23Na-1H
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Rivlin+15 <http://dx.doi.org/10.1093/mnras/stv979>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - NH3
+    * - 24Mg
+      - 24Mg__Kurucz
+      - 24Mg_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 14N-1H3
       - 14N-1H3__CoYuTe
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Coles+19 <https://doi.org/10.1093/mnras/stz2778>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - 15NH3
+      - 14N-1H3__CoYuTe.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stz2778
+      - --
+    * - 15N-1H3
       - 15N-1H3__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
+      - 15N-1H3__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
       - --
-    * - O
+    * - 23Na
+      - 23Na__Allard
+      - 23Na__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201935593
+      - --
+    * - 23Na
+      - 23Na__Burrows
+      - 23Na__Burrows.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1086/345412
+      - --
+    * - 23Na
+      - 23Na__LorCut
+      - 23Na__LorCut.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://vald.astro.uu.se/
+      - --
+    * - 23Na-1H
+      - 23Na-1H__Rivlin
+      - 23Na-1H__Rivlin.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stv979
+      - --
+    * - 16O
       - 16O__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - O2
-      - 16O2__HITRAN
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - O16-O17
+      - 16O__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 16O-17O
       - 16O-17O__HITRAN
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - O16-O18
+      - 16O-17O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
+      - --
+    * - 16O-18O
       - 16O-18O__HITRAN
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gordon+17 <https://doi.org/10.1016/j.jqsrt.2017.06.038>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - O3
+      - 16O-18O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
+      - --
+    * - 16O2
+      - 16O2__HITRAN
+      - 16O2__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2021.107949
+      - --
+    * - 16O3
       - 16O3__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 16O3__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - OH
+    * - 16O-1H
       - 16O-1H__MoLLIST
-      - M`ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Brooke+16 <http://dx.doi.org/10.1016/j.jqsrt.2015.07.021>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - PH3
+      - 16O-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1016/j.jqsrt.2018.06.016
+      - --
+    * - 31P-1H3
       - 31P-1H3__SAlTY
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Sousa-Silva+14 <http://dx.doi.org/10.1093/mnras/stu2246>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - SH
+      - 31P-1H3__SAlTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stu2246
+      - --
+    * - 32S-1H
       - 32S-1H__GYT
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Gorman+19 <https://doi.org/10.1093/mnras/stz2517>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - Si
+      - 32S-1H__GYT.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/sty939
+      - --
+    * - 32S-16O2
+      - 32S-16O2__ExoAmes
+      - 32S-16O2__ExoAmes.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stw849
+      - --
+    * - 28Si
       - 28Si__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Si+
-      - 28Si_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - SiO
+      - 28Si__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 28Si-16O
       - 28Si-16O__SiOUVenIR
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Barton+13 <https://doi.org/10.1093/mnras/stt1105>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - SiO2
+      - 28Si-16O__SiOUVenIR.R1000_0.1-50mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stab3267
+      - --
+    * - 28Si-16O2
       - 28Si-16O2__OYT3
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `Owens+20 <http://dx.doi.org/10.1093/mnras/staa1287>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - SO2
-      - 32Si-16O2__ExoAmes
-      - **???**
-      - **???**
-    * - Ti
+      - 28Si-16O2__OYT3.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - www.exomol.com/data/molecules/SiO2/28Si-16O2/OYT3
+      - --
+    * - 28Si
+      - 28Si__Kurucz
+      - 28Si_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 48Ti
       - 48Ti__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Ti+
-      - 48Ti_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - **TiO**
-      - Ti-O__McKemmish
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - TiO
-      - Ti-O-NatAbund_Plez
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - 48TiO
-      - 48Ti-16O__Plez
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - **48TiO**
+      - 48Ti__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 48Ti-16O
       - 48Ti-16O__McKemmish
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+19 <https://doi.org/10.1093/mnras/stz1818>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
-    * - V
-      - 51V__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - V+
-      - V_p__Kurucz
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - VO
-      - 51V-16O__Plez
-      - B. Plez, see `Mollière+2019  <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 48Ti-16O__McKemmish.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stz1818
+      - `Chubb et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `ExoMolOP <https://www.exomol.com/data/data-types/opacity/>`_
+    * - 48Ti-16O
+      - 48Ti-16O__Plez
+      - 48Ti-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201935470
       - --
-    * - **VO**
+    * - Ti-O
+      - Ti-O__McKemmish
+      - Ti-O-NatAbund__McKemmish.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stz1818
+      - `Chubb et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `ExoMolOP <https://www.exomol.com/data/data-types/opacity/>`_
+    * - Ti-O
+      - Ti-O__Plez
+      - Ti-O-NatAbund__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201935470
+      - --
+    * - 48Ti
+      - 48Ti__Kurucz
+      - 48Ti_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 51V
+      - 51V__Kurucz
+      - 51V__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
+    * - 51V-16O
+      - 51V-16O__Plez
+      - 51V-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 10.1051/0004-6361/201935470
+      - --
+    * - 51V-16O
       - 51V-16O__VOMYT
-      - `ExoMolOP <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `McKemmish+16 <http://dx.doi.org/10.1093/mnras/stw1969>`_
-      - `K. Chubb <klc20@st-andrews.ac.uk>`_
+      - 51V-16O__VOMYT.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stw1969
+      - --
+    * - 51V
+      - 51V__Kurucz
+      - 51V_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - http://kurucz.harvard.edu/
+      - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
 
 \*: discarding the spectral information.
 
