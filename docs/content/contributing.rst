@@ -1,7 +1,7 @@
 ============
 Contributing
 ============
-We welcome all kind of contributions to petitRADTRANS.
+We welcome all kinds of contributions to petitRADTRANS.
 
 Suggestions and reporting issues
 ================================
@@ -19,7 +19,7 @@ Guidelines to report an issue
 - For large scripts or console outputs (more than ~20 lines), please use attached files.
 - If your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
 
-While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues you can advantageously (i.e. have a quicker, more useful answer) use Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. In case of doubt, contact the petitRADTRANS team, and we will do our best to help you.
+While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues we recommend Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. If you still encounter difficulties, contact the petitRADTRANS team and we will do our best to help you.
 
 Adding new opacities
 ====================
@@ -76,11 +76,11 @@ Guidelines before creating a merge request
 
 .. _stylistic_guidelines:
 
-Stylistic guidelines
---------------------
+Style Guide
+-----------
 These guidelines are intended to create a consistency within the code, facilitating usage, readability, and maintenance in the long term.
 
-In case of doubt, look at existing code for guidance. Before committing, take the time to re-read yourself and ensure that you respected the guidelines. Fixing existing code to make it more inline with those guidelines is strongly encouraged.
+In general, look at existing code for guidance. Before committing, take the time to re-read your code and ensure that you respected the guidelines. Fixing existing code to make it more inline with those guidelines is strongly encouraged.
 
 - It is strongly encouraged to use an IDE such as `PyCharm <https://www.jetbrains.com/pycharm/>`_ (you can use the free community edition) to help you respect the code style.
 - Set up your editor to follow `PEP 8 <https://peps.python.org/pep-0008/>`_. In PyCharm, this is enabled by default.

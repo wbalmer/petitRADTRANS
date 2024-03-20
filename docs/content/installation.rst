@@ -21,7 +21,7 @@ On Linux, install Python and the fortran compiler with:
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
-.. Note:: A general Python recommendation is to use a `Python virtual environment <https://docs.python.org/3/library/venv.html>`_, to prevent potential conflicts.
+.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>, to prevent potential conflicts.
 
 Windows
 -------
@@ -45,7 +45,7 @@ WSL-native dual installation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 pRT can be installed both on the Windows and WSL sides. Files on WSL can be accessed from the Windows side using the path ``\\wsl.localhost\``, and files on Windows can be accessed from the WSL side using ``/mnt`` (e.g., to get into "C:\\Users" from WSL: ``cd /mnt/c/Users``). Note however than accessing files across sides is `slow <https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage>`_.
 
-Mac Os
+Mac OS
 ------
 On Mac OS, be sure to have `homebrew <https://brew.sh/>`_ installed.
 
