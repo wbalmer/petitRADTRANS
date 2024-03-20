@@ -1913,6 +1913,9 @@ class SpectralModel(Radtrans):
             if key in ['_line_species', '_gas_continuum_contributors', '_rayleigh_species', '_cloud_species']:
                 kwargs[key[1:]] = copy.deepcopy(self.__dict__[key])
 
+        # Include all used functions arguments default value into the model parameters
+        spectral_model_attributes = list(self.__dict__.keys())
+
         for function in functions_dict.values():
             signature = inspect.signature(function)
 
@@ -2709,10 +2712,19 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-    def save(self, file):
+    def save(self, file, save_opacities=False):
+        if save_opacities:
+            attribute_dictionary = self.__dict__
+        else:
+            attribute_dictionary = {
+                key: value
+                for key, value in self.__dict__.items()
+                if '_loaded_opacities' not in key
+            }
+
         self.save_parameters(
             file=file,
-            **self.__dict__
+            **attribute_dictionary
         )
 
     @staticmethod
