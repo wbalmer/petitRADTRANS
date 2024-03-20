@@ -219,6 +219,8 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
             elif hasattr(dictionary[key], 'dtype'):
                 if dictionary[key].dtype == 'O':
                     data = flatten_object(dictionary[key])
+                elif isinstance(dictionary[key].dtype, np.dtypes.StrDType):
+                    data = [str(value) for value in dictionary[key]]
                 else:
                     data = dictionary[key]
             else:
