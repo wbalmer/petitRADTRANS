@@ -231,6 +231,15 @@ Most of the tests consist of calling a petitRADTRANS function, and to compare th
 
 This file can be used for diagnostic.
 
+tox-conda
+~~~~~~~~~
+When using conda environments, you must install `tox-conda` prior to running the tox test suite.
+Additionally, you may run into issues with package versions and getting the test suite to run properly, in particular with the `numba` package.
+You will need to `conda install numba`, even if you have already installed the package through `pip`. 
+We also suggest running `tox` for specific python versions, rather than automatically running on the base version installed on your system.
+At the very least, you should run tests on the oldest version currently supported by pRT (python 3.9 as of 2024), as well as the most recent version.
+
+
 Creating a new test
 ~~~~~~~~~~~~~~~~~~~
 Tests are used both to ensure that every functionality of the code work, but also that they work **as expected**. It follows that a proper test should:
