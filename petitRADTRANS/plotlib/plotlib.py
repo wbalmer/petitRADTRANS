@@ -719,8 +719,7 @@ def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, tem
 
 
 def plot_data(fig, ax, data, resolution=None, scaling=1.0):
-    scale = data.scale_factor
-
+    
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
@@ -746,20 +745,35 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
         error = data.uncertainties
 
     marker = 'o'
+    scale = 1.0
+    errscale = 1.0
+    flux = data.spectrum
+    error = data.uncertainties
+    if data.scale:
+        scale = data.scale_factor
 
+    if data.scale_err:
+        errscale = data.scale_factor
+        error = error * errscale
+
+    offset = 0.0
+    if data.offset_bool:
+        offset = data.offset
+
+    flux = (flux * scale) - offset
     if data.photometry:
         marker = 's'
 
     if not data.photometry:
         ax.errorbar(wlen,
-                    flux * scaling * scale,
-                    yerr=error * scaling * scale,
+                    flux * scaling,
+                    yerr=error * scaling * errscale,
                     marker=marker, markeredgecolor='k', linewidth=0, elinewidth=2,
                     label=data.name, zorder=10, alpha=0.9)
     else:
         ax.errorbar(wlen,
-                    flux * scaling * scale,
-                    yerr=error * scaling * scale,
+                    flux * scaling,
+                    yerr=error * scaling * errscale,
                     xerr=data.wavelength_bin_widths / 2., linewidth=0, elinewidth=2,
                     marker=marker, markeredgecolor='k', color='grey', zorder=10,
                     label=None, alpha=0.6)

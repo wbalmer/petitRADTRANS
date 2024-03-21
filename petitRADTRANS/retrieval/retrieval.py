@@ -3484,7 +3484,27 @@ class Retrieval:
                     wlen = np.mean(dd.photometric_bin_edges)
                 else:
                     wlen = dd.wavelengths
-                ax.errorbar(wlen, dd.spectrum, yerr=dd.uncertainties, label=name, marker='o')
+
+                # If the data has an arbitrary retrieved scaling factor
+                scale = 1.0
+                errscale = 1.0
+                offset = 0.0
+                spectrum = dd.spectrum
+                error = dd.uncertainties
+                if self.configuration.run_mode == 'evaluate':
+                    if dd.scale:
+                        scale = self.best_fit_parameters[f"{name}_scale_factor"].value
+
+                    if dd.scale_err:
+                        errscale = self.best_fit_parameters[f"{name}_scale_factor"].value
+                        error = error * errscale
+
+                    
+                    if dd.offset_bool:
+                        offset = self.best_fit_parameters[f"{name}_offset"].value
+
+                spectrum = (spectrum * scale) - offset
+                ax.errorbar(wlen, spectrum, yerr=error, label=name, marker='o')
                 ax.set_yscale(yscale)
             ax.legend(fontsize=6)
 
