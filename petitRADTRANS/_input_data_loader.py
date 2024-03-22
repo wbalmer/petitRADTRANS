@@ -170,7 +170,7 @@ def _get_base_correlated_k_names():
         'O+': '16O_p__Kurucz.R1000_0.1-250mu',  # TODO not in the docs
         'O2': '16O2__HITRAN.R1000_0.3-50mu',
         'O3': '16O3__HITRAN.R1000_0.1-250mu',
-        'OH': '16O-1H__MoLLIST.R1000_0.3-50mu',
+        'OH': '16O-1H__HITEMP.R1000_0.3-50mu',
         'PH3': '31P-1H3__SAlTY.R1000_0.3-50mu',
         'SH': '32S-1H__GYT.R1000_0.3-50mu',
         'Si': '28Si__Kurucz.R1000_0.1-250mu',
@@ -229,7 +229,7 @@ def _get_base_line_by_line_names():
         'Na': '23Na__Allard.R1e6_0.3-28mu',
         'NH3': '14N-1H3__BYTe.R1e6_0.3-28mu',
         'O3': '16O3__HITRAN.R1e6_0.3-28mu',
-        'OH': '16O-1H__MoLLIST.R1e6_0.3-28mu',
+        'OH': '16O-1H__HITEMP.R1e6_0.3-28mu',
         'PH3': '31P-1H3__SAlTY.R1e6_0.3-28mu',
         'Si': '28Si__Kurucz.R1e6_0.3-28mu',
         'SiO': '28Si-16O__EBJT.R1e6_0.3-28mu',
