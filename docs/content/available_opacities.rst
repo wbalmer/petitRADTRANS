@@ -35,32 +35,32 @@ The available correlated-k opacities are listed below. When multiple source are 
       - File name
       - Reference for line list (mostly DOIs)
       - Contributor
-    * - 27Al
+    * - Al
       - 27Al__Kurucz
       - 27Al__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 27Al-1H
+    * - AlH
       - 27Al-1H__AlHambra
       - 27Al-1H__AlHambra.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/sty1524
       - --
-    * - 27Al-16O
+    * - AlO
       - 27Al-16O__ATP
       - 27Al-16O__ATP.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stv507
       - --
-    * - 27Al
-      - 27Al__Kurucz
+    * - Al+
+      - 27Al_+__Kurucz
       - 27Al_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 12C2-1H2
+    * - C2H2
       - 12C2-1H2__aCeTY
       - 12C2-1H2__aCeTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/staa229
       - --
-    * - 12C2-1H4
+    * - C2H4
       - 12C2-1H4__MaYTY
       - 12C2-1H4__MaYTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/sty1239
@@ -70,12 +70,12 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 12C-1H3-2H__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - 12C-1H4
+    * - CH4
       - 12C-1H4__HITEMP
       - 12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.3847/1538-4365/ab7a1a
       - --
-    * - 12C-1H4
+    * - CH4
       - 12C-1H4__YT34to10
       - 12C-1H4__YT34to10.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201731026
@@ -90,7 +90,7 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 13C-1H4__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 12C-16O
+    * - CO
       - 12C-16O__HITEMP
       - 12C-16O__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2010.05.001
@@ -105,57 +105,57 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 13C-16O__Li2015.R1000_0.3-50mu.ktable.petitRADTRANS.h5
       - 10.1088/0067-0049/216/1/15
       - --
-    * - C-O
-      - C-O__Chubb
+    * - C-O-NatAbund
+      - C-O-NatAbund__Chubb
       - C-O-NatAbund__Chubb.R1000_0.3-50mu.ktable.petitRADTRANS.h5
       - 10.1088/0067-0049/216/1/15
       - --
-    * - C-O
-      - C-O__HITEMP
+    * - C-O-NatAbund
+      - C-O-NatAbund__HITEMP
       - C-O-NatAbund__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - 12C-16O2
+    * - CO2
       - 12C-16O2__UCL-4000
       - 12C-16O2__UCL-4000.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - qqq
       - --
-    * - C-S2
-      - C-S2__HITRAN
+    * - C-S2-NatAbund
+      - C-S2-NatAbund__HITRAN
       - C-S2-NatAbund__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 40Ca-1H
+    * - CaH
       - 40Ca-1H__MoLLIST
       - 40Ca-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2011.09.010
       - --
-    * - 40Ca
-      - 40Ca__Kurucz
+    * - Ca+
+      - 40Ca_+__Kurucz
       - 40Ca_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 52Cr-1H
+    * - CrH
       - 52Cr-1H__MoLLIST
       - 52Cr-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1086/342242
       - --
-    * - 56Fe
+    * - Fe
       - 56Fe__Kurucz
       - 56Fe__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 56Fe-1H
+    * - FeH
       - 56Fe-1H__MoLLIST
       - 56Fe-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201015220
       - --
-    * - 56Fe
-      - 56Fe__Kurucz
+    * - Fe+
+      - 56Fe_+__Kurucz
       - 56Fe_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 1H2
+    * - H2
       - 1H2__HITRAN
       - 1H2__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
@@ -165,12 +165,12 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 1H-2H-16O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - 1H2-16O
+    * - H2O
       - 1H2-16O__HITEMP
       - 1H2-16O__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - 1H2-16O
+    * - H2O
       - 1H2-16O__POKAZATEL
       - 1H2-16O__POKAZATEL.R1000_0.3-50mu.ktable.petitRADTRANS.h5
       - 10.1093/mnras/sty1877
@@ -185,57 +185,57 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 1H2-18O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - 1H2-32S
+    * - H2S
       - 1H2-32S__AYT2
       - 1H2-32S__AYT2.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stw1133
       - --
-    * - 1H-12C-14N
+    * - HCN
       - 1H-12C-14N__Harris
       - 1H-12C-14N__Harris.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stt2011
       - --
-    * - 39K
+    * - K
       - 39K__Allard
       - 39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935470
       - --
-    * - 39K
+    * - K
       - 39K__Burrows
       - 39K__Burrows.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1086/345412
       - --
-    * - 39K
+    * - K
       - 39K__LorCut
       - 39K__LorCut.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://vald.astro.uu.se/
       - --
-    * - 7Li
+    * - Li
       - 7Li__Kurucz
       - 7Li__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 24Mg
+    * - Mg
       - 24Mg__Kurucz
       - 24Mg__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 24Mg-1H
+    * - MgH
       - 24Mg-1H__MoLLIST
       - 24Mg-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stt510
       - --
-    * - 24Mg-16O
+    * - MgO
       - 24Mg-16O__LiTY
       - 24Mg-16O__LiTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stz912
       - --
-    * - 24Mg
-      - 24Mg__Kurucz
+    * - Mg+
+      - 24Mg_+__Kurucz
       - 24Mg_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 14N-1H3
+    * - NH3
       - 14N-1H3__CoYuTe
       - 14N-1H3__CoYuTe.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stz2778
@@ -245,27 +245,27 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 15N-1H3__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 23Na
+    * - Na
       - 23Na__Allard
       - 23Na__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935593
       - --
-    * - 23Na
+    * - Na
       - 23Na__Burrows
       - 23Na__Burrows.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1086/345412
       - --
-    * - 23Na
+    * - Na
       - 23Na__LorCut
       - 23Na__LorCut.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://vald.astro.uu.se/
       - --
-    * - 23Na-1H
+    * - NaH
       - 23Na-1H__Rivlin
       - 23Na-1H__Rivlin.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stv979
       - --
-    * - 16O
+    * - O
       - 16O__Kurucz
       - 16O__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
@@ -280,103 +280,103 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 16O-18O__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 16O2
+    * - O2
       - 16O2__HITRAN
       - 16O2__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2021.107949
       - --
-    * - 16O3
+    * - O3
       - 16O3__HITRAN
       - 16O3__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - 16O-1H
+    * - OH
       - 16O-1H__MoLLIST
       - 16O-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2018.06.016
       - --
-    * - 31P-1H3
+    * - PH3
       - 31P-1H3__SAlTY
       - 31P-1H3__SAlTY.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stu2246
       - --
-    * - 32S-1H
+    * - SH
       - 32S-1H__GYT
       - 32S-1H__GYT.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/sty939
       - --
-    * - 32S-16O2
+    * - SO2
       - 32S-16O2__ExoAmes
       - 32S-16O2__ExoAmes.R1000_0.3-50mu.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stw849
       - --
-    * - 28Si
+    * - Si
       - 28Si__Kurucz
       - 28Si__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 28Si-16O
+    * - SiO
       - 28Si-16O__SiOUVenIR
       - 28Si-16O__SiOUVenIR.R1000_0.1-50mu.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stab3267
       - --
-    * - 28Si-16O2
+    * - SiO2
       - 28Si-16O2__OYT3
       - 28Si-16O2__OYT3.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - www.exomol.com/data/molecules/SiO2/28Si-16O2/OYT3
       - --
-    * - 28Si
-      - 28Si__Kurucz
+    * - Si+
+      - 28Si_+__Kurucz
       - 28Si_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 48Ti
+    * - Ti
       - 48Ti__Kurucz
       - 48Ti__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 48Ti-16O
+    * - TiO
       - 48Ti-16O__McKemmish
       - 48Ti-16O__McKemmish.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stz1818
       - `Chubb et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `ExoMolOP <https://www.exomol.com/data/data-types/opacity/>`_
-    * - 48Ti-16O
+    * - TiO
       - 48Ti-16O__Plez
       - 48Ti-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935470
       - --
-    * - Ti-O
-      - Ti-O__McKemmish
+    * - Ti-O-NatAbund
+      - Ti-O-NatAbund__McKemmish
       - Ti-O-NatAbund__McKemmish.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stz1818
       - `Chubb et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021A%26A...646A..21C/abstract>`_, `ExoMolOP <https://www.exomol.com/data/data-types/opacity/>`_
-    * - Ti-O
-      - Ti-O__Plez
+    * - Ti-O-NatAbund
+      - Ti-O-NatAbund__Plez
       - Ti-O-NatAbund__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935470
       - --
-    * - 48Ti
-      - 48Ti__Kurucz
+    * - Ti+
+      - 48Ti_+__Kurucz
       - 48Ti_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 51V
+    * - V
       - 51V__Kurucz
       - 51V__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
-    * - 51V-16O
+    * - VO
       - 51V-16O__Plez
       - 51V-16O__Plez.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935470
       - --
-    * - 51V-16O
+    * - VO
       - 51V-16O__VOMYT
       - 51V-16O__VOMYT.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1093/mnras/stw1969
       - --
-    * - 51V
-      - 51V__Kurucz
+    * - V+
+      - 51V_+__Kurucz
       - 51V_p__Kurucz.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
@@ -415,7 +415,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - C2H2
       - 12C2-1H2__HITRAN
-      - HITRAN, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - Ca **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
@@ -431,11 +431,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - CaH
       - 40Ca-1H__MoLLIST
-      - **???**
-      - **???**
+      - `Li et al. (2012) <https://ui.adsabs.harvard.edu/abs/2012JQSRT.113...67L/abstract>`_
+      - --
     * - CH3D **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_, see CH4_212
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - CH4
       - 12C-1H4__Hargreaves
@@ -443,39 +443,39 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - 13CH4
       - 13C-1H4__HITRAN
-      - `HITRAN2019 <https://doi.org/10.1051/0004-6361/201935470>`_
+      - 10.1016/j.jqsrt.2021.107949
       - --
     * - CO-NatAbund
-      - C-O-NatAbund__HITRAN
-      - see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - C-O-NatAbund__HITRAN @ Doriann: these should be __HITEMP
+      - 10.1016/j.jqsrt.2010.05.001
       - --
     * - CO
-      - 12C-16O__HITRAN
-      - HITEMP, see `Mollière+2019  <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 12C-16O__HITRAN @ Doriann: these should be __HITEMP
+      - 10.1016/j.jqsrt.2010.05.001
       - --
     * - 12C-17O
       - 12C-17O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - 12C-18O
       - 12C-18O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - 13CO
       - 13C-16O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - 13C-17O
       - 13C-17O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - 13C-18O
       - 13C-18O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - CO2
       - 12-C-16O2__HITEMP
-      - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2010.05.001
       - --
     * - Cr **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
@@ -491,19 +491,19 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - FeH
       - 56Fe-1H__MoLLIST
-      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2019.106687
       - --
     * - H2 **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - HD **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - H2O
       - 1H2-16O__HITEMP
-      - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2010.05.001
       - --
     * - **H2O**
       - 1H2-16O__POKAZATEL
@@ -511,31 +511,31 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_
     * - HDO
       - 1H-2H-16O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - H2-17O
       - 1H2-17O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - HD-17O
       - 1H-2H-17O
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - H2-18O
       - 1H2-18O__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - HD-18O
       - 1H-2H-18O
-      - see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - H2S
       - 1H2-32S__HITRAN
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - HCN
       - 1H-12C-14N__Harris
-      - Main isotopologue, ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1111/j.1365-2966.2005.09960.x
       - --
     * - **K**
       - 39K__Allard
@@ -579,7 +579,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - --
     * - NH3
       - 14N-1H3__HITRAN
-      - ExoMol, `Yurchenko et al. (2011) <http://dx.doi.org/10.1111/j.1365-2966.2011.18261.x>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - **NH3**
       - 14N-1H3__CoYuTe
@@ -587,13 +587,13 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_ (400--1600 K)
     * - O3 **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1016/j.jqsrt.2013.07.002
       - --
     * - OH
-      - 16O-1H__MoLLIST
-      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 16O-1H__MoLLIST @ Doriann: should be __HITEMP
+      - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - PH3
+    * - PH3 @ Doriann: remove, only keep __SALTY below!
       - 31P-1H3__HITRAN
       - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
       - --
@@ -607,7 +607,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - SiO
       - 28Si-16O__EBJT
-      - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - 10.1093/mnras/stt1105
       - --
     * - Ti **!!**
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
