@@ -1645,7 +1645,7 @@ def _get_prt2_line_by_line_names():
         'CO_37': '13C-17O__HITRAN.R1e6_0.3-28mu',
         'CO_38': '13C-18O__HITRAN.R1e6_0.3-28mu',
         'CO_all_iso': None,
-        'CO_main_iso': '12C-16O__HITRAN.R1e6_0.3-28mu',
+        'CO_main_iso': '12C-16O__HITEMP.R1e6_0.3-28mu',
         'Cr': None,
         'Fe': None,
         'Fe+': None,

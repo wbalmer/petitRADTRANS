@@ -74,8 +74,8 @@ def make_petitradtrans_test_config_file(filename):
                     '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
                     '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
                     '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
-                    'C-O-NatAbund__HITRAN.R1e6_0.3-28mu': 0.1,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu': 0.0
+                    'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                  },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
@@ -115,7 +115,7 @@ def make_petitradtrans_test_config_file(filename):
                     ],
                     'line_species_line_by_line': [
                         '1H2-16O__HITEMP.R1e6_0.3-28mu',
-                        'C-O-NatAbund__HITRAN.R1e6_0.3-28mu'
+                        'C-O-NatAbund__HITEMP.R1e6_0.3-28mu'
                     ],
                     'rayleigh_species': [
                         'H2',
