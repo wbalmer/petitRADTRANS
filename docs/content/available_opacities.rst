@@ -402,15 +402,15 @@ The available line-by-line opacities are listed below. When multiple source are 
       - Reference
       - Contributor
     * - Al **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - B **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Be **!!None!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - C2H2
@@ -418,15 +418,15 @@ The available line-by-line opacities are listed below. When multiple source are 
       - HITRAN, see references in `here <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - Ca **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - CaII **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Ca+
-      - 40Ca_p__Kurucz
+      - 40Ca_p__Kurucz, @ Doriann: should be the same as CaII above?
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - CaH
@@ -434,7 +434,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - **???**
       - **???**
     * - CH3D **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_, see CH4_212
       - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - CH4
@@ -444,7 +444,7 @@ The available line-by-line opacities are listed below. When multiple source are 
     * - 13CH4
       - 13C-1H4__HITRAN
       - `HITRAN2019 <https://doi.org/10.1051/0004-6361/201935470>`_
-      - **???**
+      - --
     * - CO-NatAbund
       - C-O-NatAbund__HITRAN
       - see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
@@ -478,15 +478,15 @@ The available line-by-line opacities are listed below. When multiple source are 
       - HITEMP, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - Cr **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Fe **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - FeII **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - FeH
@@ -494,11 +494,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - H2 **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - HD **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - H2O
@@ -550,19 +550,19 @@ The available line-by-line opacities are listed below. When multiple source are 
       - VALD, Lorentzian wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - Li **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Mg **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - MgII **!!**
-      - **!!None!!**
+    * - MgII **!!** Call Mg+?
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - N **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - **Na**
@@ -586,7 +586,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, `Coles et al. (2019) <https://doi.org/10.1093/mnras/stz2778>`_
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_ (400--1600 K)
     * - O3 **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - HITRAN, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - OH
@@ -602,7 +602,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, `Sousa-Silva et al. (2014) <http://dx.doi.org/10.1093/mnras/stu2246>`_, converted from `DACE <https://dace.unige.ch/dashboard/>`_
       - `Adriano Miceli <adriano.miceli@stud.unifi.it>`_
     * - Si **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - SiO
@@ -610,7 +610,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - Ti **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - TiO **???**
@@ -622,51 +622,51 @@ The available line-by-line opacities are listed below. When multiple source are 
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_46_Plez **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_47_Plez **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_48_Plez **???**
-      - **TiO_48???**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_49_Plez **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_50_Plez **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - TiO_46_Exomol_McKemmish **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_47_Exomol_McKemmish **???**
-      - **TiO_47_exo_new???**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_48_Exomol_McKemmish **???**
-      - **TiO_48_exo_new???**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_49_Exomol_McKemmish **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - TiO_50_Exomol_McKemmish **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - V **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - VII **!!**
-      - **!!None!!**
+    * - VII **!!** (call V+)
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - VO
@@ -674,15 +674,15 @@ The available line-by-line opacities are listed below. When multiple source are 
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - VO_ExoMol_McKemmish **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
       - `S. de Regt <regt@strw.leidenuniv.nl>`_
     * - VO_ExoMol_Specific_Transitions **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - Most accurate transitions from `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
       - `S. de Regt <regt@strw.leidenuniv.nl>`_
     * - Y **!!**
-      - **!!None!!**
+      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
 
