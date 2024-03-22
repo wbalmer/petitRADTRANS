@@ -753,39 +753,40 @@ The available collision-induced absorptions are listed below.
       - File name
       - Reference
     * - CO2--CO2
-      - **???**
-      - **???**
+      - C-O2--C-O2-NatAbund.DeltaWavelength1e-6_3-100mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - H2--H2
       - H2--H2-NatAbund__BoRi.R831_0.6-250mu
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - `Borysow et al. (2001 <https://ui.adsabs.harvard.edu/abs/2001JQSRT..68..235B/abstract>`_, `2002) <https://ui.adsabs.harvard.edu/abs/2002A%26A...390..779B/abstract>`_
     * - H2--He
       - H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu
-      - `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - `Borysow et al. (1988 <https://ui.adsabs.harvard.edu/abs/1988ApJ...326..509B/abstract>`_, `1989a <https://ui.adsabs.harvard.edu/abs/1989ApJ...336..495B/abstract>`_, `1989b) <https://ui.adsabs.harvard.edu/abs/1989ApJ...341..549B/abstract>`_
     * - H2O--H2O
-      - **???**
-      - **???**
+      - Missing from Keeper atm
+      - TODO Get from Eleonora
     * - H2O--N2
-      - **???**
-      - **???**
+      - Mising from Keeper atm
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
     * - N2--H2
-      - **???**
-      - **???**
+      - N2--H2-NatAbund.DeltaWavenumber1_5.3-909mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
     * - N2--He
-      - **???**
-      - **???**
+      - N2--He-NatAbund.DeltaWavenumber1_10-909mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
     * - N2--N2
-      - **???**
-      - **???**
+      - N2--N2-NatAbund.DeltaWavelength1e-6_2-100mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - N2--O2
-      - **???**
-      - **???**
+      - N2--O2-NatAbund.DeltaWavelength1e-6_0.72-5.4mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - O2--O2
-      - **???**
-      - **???**
+      - O2--O2-NatAbund.DeltaWavelength1e-6_0.34-8.7mu.ciatable.petitRADTRANS
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
 
 Other gas continuum contributors
 --------------------------------
-In addition to CIA, petitRADTRANS can also calculate the H- (bound-free and free-free) absorptions. In that case, the ``H-`` string must be present in the ``gas_continuum_contributors`` list. In the ``mass_fractions`` dictionary, the keys ``H-`` and ``e-`` must be present as well.
+In addition to CIA, petitRADTRANS can also add H- (bound-free and free-free) absorption. In that case, the ``H-`` string must be present in the ``gas_continuum_contributors`` list. In the ``mass_fractions`` dictionary, the keys ``H-``, ``H`` and ``e-`` must be present as well.
+The H- opacity is implemented as reported in `Gray (2008) <https://ui.adsabs.harvard.edu/abs/2008oasp.book.....G/abstract>`_.
 
 File naming convention
 ----------------------
