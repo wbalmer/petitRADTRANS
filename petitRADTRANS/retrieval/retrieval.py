@@ -3499,7 +3499,6 @@ class Retrieval:
                         errscale = self.best_fit_parameters[f"{name}_scale_factor"].value
                         error = error * errscale
 
-                    
                     if dd.offset_bool:
                         offset = self.best_fit_parameters[f"{name}_offset"].value
 

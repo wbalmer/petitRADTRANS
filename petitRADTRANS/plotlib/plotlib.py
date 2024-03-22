@@ -719,7 +719,6 @@ def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, tem
 
 
 def plot_data(fig, ax, data, resolution=None, scaling=1.0):
-    
     if not data.photometry:
         try:
             # Sometimes this fails, I'm not super sure why.
