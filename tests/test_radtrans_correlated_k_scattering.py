@@ -41,9 +41,9 @@ atmosphere_ck_scattering = init_radtrans_correlated_k()
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu'] = \
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['mass_fraction']
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_flux,
@@ -57,18 +57,18 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['f_sed'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['sigma_log_normal'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu'] = \
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['mass_fraction']
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
 
     geometry = 'planetary_ave'
 
@@ -84,9 +84,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['f_sed'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['sigma_log_normal'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -97,9 +97,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu'] = (
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['mass_fraction']
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
     )
 
     geometry = 'dayside_ave'
@@ -116,9 +116,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['f_sed'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['sigma_log_normal'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -129,9 +129,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_non_isotropic():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu'] = (
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['mass_fraction']
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
     )
 
     geometry = 'non-isotropic'
@@ -148,9 +148,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['f_sed'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['sigma_log_normal'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         emission_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
@@ -162,9 +162,9 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu'] = (
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['mass_fraction']
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
     )
 
     benchmark = Benchmark(
@@ -182,8 +182,8 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['f_sed'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu']['sigma_log_normal'],
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
