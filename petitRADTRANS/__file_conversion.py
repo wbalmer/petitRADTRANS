@@ -1679,7 +1679,7 @@ def _get_prt2_line_by_line_names():
         'NH3_Coles_main_iso': '14N-1H3__CoYuTe.R1e6_0.3-28mu',
         'O3_main_iso': None,
         'OH_main_iso': None,
-        'PH3_HITRAN': '31P-1H3__HITRAN.R1e6_0.3-28mu',
+        'PH3_SAlTY': '31P-1H3__SAlTY.R1e6_0.3-28mu',
         'PH3_main_iso': None,
         'Si': None,
         'SiO_main_iso': None,

@@ -134,7 +134,7 @@ def make_petitradtrans_test_config_file(filename):
                    'cloud_pressure': 0.01,
                    'haze_factor': 10.0,
                    'cloud_species': {
-                       'Mg2-Si-O4-NatAbund(s)_crystalline_062__DHS.R39_0.1-250mu': {
+                       'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
                            'mass_fraction': 5e-7,
                            'radius': 5e-5,  # (cm)
                            'f_sed': 2.0,
