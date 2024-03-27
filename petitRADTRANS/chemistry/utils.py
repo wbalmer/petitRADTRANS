@@ -29,7 +29,8 @@ def compute_mean_molar_masses(abundances):
     return 1.0 / mean_molar_masses
 
 
-def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict) -> dict[str, float]:
+def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling_species: dict
+                           ) -> dict[str, np.ndarray[float]]:
     """Fill an atmospheric layer with filling species, so that the sum of the mass fractions is 1.
     The filling species values are weights that are used to fill the atmospheric layer following:
         X_i = w_i / sum(w) * X_f,
