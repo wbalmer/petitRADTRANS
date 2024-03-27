@@ -361,6 +361,46 @@ def savez_compressed_record(file, numpy_record_array):
     np.savez_compressed(file, **data_dict)
 
 
+def topological_sort(source):
+    """Perform topological sort on a dictionary.
+
+    Source: https://stackoverflow.com/questions/11557241/python-sorting-a-dependency-list
+
+    Args:
+        source: dictionary of {name: [list of dependencies]} pairs
+
+    Returns:
+        list of names, with dependencies listed first
+    """
+    pending = [(name, set(deps)) for name, deps in source.items()]  # copy deps so we can modify set in-place
+
+    if None not in source:
+        pending.append((None, set()))  # append None "dependency"
+
+    emitted = []
+
+    while pending:
+        next_pending = []
+        next_emitted = []
+
+        for entry in pending:
+            name, deps = entry
+            deps.difference_update(emitted)  # remove deps we emitted last pass
+
+            if deps:  # still has deps? Recheck during next pass
+                next_pending.append(entry)
+            else:  # no more deps? Time to emit
+                yield name
+                emitted.append(name)  # not required, but preserves original ordering
+                next_emitted.append(name)  # remember what we emitted for difference_update() in next pass
+
+        if not next_emitted:  # all entries have unmet deps, a dependency is missing or is cyclic
+            raise ValueError(f"cyclic or missing dependency detected: {next_pending}")
+
+        pending = next_pending
+        emitted = next_emitted
+
+
 def user_input(introduction_message: str, input_message: str, failure_message: str, cancel_message: str,
                mode: str, max_attempts: int = 5, list_length: int = None):
     available_modes = ['list', 'y/n']
