@@ -250,6 +250,15 @@ def fill_object(array, value):
 def flatten_object(array):
     """Flatten a numpy object array."""
     if array.dtype == 'O':
+        if np.ndim(array) <= 1:
+            for i, element in enumerate(array):
+                if element is None or isinstance(element, str):
+                    array[i] = str(element)
+                else:
+                    raise ValueError(f"element '{element}' is not a number nor None, flattening is not possible")
+
+            return array
+
         array = flatten_object(np.concatenate(array))
     else:
         if np.ndim(array) <= 1:
