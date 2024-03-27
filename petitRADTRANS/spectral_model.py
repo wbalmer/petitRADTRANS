@@ -1,4 +1,6 @@
-"""SpectralModel object and related."""
+"""SpectralModel object and related.
+The argument kwargs is not always used in SpectralModel functions, this is by design (see __init__ docstring).
+"""
 
 import copy
 import inspect
@@ -78,7 +80,10 @@ class SpectralModel(Radtrans):
         orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
         velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
 
-        The calculate_* functions can be rewritten in scripts if necessary. Functions get_* should not be rewritten.
+        Custom functions and kwargs:
+            The compute_* functions can be rewritten in scripts if necessary. Functions calculate_* should not be
+            rewritten. Custom functions *must* include the **kwargs argument, even if it is not used. This is by design,
+            to allow for any model parameter to be used with an arbitrarily complex custom function.
 
         Args:
             pressures:
