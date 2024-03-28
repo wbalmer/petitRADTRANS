@@ -25,8 +25,8 @@ affiliations:
 bibliography: paper.bib
 submitted_at: '2023-09-12'
 published_at: '1970-01-01'
-doi: "10.5281/zenodo.8337871"
-archive_doi: "https://doi.org/10.5281/zenodo.8337871"
+doi: "10.5281/zenodo.10892021
+archive_doi: "https://doi.org/10.5281/zenodo.10892021"
 software_repository_url: "https://gitlab.com/mauricemolli/petitRADTRANS"
 editor_url: ''
 review_issue_url: ''
