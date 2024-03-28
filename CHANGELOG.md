@@ -4,6 +4,23 @@ All notable changes to the CCF module will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [2.7.6] - 2023-11-28
+### Changed
+ - Implementation of leave-one-out cross validation retrieval from Sam de Regt.
+ - Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
+ - Example included in test directory.
+
+## [2.7.5] - 2023-11-08
+### Changed
+ - Updates to retrieval tutorials, as requested by JOSS review.
+
+## [2.7.4] - 2023-11-13
+### Changed
+ - Fixed bugs in argument naming.
+ - Minor changes to MPI interface.
+ - Removed unnecessary instructions for installation on Apple Mx chips.
+ - Updated interface to `species`, now requiring newer than v0.7.
+
 ## [2.7.3] - 2023-11-08
 ### Changed
  - New plotting function interface, can pass `pRT_objects` and `model_generating_functions`

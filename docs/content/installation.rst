@@ -67,11 +67,16 @@ into the ``lib`` folder that your Python binary sees.
 If you use anaconda, this folder should be called something like ``/opt/miniconda3/envs/name_of_your conda_environment/lib/``,
 at least on a Mac. The solution suggested on the PyMultiNest website ("Include the lib/ directory in your ``LD_LIBRARY_PATH``")
 does not appear to work, at least not on a Mac.
+If using conda on Mac OS, you will also need the `mpi4py` package, which must be installed with 
+
+.. code-block:: bash
+
+   conda install mpi4py
 
 Installation of petitRADTRANS via pip install
 _____________________________________________
-
-To install pRT via pip install just type
+pRT version 2.x requires a python version between 3.8 and 3.11 inclusive (version 3.12 compatibility will be added in version 3.0).
+Make sure you have numpy and a fortran compiler (e.g., gfortran) installed. Then, to install pRT via pip install just type
 
 .. code-block:: bash
 
@@ -91,6 +96,7 @@ Download petitRADTRANS from `Gitlab <https://gitlab.com/mauricemolli/petitRADTRA
    git clone https://gitlab.com/mauricemolli/petitRADTRANS.git
 
 - In the terminal, enter the petitRADTRANS folder
+- Before continuing to the next step, make sure you have numpy and a fortran compiler (e.g., gfortran) installed.
 - Execute the following command in the terminal: ``pip install .``
 
 Windows 10 and 11 instructions
@@ -108,7 +114,7 @@ Instructions for Apple silicon (M1/M2/M3)
 _________________________________________
 
 petitRADTRANS should natively install on Apple silicon machines (so M1, M2 or M3 chips).
-Just make sure you have Apple's command line tools and
+Just make sure you have numpy, Apple's command line tools and
 the `Apple silicon version of gfortran <https://github.com/fxcoudert/gfortran-for-macOS/releases>`_ installed.
 
 Testing the installation
