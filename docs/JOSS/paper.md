@@ -121,7 +121,7 @@ This results in accurate synthetic photometry, which can be compared to the valu
 
 Publication-ready summary plots of best fits, temperature and abundance profiles and corner plots can be automatically generated.
 Multiple retrieval results can be combined in the plots for model comparisons.
-Such results have been benchmarked against other widely used retrieval codes, such as `PLATON` [@zhang_platon_2019], `POSEIDON` [@grant_quartz_2023] and `ARCiS` in [@dyrek_so2_2023].
+Such results have been benchmarked against other widely used retrieval codes, such as `PLATON` [@zhang_platon_2019], `POSEIDON` [@grant_quartz_2023] and `ARCiS` in [@dyrek_so2_2024].
 The forthcoming retrieval comparison of the JWST Early Release Science (ERS) program will comprehensively compare `pRT` and other retrieval codes in the analysis of WASP-39b (Welbanks et al., in prep).
 Figure \ref{fig:WASP39} shows the fit of a transmission model to the JWST/NIRISS/SOSS observations of WASP 39 b [@feinstein_niriss_2023] from the ERS program.
 
