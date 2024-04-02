@@ -23,7 +23,7 @@ pRT's different cloud treatments (gray clouds, power law clouds, "real" clouds u
 
 The retrieval subpackage is documented `here <content/notebooks/retrieval_basic.html>`_. At the moment pRT retrievals are making use of the `PyMultiNest <https://johannesbuchner.github.io/PyMultiNest/>`_ package for parameter inference. Of course you are free to use pRT's spectral synthesis routines with any other inference tool of your liking. For this you will have to setup your own retrieval framework, however (you can modify / check our source code for inspiration).
 
-petitRADTRANS is available under the MIT License, and documented in `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_, for the general code, and `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_, `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_, for the scattering implementation. Please cite these papers if you make use of petitRADTRANS in your work.
+petitRADTRANS is available under the MIT License, and documented in `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_, for the general code, and `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_, `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_, for the scattering implementation. The retrieval package is documented in `Nasedkin et al. (2024) <https://doi.org/10.21105/joss.05875>`_.  Please cite these papers if you make use of petitRADTRANS in your work.
 
 .. _contact: molliere@mpia.de
 
