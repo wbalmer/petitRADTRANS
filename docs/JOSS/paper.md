@@ -25,7 +25,7 @@ affiliations:
 bibliography: paper.bib
 submitted_at: '2023-09-12'
 published_at: '1970-01-01'
-doi: "10.5281/zenodo.10892021
+doi: "10.5281/zenodo.10892021"
 archive_doi: "https://doi.org/10.5281/zenodo.10892021"
 software_repository_url: "https://gitlab.com/mauricemolli/petitRADTRANS"
 editor_url: ''
@@ -34,7 +34,7 @@ citation_author: "Nasedkin, Mollière, & Blain"
 editor:
   github_user: "@dfm"
   name: Dan Foreman-Mackey
-  url: https://dfm.io/
+  url: "https://dfm.io/"
   orcid: 0000-0002-9328-5652
 volume: ''
 issue: ''
