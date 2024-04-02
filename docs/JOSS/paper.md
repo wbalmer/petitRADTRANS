@@ -32,7 +32,7 @@ editor_url: ''
 review_issue_url: ''
 citation_author: "Nasedkin, Mollière, & Blain"
 editor:
-  github_user: "@dfm"
+  github_user: "dfm"
   name: Dan Foreman-Mackey
   url: "https://dfm.io/"
   orcid: 0000-0002-9328-5652
