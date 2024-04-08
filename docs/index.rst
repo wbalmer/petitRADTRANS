@@ -122,10 +122,10 @@ Active Developers
 
 Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other
 members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
-Paul continues to determine the strategic directions for the code, manages its development, and adds a new features here and there, from time to time...
+Right now, Paul's main job is to determine the strategic directions for the code, managing its development, and adding new features here and there, from time to time...
 
 We also welcome new contributors!
-If you would like to become an active contributor to pRT, please see `"Contributing" <content/contributing.html>`_.
+If you would like to become a contributor, please see `"Contributing" <content/contributing.html>`_.
 
 Former contributors and developers
 ==================================
