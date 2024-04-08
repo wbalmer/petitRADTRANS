@@ -7,42 +7,131 @@
 petitRADTRANS: exoplanet spectra for everyone!
 ==============================================
 
-Welcome to the **petitRADTRANS** (pRT) documentation. pRT is a Python package for calculating transmission and emission spectra of exoplanets, for both clear or cloudy atmospheres. pRT incorporates an easy `subpackage <content/notebooks/pRT_Retrieval_Example.html>`_ for running retrievals with nested sampling.
+Welcome to the **petitRADTRANS** (pRT) documentation. pRT is a Python package for calculating spectra of exoplanets and for running retrievals.
 
-**pRT Version 3 is coming up!** petitRADTRANS 3 comes with a lot of quality-of-life features, optimization, and code rationalization, but also with breaking changes. Read the `pRT3 preview <content/version3_preview.html>`_ for a summary of the pRT 3 improvements and changes.
+In a nutshell, pRT allows you to calculate planetary transmission or emission spectra (including multiple scattering).
+For this you can make use of pRT's extensive opacity database (including gas and cloud opacities). pRT's built-in retrieval package allows you to run retrievals
+that combine data sets of varying resolution, wavelength coverage and atmospheric contexts (every data set may use its own forward model).
 
-**To get started with some examples on how to run pRT immediately, see** `"Getting started" <content/notebooks/getting_started.html>`_. **Otherwise read on for some more general info, also on how to best run retrievals.**
+**To get started with some examples on how to run pRT immediately, see** `"Getting started" <content/notebooks/getting_started.html>`_.
+**Otherwise read on for some more general information, including pRT's feature list.**
 
-pRT has two different opacity treatment modes. The low resolution mode runs calculations at :math:`\lambda/\Delta\lambda\leq 1000` using the so-called correlated-k treatment for opacities. The high resolution mode runs calculations at :math:`\lambda/\Delta\lambda\leq 10^6`, using a line-by-line opacity treatment.
+.. important:: **This is the documentation of petitRADTRANS, Version 3.**
+   Version 3 comes with a lot of quality-of-life features, optimization, and code rationalization, additional opacities,
+   but also with breaking changes.
+   See `here <content/new_version_preview.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user,
+   we strongly recommend to switch to Version 3. We explain `here <content/adding_opacities.html>`_
+   how your opacity database can be converted to Version 3. This is only relevant if you use non-standard pRT opacities that you calculated or
+   converted yourself. That being said, Version 2 can still be installed via ``pip install petitRADTRANS==2.7.6``, and the old documentation
+   is available `here <https://petitradtrans.readthedocs.io/en/2.7.6/>`_. **But please note that Version 2 will not be maintained any longer.**
 
-pRT's low-resolution opacities are initially stored at :math:`\lambda/\Delta\lambda = 1000` but can be rebinned to lower resolution by the user, making use of the `exo_k <https://pypi.org/project/exo-k/>`_ package. This is explained in the `rebinning opacities tutorial <content/notebooks/rebinning_opacities.html>`_.
+pRT feature list
+================
 
-The high-resolution opacities are stored at :math:`\lambda/\Delta\lambda = 10^6`, and example calculations are shown in the `high resolution spectra tutorial <content/notebooks/high_resolution_spectra.html>`_ and the `SpectralModel tutorial <content/notebooks/spectral_model.html>`_. Opacities can also be downsampled to a lower resolution, which will speed up spectral calculations. The user should verify whether this leads to solutions which are identical to the rebinned results of the fiducial :math:`\lambda/\Delta\lambda = 10^6` resolution. Downsampling is done with the ``lbl_opacity_sampling`` parameter described in the `API <autoapi/petitRADTRANS/radtrans/index.html#petitRADTRANS.radtrans.Radtrans>`_ here. An example is given in the `rebinning opacities tutorial <content/notebooks/rebinning_opacities.html>`_.
+For each feature listed below, there is a detailed demonstration in the tutorial; just click on the links
+in each feature paragraph.
 
-pRT's different cloud treatments (gray clouds, power law clouds, "real" clouds using optical constants, user-specified opacity functions) are described in the `"including clouds" tutorial <content/notebooks/including_clouds.html>`_. Scattering is included in pRT, but must be specifically turned on for emission spectra (note that scattering increases the runtime), see `Scattering for Emission Spectra <content/notebooks/scattering_for_emmission_spectra.html>`_. pRT can also calculate the reflection of light at the surface of rocky planets, for which the user can specify wavelength-dependent albedos and emissivities. This is likewise explained in `Scattering for Emission Spectra <content/notebooks/scattering_for_emmission_spectra.html>`_.
+- **Spectra** -- pRT allows you to calculate transmission spectra (``calculate_transit_radii()``)
+  and emission spectra (``calculate_flux()``). The basic usage of these methods is demonstrated in `"Getting started" <content/notebooks/getting_started.html>`_.
+- **Clouds with pRT** -- pRT allows you to to incorporate the effects of clouds in many different ways (e.g.,
+  gray clouds, power law clouds, clouds from optical constants with
+  `EddySed <https://ui.adsabs.harvard.edu/abs/2001ApJ...556..872A/abstract>`_, or your own cloud prescription).
+  This is demonstrated in `"Including clouds" <content/notebooks/including_clouds.html>`_.
+- **Scattering** -- scattering is always included as an extinction process when calculating transmission
+  spectra with pRT. For emission spectra, multiple scattering is added when requested by the user (it increases the runtime).
+  Radiation is then scattered both in the atmosphere and on the planetary surface, if present. See
+  `"Scattering for Emission Spectra" <content/notebooks/scattering_for_emission_spectra.html>`_ for a demonstration.
+- **Atmospheric composition** -- to calculate a spectrum of an atmosphere you first have to know its composition.
+  pRT comes with a method to interpolate chemical equilibrium compositions as a function of atmospheric metallicity, C/O,
+  temperature, and pressure, including a simple quench treatment to mimic disequilbrium chemistry.
+  See `"Interpolating chemical equilibrium abundances" <content/notebooks/interpolating_chemical_equilibrium_abundances.html>`_ for a demonstration.
+  If a species is not listed in the equilibrium table, or if you want to use an elemetal composition that is different
+  from a scaled solar composition, you can use our stand-alone `easyCHEM <https://easychem.readthedocs.io/en/latest/>`_ package.
+- **Retrievals** -- pRT comes with a retrieval package that allows you to easily fit exoplanet spectra.
+  It is straightforward to combine multiple data sets of various wavelength coverages and resolutions, define
+  custom forward models per data set (or make use of our `pre-implemented forward model list <content/notebooks/retrieval_models.html>`_),
+  define fixed and free parameters, using various priors (uniform, log-uniform, Gaussian, or your own choice!). Retrievals are run with
+  `PyMultiNest <https://johannesbuchner.github.io/PyMultiNest/>`_ (`Buchner et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014A%26A...564A.125B/abstract>`_), which needs to be installed separately, see
+  `"Installation" <content/installation.html#prerequisite-for-retrievals-multinest>`_. An introduction
+  on running retrievals with pRT can be found at `"Retrieval Examples" <content/retrieval_examples.html>`_.
+- **Spectral model class** -- the ``SpectralModel`` class is a child of pRT's base ``Radtrans`` class and offers
+  many convenience features, especially for calculating high-resolution spectra.
+  While pRT's standard usage requires the user to specify the atmospheric state (temperature, abundance, cloud structure)
+  "by hand" after making an atmospheric object, ``SpectralModel`` allows you
+  to do the same much quicker for predefined atmospheric contexts (i.e., forward models). For these it is also straightforward
+  to run retrievals with ``SpectralModel``, see `here <content/notebooks/retrieval_spectral_model.html>`_. While standard pRT is explicit ("what you see is what you get"), ``SpectralModel`` is more implicit,
+  but can save you many lines of code. Its usage is demonstrated in
+  `"Specral Model" <file:///Users/molliere/Documents/Project_Docs/petitRADTRANS/docs/_build/html/content/notebooks/spectral_model.html>`_.
+- **Gas opacity treatment** -- gas opacities in pRT are treated via two different modes, the low resolution mode runs calculations at
+  :math:`\lambda/\Delta\lambda\leq 1000` using the so-called correlated-k treatment (``mode='c-k'``) for opacities.
+  The high resolution mode runs calculations at :math:`\lambda/\Delta\lambda\leq 10^6`, using a line-by-line
+  opacity treatment (``mode='lbl'``). Opacities can be easily binned to lower resolution in ``'c-k'`` mode,
+  or down-sampled in ``'lbl'`` mode. See `"Rebinning opacities" <content/notebooks/rebinning_opacities.html>`_
+  for a demonstration.
+  Which mode to pick depends on what you want to use pRT for. For example, in a retrieval your model resolution
+  should be high enough to allow for an accurate representation of the data, but not higher (higher resolutions
+  make pRT run less fast). In terms of pRT usage, the two opacity modes ``'lbl'`` and ``'c-k'`` only differ in
+  terms of available opacities (except for the differing binning vs. down-sampling treatment).
+- **Opacity database** -- pRT comes with an extensive opacity database, described in `"Available opacities" <content/available_opacities.html>`_.
+  You don't need to download a huge opacity input folder when installing pRT; requested opacities will be downloaded
+  from our `Keeper opacity server <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/>`_ by pRT on-the-fly if requested during
+  pRT initialization. If that does not work
+  (e.g., your HPC cluster restricts how the internet can be accessed): the aforementioned
+  Keeper link also allows you to access opacity files manually, and to move them into pRT's opacity folder
+  as explained in `"Adding opacities" <content/adding_opacities.html>`_ **TODO add description**.
+  We also describe `how to add opacities <content/adding_opacities.html>`_ that may be missing
+  from our database. For the easiest cases this may correspond to simply dropping a
+  file which was downloaded from an external database into the pRT opacity folder.
+- **Utility functionalities** -- pRT comes with additional functionalities to help you speed up your work.
 
-The retrieval subpackage is documented `here <content/notebooks/retrieval_basic.html>`_. At the moment pRT retrievals are making use of the `PyMultiNest <https://johannesbuchner.github.io/PyMultiNest/>`_ package for parameter inference. Of course you are free to use pRT's spectral synthesis routines with any other inference tool of your liking. For this you will have to setup your own retrieval framework, however (you can modify / check our source code for inspiration).
+  - The ``Planet`` class offers you a powerful way to access planetary parameters from `NASA's Exoplanet Archive <https://exoplanetarchive.ipac.caltech.edu/index.html>`_.
+    You can also use it to calculate various quantities such as barycentric and orbital velocities, airmasses, equilibrium temperatures, ...
+    Its use is demonstrated `here <content/notebooks/planet.html>`_.
+  - You can calculate contribution functions for both `emission <content/notebooks/analysis_tools.html#Emission-contribution-functions>`_
+    and `transmission <content/notebooks/analysis_tools.html#Transmission-contribution-functions>`_ spectra.
+  - You can plot opacities of gaseous line absorbers, see `here <content/notebooks/analysis_tools.html#Plotting-opacities>`_.
+  - Natural constants (mainly from `astropy <https://www.astropy.org/>`_ and `scipy <https://scipy.org/>`_ are available
+    in pRT's internal unit system (cgs), see `here <content/notebooks/utility_functions.html#Constants>`_.
+  - The Planck function :math:`B_\nu(T)`
+    (see `here <content/notebooks/utility_functions.html#Planck-function>`_)
+    and a grid of synthetic host star spectra is available (see `here <content/notebooks/utility_functions.html#PHOENIX-and-ATLAS9-stellar-model-spectra>`_).
+  - The Guillot temperature model is implemented, (see `here <content/notebooks/utility_functions.html#Guillot-temperature-model>`_).
 
-petitRADTRANS is available under the MIT License, and documented in `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_, for the general code, and `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_, `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_, for the scattering implementation. The retrieval package is documented in `Nasedkin et al. (2024) <https://doi.org/10.21105/joss.05875>`_.  Please cite these papers if you make use of petitRADTRANS in your work.
+License and Attribution
+=======================
+
+petitRADTRANS is available under the MIT License.
+
+The following papers document pRT:
+
+- The base package is described in `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_.
+- The self-scattering implementation (relevant for, e.g., cloudy self-luminous planets) is described in `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_.
+- The stellar light and surface scattering is desccribed in `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_.
+- The retrieval package is documented in `Nasedkin et al. (2024) <https://doi.org/10.21105/joss.05875>`_.
+
+Please cite the base paper and those relevant to your work if you make use of petitRADTRANS.
 
 .. _contact: molliere@mpia.de
 
-This documentation webpage contains an `installation guide <content/installation.html>`_, a `tutorial <content/tutorial.html>`_, an `API documentation <autoapi/index.html>`_. We also give a `list of easy-to-use resources on how to include opacities <content/opa_add.html>`_ that may be missing from `our database <content/available_opacities.html>`_. For the easiest cases this may correspond to simply dropping a file into the pRT opacity folder.
+Active Developers
+=================
 
-Developers
-==========
-
+- Doriann Blain (main developer)
 - Paul Mollière
 - Evert Nasedkin
-- Doriann Blain
+
+Paul Mollière published the first version of pRT in 2019, since then the main development has been passed on to other
+members of the core team, listed alphabetically above. Paul continues to determine the strategic directions for the code,
+manages its development, and adds a new features here and there, from time to time.
+If you would like to become an active contributor to pRT, please see `"Contributing" <content/contributing.html>`_.
+
+Former contributors and developers
+==================================
+
 - Eleonora Alei
+- Karan Molaverdikhani
 - Tomas Stolker
 - Nick Wogan
-
-Contributors
-============
-
-- Karan Molaverdikhani
 - Mantas Zilinskas
 
 .. toctree::
