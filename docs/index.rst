@@ -116,7 +116,7 @@ Please cite the base paper and those relevant to your work if you make use of pe
 Active Developers
 =================
 
-- Doriann Blain (main developer)
+- Doriann Blain (main developer, and mastermind behind Version 3)
 - Paul Mollière
 - Evert Nasedkin
 
