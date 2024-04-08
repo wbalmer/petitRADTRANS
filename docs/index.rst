@@ -120,9 +120,11 @@ Active Developers
 - Paul Mollière
 - Evert Nasedkin
 
-Paul Mollière published the first version of pRT in 2019, since then the main development has been passed on to other
-members of the core team, listed alphabetically above. Paul continues to determine the strategic directions for the code,
-manages its development, and adds a new features here and there, from time to time.
+Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other
+members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
+Paul continues to determine the strategic directions for the code, manages its development, and adds a new features here and there, from time to time...
+
+We also welcome new contributors!
 If you would like to become an active contributor to pRT, please see `"Contributing" <content/contributing.html>`_.
 
 Former contributors and developers
