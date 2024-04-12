@@ -4,8 +4,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a171] - 2024-03-27
+## [3.0.0-a172] - 2024-04-12
 ### Added
+- MgFeSiO4 cloud mass fraction calculation.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.

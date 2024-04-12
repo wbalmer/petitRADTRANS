@@ -187,6 +187,8 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
         return return_x_na2s(metallicity, co_ratio)
     if "KCL(s)" in name or "KCL(l)" in name:
         return return_x_kcl(metallicity, co_ratio)
+    if "MgFeSiO4(s)" in name:
+        return return_x_mgfesio4(metallicity, co_ratio)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
         return np.zeros_like(metallicity)
@@ -302,6 +304,39 @@ def return_x_mg2sio4(metallicity, co_ratio):
     x_mg2sio4 = x_mg2sio4 / add
 
     return x_mg2sio4
+
+
+def return_x_mgfesio4(metallicity, co_ratio):
+    nfracs_use = cp.copy(__elemental_abundances)
+
+    for spec in __elemental_abundances.keys():
+
+        if (spec != 'H') and (spec != 'He'):
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
+
+    nfracs_use['O'] = nfracs_use['C'] / co_ratio
+
+    nfracs_mgfesio4 = np.min([
+        nfracs_use['Mg'],
+        nfracs_use['Fe'],
+        nfracs_use['Si'],
+        nfracs_use['O'] / 4.]
+    )
+    masses_mgfesio4 = __get_species_molar_mass('Mg') \
+        + __get_species_molar_mass('Fe') \
+        + __get_species_molar_mass('Si') \
+        + 4. * __get_species_molar_mass('O')
+
+    x_mgfesio4 = masses_mgfesio4 * nfracs_mgfesio4
+
+    add = 0.
+
+    for spec in nfracs_use.keys():
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
+
+    x_mgfesio4 = x_mgfesio4 / add
+
+    return x_mgfesio4
 
 
 def return_x_na2s(metallicity, co_ratio):
