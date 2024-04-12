@@ -63,9 +63,9 @@ in each feature paragraph.
   but can save you many lines of code. Its usage is demonstrated in
   `"Specral Model" <file:///Users/molliere/Documents/Project_Docs/petitRADTRANS/docs/_build/html/content/notebooks/spectral_model.html>`_.
 - **Gas opacity treatment** -- gas opacities in pRT are treated via two different modes, the low resolution mode runs calculations at
-  :math:`\lambda/\Delta\lambda\leq 1000` using the so-called correlated-k treatment (``mode='c-k'``) for opacities.
+  :math:`\lambda/\Delta\lambda\leq 1000` using the so-called correlated-k treatment (``line_opacity_mode='c-k'``) for opacities.
   The high resolution mode runs calculations at :math:`\lambda/\Delta\lambda\leq 10^6`, using a line-by-line
-  opacity treatment (``mode='lbl'``). Opacities can be easily binned to lower resolution in ``'c-k'`` mode,
+  opacity treatment (``line_opacity_mode='lbl'``). Opacities can be easily binned to lower resolution in ``'c-k'`` mode,
   or down-sampled in ``'lbl'`` mode. See `"Rebinning opacities" <content/notebooks/rebinning_opacities.html>`_
   for a demonstration.
   Which mode to pick depends on what you want to use pRT for. For example, in a retrieval your model resolution
