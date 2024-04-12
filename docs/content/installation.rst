@@ -147,7 +147,7 @@ The input_data folder
 =====================
 pRT relies on data (opacities, stellar spectra, planet data, pre-calculated chemical abundances) to perform its calculations.
 Those data will be downloaded automatically as needed. By default, the files are downloaded into the `<home>/petitRADTRANS/input_data` directory, where `<home>` is your home folder (shortcut `~` in most OS).
-This can be changed by modifying the pRT config file (see getting started section).
+This can be changed by modifying the pRT config file. All of this is described more in the `"Getting Started" <notebooks/getting_started.html#Configuring-the-input_data-folder>`_ notebook.
 
 Alternatively, the data can be accessed and downloaded `via Keeper here <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_. The planet data are fetched from the `Nasa Exoplanet Archive <https://exoplanetarchive.ipac.caltech.edu/>`_.
 
