@@ -22,7 +22,7 @@ Added
 
 Changed
 =======
--  Functions, arguments and attributes now have clearer names.
+-  Functions, arguments and attributes now have clearer names (e.g., ``calc_flux()`` was changed to ``calculate_flux()``).
 -  Spectral functions of ``Radtrans`` (``calculate_flux`` and ``calculate_transit_radii``) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 -  Function ``Radtrans.calculate_flux`` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument ``frequencies_to_wavelengths=False`` restores the previous behaviour.
 -  Function ``Radtrans.calculate_transit_radii`` now output by default wavelengths in cm (instead of frequencies in Hz). Setting the argument ``frequencies_to_wavelengths=False`` restores the previous behaviour.

@@ -19,7 +19,7 @@ that combine data sets of varying resolution, wavelength coverage and atmospheri
 .. important:: **This is the documentation of petitRADTRANS, Version 3.**
    Version 3 comes with a lot of quality-of-life features, optimization, and code rationalization, additional opacities,
    but also with breaking changes.
-   See `here <content/new_version_preview.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user,
+   See `here <content/pRT3_changes_description.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user,
    we strongly recommend to switch to Version 3. We explain `here <content/adding_opacities.html>`_
    how your opacity database can be converted to Version 3. This is only relevant if you use non-standard pRT opacities that you calculated or
    converted yourself. That being said, Version 2 can still be installed via ``pip install petitRADTRANS==2.7.6``, and the old documentation
@@ -141,7 +141,7 @@ Former contributors and developers
    :caption: Guide
 
    content/installation
-   content/new_version_preview
+   content/pRT3_changes_description
    content/tutorial
    content/available_opacities
    content/retrieval_examples
