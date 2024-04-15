@@ -118,7 +118,7 @@ Active Developers
 
 - Doriann Blain (main developer, and mastermind behind Version 3)
 - Paul Mollière
-- Evert Nasedkin
+- Evert Nasedkin (mastermind behind retrieval package)
 
 Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other
 members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
