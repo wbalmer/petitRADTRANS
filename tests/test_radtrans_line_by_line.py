@@ -58,7 +58,7 @@ def init_spectral_model_line_by_line():
             # Transmission spectrum parameters (radtrans.calc_transm)
             planet_radius=test_parameters['planetary_parameters']['radius']
                           * petitRADTRANS.physical_constants.r_jup_mean,  # cm
-            reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+            reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
             reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],  # bar
             # cloud_pressure=1e-1,
             # Instrument parameters
@@ -140,7 +140,7 @@ def test_line_by_line_emission_spectrum():
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=test_parameters['mass_fractions'],
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         frequencies_to_wavelengths=False
     )
@@ -155,7 +155,7 @@ def test_line_by_line_transmission_spectrum():
     benchmark.run(
         temperatures=temperature_isothermal,
         mass_fractions=test_parameters['mass_fractions'],
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
                       * petitRADTRANS.physical_constants.r_jup_mean,

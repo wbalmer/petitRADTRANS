@@ -391,7 +391,7 @@ def temperature_profile_function_guillot_global_ret(pressures, delta, gamma,
     return temperature
 
 
-def temperature_profile_function_guillot_metallic(pressures, gamma, surface_gravity,
+def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gravity,
                                                   intrinsic_temperature, equilibrium_temperature,
                                                   infrared_mean_opacity_solar_matallicity, metallicity=None):
     """Get a Guillot temperature profile depending on metallicity.
@@ -399,7 +399,7 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, surface_grav
     Args:
         pressures: (bar) pressures of the profile
         gamma: ratio between visual and infrated opacity
-        surface_gravity: (cm.s-2) surface gravity
+        reference_gravity: (cm.s-2) surface gravity
         intrinsic_temperature: (K) intrinsic temperature
         equilibrium_temperature: (K) equilibrium temperature
         infrared_mean_opacity_solar_matallicity:
@@ -418,7 +418,7 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, surface_grav
         pressures=pressures,
         infrared_mean_opacity=kappa_ir,
         gamma=gamma,
-        gravities=surface_gravity,
+        gravities=reference_gravity,
         intrinsic_temperature=intrinsic_temperature,
         equilibrium_temperature=equilibrium_temperature
     )

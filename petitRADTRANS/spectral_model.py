@@ -1753,9 +1753,9 @@ class SpectralModel(Radtrans):
     def compute_spectral_parameters(model_functions_map, **kwargs):
         # TODO reimplement metallicity
         # if kwargs['planet_mass'] is None:
-        #     kwargs['planet_mass'] = surface_gravity2mass_function(**kwargs)
+        #     kwargs['planet_mass'] = reference_gravity2mass_function(**kwargs)
         # elif kwargs['reference_gravity'] is None:
-        #     kwargs['reference_gravity'] = mass2surface_gravity_function(**kwargs)
+        #     kwargs['reference_gravity'] = mass2reference_gravity_function(**kwargs)
         #
         # if kwargs['metallicity'] is None:
         #     kwargs['metallicity'] = metallicity_function(**kwargs)
@@ -1840,7 +1840,7 @@ class SpectralModel(Radtrans):
             temperatures = temperature_profile_function_guillot_metallic(
                 pressures=pressures,  # TODO change TP pressure to CGS
                 gamma=guillot_temperature_profile_gamma,
-                surface_gravity=reference_gravity,
+                reference_gravity=reference_gravity,
                 intrinsic_temperature=intrinsic_temperature,
                 equilibrium_temperature=temperature,
                 infrared_mean_opacity_solar_matallicity=guillot_temperature_profile_kappa_ir_z0,
@@ -2592,7 +2592,7 @@ class SpectralModel(Radtrans):
         return new_spectrum_model
 
     @staticmethod
-    def mass2surface_gravity(planet_mass, planet_radius, verbose=False, **kwargs):
+    def mass2reference_gravity(planet_mass, planet_radius, verbose=False, **kwargs):
         if verbose:
             print("reference_gravity set to None, calculating it using surface gravity and radius...")
 
@@ -3065,7 +3065,7 @@ class SpectralModel(Radtrans):
         return wavelengths_shift
 
     @staticmethod
-    def surface_gravity2mass(reference_gravity, planet_radius, verbose=False, **kwargs):
+    def reference_gravity2mass(reference_gravity, planet_radius, verbose=False, **kwargs):
         if verbose:
             print("planet_mass set to None, calculating it using surface gravity and radius...")
 

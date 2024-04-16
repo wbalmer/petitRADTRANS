@@ -44,7 +44,7 @@ def init_run():
     run_definition_simple.add_parameter(
         'log_g',
         False,
-        value=np.log10(test_parameters['planetary_parameters']['surface_gravity'])
+        value=np.log10(test_parameters['planetary_parameters']['reference_gravity'])
     )
 
     # Retrieved parameters

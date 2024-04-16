@@ -49,7 +49,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=test_parameters['mass_fractions'],
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         emission_geometry='non-isotropic',
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],

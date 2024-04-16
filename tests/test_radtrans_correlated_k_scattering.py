@@ -53,7 +53,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
@@ -80,7 +80,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
@@ -112,7 +112,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
@@ -144,7 +144,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
     benchmark.run(
         temperatures=temperature_guillot_2010,
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
@@ -175,7 +175,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
     benchmark.run(
         temperatures=test_parameters['temperature_isothermal'] * np.ones_like(test_parameters['pressures']),
         mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['surface_gravity'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
                       * petitRADTRANS.physical_constants.r_jup_mean,

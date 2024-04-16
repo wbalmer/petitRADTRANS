@@ -96,7 +96,7 @@ def make_petitradtrans_test_config_file(filename):
                     'name': 'PSR B1257+12 b',  # actual planet has no link to below parameters
                     'reference_pressure': 0.01,  # (bar)
                     'radius': 1.838,  # (R_jup)
-                    'surface_gravity': 1e1 ** 2.45,  # (cm.s-2)
+                    'reference_gravity': 1e1 ** 2.45,  # (cm.s-2)
                     'eddy_diffusion_coefficients': 10 ** 7.5,
                     'orbit_semi_major_axis': 7.5e11,  # (cm)
                     'surface_reflectance': 0.3
@@ -239,7 +239,7 @@ def init_guillot_2010_temperature_profile():
         pressures=test_parameters['pressures'],
         infrared_mean_opacity=test_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
         gamma=test_parameters['temperature_guillot_2010_parameters']['gamma'],
-        gravities=test_parameters['planetary_parameters']['surface_gravity'],
+        gravities=test_parameters['planetary_parameters']['reference_gravity'],
         intrinsic_temperature=test_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
         equilibrium_temperature=test_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
     )
