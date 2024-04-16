@@ -699,37 +699,37 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
         Reduced spectral data (and reduction matrix and uncertainties after reduction if full is True)
     """
     # Pre-preparation
-    reduction_matrix = np.ones(spectrum.shape)
-    reduced_data_uncertainties = copy.deepcopy(uncertainties)
-    reduced_data = copy.deepcopy(spectrum)
+    preparing_matrix = np.ones(spectrum.shape)
+    prepared_data_uncertainties = copy.deepcopy(uncertainties)
+    prepared_data = copy.deepcopy(spectrum)
 
     if apply_throughput_removal:
         if wavelengths is None:
             if verbose:
                 print("Dividing by the mean...")
 
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_mean(
+            prepared_data, preparing_matrix, prepared_data_uncertainties = remove_throughput_mean(
                 spectrum=spectrum,
-                reduction_matrix=reduction_matrix,
-                uncertainties=reduced_data_uncertainties,
+                reduction_matrix=preparing_matrix,
+                uncertainties=prepared_data_uncertainties,
                 uncertainties_as_weights=uncertainties_as_weights
             )
         else:
             if verbose:
                 print(f"Dividing by an order-{polynomial_fit_degree} polynomial...")
 
-            reduced_data, reduction_matrix, reduced_data_uncertainties = remove_throughput_fit(
+            prepared_data, preparing_matrix, prepared_data_uncertainties = remove_throughput_fit(
                 spectrum=spectrum,
-                reduction_matrix=reduction_matrix,
+                reduction_matrix=preparing_matrix,
                 wavelengths=wavelengths,
-                uncertainties=reduced_data_uncertainties,
+                uncertainties=prepared_data_uncertainties,
                 mask_threshold=sys.float_info.min,
                 polynomial_fit_degree=polynomial_fit_degree,
                 correct_uncertainties=correct_uncertainties,
                 uncertainties_as_weights=uncertainties_as_weights
             )
 
-    reduced_data = np.ma.masked_where(reduced_data < tellurics_mask_threshold, reduced_data)
+    prepared_data = np.ma.masked_where(prepared_data < tellurics_mask_threshold, prepared_data)
 
     if remove_mean and subtract:
         if verbose:
@@ -741,28 +741,28 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
             weights = np.ma.ones(uncertainties.shape)
             weights = np.ma.masked_where(uncertainties.mask, weights)
 
-        reduced_data = np.moveaxis(
-            np.moveaxis(reduced_data, -1, 0) - np.ma.average(reduced_data, axis=-1, weights=weights),
+        prepared_data = np.moveaxis(
+            np.moveaxis(prepared_data, -1, 0) - np.ma.average(prepared_data, axis=-1, weights=weights),
             0,
             -1
         )
 
     if not apply_telluric_lines_removal:
         if full:
-            return reduced_data, reduction_matrix, reduced_data_uncertainties
+            return prepared_data, preparing_matrix, prepared_data_uncertainties
         else:
-            return reduced_data
+            return prepared_data
 
     # Initialize SYSREM meaningful variables
     if verbose:
         print("Starting SysRem...")
 
-    systematics = np.zeros(reduced_data.shape)
+    systematics = np.zeros(prepared_data.shape)
 
     # Iterate
     for j in range(n_passes):
-        uncertainties_squared_inverted = 1 / reduced_data_uncertainties ** 2
-        spectrum_uncertainties_squared = reduced_data * uncertainties_squared_inverted
+        uncertainties_squared_inverted = 1 / prepared_data_uncertainties ** 2
+        spectrum_uncertainties_squared = prepared_data * uncertainties_squared_inverted
 
         # Handle masked values
         if isinstance(spectrum_uncertainties_squared, np.ma.core.MaskedArray):
@@ -773,15 +773,15 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
             print(f"Pass {j + 1} / {n_passes}")
 
         i = 0
-        c = 1
-        systematics_0 = np.zeros(reduced_data.shape)
-        systematics = np.zeros(reduced_data.shape)
+        a = 1
+        systematics_0 = np.zeros(prepared_data.shape)
+        systematics = np.zeros(prepared_data.shape)
 
         for i in range(n_iterations_max):
-            systematics, c = __sysrem_iteration_orders_a(
+            systematics, a = __sysrem_iteration_orders_a(
                 spectrum_uncertainties_squared=spectrum_uncertainties_squared,
                 uncertainties_squared_inverted=uncertainties_squared_inverted,
-                a=c
+                a=a
             )
             systematics[np.nonzero(np.logical_not(np.isfinite(systematics)))] = 0
 
@@ -817,20 +817,20 @@ def sysrem(spectrum, uncertainties, wavelengths, n_passes=1,
 
         # Remove the systematics from the spectrum
         if subtract:
-            reduced_data -= systematics
+            prepared_data -= systematics
         else:
-            reduced_data /= systematics
+            prepared_data /= systematics
 
         if full:
             if subtract:
                 # With the subtractions, uncertainties should not be affected
                 # TODO it can be argued that the uncertainties on the systematics should be taken into account
-                reduction_matrix -= systematics
+                preparing_matrix -= systematics
             else:
-                reduction_matrix /= systematics
-                reduced_data_uncertainties = reduced_data_uncertainties * np.abs(reduction_matrix)
+                preparing_matrix /= systematics
+                prepared_data_uncertainties = prepared_data_uncertainties * np.abs(preparing_matrix)
 
     if full:
-        return reduced_data, (reduction_matrix, systematics), reduced_data_uncertainties
+        return prepared_data, (preparing_matrix, systematics), prepared_data_uncertainties
     else:
-        return reduced_data
+        return prepared_data

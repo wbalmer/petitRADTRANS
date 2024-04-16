@@ -4,9 +4,8 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a172] - 2024-04-12
+## [3.0.0-a173] - 2024-04-16
 ### Added
-- MgFeSiO4 cloud mass fraction calculation.
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
 - Simple transit light loss modelling for `SpectralModel`.
@@ -24,6 +23,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Constant `e_molar_mass` to physical constants.
 - SysRem preparing pipeline.
 - Arguments of `SpectralModel.calculate_spectrum` in `model_parameters`.
+- MgFeSiO4 cloud mass fraction calculation.
 - Object `SpectralModel` support for models of any complexity.
 - More control over uncertainty_scaling_b: can now also be done per observation "types" (e.g., different MRS channels see the same b).
 - Possibility for the forward model to return flux of different atmospheric columns, which are then mixed with the atmospheric_column_flux_mixer function given to the data object, depending on the data's epoch and exposure time.
