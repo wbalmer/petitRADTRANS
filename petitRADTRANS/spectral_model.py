@@ -721,6 +721,10 @@ class SpectralModel(Radtrans):
             if _parameter not in _map:
                 _map[_parameter] = set()
 
+            if not isinstance(_map[_parameter], set):
+                warnings.warn(f'parameter {_parameter} must be a set, but was {_map[_parameter]}')
+                _map[_parameter] = set(_map[_parameter])
+
             if _parameter in _model_functions_parameters:
                 _model_function = _model_functions_parameters[_parameter]
                 signature = inspect.signature(getattr(self, _model_function))
@@ -787,7 +791,7 @@ class SpectralModel(Radtrans):
                     parameter_dependencies
                 )
             else:
-                parameter_dependencies[spectral_parameter] = [None]
+                parameter_dependencies[spectral_parameter] = {None}
 
         for parameter in self.model_parameters:
             parameter_dependencies = __build_dependencies_dict(
