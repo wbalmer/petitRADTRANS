@@ -389,7 +389,7 @@ High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
 -------------------------------------------------------------------------
 All ``lbl`` opacities referenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
 
-.. important:: Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.ExoMol.com/>`_ can be used directly.
+.. important:: Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
 
 The available line-by-line opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -692,7 +692,7 @@ The available line-by-line opacities are listed below. When multiple source are 
 
 File naming convention
 ----------------------
-In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.ExoMol.com/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
+In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
 
 Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotopologue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
 

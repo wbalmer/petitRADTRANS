@@ -21,14 +21,17 @@ On Linux, install Python and the fortran compiler with:
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
-.. Note:: A general Python recommendation is to use a Python virtual environment such as
-          `venv <https://docs.python.org/3/library/venv.html>`_ or
-          `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
 
-Mac OS: using Homebrew
-----------------------
+Mac OS
+------
 
-On Mac OS, be sure to have `homebrew <https://brew.sh/>`_ installed.
+.. important:: On Mac, it is highly recommended to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+
+Recommended: using homebrew
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+On Mac OS, it is highly recommended to use `homebrew <https://brew.sh/>`_. Homebrew is able to manage external libraries dependencies and can help you fix broken setups. Other installation methods are more risky by making setup-related errors frequent, and difficult to identify and to fix.
 
 To ensure a safe installation, execute first:
 
@@ -48,15 +51,12 @@ Then, install a fortran compiler with:
 
     brew install gcc
 
-Mac OS: using gfortran disk images and conda
-____________________________________________
+Using gfortran disk images
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-François-Xavier Coudert's github repository provides gfortran disk images (.dmg) with which you can install gfortran like
-any other program for Mac, through an installation wizard. Both Apple Silicon (M1, M2, M3) and Intel chip versions are available,
-see `here <https://github.com/fxcoudert/gfortran-for-macOS>`_.
+.. warning:: While using homebrew should be the preferred method for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
 
-.. important:: For Python we also recommend to make a dedicated `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_
-               environment for pRT, to prevent potential version conflicts.
+François-Xavier Coudert's `github repository <https://github.com/fxcoudert/gfortran-for-macOS>`_ provides gfortran disk images (.dmg) with which you can install gfortran like any other program for Mac, through an installation wizard. Both Apple Silicon (M1, M2, M3) and Intel chip versions are available.
 
 Windows
 -------
@@ -89,7 +89,7 @@ This is because for retrievals pRT uses the PyMultiNest package, which is a Pyth
 
 .. _multinest_windows:
 
-.. warning:: **Windows native installation:** `MultiNest <https://github.com/JohannesBuchner/MultiNest>`_ retrievals, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
+.. warning:: **Windows native installation:** `MultiNest retrievals <https://github.com/JohannesBuchner/MultiNest>`_, that are used by default in pRT, will not work as is on Windows. This is because MultiNest requires the LAPACK and OpenMPI libraries to function. Installing LAPACK on Windows can be a `tedious process <https://icl.utk.edu/lapack-for-windows/lapack/>`_, and OpenMPI support on Windows `has been discontinued <https://www.open-mpi.org/software/ompi/v1.6/ms-windows.php>`_, meaning that it is not possible to run MultiNest retrievals in parallel, increasing significantly computation times. This can be overcome by using WSL (see installation instructions above).
 
 After installation, link the resulting library files in order to allow PyMultiNest to find them. This can be done by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``.
 To do this, add this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
@@ -194,6 +194,7 @@ Try these fixes in that order:
 - Ensure that you added the ``--no-build-isolation`` flag to the installation command. This should fix the issue in almost all cases.
 - Ensure that all the installing elements of your setup (``pip``, ``conda``, fortran compiler, etc.) are up-to-date and installed cleanly.
 - If you are on Mac, and use Homebrew, try first to execute ``brew upgrade``, ``brew update``, then to follow the instructions of ``brew doctor``, before re-trying the installation.
+- If you are on Mac, and do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
 - In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the previous one. You may need to perform manual cleaning to free space on your disk.
 
 .. _mac_anaconda_issue:
@@ -206,7 +207,7 @@ Linking the MultiNest libraries the usual way may not work on a Mac when using `
 
     conda install mpi4py
 
-In case of troubles, if you use Homebrew, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help.
+In case of troubles, if you use Homebrew, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help. If you do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
 
 Other issues
 ------------
