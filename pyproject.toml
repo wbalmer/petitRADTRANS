@@ -42,7 +42,7 @@ dependencies = [
     "pymultinest",
     "pyvo",
     "bs4",
-    "selenium"
+    "selenium",
     "exo_k"
 ]
 
