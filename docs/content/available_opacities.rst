@@ -1,15 +1,15 @@
-==============================
-WIP: Available opacity species
-==============================
+=========================
+Available opacity species
+=========================
 All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
 
-.. important:: petitRADTRANS will automatically download opacity tables if you request a species that is not on your hard drive yet, but available on Keeper. Additional sources of opacities, and how to calculate and add your own, are described in `Adding opacities <adding_opacities.html>`_.
+.. important:: petitRADTRANS will automatically download opacity tables if you request a species that is not on your hard drive yet, but available on Keeper. Additional sources of opacities, and how to calculate and add your own, are described in `"Adding opacities" <adding_opacities.html>`_.
 
 .. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
 Line species
 ============
-To add more line opacities in addition to what is listed below, please see `Adding opacities <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <https://www.exomol.com/data/data-types/opacity/>`_.
+To add more line opacities in addition to what is listed below, please see `"Adding opacities" <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <https://www.exomol.com/data/data-types/opacity/>`_.
 
 .. _lowResolution:
 
@@ -30,8 +30,8 @@ The available correlated-k opacities are listed below. When multiple source are 
     :widths: 20 20 20 20 20
     :header-rows: 1
 
-    * - Short species name to be handed to pRT object
-      - Unique species name to be handed to pRT object
+    * - Short species name*
+      - Unique species name**
       - File name
       - Reference for line list (mostly DOIs)
       - Contributor
@@ -118,7 +118,7 @@ The available correlated-k opacities are listed below. When multiple source are 
     * - CO2
       - 12C-16O2__UCL-4000
       - 12C-16O2__UCL-4000.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
-      - qqq
+      - 10.1093/mnras/staa1874
       - --
     * - C-S2-NatAbund
       - C-S2-NatAbund__HITRAN
@@ -381,15 +381,17 @@ The available correlated-k opacities are listed below. When multiple source are 
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
 
-\*: discarding the spectral information.
+\*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
+
+\**: This is the unique name for which there is no ambiguity, when requested in pRT.
 
 .. _highResolution:
 
 High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
 -------------------------------------------------------------------------
-All ``lbl`` opacities referenced here have a resolving power of 1e6 and cover **at least** wavelengths 0.3 to 28 µm. Pressure and temperature grids may vary.
+All ``lbl`` opacities referenced here have a wavelength binning of :math:`\lambda/\Delta\lambda=10^6` and all files cover wavelengths from 0.3 to 28 µm **exactly**. We are currently working on a version that allows variable wavelength ranges per species, as already implemented for the ``c-k`` mode. Pressure and temperature grids may vary.
 
-.. important:: Cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
+.. important:: Also TauREx' cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly, but these have a lower wavelength binning :math:`\lambda/\Delta\lambda=15,000`, so should only be used for data with a spectral resolution :math:`R\lesssim 150`, to avoid opacity sampling noise.
 
 The available line-by-line opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -397,8 +399,8 @@ The available line-by-line opacities are listed below. When multiple source are 
     :widths: 10 10 10 10
     :header-rows: 1
 
-    * - Species name
-      - Short file name*
+    * - Short species name*
+      - Unique species name**
       - Reference
       - Contributor
     * - Al **!!**
@@ -686,52 +688,45 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
 
-\*: discarding the spectral information.
+\*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
+
+\**: This is the unique name for which there is no ambiguity, when requested in pRT.
 
 .. _namingConvention:
 
 File naming convention
 ----------------------
-In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, the flag ``NatAbund`` is used.
+In petitRADTRANS, line species opacities follow a naming convention identical to that of `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_. The isotopes are explicitly displayed, for example, ``13C-16O`` means a CO molecule with a carbon-13 and an oxygen-16 atom. When the opacity corresponds to a mixture of isotopologues, using the Earth's natural isotope abundances, the flag ``NatAbund`` is used.
 
-Note that writing the full file opacity name when using a ``Radtrans``-like object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotopologue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
+Note that writing the full file opacity name when using a ``Radtrans`` object is not necessary, as partial naming is allowed. When no isotopic information is given, the main isotopologue is picked (e.g. ``H2O`` is equivalent to ``1H2-16O``).
 
-.. important:: The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
+.. important:: The ``line_species`` opacity name and the ``mass_fractions`` dictionary keys used for spectral calculation must match *exactly*.
 
-Below are some working opacity name examples:
-
-- File names:
-
-    * ``1H2-16O__POKAZATEL.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
-    * ``C-O-NatAbund__HITEMP.R250_0.1-250mu.ktable.petitRADTRANS.h5``
-    * ``1H-12C-14N__Harris.R1e6_0.3-28mu.xsec.petitRADTRANS.h5``
-    * ``39K__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5``
-
-- Names valid in scripts:
+Below are some working opacity name examples for the Exomol water opacity (full file name ``1H2-16O__POKAZATEL.R1000_0.1-250mu.ktable.petitRADTRANS.h5``)
 
     * ``H2O``
     * ``H2O__POKAZATEL``
     * ``H2O.R1000``
-    * ``H2-17O``
-    * ``CO-NatAbund``
-    * ``Ca+``
-    * ``1H-2H-18O__HITEMP.R1e6_0.3-28mu``
+    * ``1H2-16O``
+    * ``1H2-16O__POKAZATEL.R1000_0.1-250mu``
+
+As mentioned above, if you hand a non-unique name to pRT (e.g., ``'H2O'``, but you have ``'1H2-16O__POKAZATEL'`` and ``'1H2-16O__HITEMP'`` on your hard drive) pRT will ask you for your preference the first time you do this, and then save this preference information to ``petitradtrans_config_file.ini`` in the ``.petitradtrans`` folder in your home directory. Also see `here <notebooks/getting_started.html#Configuring-the-input_data-folder>`_ for more information on the config file. If your preference changes, you have to update this file. In any case, pRT will always show you which file it loaded when you generate a pRT object, by printing it to the console.
 
 Hereafter are the explicit file naming rules for line species:
 
 - Species names are based on their chemical formula.
 - Elements in the chemical formula are separated by ``-``.
 - The number in front of the element indicates its isotope, when relevant.
-- The number after the element indicates its quantity in the molecule, when relevant.
+- The number after the element indicates its (stoichiometric) quantity in the molecule, when relevant.
 - Opacities combining isotopologues following their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number should be present next to the elements.
 - The charge of the species is indicated after the formula, starting with ``_``. The character ``p`` is used for positive charges and ``n`` for negative charges.
 - The number in front of the charge indicates the charge amount.
-- The source of the opacity is indicated after the charge, starting with ``__``.
+- The source (e.g., line list database) of the opacity is indicated after the charge, starting with ``__``.
 - The spectral information of the opacity is indicated after the source, starting with ``.``.
 - The character ``R`` indicates constant resolving power (:math:`\lambda/\Delta\lambda` constant).
 - The string ``DeltaWavenumber`` indicates constant spacing in wavenumber (:math:`\Delta\nu` constant).
 - The string ``DeltaWavelength`` indicates constant spacing in wavelength (:math:`\Delta\lambda` constant).
-- The number coming after the above indicates the spacing.
+- The number coming after the above indicates the spacing or resolution.  ``.R100`` would correspond to :math:`\lambda/\Delta\lambda=100`, for example.
 - The wavelength range, in µm, is indicated afterward, starting with a ``_`` and ending with ``mu``. The upper and lower boundaries are separated with ``-``.
 - The nature of the opacity is indicated afterward, starting with a ``.``. It is ``ktable`` for correlated-k opacities, and ``xsec`` for line-by-line opacities.
 - The extension of the file is always ``.petitRADTRANS.h5``.
@@ -741,9 +736,9 @@ Hereafter are the explicit file naming rules for line species:
 Gas continuum opacity sources
 =============================
 
-Available collision-induced absorptions
----------------------------------------
-The available collision-induced absorptions are listed below.
+Collision-induced absorption opacities
+--------------------------------------
+The available collision-induced absorption opacities are listed below.
 
 .. list-table::
     :widths: 10 10 80
@@ -756,23 +751,23 @@ The available collision-induced absorptions are listed below.
       - C-O2--C-O2-NatAbund.DeltaWavelength1e-6_3-100mu.ciatable.petitRADTRANS
       - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - H2--H2
-      - H2--H2-NatAbund__BoRi.R831_0.6-250mu
+      - H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS
       - `Borysow et al. (2001 <https://ui.adsabs.harvard.edu/abs/2001JQSRT..68..235B/abstract>`_, `2002) <https://ui.adsabs.harvard.edu/abs/2002A%26A...390..779B/abstract>`_
     * - H2--He
-      - H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu
+      - H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu.ciatable.petitRADTRANS
       - `Borysow et al. (1988 <https://ui.adsabs.harvard.edu/abs/1988ApJ...326..509B/abstract>`_, `1989a <https://ui.adsabs.harvard.edu/abs/1989ApJ...336..495B/abstract>`_, `1989b) <https://ui.adsabs.harvard.edu/abs/1989ApJ...341..549B/abstract>`_
     * - H2O--H2O
-      - Missing from Keeper atm
-      - TODO Get from Eleonora
+      - H2-O--H2-O-NatAbund.DeltaWavenumber10_0.5-77mu.ciatable.petitRADTRANS
+      - `Kofman & Villanueva (2021) <https://ui.adsabs.harvard.edu/abs/2021JQSRT.27007708K/abstract>`_
     * - H2O--N2
-      - Mising from Keeper atm
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
+      - H2-O--N2-NatAbund.DeltaWavenumber10_0.5-77mu.ciatable.petitRADTRANS
+      - `Kofman & Villanueva (2021) <https://ui.adsabs.harvard.edu/abs/2021JQSRT.27007708K/abstract>`_
     * - N2--H2
       - N2--H2-NatAbund.DeltaWavenumber1_5.3-909mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - N2--He
       - N2--He-NatAbund.DeltaWavenumber1_10-909mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_ TODO confirm with Eleonora
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
     * - N2--N2
       - N2--N2-NatAbund.DeltaWavelength1e-6_2-100mu.ciatable.petitRADTRANS
       - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
