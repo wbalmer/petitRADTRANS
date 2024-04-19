@@ -747,56 +747,56 @@ The available collision-induced absorption opacities are listed below.
     * - Species name
       - File name
       - Reference
-    * - CO2--CO2
+    * - ``CO2--CO2``
       - C-O2--C-O2-NatAbund.DeltaWavelength1e-6_3-100mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
-    * - H2--H2
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
+    * - ``H2--H2``
       - H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS
       - `Borysow et al. (2001 <https://ui.adsabs.harvard.edu/abs/2001JQSRT..68..235B/abstract>`_, `2002) <https://ui.adsabs.harvard.edu/abs/2002A%26A...390..779B/abstract>`_
-    * - H2--He
+    * - ``H2--He``
       - H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu.ciatable.petitRADTRANS
       - `Borysow et al. (1988 <https://ui.adsabs.harvard.edu/abs/1988ApJ...326..509B/abstract>`_, `1989a <https://ui.adsabs.harvard.edu/abs/1989ApJ...336..495B/abstract>`_, `1989b) <https://ui.adsabs.harvard.edu/abs/1989ApJ...341..549B/abstract>`_
-    * - H2O--H2O
+    * - ``H2O--H2O``
       - H2-O--H2-O-NatAbund.DeltaWavenumber10_0.5-77mu.ciatable.petitRADTRANS
       - `Kofman & Villanueva (2021) <https://ui.adsabs.harvard.edu/abs/2021JQSRT.27007708K/abstract>`_
-    * - H2O--N2
+    * - ``H2O--N2``
       - H2-O--N2-NatAbund.DeltaWavenumber10_0.5-77mu.ciatable.petitRADTRANS
       - `Kofman & Villanueva (2021) <https://ui.adsabs.harvard.edu/abs/2021JQSRT.27007708K/abstract>`_
-    * - N2--H2
+    * - ``N2--H2``
       - N2--H2-NatAbund.DeltaWavenumber1_5.3-909mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
-    * - N2--He
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
+    * - ``N2--He``
       - N2--He-NatAbund.DeltaWavenumber1_10-909mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
-    * - N2--N2
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
+    * - ``N2--N2``
       - N2--N2-NatAbund.DeltaWavelength1e-6_2-100mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
-    * - N2--O2
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
+    * - ``N2--O2``
       - N2--O2-NatAbund.DeltaWavelength1e-6_0.72-5.4mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
-    * - O2--O2
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
+    * - ``O2--O2``
       - O2--O2-NatAbund.DeltaWavelength1e-6_0.34-8.7mu.ciatable.petitRADTRANS
-      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_
+      - `Karman et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019Icar..328..160K/abstract>`_, and references therein.
 
-Other gas continuum contributors
---------------------------------
+H- bound-free and free-free absorption
+--------------------------------------
 In addition to CIA, petitRADTRANS can also add H- (bound-free and free-free) absorption. In that case, the ``H-`` string must be present in the ``gas_continuum_contributors`` list. In the ``mass_fractions`` dictionary, the keys ``H-``, ``H`` and ``e-`` must be present as well.
 The H- opacity is implemented as reported in `Gray (2008) <https://ui.adsabs.harvard.edu/abs/2008oasp.book.....G/abstract>`_.
 
 File naming convention
 ----------------------
-Gas continuum sources follow a naming convention similar to that of the :ref:`line species<namingConvention>`. For collision-induced absorptions (CIA), the 2 colliding species are separated with ``--``.
+Gas continuum sources follow a naming convention similar to that of the :ref:`line species<namingConvention>`. For collision-induced absorptions (CIA), the 2 colliding species are separated by ``--``.
 
-Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
+Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data largely irrelevant anyway.
 
-.. important:: If a ``gas_continuum_contributors`` opacity name refer to a single species, it must be added to the ``mass_fractions`` dictionary. If a ``gas_continuum_contributors`` opacity name is a CIA, the ``mass_fractions`` dictionary keys must contains the colliding species.
+.. caution:: Make sure to add abundances for all continuum species you request. For example, if a ``gas_continuum_contributors`` opacity entry name is a CIA species, the ``mass_fractions`` dictionary keys must contain the colliding species. However, if a species that you need for a continuum opacity source is already added as line absorber mass fraction, even with extra identifiers (e.g., ``'H2O__POKAZATEL'``), do not add another entry to the mass fraction dictionary (so do not add ``'H2O'`` if you requested ``'H2O--H2O'`` CIA, in our example)! The danger is that the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``). Instead, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the continuum absorber mass fractions. If you add a continuum species for which no corresponding line opacity is loaded, you must add a mass fraction entry, however.
 
 Below are some working opacity name examples:
 
 - File names:
 
     * ``H2--H2-NatAbund__BoRi.R831_0.6-250mu.ciatable.petitRADTRANS.h5``
-    * ``H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu``
+    * ``H2–He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu.ciatable.petitRADTRANS``
 
 - Names valid in scripts:
 
@@ -818,9 +818,12 @@ Cloud opacities
 
 Available cloud opacities
 -------------------------
-All clouds opacities referenced here have a resolving power of 39 and cover **at least** wavelengths 0.1 to 250 µm. Particle size grid may vary.
+All clouds opacities referenced here have a wavelength spacing of :math:`\lambda/\Delta\lambda=39` and cover **at most** wavelengths from 0.1 to 250 µm.
+Please check the actual wavelength range by consulting the file names. The opacities will be set to 0 outside of that range. Since cloud opacities vary slowly with wavelength, it is OK to combine them with higher resolution line opacities.
 
-All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes.
+All solid condensate opacities listed are available for both the DHS and Mie scattering particle shapes (more information can be found `here <notebooks/including_clouds.html#Condensate-clouds-from-real-optical-constants>`_). They are either for crystalline or amorphous particles, sometimes both are available for a given species.
+
+The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.oeaw.ac.at/data-results-downloads/fortran-package/>`_, written by Michiel Min and used in, for example, `Min et al. (2005) <https://ui.adsabs.harvard.edu/abs/2005A&A...432..909M/abstract>`_. OpacityTool makes use of software published in `Toon et al. (1981) <https://ui.adsabs.harvard.edu/abs/1981ApOpt..20.3657T/abstract>`_.
 
 .. important:: Currently no space group information are given for the crystal species. **We plan to add them in the future.**
 
@@ -1032,13 +1035,14 @@ All solid condensate opacities listed are available for both the DHS and Mie sca
 
 File naming convention
 ----------------------
-Cloud species follow a naming convention similar to that of the :ref:`line species<namingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans``-like objects.
+Cloud species follow a naming convention similar to that of the :ref:`line species<namingConvention>`. In addition to the species name, the state of matter and other condensate-specific information are added. Partial naming is  also allowed when using ``Radtrans`` objects.
 
-Most of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data irrelevant.
+Most of the condensate species opacities are given for their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data largely irrelevant.
 
 The source indication (after ``__`` in the file name) is used to indicate the method of the opacity calculation:
-- ``DHS`` stands for "Double-shelled Hollow Spheres" particles. Opacities calculated with this particle shape are generally considered more realistic.
-- ``Mie`` stands for spherical particles, (opacities calculated with Mie Scattering).
+
+- ``DHS`` stands for "Distribution of Hollow Spheres" particles `(see Min et al. 2005) <https://ui.adsabs.harvard.edu/abs/2005A&A...432..909M/abstract>`_. Opacities calculated with this particle shape are generally considered more realistic.
+- ``Mie`` stands for spherical particles (opacities calculated with Mie theory).
 
 .. important::
      The ``cloud_species`` opacity name and the ``mass_fractions`` dictionary keys must match *exactly*.
@@ -1059,7 +1063,7 @@ Below are some working opacity name examples:
   * ``Fe(s)_crystalline__DHS``
   * ``H2-O-NatAbund(s)_crystalline_194__Mie.R39_0.1-250mu``
 
-Hereafter are the explicit file naming rules for line species:
+Hereafter are the explicit file naming rules for cloud species:
 
 - Cloud species names follow the same convention as the :ref:`line species<namingConvention>`, with the following additions.
 - After the full chemical formula and the ``-NatAbund`` flag, if relevant, the physical state of the condensate is indicated between parenthesis: ``(s)`` for solids, ``(l)`` for liquids
@@ -1072,7 +1076,7 @@ Hereafter are the explicit file naming rules for line species:
     * when the space group of crystals is not provided by the source or has not been verified yet, the number ``000`` is used (space group number range from ``001`` to ``230``).
 
 - For **liquid** condensates, the above requirements for solids do not apply.
-- The source and spectral information that follows obey the same rules as for the line species.
+- The source and spectral information that follows the same rules as for the line species.
 - The extension of the file is always ``.cotable.petitRADTRANS.h5``.
 
 Rayleigh scatterers
@@ -1091,8 +1095,10 @@ The Rayleigh scattering cross-sections available in pRT are listed below:
 - CH4 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
 - CO (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
 - CO2 (`Sneep & Ubachs 2005 <https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract>`_)
-- **H2** (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
+- H2 (`Dalgarno & Williams 1962 <https://ui.adsabs.harvard.edu/abs/1962ApJ...136..690D/abstract>`_)
 - H2O (`Harvey et al. 1998 <https://ui.adsabs.harvard.edu/abs/1998JPCRD..27..761H/abstract>`_)
-- **He** (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
+- He (`Chan & Dalgarno 1965 <https://ui.adsabs.harvard.edu/abs/1965PPS....85..227C/abstract>`_)
 - N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
 - O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
+
+.. caution:: Like for the gas continuum absorbers, make sure to add abundances for all Rayleigh species you request. However, if a species that you add as a Rayleigh scatterer is already added as a line absorber mass fraction, even with extra identifiers (e.g., ``'H2O__POKAZATEL'``), do not add another entry to the mass fraction dictionary (so do not add ``'H2O'`` if you requested ``'H2O'`` Rayleigh scattering)! The danger is that the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``). Instead, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the Rayleigh scatterer mass fractions. If you add a Rayleigh species for which no corresponding line opacity is loaded, you must add a mass fraction entry, however.
