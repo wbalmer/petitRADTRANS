@@ -53,7 +53,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 (bar) pressure at which to put a simplistic carbon-bearing species quenching
             full:
                 if True, output the pre-calculated mean molar mass and logarithmic derivative of temperature with
-                respect to pressure in addition to the pre-calculated mass fractions
+                respect to pressure in the adiabatic case (nabla_ad) in addition to the pre-calculated mass fractions
         """
         if not self._loaded:
             self.load()
