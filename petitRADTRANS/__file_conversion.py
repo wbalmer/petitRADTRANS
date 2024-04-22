@@ -2973,8 +2973,8 @@ def format2petitradtrans(load_function, opacities_directory, natural_abundance, 
 
     if not os.path.isfile(wavenumbers_petitradtrans_file):  # TODO not tested
         wavenumbers_petitradtrans_file = prt_resolving_space(
-            start=1.1e-5,
-            stop=28e-4,
+            start=line_by_line_wavelength_boundaries[0],
+            stop=line_by_line_wavelength_boundaries[-1],
             resolving_power=1e6
         )
 
