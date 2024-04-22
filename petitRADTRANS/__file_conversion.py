@@ -2936,14 +2936,83 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
     print("Done.")
 
 
-def format2petitradtrans(load_function, opacities_directory, natural_abundance, source, doi, species,
-                         charge='', cloud_info='', contributor=None, description=None,
-                         opacity_files_extension=None, spectral_dimension_file=None,
-                         path_input_data=petitradtrans_config_parser.get_input_data_path(), rebin=True,
-                         save_correlated_k=True, correlated_k_resolving_power=1000, samples=None, weights=None,
-                         save_line_by_line=True, line_by_line_wavelength_boundaries=None,
-                         use_legacy_correlated_k_wavenumbers_sampling=False):
+def format2petitradtrans(load_function, opacities_directory: str, natural_abundance: bool,
+                         source: str, doi: str, species: str,
+                         charge: str = '', cloud_info: str = '', contributor: str = None, description: str = None,
+                         opacity_files_extension: str = None, spectral_dimension_file: str = None,
+                         path_input_data: str = petitradtrans_config_parser.get_input_data_path(), rebin: bool = True,
+                         save_correlated_k: bool = True, correlated_k_resolving_power: float = 1000,
+                         samples: np.ndarray = None, weights: np.ndarray = None,
+                         save_line_by_line: bool = True, line_by_line_wavelength_boundaries: bool = None,
+                         use_legacy_correlated_k_wavenumbers_sampling: bool = False):
+    """Convert opacities loaded with the specied load function into petitRADTRANS line-by-line and correlated-k
+    opacities.
 
+    Args:
+        load_function:
+            String ('dace' or 'exocross'), or function loading the opacities.
+            If 'dace', the DACE (https://dace.unige.ch/opacityDatabase/) opacity built-in loading function is used.
+            If 'exocross', the ExoCross (https://github.com/Trovemaster/exocross) opacity built-in loading function is
+            used.
+            If a function is used, it must have the following arguments, in that order:
+                - file: the file name of a file containing the opacities (automatically taken from opacities_directory)
+                - file_extension: see opacity_files_extension below
+                - molmass: molar mass of the species (automatically set)
+                - wavelength_file: see spectral_dimension_file below
+                - wavenumbers_petitradtrans: the petitRADTRANS wavenumber grid (automatically set)
+                - save_line_by_line: see save_line_by_line below
+                - rebin: see rebin below
+                - selection: indices corresponding to the wavenumbers to be exctracted
+            Not all of the above arguments have to be used.
+            The function must output the following, in that order:
+                - opacities: (cm2/molecule) the opacities
+                - opacities_line_by_line: (cm2/molecule), the opacities, interpolated to wavenumbers_petitradtrans
+                - wavenumbers: (cm-1) the wavenumbers corresponding to opacities
+                - pressure: (bar) the pressure of the opacities
+                - temperature: (K) the temperature of the opacities
+        opacities_directory:
+            Directory in which the opacity files are stored.
+        natural_abundance:
+            If True, the opacities are considered coming from the natural (Earth's) occurring isotopologue mix, instead
+            of from a single isotope.
+        source:
+            Name of the opacities' source (e.g., 'POKAZATEL').
+        doi:
+            DOI of the opacities' source
+        species:
+            Chemical formula of the species (e.g. 'H2O')
+        charge:
+            Charge of the species (e.g. '2+')
+        cloud_info:
+            Cloud additional info (physical state, internal structure, space group). See the petitRADTRANS cloud
+            filename convention for more information.
+        contributor:
+            Contributor that helped obtained the opacities.
+        description:
+            Additional description on the opacities.
+        opacity_files_extension:
+            The extension of the opacity files.
+        spectral_dimension_file:
+            File containing the opacities' wavelengths.
+        path_input_data:
+            Path to the input data directory.
+        rebin:
+            If true, rebin the opacities to the petitRADTRANS standard wavenumber grid. Should be True in most cases.
+        save_correlated_k:
+            If True, convert and save the opacities in correlated-k ('c-k') format.
+        correlated_k_resolving_power:
+            Resolving power at which to convert the opacities, for the correlated-k case.
+        samples:
+            Array containing the correlated-k samples.
+        weights:
+            Array containing the correlated-k weights.
+        save_line_by_line:
+            If True, convert and save the opacities in line-by-line ('lbl') format.
+        line_by_line_wavelength_boundaries:
+            Wavelength boundaries to use for the line-by-line conversion.
+        use_legacy_correlated_k_wavenumbers_sampling:
+            If True, use the legacy (pRT2) way to sample the correlated-k wavenumbers.
+    """
     if load_function == 'exocross':
         load_function = load_exocross
 
@@ -2971,17 +3040,17 @@ def format2petitradtrans(load_function, opacities_directory, natural_abundance, 
         path_input_data, 'opacities', 'lines', 'line_by_line', 'wavenumber_grid.petitRADTRANS.h5'
     )
 
-    if not os.path.isfile(wavenumbers_petitradtrans_file):  # TODO not tested
-        wavenumbers_petitradtrans_file = prt_resolving_space(
+    if not os.path.isfile(wavenumbers_petitradtrans_file):
+        wavenumbers_petitradtrans = prt_resolving_space(
             start=line_by_line_wavelength_boundaries[0],
             stop=line_by_line_wavelength_boundaries[-1],
             resolving_power=1e6
         )
+    else:
+        print("Loading petitRADTRANS wavenumber grid... ", end='')
 
-    print("Loading petitRADTRANS wavenumber grid... ", end='')
-
-    with h5py.File(wavenumbers_petitradtrans_file, 'r') as f:
-        wavenumbers_petitradtrans = f['bin_edges'][:]
+        with h5py.File(wavenumbers_petitradtrans_file, 'r') as f:
+            wavenumbers_petitradtrans = f['bin_edges'][:]
 
     print("Done.")
 
