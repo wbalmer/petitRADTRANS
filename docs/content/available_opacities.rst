@@ -7,6 +7,8 @@ All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de
 
 .. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
+.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in the `converting your custom pRT2 opacities to pRT3 format section <content/pRT3_changes_description.html>`_.
+
 Line species
 ============
 To add more line opacities in addition to what is listed below, please see `"Adding opacities" <adding_opacities.html>`_, among them how to plug-and-play install the ExoMol opacities calculated in the pRT format, available from the `ExoMol website <https://www.exomol.com/data/data-types/opacity/>`_.
