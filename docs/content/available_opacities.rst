@@ -421,10 +421,6 @@ The available line-by-line opacities are listed below. When multiple source are 
       - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - CaII **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - `Kurucz <http://kurucz.harvard.edu>`_
-      - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Ca+
       - 40Ca_p__Kurucz, @ Doriann: should be the same as CaII above?
       - `Kurucz <http://kurucz.harvard.edu>`_
