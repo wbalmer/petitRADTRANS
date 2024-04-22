@@ -9,7 +9,7 @@ petitRADTRANS has an extensive database of line opacities. However, it is very l
 
 These different options are explained in more detail below.
 
-.. caution:: **if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format if you want to keep using them.** This is explained in "Converting your custom pRT2 opacities to pRT3 format" `here <#converting-your-custom-prt2-opacities-to-prt3-format>`_. This conversion is necessary because we switched from Fortran binary tables to `HDF5 <https://en.wikipedia.org/wiki/Hierarchical_Data_Format>`_. Correlated-k opacity files you downloaded from ExoMol do not have to be converted, since we adopted their format. You still need to place them in differently called folders, however, see the instructions on "Importing opacity tables from the ExoMol website" `below <#importing-opacity-tables-from-the-exomol-website>`_.
+.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in the `converting your custom pRT2 opacities to pRT3 format section <content/pRT3_changes_description.html>`_.
 
 .. _ExoMolpRT:
 
@@ -41,18 +41,16 @@ To use these opacities:
 
 You're done!
 
+.. warning:: there are currently inconsistencies in the ExoMol .h5 format (e.g., for the H2O__POKAZATEL line list), making manual changes (file name, adding missing metadata attributes) necessary to allow petitRADTRANS to read them. This should however affect a minority of species.
+
 .. _OWtopRT:
 
 Converting cross-section grids from `DACE`_
 ===========================================
-Pre-computed opacities are also available from `DACE`_,
-which have been generated using the method presented in `Grimm & Heng (2015)`_ .
-The DACE opacity database itself is described in
-`Grimm et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021ApJS..253...30G/abstract>`_.
-The website allows you to download the cross-section tables as a function
-of pressure and temperature. Proceed as follows:
+Pre-computed opacities are also available from `DACE`_, which have been generated using the method presented in `Grimm & Heng (2015)`_ .
+The DACE opacity database itself is described in `Grimm et al. (2021) <https://ui.adsabs.harvard.edu/abs/2021ApJS..253...30G/abstract>`_. The website allows you to download the cross-section tables as a function of pressure and temperature. Proceed as follows:
 
-1. Decide on any P-T range line list that you are interested in. Note that their spectral coordinate is wavenumber, in units of :math:`{\rm cm}^{-1}`.
+1. Decide on any P-T range line list that you are interested in, and download the data. Note that their spectral coordinate is wavenumber, in units of :math:`{\rm cm}^{-1}`.
 2. Decompress the opacities.
 3. Convert DACE opacities into the petitRADTRANS format:
 
@@ -69,7 +67,9 @@ of pressure and temperature. Proceed as follows:
         species='speciesFormula'  # species chemical formula, e.g. 'H2O'
     )
 
-The converted correlated-k and line-by-line files will be put automatically inside your input_data directory. You can then use the converted opacities as any other petitRADTRANS opacity. If you do not want to convert ``'c-k'`` because you are only interested in ``'lbl'`` (or vice vera) you can turn the conversion off by setting ``save_correlated_k=False`` or ``save_line_by_line=False``.
+The converted correlated-k and line-by-line files will be put automatically inside your input_data directory. You can then use the converted opacities as any other petitRADTRANS opacity.
+
+.. note:: You can chose to convert only to line-by-line or correlated-k opacities by setting ``save_correlated_k=False`` and ``save_line_by_line=False``, respectively.
 
 .. _DACE: https://dace.unige.ch/opacityDatabase/
 
@@ -110,17 +110,15 @@ Then, build ExoCross by typing ``make`` in the terminal. Sometimes the compiler 
 
 So the ``&`` is the line break operator. After fixing this, recompile using ``make``.
 
-In this example we will calculate the opacities of the NaH molecule. All necessary files for calculating opacities can be found on the ExoMol website, just `click here`_.
+In this example we will calculate the opacities of the NaH molecule. All necessary files for calculating opacities can be found on the `ExoMol website <http://www.exomol.com/data/molecules/NaH/23Na-1H/Rivlin/>`_.
 
-.. _click here: http://www.exomol.com/data/molecules/NaH/23Na-1H/Rivlin/
-
-The following files need to be downloaded:
+Download the following files:
 
 - 23Na-1H__Rivlin.states.bz2
 - 23Na-1H__Rivlin.trans.bz2
 - 23Na-1H__Rivlin.pf
 
-Please unzip the .bz2 files before use.
+Then, unzip the .bz2 files.
 
 Next, make an input file for carrying out the calculations, in this example we call it NaH_input.inp. This is what it looks like:
 
@@ -184,7 +182,7 @@ Finally, the opacities are calculated by running ExoCross from the terminal comm
 
 The resulting wavelength-dependent opacity will be in the "NaH_1000K_1em5bar.out.xsec" file, in our example here. In the end quite a few opacity points need to be calculated for petitRADTRANS (for example at 130 or 200 different pressure-temperature combinations, see below). This is doable on a local machine for smaller line lists such as NaH, but may require the use of a cluster for much larger line lists, where you could calculate separate pressure-temperature opacity points on separate cores.
 
-There also exists the so-called super-line treatment `(see Yurchenko et al. 2018)`_, where multiple lines are combined into one, this can speed up calculations a lot, but is not recommended if you want to calculate high-resolution spectra with petitRADTRANS (because line positions will shift if multiple lines are combined into one on a fixed wavelength grid during the super-line treatment).
+There also exists the so-called "super-line treatment" `(see Yurchenko et al. 2018)`_, where multiple lines are combined into one. This can speed up calculations a lot, but is not recommended if you want to calculate high-resolution spectra with petitRADTRANS (because line positions will shift if multiple lines are combined into one on a fixed wavelength grid during the super-line treatment).
 
 .. _(see Yurchenko et al. 2018): https://arxiv.org/abs/1801.09803
 
@@ -192,9 +190,7 @@ There also exists the so-called super-line treatment `(see Yurchenko et al. 2018
 
 Converting the ExoCross opacities into the petitRADTRANS format
 ---------------------------------------------------------------
-For creating opacities for use in petitRADTRANS, calculate the
-molecular opacities from ExoMol with ExoCross using the settings
-outlined above.
+For creating opacities for use in petitRADTRANS, calculate the molecular opacities from ExoMol with ExoCross using the settings outlined above.
 
 The opacities can be calculated on any rectangular pressure temperature grid (the distance between grid points may be variable, but it **must** be rectangular for use in petitRADTRANS). An example is `this grid <https://keeper.mpdl.mpg.de/f/06d53c2cf1e84cf8ad18/>`_, which we use ourselves for opacity calculations these days, containing 200 P-T points, going from 80 up to 4000 K, and from :math:`10^{-6}` to 1000 bar.
 
@@ -217,11 +213,13 @@ Next, execute the following command:
         species='speciesFormula'  # species chemical formula, e.g. 'H2O'
     )
 
-The converted correlated-k and line-by-line files will be put automatically inside your input_data directory. You can then use the converted opacities like any other petitRADTRANS opacity. If you do not want to convert ``'c-k'`` because you are only interested in ``'lbl'`` (or vice vera) you can turn the conversion off by setting ``save_correlated_k=False`` or ``save_line_by_line=False``.
+The converted correlated-k and line-by-line files will be put automatically inside your input_data directory.
+
+.. note:: You can chose to convert only to line-by-line or correlated-k opacities by setting ``save_correlated_k=False`` and ``save_line_by_line=False``, respectively.
 
 Converting any opacity into the petitRADTRANS format
 ====================================================
-The above ``format2petitradtrans()`` also provides the tool to convert any opacity file into the petitRADTRANS format. All that is needed is a Python function that follows the structure below:
+The above ``format2petitradtrans()`` function also provides the tool to convert any opacity file into the petitRADTRANS format. All that is needed is a Python function that follows the structure below:
 
 .. code-block:: python
 
@@ -246,7 +244,7 @@ Not all the input arguments need to be used. For the outputs, take care of the f
 - ``pressure`` must be in bar.
 - ``temperature`` must be in K.
 
-Ideally, ``my_load_function`` must be applied to one file containing the opacities at one pressure and one temperature.
+Ideally, ``my_load_function`` must be applied to one file containing the opacities at one pressure and one temperature. The ``format2petitradtrans`` function will take care of fetching the files in ``opacities_directory`` with the ``opacity_files_extension`` extension (see below).
 
 You can then proceed to the conversion as follows:
 
@@ -255,57 +253,29 @@ You can then proceed to the conversion as follows:
     from petitRADTRANS.__file_conversion import format2petitradtrans
 
     format2petitradtrans(
-        load_function=my_load_function,  # replace with
+        load_function=my_load_function,  # replace with your loading function's name
         opacities_directory='path/to/my/opacities',  # replace with actual directory
         natural_abundance=False,
         source='opacity source name',  # replace with the source name, e.g. 'POKAZATEL'
         doi='doi of the source',  # can be e.g. '' for personal usage
-        species='speciesFormula'  # species chemical formula, e.g. 'H2O'
+        species='speciesFormula',  # species chemical formula, e.g. 'H2O'
+        opacity_files_extension=None,  # extension of the opacity files
+        save_correlated_k=True,  # if True, convert to c-k opacities
+        save_line_by_line=True,  # if True, convert to lbl opacities
+        # Information arguments
+        charge='',  # for ions, charge of the species (e.g. '2+'), changes the output file name
+        cloud_info='',  # for condensates, additional cloud information (see cloud file naming convention), changes the output file name
+        contributor=None,  # fill the 'contributor' attribute of the 'DOI' dataset
+        description=None,  # fill the 'description' attribute of the 'DOI' dataset
+        spectral_dimension_file=None,  # if relevant, file in which the opacities' wavelengths are stored
+        # Advanced arguments
+        correlated_k_resolving_power=1000,  # resolving power of the output c-k opacities
+        samples=None,  # samples to be used for the c-k conversion
+        weights=None,  # weights to be used for the c-k conversion
+        line_by_line_wavelength_boundaries=None,  # custom boundaries for the lbl conversion
+        use_legacy_correlated_k_wavenumbers_sampling=False  # for pRT2 tests only, should always be False
     )
 
 Using arbitrary (but rectangular) P-T opacity grids in petitRADTRANS
 ====================================================================
 In your petitRADTRANS calculations you can combine species with different P-T grids: for different species, petitRADTRANS will simply interpolate within the species' respective T-P grid. If the atmospheric T and P leave the respective grid, it will take the opacity of that species at the values of the nearest grid boundary point.
-
-Converting your custom pRT2 opacities to pRT3 format
-====================================================
-
-Correlated-k opacities
-----------------------
-
-If you ever added correlated-k opacities to pRT before pRT3 was released (May 2024) you need to convert them to pRT3 (HDF5) format before using them. Below an example for how to do this:
-
-.. code-block:: python
-
-    from petitRADTRANS import __file_conversion as fc
-    from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-
-    fc._correlated_k_opacities_dat2h5_external_species(path_to_species_opacity_folder='/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/CH4_hargreaves',
-                                                   path_prt2_input_data = '/Users/molliere/pRTv2/input_data',
-                                                   longname = '12C-1H4__HITEMP.R1000_0.1-250mu',
-                                                   doi = '10.3847/1538-4365/ab7a1a',
-                                                   contributor = 'Your name',
-                                                   description = "Using HITRAN's air broadening prescription.",
-                                                   molmass = 16.)
-
-The function needs to following input parameters:
-
-- ``path_to_species_opacity_folder``: string that gives the absolute path of the folder that contains the correlated-k opacity files in the old pRT2 format (in the example above we are converting ``'CH4_hargreaves'``.
-- ``path_prt2_input_data``: absolute path of the pRT2 input data folder.
-- ``longname``: The species (unique) longname following the pRT3/Exomol format, which will also be the name of the HDF5 file (leave out the ``'.h5'`` extension). For more information on the file naming convention see `here <available_opacities.html#file-naming-convention>`_.
-- ``doi``: DOI of the reference that describes the line list (``'10.3847/1538-4365/ab7a1a'`` points to `Hargreaves et al. 2020) <https://ui.adsabs.harvard.edu/abs/2020ApJS..247...55H/abstract>`_ here). Can be left empty for internal use.
-- ``contributor``: in case you want to share your HDF5 file with us (please :) ), this is the contributor name we will mention in the table `here <available_opacities.html>`_.
-- ``description``: any additional information you think is useful to know for a user.
-- ``molmass``: the mass of the absorber in atomic mass units.
-
-After conversion the new HDF5 file will be placed into your pRT2 input data folder, in the above example in ``'/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/'``. You then need to move the file ``12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5`` from there into the pRT3 folder, following the folder structure described for adding Exomol opacities `above <#importing-opacity-tables-from-the-exomol-website>`_. In our example here, the new path of the file is is ``/Users/molliere/pRT3/input_data/opacities/lines/correlated_k/CH4/12C-1H4/``. Note the change in the path to the input folder of pRT3. Also do not forget to adapt your absolute paths accordingly (very likely you do not have a folder called ``molliere``, for example).
-
-Line-by-line opacities
-----------------------
-
-test
-
-Automatic conversion of the pRT2 input_data folder
---------------------------------------------------
-
-@Doriann: keep?
