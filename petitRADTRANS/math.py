@@ -232,6 +232,49 @@ def phase2longitude(phase: float, rad2deg: bool = False):
     return longitude
 
 
+def prt_resolving_space(start, stop, resolving_power) -> np.ndarray:
+    """Return numbers evenly spaced at the specified resolving power.
+
+    Args:
+        start:
+            The starting value of the sequence.
+        stop:
+            The end value of the sequence.
+        resolving_power:
+            Resolving power of the sample
+
+    Returns:
+        Samples spaced following the specified resolving power.
+
+    """
+    # Check for inputs validity
+    if start > stop:
+        raise ValueError(f"start ({start}) must be lower than stop {stop}")
+
+    if resolving_power <= 0:
+        raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
+
+    inverse_resolving_power = 1 / resolving_power
+
+    # Get maximum space length (much higher than required)
+    size_max = int(np.ceil((stop - start) / (start / resolving_power)))
+
+    # Start generating space
+    samples = [start]
+    i = 0
+
+    for i in range(size_max):
+        samples.append(samples[-1] * np.exp(inverse_resolving_power))
+
+        if samples[-1] >= stop:
+            break
+
+    if i == size_max - 1 and samples[-1] < stop:
+        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})")
+
+    return np.array(samples)
+
+
 def resolving_space(start, stop, resolving_power):
     # Check for inputs validity
     if start > stop:
@@ -240,28 +283,28 @@ def resolving_space(start, stop, resolving_power):
     if resolving_power <= 0:
         raise ValueError(f"resolving power ({resolving_power}) must be strictly positive")
 
-    # Get maximum space length
+    # Get maximum space length (much higher than required)
     size_max = int(np.ceil((stop - start) / (start / resolving_power)))
 
     if not np.isfinite(size_max) or size_max < 0:
         raise ValueError(f"invalid maximum size ({size_max})")
 
     # Start generating space
-    space = [start]
+    samples = [start]
     i = 0
 
     for i in range(size_max):
-        if space[-1] >= stop:
+        if samples[-1] >= stop:
             break
 
-        space.append(space[-1] + space[-1] / resolving_power)
+        samples.append(samples[-1] + samples[-1] / resolving_power)
 
-    if i == size_max - 1 and space[-1] < stop:
-        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({space[-1]} < {stop})")
-    elif space[-1] > stop:
-        del space[-1]  # ensure that the space is within the [start, stop] interval
+    if i == size_max - 1 and samples[-1] < stop:
+        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})")
+    elif samples[-1] > stop:
+        del samples[-1]  # ensure that the space is within the [start, stop] interval
 
-    return np.array(space)
+    return np.array(samples)
 
 
 def running_mean(x: np.ndarray, n: int) -> np.ndarray:

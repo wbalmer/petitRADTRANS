@@ -24,6 +24,7 @@ from petitRADTRANS._input_data_loader import (_get_base_cia_names, _get_base_clo
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+from petitRADTRANS.math import prt_resolving_space
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import LockedDict
 
@@ -1779,7 +1780,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'NH3_Coles_main_iso': '10.1093/mnras/stz2778',
         'O3_main_iso': molliere2019_doi,
         'OH_main_iso': molliere2019_doi,
-        'PH3_HITRAN': '10.1016/j.jqsrt.2013.07.002',
+        #'PH3_HITRAN': '10.1016/j.jqsrt.2013.07.002',
         'PH3_main_iso': '10.1093/mnras/stu2246',
         'Si': kurucz_website,
         'SiO_main_iso': '10.1093/mnras/stt1105',
@@ -1858,7 +1859,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'NH3_Coles_main_iso': 'gandhi@strw.leidenuniv.nl',
         'O3_main_iso': 'None',
         'OH_main_iso': 'None',
-        'PH3_HITRAN': 'None',
+        #'PH3_HITRAN': 'None',
         'PH3_main_iso': 'adriano.miceli@stud.unifi.it',
         'Si': molaverdikhani_email,
         'SiO_main_iso': 'None',
@@ -1937,7 +1938,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'NH3_Coles_main_iso': 'None',
         'O3_main_iso': 'None',
         'OH_main_iso': 'None',
-        'PH3_HITRAN': "Using HITRAN's air broadening prescription",
+        #'PH3_HITRAN': "Using HITRAN's air broadening prescription",
         'PH3_main_iso': 'None',
         'Si': kurucz_description,
         'SiO_main_iso': 'None',
@@ -2016,7 +2017,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         'NH3_Coles_main_iso': get_species_molar_mass('NH3'),
         'O3_main_iso': get_species_molar_mass('O3'),
         'OH_main_iso': get_species_molar_mass('OH'),
-        'PH3_HITRAN': get_species_molar_mass('PH3'),
+        #'PH3_HITRAN': get_species_molar_mass('PH3'),
         'PH3_main_iso': get_species_molar_mass('PH3'),
         'Si': get_species_molar_mass('Si'),
         'SiO_main_iso': get_species_molar_mass('SiO'),
@@ -2078,7 +2079,6 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
         ]
     else:
         input_directory = os.path.join(path_input_data, get_input_data_subpaths()['line_by_line_opacities'])
-
         directories = []
 
         for species_dir in os.listdir(input_directory):
@@ -2971,8 +2971,12 @@ def format2petitradtrans(load_function, opacities_directory, natural_abundance, 
         path_input_data, 'opacities', 'lines', 'line_by_line', 'wavenumber_grid.petitRADTRANS.h5'
     )
 
-    if not os.path.isfile(wavenumbers_petitradtrans_file):
-        raise FileNotFoundError(f"no such file '{wavenumbers_petitradtrans_file}'")
+    if not os.path.isfile(wavenumbers_petitradtrans_file):  # TODO not tested
+        wavenumbers_petitradtrans_file = prt_resolving_space(
+            start=line_by_line_wavelength_boundaries[0],
+            stop=line_by_line_wavelength_boundaries[-1],
+            resolving_power=1e6
+        )
 
     print("Loading petitRADTRANS wavenumber grid... ", end='')
 
