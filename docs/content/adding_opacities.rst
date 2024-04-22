@@ -9,7 +9,7 @@ petitRADTRANS has an extensive database of line opacities. However, it is very l
 
 These different options are explained in more detail below.
 
-.. caution:: **if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format if you want to keep using them.** This is explained in `"Converting user-contributed opacities from pRT2 to pRT3 format" <#convert_opacities>`_. This conversion is necessary because we switched from Fortran binary tables to `HDF5 <https://en.wikipedia.org/wiki/Hierarchical_Data_Format>`_. Correlated-k opacity files you downloaded from ExoMol do not have to be converted, since we adopted their format. You still need to place them in differently called folders, however, see the instructions on "Importing opacity tables from the ExoMol website" `below <#importing-opacity-tables-from-the-exomol-website>`_.
+.. caution:: **if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format if you want to keep using them.** This is explained in "Converting your custom pRT2 opacities to pRT3 format" `here <#converting-your-custom-prt2-opacities-to-prt3-format>`_. This conversion is necessary because we switched from Fortran binary tables to `HDF5 <https://en.wikipedia.org/wiki/Hierarchical_Data_Format>`_. Correlated-k opacity files you downloaded from ExoMol do not have to be converted, since we adopted their format. You still need to place them in differently called folders, however, see the instructions on "Importing opacity tables from the ExoMol website" `below <#importing-opacity-tables-from-the-exomol-website>`_.
 
 .. _ExoMolpRT:
 
@@ -266,3 +266,46 @@ You can then proceed to the conversion as follows:
 Using arbitrary (but rectangular) P-T opacity grids in petitRADTRANS
 ====================================================================
 In your petitRADTRANS calculations you can combine species with different P-T grids: for different species, petitRADTRANS will simply interpolate within the species' respective T-P grid. If the atmospheric T and P leave the respective grid, it will take the opacity of that species at the values of the nearest grid boundary point.
+
+Converting your custom pRT2 opacities to pRT3 format
+====================================================
+
+Correlated-k opacities
+----------------------
+
+If you ever added correlated-k opacities to pRT before pRT3 was released (May 2024) you need to convert them to pRT3 (HDF5) format before using them. Below an example for how to do this:
+
+.. code-block:: python
+
+    from petitRADTRANS import __file_conversion as fc
+    from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+
+    fc._correlated_k_opacities_dat2h5_external_species(path_to_species_opacity_folder='/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/CH4_hargreaves',
+                                                   path_prt2_input_data = '/Users/molliere/pRTv2/input_data',
+                                                   longname = '12C-1H4__HITEMP.R1000_0.1-250mu',
+                                                   doi = '10.3847/1538-4365/ab7a1a',
+                                                   contributor = 'Your name',
+                                                   description = "Using HITRAN's air broadening prescription.",
+                                                   molmass = 16.)
+
+The function needs to following input parameters:
+
+- ``path_to_species_opacity_folder``: string that gives the absolute path of the folder that contains the correlated-k opacity files in the old pRT2 format (in the example above we are converting ``'CH4_hargreaves'``.
+- ``path_prt2_input_data``: absolute path of the pRT2 input data folder.
+- ``longname``: The species (unique) longname following the pRT3/Exomol format, which will also be the name of the HDF5 file (leave out the ``'.h5'`` extension). For more information on the file naming convention see `here <available_opacities.html#file-naming-convention>`_.
+- ``doi``: DOI of the reference that describes the line list (``'10.3847/1538-4365/ab7a1a'`` points to `Hargreaves et al. 2020) <https://ui.adsabs.harvard.edu/abs/2020ApJS..247...55H/abstract>`_ here). Can be left empty for internal use.
+- ``contributor``: in case you want to share your HDF5 file with us (please :) ), this is the contributor name we will mention in the table `here <available_opacities.html>`_.
+- ``description``: any additional information you think is useful to know for a user.
+- ``molmass``: the mass of the absorber in atomic mass units.
+
+After conversion the new HDF5 file will be placed into your pRT2 input data folder, in the above example in ``'/Users/molliere/pRTv2/input_data/opacities/lines/corr_k/'``. You then need to move the file ``12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5`` from there into the pRT3 folder, following the folder structure described for adding Exomol opacities `above <#importing-opacity-tables-from-the-exomol-website>`_. In our example here, the new path of the file is is ``/Users/molliere/pRT3/input_data/opacities/lines/correlated_k/CH4/12C-1H4/``. Note the change in the path to the input folder of pRT3. Also do not forget to adapt your absolute paths accordingly (very likely you do not have a folder called ``molliere``, for example).
+
+Line-by-line opacities
+----------------------
+
+test
+
+Automatic conversion of the pRT2 input_data folder
+--------------------------------------------------
+
+@Doriann: keep?
