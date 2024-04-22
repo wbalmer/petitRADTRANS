@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.0.0-a173] - 2024-04-16
+## [3.0.0-a174] - 2024-04-22
 ### Added
 - Automatic download of missing input_data files.
 - Automatic binning-down of correlated-k opacities when instantiating a `Radtrans` object.
@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function `SpectralModel.resolving_space` to generate arrays with values spaced at constant resolving power.
 - Function `chemistry.utils.fill_atmospheric_layer` to fill an atmospheric layer using weighted filling species.
 - Function `retrieval.retrieval.save_best_fit_outputs_external_variability` to speed up calculations, since it makes use of `external_prt_reference` properly.
+- Function that generates the petitRADTRANS default wavelength grid.
 - Constant `e_molar_mass` to physical constants.
 - SysRem preparing pipeline.
 - Arguments of `SpectralModel.calculate_spectrum` in `model_parameters`.
