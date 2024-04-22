@@ -3510,10 +3510,13 @@ class Radtrans:
             if line_by_line_opacity_sampling > 1:
                 frequency_grid = frequency_grid[::line_by_line_opacity_sampling]
 
-            raise ValueError(f"file selected frequencies size is "
-                             f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
-                             f"but frequency grid size is "
-                             f"{frequencies.size} ({np.min(frequencies)}--{np.max(frequencies)})")
+            raise ValueError(
+                f"file selected frequencies size is "
+                f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
+                f"but frequency grid size is "
+                f"{frequencies.size} ({np.min(frequencies)}--{np.max(frequencies)})\n"
+                f"This may be caused by loading opacities of different resolving power"
+            )
 
         line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
         line_opacities_grid = line_opacities_grid.reshape(
