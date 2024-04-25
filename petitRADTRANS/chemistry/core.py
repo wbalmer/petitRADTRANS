@@ -94,10 +94,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     # Free chemistry species
     for species in line_species:
         if species.split(".R")[0] in parameters.keys():
-            if species.split('_')[0] in abundances_interp.keys():
-                msum -= np.max(abundances_interp[species.split('_')[0]])
+            if species.split('_')[0].split('-')[0].split(".")[0] in abundances_interp.keys():
+                msum -= np.max(abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]])
             abund = 10 ** parameters[species.split(".R")[0]].value
-            abundances_interp[species.split('_')[0]] = abund * np.ones_like(pressures)
+            abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]] = abund * np.ones_like(pressures)
             msum += abund
 
     # For free chemistry, need to fill with background gas (H2-He)
@@ -200,7 +200,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             abundances[cloud] = abundances[cloud][small_index]
 
     for species in line_species:
-        sname = species.split('_')[0]
+        sname = species.split('_')[0].split('-')[0]
         sname = sname.split('.')[0]
         sname = sname.split('-')[0]
         # Depending on easychem vs interpolated and different versions of pRT

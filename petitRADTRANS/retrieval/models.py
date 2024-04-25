@@ -499,7 +499,7 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
             Emission contribution function, relative contributions for each wavelength and pressure level.
             Only returns the contribution of the clear atmosphere component.
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -548,10 +548,10 @@ def emission_model_diseq_simple_patchy_clouds(prt_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
-    if pressures.shape[0] != prt_object.press.shape[0]:
+    if pressures.shape[0] != prt_object.pressures.shape[0]:
         if contribution:
             return None, None, None
         return None, None
@@ -674,7 +674,7 @@ def guillot_emission(prt_object,
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -708,7 +708,7 @@ def guillot_emission(prt_object,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -833,7 +833,7 @@ def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=Fals
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -950,7 +950,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         contr-em : np.ndarray
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -988,7 +988,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -1075,7 +1075,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         contr-em : np.ndarray
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
     contribution = False
     if "contribution" in parameters.keys():
@@ -1563,7 +1563,7 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
             level.
             Only the clear atmosphere contribution is returned.
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
@@ -1610,7 +1610,7 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
@@ -1738,7 +1738,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
             level.
             Only the clear atmosphere contribution is returned.
     """
-    p_use = initialize_pressure(prt_object.press / 1e6, parameters, amr)
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
@@ -1780,7 +1780,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
-        prt_object.press = pressures * 1e6
+        prt_object.pressures = pressures * 1e6
     else:
         pressures = p_use
 
