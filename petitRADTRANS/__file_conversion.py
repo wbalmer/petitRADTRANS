@@ -2127,12 +2127,12 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
 
         line_by_line_opacities_dat2h5(
             directory=directory,
+            output_name=names[species],
             molmass=molmass_dict[species],
             doi=doi_dict[species],
             path_input_data=path_input_data,
             contributor=contributor_dict[species],
             description=description_dict[species],
-            output_name=names[species],
             opacities_pressures=opacities_pressures,
             opacities_temperatures=opacities_temperatures,
             line_paths=line_paths,
@@ -3414,9 +3414,9 @@ def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopo
     )
 
 
-def line_by_line_opacities_dat2h5(directory, molmass, doi,
+def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
                                   path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                  contributor=None, description=None, output_name=None,
+                                  contributor=None, description=None,
                                   opacities_pressures=None, opacities_temperatures=None, line_paths=None,
                                   rewrite=False, clean=False):
     """Using ExoMol units for HDF5 files."""
