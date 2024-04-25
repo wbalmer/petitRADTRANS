@@ -224,6 +224,7 @@ The test functions that will be executed by tox are in the test modules. To mini
 In order to keep things clean in the long run: if a test goes wrong, **avoid increasing the tolerance**. Instead, try first to understand the origin of the difference. It is your responsibility as a developer to understand and explain changes in results coming from the changes you made within the code.
 
 Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an AssertionError is raised, an error file is automatically generated in the "errors" directory. The error file is a .npz file containing 4 keys:
+
 - ``test_result``, the result of the current test,
 - ``data``, the result of the last validated test,
 - ``relative_tolerance``, the relative tolerance used to compare the results,
@@ -239,10 +240,22 @@ You will need to `conda install numba`, even if you have already installed the p
 We also suggest running `tox` for specific python versions, rather than automatically running on the base version installed on your system.
 At the very least, you should run tests on the oldest version currently supported by pRT (python 3.9 as of 2024), as well as the most recent version.
 
+Below an example to tox test the code with python 3.11:
+
+.. code-block::
+
+    conda create --name toxfun python=3.11
+    conda activate toxfun
+    pip install tox
+    pip install tox-conda
+    conda install numba
+    tox -e py311
+
 
 Creating a new test
 ~~~~~~~~~~~~~~~~~~~
 Tests are used both to ensure that every functionality of the code work, but also that they work **as expected**. It follows that a proper test should:
+
 - Ensure that a function runs.
 - Ensure that the results from the function is what is expected.
 - Provides an easy way to check the results if they are not expected, and to track the changes that could have led to this discrepancy.
