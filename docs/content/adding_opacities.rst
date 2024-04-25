@@ -9,7 +9,7 @@ petitRADTRANS has an extensive database of line opacities. However, it is very l
 
 These different options are explained in more detail below.
 
-.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in the `converting your custom pRT2 opacities to pRT3 format section <content/pRT3_changes_description.html>`_.
+.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in `"Converting pRT2 opacities to pRT3 format" <pRT3_changes_description.html#converting-prt2-opacities-to-prt3-format>`_.
 
 .. _ExoMolpRT:
 

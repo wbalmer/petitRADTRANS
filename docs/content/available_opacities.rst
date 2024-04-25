@@ -7,7 +7,7 @@ All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de
 
 .. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
-.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in the `converting your custom pRT2 opacities to pRT3 format section <content/pRT3_changes_description.html>`_.
+.. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in `"Converting pRT2 opacities to pRT3 format" <pRT3_changes_description.html#converting-prt2-opacities-to-prt3-format>`_.
 
 Line species
 ============
