@@ -446,11 +446,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2021.107949
       - --
     * - CO-NatAbund
-      - C-O-NatAbund__HITRAN @ Doriann: these should be __HITEMP
+      - C-O-NatAbund__HITEMP
       - 10.1016/j.jqsrt.2010.05.001
       - --
     * - CO
-      - 12C-16O__HITRAN @ Doriann: these should be __HITEMP
+      - 12C-16O__HITEMP
       - 10.1016/j.jqsrt.2010.05.001
       - --
     * - 12C-17O
@@ -590,7 +590,7 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - OH
-      - 16O-1H__MoLLIST @ Doriann: should be __HITEMP
+      - 16O-1H__MoLLIST
       - 10.1016/j.jqsrt.2010.05.001
       - --
     * - PH3
@@ -618,31 +618,31 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - 46TiO
-      - 46TiO__Plez
+      - 46Ti-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **46TiO**
-      - 46TiO__Toto
+      - 46Ti-16O__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - 47TiO
-      - 47TiO__Plez
+      - 47Ti-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **47TiO**
-      - 47TiO__Toto
+      - 47Ti-16O__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - 48TiO
-      - 48TiO__Plez
+      - 48Ti-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **48TiO**
-      - 48TiO__Toto
+      - 48Ti-16O__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - 49TiO
-      - 49TiO__Plez
+      - 49Ti-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **49TiO** **!!**
@@ -650,11 +650,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - 50TiO
-      - 50TiO__Plez
+      - 50Ti-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
     * - **50TiO**
-      - 50TiO__Toto
+      - 50Ti-16O__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
     * - V
