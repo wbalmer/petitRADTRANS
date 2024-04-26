@@ -2943,7 +2943,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          path_input_data: str = petitradtrans_config_parser.get_input_data_path(), rebin: bool = True,
                          save_correlated_k: bool = True, correlated_k_resolving_power: float = 1000,
                          samples: np.ndarray = None, weights: np.ndarray = None,
-                         save_line_by_line: bool = True, line_by_line_wavelength_boundaries: bool = None,
+                         save_line_by_line: bool = True, line_by_line_wavelength_boundaries: np.ndarray = None,
+                         standard_line_by_line_wavelength_boundaries: np.ndarray = None,
                          use_legacy_correlated_k_wavenumbers_sampling: bool = False):
     """Convert opacities loaded with the specied load function into petitRADTRANS line-by-line and correlated-k
     opacities.
@@ -3010,6 +3011,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             If True, convert and save the opacities in line-by-line ('lbl') format.
         line_by_line_wavelength_boundaries:
             Wavelength boundaries to use for the line-by-line conversion.
+        standard_line_by_line_wavelength_boundaries:
+            Wavelength boundaries to use when generating the lbl standard petitRADTRANS wavelengths.
         use_legacy_correlated_k_wavenumbers_sampling:
             If True, use the legacy (pRT2) way to sample the correlated-k wavenumbers.
     """
@@ -3035,6 +3038,9 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     if line_by_line_wavelength_boundaries is None:
         line_by_line_wavelength_boundaries = np.array([0.3, 28])  # um
 
+    if standard_line_by_line_wavelength_boundaries is None:
+        standard_line_by_line_wavelength_boundaries = np.array([1.1e-1, 250])  # um
+
     # Read the fiducial petitRADTRANS wavelength grid
     wavenumbers_petitradtrans_file = os.path.join(
         path_input_data, 'opacities', 'lines', 'line_by_line', 'wavenumber_grid.petitRADTRANS.h5'
@@ -3042,8 +3048,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
 
     if not os.path.isfile(wavenumbers_petitradtrans_file):
         wavenumbers_petitradtrans = prt_resolving_space(
-            start=line_by_line_wavelength_boundaries[0],
-            stop=line_by_line_wavelength_boundaries[-1],
+            start=standard_line_by_line_wavelength_boundaries[0],
+            stop=standard_line_by_line_wavelength_boundaries[-1],
             resolving_power=1e6
         )
     else:
