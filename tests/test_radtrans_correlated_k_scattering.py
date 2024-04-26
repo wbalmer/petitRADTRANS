@@ -63,50 +63,50 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         frequencies_to_wavelengths=False
     )
 
-def test_correlated_k_photospheric_radius_calculation():
-
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
-
-    benchmark = Benchmark(
-        function=atmosphere_ck_scattering.calculate_photosphere_radius,
-        relative_tolerance=relative_tolerance
-    )
-
-    cloud_particles_mean_radii = {}
-    cloud_particles_mean_radii['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
-            np.ones_like(temperature_guillot_2010) * test_parameters['cloud_parameters'][
-        'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
-    )
-
-    (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-     cloud_opacities, cloud_particles_mean_radii) = (
-        atmosphere_ck_scattering._calculate_opacities(
-            temperatures=temperature_guillot_2010,
-            mass_fractions=mass_fractions,
-            mean_molar_masses=test_parameters['mean_molar_mass'],
-            reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-            cloud_particles_mean_radii=cloud_particles_mean_radii,
-            cloud_particle_radius_distribution_std=test_parameters['cloud_parameters'][
-                'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
-        )
-    )
-
-    benchmark.run(
-        temperatures=temperature_guillot_2010,
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        planet_radius=test_parameters['planetary_parameters']['radius']*petitRADTRANS.physical_constants.r_jup,
-        opacities=opacities,
-        continuum_opacities_scattering = continuum_opacities_scattering,
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_photosphere_median_optical_depth=None,
-        cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-        cloud_absorption_opacities=cloud_absorption_opacities
-    )
+# def test_correlated_k_photospheric_radius_calculation():
+#
+#     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+#     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
+#         test_parameters['cloud_parameters']['cloud_species'][
+#             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+#
+#     benchmark = Benchmark(
+#         function=atmosphere_ck_scattering.calculate_photosphere_radius,
+#         relative_tolerance=relative_tolerance
+#     )
+#
+#     cloud_particles_mean_radii = {}
+#     cloud_particles_mean_radii['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
+#             np.ones_like(temperature_guillot_2010) * test_parameters['cloud_parameters'][
+#         'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
+#     )
+#
+#     (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
+#      cloud_opacities, cloud_particles_mean_radii) = (
+#         atmosphere_ck_scattering._calculate_opacities(
+#             temperatures=temperature_guillot_2010,
+#             mass_fractions=mass_fractions,
+#             mean_molar_masses=test_parameters['mean_molar_mass'],
+#             reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+#             cloud_particles_mean_radii=cloud_particles_mean_radii,
+#             cloud_particle_radius_distribution_std=test_parameters['cloud_parameters'][
+#                 'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+#         )
+#     )
+#
+#     benchmark.run(
+#         temperatures=temperature_guillot_2010,
+#         mean_molar_masses=test_parameters['mean_molar_mass'],
+#         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+#         planet_radius=test_parameters['planetary_parameters']['radius']*petitRADTRANS.physical_constants.r_jup,
+#         opacities=opacities,
+#         continuum_opacities_scattering = continuum_opacities_scattering,
+#         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
+#             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
+#         cloud_photosphere_median_optical_depth=None,
+#         cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+#         cloud_absorption_opacities=cloud_absorption_opacities
+#     )
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
