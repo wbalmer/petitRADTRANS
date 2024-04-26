@@ -54,7 +54,7 @@ def init_spectral_model_line_by_line():
                 'infrared_mean_opacity'],
             # Chemical parameters
             use_equilibrium_chemistry=False,
-            imposed_mass_fractions=test_parameters['mass_fractions'],
+            imposed_mass_fractions=test_parameters['mass_fractions_line_by_line'],
             # Transmission spectrum parameters (radtrans.calc_transm)
             planet_radius=test_parameters['planetary_parameters']['radius']
                           * petitRADTRANS.physical_constants.r_jup_mean,  # cm
@@ -139,7 +139,7 @@ def test_line_by_line_emission_spectrum():
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_line_by_line'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         frequencies_to_wavelengths=False
@@ -154,7 +154,7 @@ def test_line_by_line_transmission_spectrum():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_line_by_line'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
@@ -197,7 +197,7 @@ def test_line_by_line_spectral_model_emission():
     for species in spectral_model.line_species:
         assert np.allclose(
             spectral_model.mass_fractions[species],
-            test_parameters['mass_fractions'][species],
+            test_parameters['mass_fractions_line_by_line'][species],
             atol=0,
             rtol=relative_tolerance
         )
@@ -245,7 +245,7 @@ def test_line_by_line_spectral_model_transmission():
     for species in spectral_model.line_species:
         assert np.allclose(
             spectral_model.mass_fractions[species],
-            test_parameters['mass_fractions'][species],
+            test_parameters['mass_fractions_line_by_line'][species],
             atol=0,
             rtol=relative_tolerance
         )
@@ -294,7 +294,7 @@ def test_line_by_line_spectral_model_transmission_ccf():
         for species in spectral_model.line_species:
             assert np.allclose(
                 spectral_model.mass_fractions[species],
-                test_parameters['mass_fractions'][species],
+                test_parameters['mass_fractions_line_by_line'][species],
                 atol=0,
                 rtol=relative_tolerance
             )

@@ -40,7 +40,7 @@ atmosphere_ck_scattering = init_radtrans_correlated_k()
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -65,7 +65,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
 
 # def test_correlated_k_photospheric_radius_calculation():
 #
-#     mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+#     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
 #     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
 #         test_parameters['cloud_parameters']['cloud_species'][
 #             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -109,7 +109,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
 #     )
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -140,7 +140,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_dayside():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -172,7 +172,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_non_isotropic():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -205,7 +205,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
 
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']

@@ -35,7 +35,7 @@ def test_line_by_line_downsampled_emission_spectrum():
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_line_by_line'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         frequencies_to_wavelengths=False
@@ -50,7 +50,7 @@ def test_line_by_line_downsampled_transmission_spectrum():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_line_by_line'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']

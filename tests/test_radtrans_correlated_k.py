@@ -43,7 +43,7 @@ def test_correlated_k_emission_spectrum():
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         frequencies_to_wavelengths=False
@@ -51,7 +51,7 @@ def test_correlated_k_emission_spectrum():
 
 
 def test_correlated_k_emission_contribution_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
 
@@ -76,7 +76,7 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
 
 
 def test_correlated_k_emission_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -101,7 +101,7 @@ def test_correlated_k_emission_cloud_calculated_radius():
 
 
 def test_correlated_k_emission_spectrum_cloud_hansen_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -135,7 +135,7 @@ def test_correlated_k_transmission_spectrum():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
@@ -153,7 +153,7 @@ def test_correlated_k_transmission_spectrum_cloud_power_law():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
@@ -173,7 +173,7 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
@@ -192,7 +192,7 @@ def test_correlated_k_transmission_spectrum_rayleigh():
 
     benchmark.run(
         temperatures=temperature_isothermal,
-        mass_fractions=test_parameters['mass_fractions'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         planet_radius=test_parameters['planetary_parameters']['radius']
@@ -204,7 +204,7 @@ def test_correlated_k_transmission_spectrum_rayleigh():
 
 
 def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
 
@@ -231,7 +231,7 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
 
 
 def test_correlated_k_transmission_contribution_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
         test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
@@ -267,7 +267,7 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
 
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions'])
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
 

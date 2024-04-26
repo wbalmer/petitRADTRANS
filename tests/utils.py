@@ -68,15 +68,20 @@ def make_petitradtrans_test_config_file(filename):
                     'stop_thin_atmosphere': 0,
                     'num': 27
                 },
-                'mass_fractions': {
+                'mass_fractions_correlated_k': {
                     'H2': 0.74,
                     'He': 0.24,
                     '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
-                    '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
                     '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
-                    'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
                     'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                  },
+                'mass_fractions_line_by_line': {
+                    'H2': 0.74,
+                    'He': 0.24,
+                    '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
+                    'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
                     'metallicities': [-1.9, 0.0, 3.0],  # (log_10 solar)
@@ -206,8 +211,11 @@ def init_test_parameters(recreate_parameter_file=False):
         parameters['pressures']['num']
     )
 
-    for key in parameters['mass_fractions']:
-        parameters['mass_fractions'][key] *= np.ones_like(parameters['pressures'])
+    for key in parameters['mass_fractions_correlated_k']:
+        parameters['mass_fractions_correlated_k'][key] *= np.ones_like(parameters['pressures'])
+
+    for key in parameters['mass_fractions_line_by_line']:
+        parameters['mass_fractions_line_by_line'][key] *= np.ones_like(parameters['pressures'])
 
     parameters['mean_molar_mass'] *= np.ones_like(parameters['pressures'])
     parameters['planetary_parameters']['eddy_diffusion_coefficients'] *= np.ones_like(parameters['pressures'])
@@ -224,7 +232,15 @@ def check_cloud_mass_fractions():
     Check if cloud mass fraction is set to 0 by default.
     This is necessary to correctly assess the effect of the different clear and cloud models.
     """
-    for species, mmr in test_parameters['mass_fractions'].items():
+    for species, mmr in test_parameters['mass_fractions_correlated_k'].items():
+        if '(c)' in species or '(l)' in species or '(s)' in species or '(cr)' in species:  # condensed species
+            if not np.all(mmr == 0):
+                raise ValueError(
+                    f"cloud {species} has a default mass fraction different of 0, cannot perform test\n"
+                    f"mass fraction was: {mmr}"
+                )
+
+    for species, mmr in test_parameters['mass_fractions_line_by_line'].items():
         if '(c)' in species or '(l)' in species or '(s)' in species or '(cr)' in species:  # condensed species
             if not np.all(mmr == 0):
                 raise ValueError(

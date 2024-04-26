@@ -511,6 +511,20 @@ class Radtrans:
         return add_cloud_opacity
 
     @staticmethod
+    def __get_base_species_mass_fractions(mass_fractions):
+        base_species_mass_fractions = {}
+
+        for species, mass_fraction in mass_fractions.items():
+            species_basename = get_species_basename(species)
+
+            if species_basename not in base_species_mass_fractions:
+                base_species_mass_fractions[species_basename] = mass_fraction
+            else:
+                base_species_mass_fractions[species_basename] += mass_fraction
+
+        return base_species_mass_fractions
+
+    @staticmethod
     def __get_cia_contributors(gas_continuum_contributors):
         cia = []
 
@@ -935,9 +949,8 @@ class Radtrans:
             if self._line_species[i_spec] in mass_fractions:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
             else:
-                # Cut off everything after the first '_', to get rid of, for example, things like "_HITEMP_R_10"
-                chem_spec = self._line_species[i_spec].split('.', 1)[0].split('_', 1)[0]
-                line_species_mass_fractions[:, i_spec] = mass_fractions[chem_spec]
+                raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
+                                 f"(listed species: {list(mass_fractions.keys())}")
 
         # Interpolate line opacities
         opacities = self._interpolate_species_opacities(
@@ -1101,15 +1114,7 @@ class Radtrans:
     def _compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
         """Wrapper to _interpolate_cia, calculating each collision's combined mass fraction."""
         # Add mass fractions sharing the same basename
-        base_species_mass_fractions = {}
-
-        for species, mass_fraction in mass_fractions.items():
-            species_basename = get_species_basename(species)
-
-            if species_basename not in base_species_mass_fractions:
-                base_species_mass_fractions[species_basename] = mass_fraction
-            else:
-                base_species_mass_fractions[species_basename] += mass_fraction
+        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
 
         # Calculate CIA opacities
         cia_opacities = 0
@@ -1927,10 +1932,17 @@ class Radtrans:
         wavelengths_angstroem = np.array(cst.c / frequencies * 1e8, dtype='d', order='F')
         rayleigh_scattering_opacities = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
 
+        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
+
         for species in rayleigh_species:
+            if species not in base_species_mass_fractions:
+                raise ValueError(f"Rayleigh species '{species}' not found in mass fractions dict "
+                                 f"(listed species: {list(mass_fractions.keys())}, "
+                                 f"listed species basenames {list(base_species_mass_fractions.keys())}:)")
+
             rayleigh_scattering_opacities += haze_factor * fcore.compute_rayleigh_scattering_opacities(
                 species,
-                mass_fractions[species],
+                base_species_mass_fractions[species],
                 wavelengths_angstroem,
                 mean_molar_masses,
                 temperatures,

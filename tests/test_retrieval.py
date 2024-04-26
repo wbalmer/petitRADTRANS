@@ -208,8 +208,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
         abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
-    abundances['H2'] = test_parameters['mass_fractions']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
-    abundances['He'] = test_parameters['mass_fractions']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
+    abundances['H2'] = test_parameters['mass_fractions_correlated_k']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)
+    abundances['He'] = test_parameters['mass_fractions_correlated_k']['He'] * (1.0 - m_sum) * np.ones_like(pressures)
 
     # Find the mean molecular weight in each layer
     mmw = compute_mean_molar_masses(abundances)
