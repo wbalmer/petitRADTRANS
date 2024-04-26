@@ -194,9 +194,7 @@ For creating opacities for use in petitRADTRANS, calculate the molecular opaciti
 
 The opacities can be calculated on any rectangular pressure temperature grid (the distance between grid points may be variable, but it **must** be rectangular for use in petitRADTRANS). An example is `this grid <https://keeper.mpdl.mpg.de/f/06d53c2cf1e84cf8ad18/>`_, which we use ourselves for opacity calculations these days, containing 200 P-T points, going from 80 up to 4000 K, and from :math:`10^{-6}` to 1000 bar.
 
-Now, let's turn towards preparing the ExoCross results for petitRADTRANS. We will assume that you have calculated the opacities at all 130 pressure-temperature points. The high-resolution wavelength setup between ExoCross and our classical petitCODE/petitRADTRANS opacity calculator is slightly different. ExoCross' wavelength spacing varies a bit around the user-defined resolution, whereas our routines preparing the opacity files for petitRADTRANS assume that the wavelength spacing is exactly :math:`\lambda/\Delta\lambda=10^6`, from 0.11 to 250 microns. Hence we will first have to rebin the ExoCross results to the petitCODE/petitRADTRANS grid. To this end, please download the petitRADTRANS high resolution grid (`wavenumber_grid.petitRADTRANS.h5`_).
-
-.. _`wavenumber_grid.petitRADTRANS.h5`: https://keeper.mpdl.mpg.de/d/c90c79171ec044039650/
+Now, let's turn towards preparing the ExoCross results for petitRADTRANS. We will assume that you have calculated the opacities at all 130 pressure-temperature points. The high-resolution wavelength setup between ExoCross and our classical petitCODE/petitRADTRANS opacity calculator is slightly different. ExoCross' wavelength spacing varies a bit around the user-defined resolution, whereas our routines preparing the opacity files for petitRADTRANS assume that the wavelength spacing is exactly :math:`\lambda/\Delta\lambda=10^6`, from 0.11 to 250 microns. Hence we will first have to rebin the ExoCross results to the petitCODE/petitRADTRANS grid.
 
 Next, execute the following command:
 
