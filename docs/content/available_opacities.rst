@@ -385,7 +385,7 @@ The available correlated-k opacities are listed below. When multiple source are 
 
 \*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
 
-\**: This is the unique name for which there is no ambiguity, when requested in pRT.
+\**: This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
 
 .. _highResolution:
 
@@ -393,7 +393,7 @@ High resolution opacities (``"lbl"``, :math:`\lambda/\Delta\lambda=10^6`)
 -------------------------------------------------------------------------
 All ``lbl`` opacities referenced here have a wavelength binning of :math:`\lambda/\Delta\lambda=10^6` and all files cover wavelengths from 0.3 to 28 µm **exactly**. We are currently working on a version that allows variable wavelength ranges per species, as already implemented for the ``c-k`` mode. Pressure and temperature grids may vary.
 
-.. important:: Also TauREx' cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly, but these have a lower wavelength binning :math:`\lambda/\Delta\lambda=15,000`, so should only be used for data with a spectral resolution :math:`R\lesssim 150`, to avoid opacity sampling noise.
+.. important:: TauREx' cross-section tables with the extension ``.xsec.TauREx.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly, but these have a lower wavelength binning :math:`\lambda/\Delta\lambda=15,000`, so should only be used for data with a spectral resolution :math:`R\lesssim 150`, to avoid opacity sampling noise.
 
 The available line-by-line opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -405,36 +405,36 @@ The available line-by-line opacities are listed below. When multiple source are 
       - Unique species name**
       - Reference
       - Contributor
-    * - Al **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Al
+      - 27Al__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - B **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - B
+      - 11B__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Be **!!None!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Be
+      - 9Be__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - C2H2
       - 12C2-1H2__HITRAN
       - 10.1016/j.jqsrt.2013.07.002
       - --
-    * - Ca **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Ca
+      - 40Ca__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Ca+
-      - 40Ca_p__Kurucz, @ Doriann: should be the same as CaII above?
+      - 40Ca_p__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - CaH
       - 40Ca-1H__MoLLIST
       - `Li et al. (2012) <https://ui.adsabs.harvard.edu/abs/2012JQSRT.113...67L/abstract>`_
       - --
-    * - CH3D **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_, see CH4_212
+    * - CH3D
+      - 12C-1H3-2H__HITRAN
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - CH4
@@ -477,16 +477,16 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 12-C-16O2__HITEMP
       - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - Cr **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Cr
+      - 52Cr__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Fe **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Fe
+      - 56Fe__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - FeII **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Fe+
+      - 56Fe_p__Kurucz.
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - FeH
@@ -494,11 +494,11 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2019.106687
       - --
     * - H2 **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+      - **!! issue with pRT2 line list !!**
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - HD **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+      - 1H-2H__HITRAN
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - H2O
@@ -549,20 +549,20 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 39K_LorCut
       - VALD, Lorentzian wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
-    * - Li **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Li
+      - 7Li__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - Mg **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Mg
+      - 24Mg__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - MgII **!!** Call Mg+?
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Mg+
+      - 24Mg_p__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - N **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - N
+      - 14N__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - **Na**
@@ -585,110 +585,106 @@ The available line-by-line opacities are listed below. When multiple source are 
       - 14N-1H3__CoYuTe
       - ExoMol, `Coles et al. (2019) <https://doi.org/10.1093/mnras/stz2778>`_
       - `Sid Gandhi <gandhi@strw.leidenuniv.nl>`_ (400--1600 K)
-    * - O3 **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - O3
+      - 16O3__HITRAN
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - OH
       - 16O-1H__MoLLIST @ Doriann: should be __HITEMP
       - 10.1016/j.jqsrt.2010.05.001
       - --
-    * - PH3 @ Doriann: remove, only keep __SALTY below!
-      - 31P-1H3__HITRAN
-      - `HITRAN <https://doi.org/10.1016/j.jqsrt.2013.07.002>`_
-      - --
-    * - **PH3**
+    * - PH3
       - 31P-1H3__SAlTY
       - ExoMol, `Sousa-Silva et al. (2014) <http://dx.doi.org/10.1093/mnras/stu2246>`_, converted from `DACE <https://dace.unige.ch/dashboard/>`_
       - `Adriano Miceli <adriano.miceli@stud.unifi.it>`_
-    * - Si **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Si
+      - 28Si__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - SiO
       - 28Si-16O__EBJT
       - 10.1093/mnras/stt1105
       - --
-    * - Ti **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Ti
+      - 48Ti__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - TiO **???**
+    * - TiO
+      - Ti-O-NatAbund__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **TiO**
       - Ti-O-NatAbund__Toto
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO **???**
-      - Ti-O-NatAbund__TotoMcKemmish
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_46_Plez **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_47_Plez **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_48_Plez **???**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_49_Plez **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_50_Plez **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
-      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
-    * - TiO_46_Exomol_McKemmish **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
-    * - TiO_47_Exomol_McKemmish **???**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - 46TiO
+      - 46TiO__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **46TiO**
+      - 46TiO__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
-    * - TiO_48_Exomol_McKemmish **???**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - 47TiO
+      - 47TiO__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **47TiO**
+      - 47TiO__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
-    * - TiO_49_Exomol_McKemmish **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - 48TiO
+      - 48TiO__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **48TiO**
+      - 48TiO__Toto
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
-    * - TiO_50_Exomol_McKemmish **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - 49TiO
+      - 49TiO__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **49TiO** **!!**
+      - **!! issue with pRT2 line list !!**
       - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
       - --
-    * - V **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - 50TiO
+      - 50TiO__Plez
+      - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
+      - --
+    * - **50TiO**
+      - 50TiO__Toto
+      - ExoMol, `McKemmish et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019MNRAS.488.2836M/abstract>`_
+      - --
+    * - V
+      - 51V__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
-    * - VII **!!** (call V+)
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - V+
+      - 51V_p__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - VO
       - 51V-16O__Plez
       - B. Plez, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
       - --
-    * - VO_ExoMol_McKemmish **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - **VO**
+      - 51VO__VOMYT
       - `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
       - `S. de Regt <regt@strw.leidenuniv.nl>`_
     * - VO_ExoMol_Specific_Transitions **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+      - **!! Exact difference with "normal" version unknown !!**
       - Most accurate transitions from `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
       - `S. de Regt <regt@strw.leidenuniv.nl>`_
-    * - Y **!!**
-      - @ Doriann: it is on the pRT2 Keeper `here <https://keeper.mpdl.mpg.de/d/e627411309ba4597a343/>`_.
+    * - Y
+      - 89Y__Kurucz
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
 
 \*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
 
-\**: This is the unique name for which there is no ambiguity, when requested in pRT.
+\**: This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
 
 .. _namingConvention:
 
@@ -718,13 +714,13 @@ Hereafter are the explicit file naming rules for line species:
 - The number after the element indicates its (stoichiometric) quantity in the molecule, when relevant.
 - Opacities combining isotopologues following their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number should be present next to the elements.
 - The charge of the species is indicated after the formula, starting with ``_``. The character ``p`` is used for positive charges and ``n`` for negative charges.
-- The number in front of the charge indicates the charge amount.
+- The number in front of the charge indicates the charge amount, when relevant.
 - The source (e.g., line list database) of the opacity is indicated after the charge, starting with ``__``.
 - The spectral information of the opacity is indicated after the source, starting with ``.``.
 - The character ``R`` indicates constant resolving power (:math:`\lambda/\Delta\lambda` constant).
 - The string ``DeltaWavenumber`` indicates constant spacing in wavenumber (:math:`\Delta\nu` constant).
 - The string ``DeltaWavelength`` indicates constant spacing in wavelength (:math:`\Delta\lambda` constant).
-- The number coming after the above indicates the spacing or resolution.  ``.R100`` would correspond to :math:`\lambda/\Delta\lambda=100`, for example.
+- The number coming after the above indicates the spacing or resolution. ``.R100`` would correspond to :math:`\lambda/\Delta\lambda=100`, for example.
 - The wavelength range, in µm, is indicated afterward, starting with a ``_`` and ending with ``mu``. The upper and lower boundaries are separated with ``-``.
 - The nature of the opacity is indicated afterward, starting with a ``.``. It is ``ktable`` for correlated-k opacities, and ``xsec`` for line-by-line opacities.
 - The extension of the file is always ``.petitRADTRANS.h5``.
