@@ -12,7 +12,7 @@ from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS._input_data_loader import (
     _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases,
     get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string,
-    split_species_all_info
+    get_species_basename, split_species_all_info
 )
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -1100,6 +1100,18 @@ class Radtrans:
     @staticmethod
     def _compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
         """Wrapper to _interpolate_cia, calculating each collision's combined mass fraction."""
+        # Add mass fractions sharing the same basename
+        base_species_mass_fractions = {}
+
+        for species, mass_fraction in mass_fractions.items():
+            species_basename = get_species_basename(species)
+
+            if species_basename not in base_species_mass_fractions:
+                base_species_mass_fractions[species_basename] = mass_fraction
+            else:
+                base_species_mass_fractions[species_basename] += mass_fraction
+
+        # Calculate CIA opacities
         cia_opacities = 0
 
         for collision, collision_dict in cia_dicts.items():
@@ -1107,24 +1119,13 @@ class Radtrans:
             combined_mass_fraction = 1
 
             for collision_species in collision_dict['molecules']:
-                if collision_species in mass_fractions:
-                    combined_mass_fraction = combined_mass_fraction * mass_fractions[collision_species]
+                if collision_species in base_species_mass_fractions:
+                    combined_mass_fraction = combined_mass_fraction * base_species_mass_fractions[collision_species]
                 else:
-                    found = False
-
-                    for species in mass_fractions:
-                        _species = species.split('_', 1)[0]
-
-                        if _species == collision_species:
-                            combined_mass_fraction = combined_mass_fraction * mass_fractions[species]
-                            found = True
-
-                            break
-
-                    if not found:
-                        raise ValueError(f"species '{collision_species}' of CIA '{collision}' "
-                                         f"not found in mass fractions dict "
-                                         f"(listed species: {list(mass_fractions.keys())})")
+                    raise ValueError(f"species '{collision_species}' of CIA '{collision}' "
+                                     f"not found in mass fractions dict "
+                                     f"(listed species: {list(mass_fractions.keys())}, "
+                                     f"listed species basenames {list(base_species_mass_fractions.keys())}:)")
 
             # Add CIA opacities
             cia_opacities += (
