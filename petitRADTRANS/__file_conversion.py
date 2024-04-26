@@ -4003,6 +4003,8 @@ def write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
 
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(),
                 rewrite=False, old_paths=False, clean=False):
+    path_input_data = os.path.abspath(path_input_data)
+
     if not old_paths:
         print("Refactoring input data folder...")
         _refactor_input_data_folder(path_input_data=path_input_data)
