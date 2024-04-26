@@ -197,6 +197,26 @@ All the tests within the "tests" directory will be executed. A summary will be a
 
 .. important:: Before a push, ``tox`` should always be run.
 
+Conda: running the tests
+~~~~~~~~~~~~~~~~~~~~~~~~
+When using conda environments, you must install `tox-conda` prior to running the tox test suite.
+Additionally, you may run into issues with package versions and getting the test suite to run properly, in particular with the `numba` package.
+You will need to `conda install numba`, even if you have already installed the package through `pip`.
+We also suggest running `tox` for specific python versions, rather than automatically running on the base version installed on your system.
+At the very least, you should run tests on the oldest version currently supported by pRT (python 3.9 as of 2024), as well as the most recent version.
+
+Below an example to tox test the code with flake8 and python 3.11:
+
+.. code-block::
+
+    conda create --name toxfun python=3.11
+    conda activate toxfun
+    pip install tox
+    pip install tox-conda
+    conda install numba
+    tox -e flake8
+    tox -e py311
+
 Introduction
 ~~~~~~~~~~~~
 The tox `configuration <https://tox.wiki/en/latest/config.html>`_ is set within the "setup.cfg" file.
@@ -223,34 +243,25 @@ The test functions that will be executed by tox are in the test modules. To mini
 
 In order to keep things clean in the long run: if a test goes wrong, **avoid increasing the tolerance**. Instead, try first to understand the origin of the difference. It is your responsibility as a developer to understand and explain changes in results coming from the changes you made within the code.
 
-Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an AssertionError is raised, an error file is automatically generated in the "errors" directory. The error file is a .npz file containing 4 keys:
+Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an AssertionError is raised, an error file is automatically generated in the "errors" directory. The error file is a .h5 file containing 6 datasets:
 
-- ``test_result``, the result of the current test,
-- ``data``, the result of the last validated test,
+- ``test_outputs``, the results of the current test,
+- ``reference_outputs``, the results of the last validated test,
+- ``prt_version``, the version of petitRADTRANS used to generate the last validated test,
 - ``relative_tolerance``, the relative tolerance used to compare the results,
 - ``absolute_tolerance``, the absolute tolerance used to compare the results.
+- ``date``, the date of the test.
 
-This file can be used for diagnostic.
+In addition, the test will compare the inputs of the tested function. If a discrepancy is detected, an error file is automatically generated in the "errors" directory. The error file is a .h5 file containing 6 datasets:
 
-tox-conda
-~~~~~~~~~
-When using conda environments, you must install `tox-conda` prior to running the tox test suite.
-Additionally, you may run into issues with package versions and getting the test suite to run properly, in particular with the `numba` package.
-You will need to `conda install numba`, even if you have already installed the package through `pip`. 
-We also suggest running `tox` for specific python versions, rather than automatically running on the base version installed on your system.
-At the very least, you should run tests on the oldest version currently supported by pRT (python 3.9 as of 2024), as well as the most recent version.
+- ``invalid_test_parameters``, the invalid inputs used for the current test,
+- ``reference_parameters``, the corresponding inputs used for the last validated test,
+- ``prt_version``, the version of petitRADTRANS used to generate the last validated test,
+- ``relative_tolerance``, the relative tolerance used to compare the results,
+- ``absolute_tolerance``, the absolute tolerance used to compare the results.
+- ``date``, the date of the test.
 
-Below an example to tox test the code with python 3.11:
-
-.. code-block::
-
-    conda create --name toxfun python=3.11
-    conda activate toxfun
-    pip install tox
-    pip install tox-conda
-    conda install numba
-    tox -e py311
-
+These files can be used for diagnostic.
 
 Creating a new test
 ~~~~~~~~~~~~~~~~~~~
@@ -294,6 +305,11 @@ In order to create a test, you can use the petitRADTRANS tools and follow these 
         test_my_feature()  # generate the reference comparison file, then test the function
         Benchmark.deactivate_reference_file_generation()
 7. Launch ``tox`` to be sure that everything went right.
+
+.. tip:: If your test failed with ``tox``:
+
+    - You can execute your test function in a Python console to help you debug it faster.
+    - If you used the recommended ``Benchmark`` workflow, you can also use the generated error files to help you.
 
 Resetting all reference files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
