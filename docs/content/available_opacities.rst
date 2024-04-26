@@ -293,8 +293,8 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - OH
-      - 16O-1H__MoLLIST
-      - 16O-1H__MoLLIST.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
+      - 16O-1H__HITEMP
+      - 16O-1H__HITEMP.R1000_0.3-50mu.ktable.petitRADTRANS.h5.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2018.06.016
       - --
     * - PH3
