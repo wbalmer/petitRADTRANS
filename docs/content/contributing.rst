@@ -39,9 +39,9 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 1. Install `Git <https://git-scm.com/>`_.
 2. Sign up to `Gitlab <https://gitlab.com/>`_.
 3. `Fork <https://docs.gitlab.com/ee/user/project/repository/forking_workflow.html>`_ petitRADTRANS from the `main repository <https://gitlab.com/mauricemolli/petitRADTRANS>`_.
-    .. note:: If you are registered as a developer of petitRADTRANS, you may directly create a new branch (step 10) instead of a fork.
-4. `Clone <https://docs.gitlab.com/ee/gitlab-basics/start-using-git.html#clone-a-repository>`_ your fork to work locally.
-5. Add an upstream remote and fetch it with:
+    .. note:: you may directly create a new branch (step 10) instead of a fork.
+4. `Clone <https://docs.gitlab.com/ee/user/project/repository/#clone-a-repository>`_ your fork to work locally.
+5. Go inside the cloned directory. Add an upstream remote and fetch it with:
     .. code-block:: bash
 
         git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS``
@@ -50,10 +50,10 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 6. Set your ``main`` branch to track upstream using.
     .. code-block:: bash
 
-        git branch --set-upstream-to=upstream/main
+        git branch -u upstream/master master
 
 
-    .. note:: Points 5 and 6 ensure that your fork stays connected with the "official" pRT repository and that you can always incorporate pRT changes into your fork by typing ``git fetch upstream``.
+    .. note:: Points 5 and 6 ensure that your fork stays connected with the "official" pRT repository and that you can always incorporate pRT changes into your fork by typing e.g. ``git merge upstream/master``.
 
 7. Follow the petitRADTRANS installation instructions to install your fork. Once you are setup, use the following command:
     .. code-block:: bash
@@ -66,7 +66,7 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 12. Regularly commit your changes using ``git commit -m 'Concise description of the change'``.
 13. Before pushing, **always** test your changes by executing ``tox``.
 14. Push to your branch using ``git push``.
-15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_.
+15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_ from your fork, targeting the upstream.
 
 You may contact by mail members of the development team to inform them about your (future) merge request at any time in the development process. Stay available in case modifications are requested by the development team before merging your branch.
 
