@@ -46,10 +46,15 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 
         git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS``
         git fetch upstream
+
 6. Set your ``main`` branch to track upstream using.
     .. code-block:: bash
 
         git branch --set-upstream-to=upstream/main
+
+
+    .. note:: Points 5 and 6 ensure that your fork stays connected with the "official" pRT repository and that you can always incorporate pRT changes into your fork by typing ``git fetch upstream``.
+
 7. Follow the petitRADTRANS installation instructions to install your fork. Once you are setup, use the following command:
     .. code-block:: bash
 
