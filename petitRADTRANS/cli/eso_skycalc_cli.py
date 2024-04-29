@@ -10,13 +10,13 @@ import numpy as np
 from astropy.io import fits
 from skycalc_cli.skycalc import AlmanacQuery, SkyModel
 
-import petitRADTRANS.nat_cst as nc
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import savez_compressed_record
 
 
 def find_optimal_airmass_day(ra, dec, observatory='3060m',
-                             time_step=nc.snc.day, time_range=nc.snc.Julian_year, start_time_mjd=6e4):
-    modified_julian_dates = np.arange(0.0, time_range, time_step) / nc.snc.day + start_time_mjd
+                             time_step=cst.s_cst.day, time_range=cst.s_cst.Julian_year, start_time_mjd=6e4):
+    modified_julian_dates = np.arange(0.0, time_range, time_step) / cst.s_cst.day + start_time_mjd
 
     best_airmass = np.inf
     best_time = -1
@@ -39,7 +39,7 @@ def find_optimal_airmass_day(ra, dec, observatory='3060m',
                 mjd=mjd
             )
         except json.JSONDecodeError:
-            print(f"Skipping invalid result")
+            print("Skipping invalid result")
             continue
 
         if 1.0 <= airmass < best_airmass:
@@ -74,7 +74,7 @@ def find_optimal_airmass_day(ra, dec, observatory='3060m',
                     mjd=mjd
                 )
             except json.JSONDecodeError:
-                print(f"Skipping invalid result")
+                print("Skipping invalid result")
                 continue
 
             if 1.0 <= airmass < best_airmass:
@@ -144,8 +144,8 @@ def get_optimal_airmass_curve(ra, dec, dit, observation_duration, query_dit=120.
         ra=ra,
         dec=dec,
         observatory=observatory,
-        time_step=nc.snc.day,
-        time_range=nc.snc.Julian_year
+        time_step=cst.s_cst.day,
+        time_range=cst.s_cst.Julian_year
     )
 
     if query_dit is None:
@@ -157,7 +157,7 @@ def get_optimal_airmass_curve(ra, dec, dit, observation_duration, query_dit=120.
 
     modified_julian_dates = np.concatenate(
         (np.arange(0.0, n_dit * dit / 2, query_dit), [n_dit * dit / 2])
-    ) / nc.snc.day
+    ) / cst.s_cst.day
     modified_julian_dates = np.concatenate((-modified_julian_dates[:0:-1], modified_julian_dates)) + best_day
     central_index = int(modified_julian_dates.size / 2)
     shift = 0
@@ -229,7 +229,7 @@ def get_optimal_airmass_curve(ra, dec, dit, observation_duration, query_dit=120.
     if query_dit != dit:
         modified_julian_dates_dit = np.concatenate(
             (np.arange(0.0, n_dit * dit / 2, dit), [n_dit * dit / 2])
-        ) / nc.snc.day
+        ) / cst.s_cst.day
         modified_julian_dates_dit = np.concatenate(
             (-modified_julian_dates_dit[:0:-1], modified_julian_dates_dit)
         ) + modified_julian_dates[central_index]
@@ -238,7 +238,7 @@ def get_optimal_airmass_curve(ra, dec, dit, observation_duration, query_dit=120.
     else:
         modified_julian_dates_dit = modified_julian_dates
 
-    times = (modified_julian_dates_dit - modified_julian_dates[central_index]) * nc.snc.day
+    times = (modified_julian_dates_dit - modified_julian_dates[central_index]) * cst.s_cst.day
 
     return times, airmasses
 

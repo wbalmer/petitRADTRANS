@@ -78,7 +78,7 @@ def call_etc(postdatafile, url, uploadfile=None):
     with open(postdatafile) as f:
         postdata = json.loads(f.read())
 
-    # TODO! workaround until we figure put how to handle ssl certificate correctly
+    # TODO workaround until we figure out how to handle ssl certificates correctly
     import warnings
     warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 

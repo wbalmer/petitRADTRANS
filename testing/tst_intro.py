@@ -7,7 +7,7 @@ import os
 Chubb = False
 
 if not Chubb:
-    atmosphere = Radtrans(line_species = ['H2O', 'CO_all_iso', 'CH4', 'CO2', 'Na', 'K'],
+    atmosphere = Radtrans(line_species = ['H2O', 'CO-NatAbund', 'CH4', 'CO2', 'Na', 'K'],
                           rayleigh_species = ['H2', 'He'],
                           continuum_opacities = ['H2-H2', 'H2-He'],
                           wlen_bords_micron = [0.3, 15],
@@ -33,24 +33,24 @@ else:
     abundances['K'] = 0.000001 * np.ones_like(temperature)
 
     
-abundances['CO_all_iso'] = 0.01 * np.ones_like(temperature)
+abundances['CO-NatAbund'] = 0.01 * np.ones_like(temperature)
 abundances['CO2'] = 0.00001 * np.ones_like(temperature)
 abundances['CH4'] = 0.000001 * np.ones_like(temperature)
 
 MMW = 2.33 * np.ones_like(temperature)
 
-from petitRADTRANS import nat_cst as nc
-from petitRADTRANS.physics import guillot_global
-R_pl = 1.838*nc.r_jup_mean
+from petitRADTRANS import physical_constants as cst
+from petitRADTRANS.physics import temperature_profile_function_guillot_global
+R_pl = 1.838*cst.r_jup_mean
 gravity = 1e1**2.45
 P0 = 0.01
 
-atmosphere.calc_transm(temperature, abundances, gravity, MMW, R_pl=R_pl, P0_bar=P0)
+atmosphere.calculate_transit_radii(temperature, abundances, gravity, MMW, planet_radius=R_pl, reference_pressure=P0)
 
 import pylab as plt
 plt.rcParams['figure.figsize'] = (10, 6)
 
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.transm_rad/nc.r_jup_mean)
+plt.plot(cst.c / atmosphere._frequencies / 1e-4, atmosphere.transit_radii / cst.r_jup_mean)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -58,9 +58,9 @@ plt.ylabel(r'Transit radius ($\rm R_{Jup}$)')
 plt.show()
 #plt.clf()
 
-atmosphere.calc_flux(temperature, abundances, gravity, MMW)
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.flux/1e-6)
+plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')
@@ -73,7 +73,7 @@ gamma = 0.4
 T_int = 200.
 T_equ = 1500.
 
-temperature = guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
+temperature = temperature_profile_function_guillot_global(pressures, kappa_IR, gamma, gravity, T_int, T_equ)
 
 plt.plot(temperature, pressures)
 plt.yscale('log')
@@ -83,9 +83,9 @@ plt.ylabel('P (bar)')
 plt.show()
 #plt.clf()
 
-atmosphere.calc_flux(temperature, abundances, gravity, MMW)
+frequencies, flux, _ = atmosphere.calculate_flux(temperature, abundances, gravity, MMW)
 
-plt.plot(nc.c/atmosphere.freq/1e-4, atmosphere.flux/1e-6)
+plt.plot(cst.c / frequencies / 1e-4, flux / 1e-6)
 
 plt.xscale('log')
 plt.xlabel('Wavelength (microns)')

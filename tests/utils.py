@@ -8,11 +8,11 @@ import os
 import numpy as np
 
 from .context import petitRADTRANS
-from petitRADTRANS.physics import guillot_global
 
 version = "2.4.5"  # petitRADTRANS.version.version used to generate last tests
 
 tests_data_directory = os.path.join(os.path.dirname(__file__), 'data')
+tests_references_directory = os.path.join(os.path.dirname(__file__), 'references')
 tests_error_directory = os.path.join(os.path.dirname(__file__), 'errors')
 tests_results_directory = os.path.join(os.path.dirname(__file__), 'results')
 reference_filenames = {
@@ -20,60 +20,10 @@ reference_filenames = {
         'config_test_radtrans',
     'guillot_2010':
         'radtrans_guillot_2010_temperature_profile_ref',
-    'co_added_cross_correlation':
-        'co_added_cross_correlation_ref',
-    'correlated_k_transmission':
-        'radtrans_correlated_k_transmission_ref',
-    'correlated_k_transmission_cloud_power_law':
-        'radtrans_correlated_k_transmission_cloud_power_law_ref',
-    'correlated_k_transmission_gray_cloud':
-        'radtrans_correlated_k_transmission_gray_cloud_ref',
-    'correlated_k_transmission_rayleigh':
-        'radtrans_correlated_k_transmission_rayleigh_ref',
-    'correlated_k_transmission_cloud_fixed_radius':
-        'radtrans_correlated_k_transmission_cloud_fixed_radius_ref',
-    'correlated_k_transmission_cloud_calculated_radius':
-        'radtrans_correlated_k_transmission_cloud_calculated_radius_ref',
     'correlated_k_transmission_cloud_calculated_radius_scattering':
         'radtrans_correlated_k_transmission_cloud_calculated_radius_scattering_ref',
-    'correlated_k_transmission_contribution_cloud_calculated_radius':
-        'radtrans_correlated_k_transmission_contribution_cloud_calculated_radius_ref',
-    'correlated_k_emission':
-        'radtrans_correlated_k_emission_ref',
-    'correlated_k_emission_cloud_calculated_radius':
-        'radtrans_correlated_k_emission_cloud_calculated_radius_ref',
-    'correlated_k_emission_cloud_calculated_radius_scattering':
-        'radtrans_correlated_k_emission_cloud_calculated_radius_scattering_ref',
-    'correlated_k_emission_cloud_calculated_radius_scattering_planetary_ave':
-        'radtrans_correlated_k_emission_cloud_calculated_radius_scattering_average_ref',
-    'correlated_k_emission_cloud_calculated_radius_scattering_dayside_ave':
-        'radtrans_correlated_k_emission_cloud_calculated_radius_scattering_dayside_ref',
-    'correlated_k_emission_cloud_calculated_radius_scattering_non-isotropic':
-        'radtrans_correlated_k_emission_cloud_calculated_radius_scattering_non-isotropic_ref',
-    'correlated_k_emission_contribution_cloud_calculated_radius':
-        'radtrans_correlated_k_emission_contribution_cloud_calculated_radius_ref',
-    'correlated_k_emission_cloud_hansen_radius':
-        'radtrans_correlated_k_emission_cloud_hansen_radius_ref',
-    'correlated_k_emission_surface_scattering':
-        'radtrans_correlated_k_emission_surface_scattering_ref',
-    'line_by_line_downsampled_transmission':
-        'radtrans_line_by_line_downsampled_transmission_ref',
-    'line_by_line_downsampled_emission':
-        'radtrans_line_by_line_downsampled_emission_ref',
-    'line_by_line_transmission':
-        'radtrans_line_by_line_transmission_ref',
-    'line_by_line_transmission_2d':
-        'radtrans_line_by_line_transmission_2d_ref',
-    'line_by_line_emission':
-        'radtrans_line_by_line_emission_ref',
-    'mass_fractions_atmosphere':
-        'mass_fractions_atmosphere_ref',
-    'mass_fractions_atmosphere_quench':
-        'mass_fractions_atmosphere_quench_ref',
-    'mass_fractions_c_o_ratios':
-        'mass_fractions_c_o_ratios_ref',
-    'mass_fractions_metallicities':
-        'mass_fractions_metallicities_ref'
+    'simple_spectrum':
+        'simple_spectrum_ref'
 }
 
 # Complete filenames
@@ -86,9 +36,11 @@ reference_filenames = {
 
 reference_filenames['mock_observation_transmission'] = reference_filenames[
         'correlated_k_transmission_cloud_calculated_radius_scattering'
-    ].rsplit('.', 1)[0] + '.dat'
+    ].rsplit('.', 1)[0] + '.dat'  # using a .dat file is needed for the basic retrieval test
 reference_filenames['pymultinest_parameter_analysis'] = \
-    os.path.join(tests_data_directory, 'test_stats' + '.json')
+    os.path.join(tests_data_directory, 'test_stats.json')
+reference_filenames['NASA_exoplanet_archive_test'] = \
+    os.path.join(tests_data_directory, 'NASA_exoplanet_archive_test.tab')
 
 
 # Make directories if needed
@@ -97,7 +49,7 @@ if not os.path.isdir(tests_results_directory):
 
 
 # Common parameters
-def create_test_radtrans_config_file(filename):
+def make_petitradtrans_test_config_file(filename):
     with open(os.path.join(filename), 'w') as f:
         json.dump(
             obj={
@@ -116,15 +68,20 @@ def create_test_radtrans_config_file(filename):
                     'stop_thin_atmosphere': 0,
                     'num': 27
                 },
-                'mass_fractions': {
+                'mass_fractions_correlated_k': {
                     'H2': 0.74,
                     'He': 0.24,
-                    'H2O_HITEMP': 0.001,
-                    'H2O_main_iso': 0.001,
-                    'CH4': 0.001,
-                    'CO_all_iso': 0.1,
-                    'Mg2SiO4(c)': 0.0
+                    '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
+                    '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                  },
+                'mass_fractions_line_by_line': {
+                    'H2': 0.74,
+                    'He': 0.24,
+                    '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
+                    'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
                     'metallicities': [-1.9, 0.0, 3.0],  # (log_10 solar)
@@ -144,8 +101,8 @@ def create_test_radtrans_config_file(filename):
                     'name': 'PSR B1257+12 b',  # actual planet has no link to below parameters
                     'reference_pressure': 0.01,  # (bar)
                     'radius': 1.838,  # (R_jup)
-                    'surface_gravity': 1e1 ** 2.45,  # (cm.s-2)
-                    'eddy_diffusion_coefficient': 10 ** 7.5,
+                    'reference_gravity': 1e1 ** 2.45,  # (cm.s-2)
+                    'eddy_diffusion_coefficients': 10 ** 7.5,
                     'orbit_semi_major_axis': 7.5e11,  # (cm)
                     'surface_reflectance': 0.3
                 },
@@ -158,15 +115,21 @@ def create_test_radtrans_config_file(filename):
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,
                     'line_species_correlated_k': [
-                        'H2O_HITEMP',
-                        'CH4'
+                        '1H2-16O__HITEMP.R1000_0.1-250mu',
+                        '12C-1H4__YT34to10.R1000_0.3-50mu'
                     ],
                     'line_species_line_by_line': [
-                        'H2O_main_iso',
-                        'CO_all_iso'
+                        '1H2-16O__HITEMP.R1e6_0.3-28mu',
+                        'C-O-NatAbund__HITEMP.R1e6_0.3-28mu'
                     ],
-                    'rayleigh_species': ['H2', 'He'],
-                    'continuum_opacities': ['H2-H2', 'H2-He'],
+                    'rayleigh_species': [
+                        'H2',
+                        'He'
+                    ],
+                    'continuum_opacities': [
+                        "H2--H2-NatAbund__BoRi.R831_0.6-250mu",
+                        "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
+                    ],
                     'wavelength_range_correlated_k': [0.9, 1.2],
                     'wavelength_range_line_by_line': [2.3000, 2.3025]
                 },
@@ -176,7 +139,7 @@ def create_test_radtrans_config_file(filename):
                    'cloud_pressure': 0.01,
                    'haze_factor': 10.0,
                    'cloud_species': {
-                       'Mg2SiO4(c)_cd': {
+                       'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
                            'mass_fraction': 5e-7,
                            'radius': 5e-5,  # (cm)
                            'f_sed': 2.0,
@@ -195,7 +158,8 @@ def create_test_radtrans_config_file(filename):
                     'sampling_efficiency': 0.8,
                     'n_live_points': 50,
                     'const_efficiency_mode': False,
-                    'resume': False
+                    'resume': False,
+                    'seed': 12345
                 },
                 'mock_observation_parameters': {
                     'resolving_power': 60,
@@ -204,7 +168,7 @@ def create_test_radtrans_config_file(filename):
                     'orbital_phase_range': (-1e-2, 1e-2),
                     'system_observer_radial_velocities_range': (-5.0e5, -4.85e5),
                     'n_exposures': 20,
-                    'planet_rest_frame_velocity_shift': -1.5e5,
+                    'rest_frame_velocity_shift': -1.5e5,
                     'relative_error': 1e-2
                 },
                 'ccf_analysis_parameters': {
@@ -214,7 +178,8 @@ def create_test_radtrans_config_file(filename):
                     'pixels_per_resolution_element': 2,
                     'peak_lsf_factor': 1.5,
                     'velocity_interval_extension_factor': -0.3,
-                    'kp_factor': 1.5
+                    'kp_factor': 1.5,
+                    'peak_cutoff': 0.68
                 }
             },
             fp=f,
@@ -222,14 +187,14 @@ def create_test_radtrans_config_file(filename):
         )
 
 
-def init_radtrans_parameters(recreate_parameter_file=False):
+def init_test_parameters(recreate_parameter_file=False):
     """
     Initialize various parameters used both to perform the tests and generate the reference files.
     Do not change these parameters when comparing with a previous version.
     """
     if not os.path.isfile(reference_filenames['config_test_radtrans']) or recreate_parameter_file:
         print('Generating Radtrans test parameters file...')
-        create_test_radtrans_config_file(filename=reference_filenames['config_test_radtrans'])
+        make_petitradtrans_test_config_file(filename=reference_filenames['config_test_radtrans'])
 
     with open(reference_filenames['config_test_radtrans'], 'r') as f:
         parameters = json.load(f)
@@ -246,16 +211,19 @@ def init_radtrans_parameters(recreate_parameter_file=False):
         parameters['pressures']['num']
     )
 
-    for key in parameters['mass_fractions']:
-        parameters['mass_fractions'][key] *= np.ones_like(parameters['pressures'])
+    for key in parameters['mass_fractions_correlated_k']:
+        parameters['mass_fractions_correlated_k'][key] *= np.ones_like(parameters['pressures'])
+
+    for key in parameters['mass_fractions_line_by_line']:
+        parameters['mass_fractions_line_by_line'][key] *= np.ones_like(parameters['pressures'])
 
     parameters['mean_molar_mass'] *= np.ones_like(parameters['pressures'])
-    parameters['planetary_parameters']['eddy_diffusion_coefficient'] *= np.ones_like(parameters['pressures'])
+    parameters['planetary_parameters']['eddy_diffusion_coefficients'] *= np.ones_like(parameters['pressures'])
 
     return parameters
 
 
-radtrans_parameters = init_radtrans_parameters()
+test_parameters = init_test_parameters()
 
 
 # Useful functions
@@ -264,7 +232,15 @@ def check_cloud_mass_fractions():
     Check if cloud mass fraction is set to 0 by default.
     This is necessary to correctly assess the effect of the different clear and cloud models.
     """
-    for species, mmr in radtrans_parameters['mass_fractions'].items():
+    for species, mmr in test_parameters['mass_fractions_correlated_k'].items():
+        if '(c)' in species or '(l)' in species or '(s)' in species or '(cr)' in species:  # condensed species
+            if not np.all(mmr == 0):
+                raise ValueError(
+                    f"cloud {species} has a default mass fraction different of 0, cannot perform test\n"
+                    f"mass fraction was: {mmr}"
+                )
+
+    for species, mmr in test_parameters['mass_fractions_line_by_line'].items():
         if '(c)' in species or '(l)' in species or '(s)' in species or '(cr)' in species:  # condensed species
             if not np.all(mmr == 0):
                 raise ValueError(
@@ -273,50 +249,15 @@ def check_cloud_mass_fractions():
                 )
 
 
-def compare_from_reference_file(reference_file, comparison_dict, relative_tolerance, absolute_tolerance=0):
-    reference_data = np.load(reference_file)
-    print(f"Comparing generated spectrum to result from petitRADTRANS-{reference_data['prt_version']}...")
-
-    for reference_file_key in comparison_dict:
-        try:
-            assert np.allclose(
-                comparison_dict[reference_file_key],
-                reference_data[reference_file_key],
-                rtol=relative_tolerance,
-                atol=absolute_tolerance
-            )
-        except AssertionError:
-            # Save data for diagnostic
-            if not os.path.isdir(tests_error_directory):
-                os.mkdir(tests_error_directory)
-
-            error_file = os.path.join(
-                tests_error_directory,
-                f"{os.path.basename(reference_file).rsplit('.', 1)[0]}_error_{reference_file_key}"
-            )
-            print(f"Saving assertion error data in file '{error_file}' for diagnostic...")
-
-            np.savez_compressed(
-                error_file,
-                test_result=comparison_dict[reference_file_key],
-                data=reference_data[reference_file_key],
-                relative_tolerance=relative_tolerance,
-                absolute_tolerance=absolute_tolerance
-            )
-
-            # Raise the AssertionError
-            raise
-
-
 # Initializations
 def init_guillot_2010_temperature_profile():
-    temperature_guillot = guillot_global(
-        P=radtrans_parameters['pressures'],
-        kappa_IR=radtrans_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
-        gamma=radtrans_parameters['temperature_guillot_2010_parameters']['gamma'],
-        grav=radtrans_parameters['planetary_parameters']['surface_gravity'],
-        T_int=radtrans_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
-        T_equ=radtrans_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
+    temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
+        pressures=test_parameters['pressures'],
+        infrared_mean_opacity=test_parameters['temperature_guillot_2010_parameters']['infrared_mean_opacity'],
+        gamma=test_parameters['temperature_guillot_2010_parameters']['gamma'],
+        gravities=test_parameters['planetary_parameters']['reference_gravity'],
+        intrinsic_temperature=test_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
+        equilibrium_temperature=test_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature']
     )
 
     return temperature_guillot
@@ -325,10 +266,79 @@ def init_guillot_2010_temperature_profile():
 def init_radtrans_test():
     check_cloud_mass_fractions()
 
-    tp_iso = radtrans_parameters['temperature_isothermal'] * np.ones_like(radtrans_parameters['pressures'])
+    tp_iso = test_parameters['temperature_isothermal'] * np.ones_like(test_parameters['pressures'])
     tp_guillot_2010 = init_guillot_2010_temperature_profile()
 
     return tp_iso, tp_guillot_2010
+
+
+def npz2dat(file, new_resolving_power=60.0, relative_error=0.05, mode='transmission'):
+    """Converts a .npz spectrum file into a .dat file suitable for the petitRADTRANS.retrieval Data class.
+
+    The .dat file is outputted in the same directory as the .npz file.
+
+    Args:
+        file:
+            The .npz file to convert.
+        new_resolving_power:
+            The resolution power of the .dat file. It should be lower than the one in the original file.
+        relative_error:
+            Mock observation uncertainty to add.
+        mode:
+            How to read the .npz file ('emission'|'transmission')
+    """
+    from scripts.mock_observation import convolve_rebin
+
+    npz_data = np.load(file)
+
+    wavelength = npz_data['wavelength']
+
+    if mode == 'emission':
+        flux = petitRADTRANS.physics.flux_hz2flux_cm(
+            npz_data['spectral_radiosity'],
+            petitRADTRANS.physical_constants.c * 1e4 / wavelength  # um to Hz
+        )
+        flux *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+
+        flux_str = 'spectral_radiosity units: W.m-2/um\n'
+    elif mode == 'transmission':
+        flux = (
+                       npz_data['transit_radius'] * petitRADTRANS.physical_constants.r_jup_mean
+                       / (test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun)
+               ) ** 2
+        flux_str = 'transit_radius units: (R_p/R_star)^2\n'
+    else:
+        raise ValueError(f"mode must be 'emission' or 'transmission', but was '{mode}'")
+
+    dump, wavelength, flux = convolve_rebin(
+        input_wavelengths=wavelength,
+        input_flux=flux,
+        instrument_resolving_power=new_resolving_power,
+        pixel_sampling=1,
+        instrument_wavelength_range=(wavelength[1], wavelength[-1])
+    )
+
+    error = relative_error * np.max(flux)
+
+    flux += np.random.default_rng().normal(
+        loc=0.,
+        scale=error,
+        size=np.size(flux)
+    )
+
+    error *= np.ones_like(wavelength)
+
+    np.savetxt(
+        fname=file.rsplit('.', 1)[0] + '.dat',
+        X=np.transpose((wavelength, flux, error)),
+        header='wavelength flux error\n'
+               f'File generated by tests.utils function\n'
+               f'wavelength units: um\n'
+               f'error and {flux_str}'
+               f'resolution power {new_resolving_power}\n'
+               f'relative error {relative_error}\n'
+               f'original file: {file}'
+    )
 
 
 temperature_isothermal, temperature_guillot_2010 = init_radtrans_test()

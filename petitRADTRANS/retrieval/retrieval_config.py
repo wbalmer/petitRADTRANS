@@ -1,28 +1,28 @@
-import sys
-import os
 import logging
-# To not have numpy start parallelizing on its own
-os.environ["OMP_NUM_THREADS"] = "1"
+import os
+import sys
+
 import numpy as np
-from .data import Data
-from .parameter import Parameter
+
+from petitRADTRANS.config.configuration import petitradtrans_config_parser
+from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.parameter import Parameter
 
 # MPI Multiprocessing
-RANK = 0
-COMM = None
+rank = 0
+comm = None
+
 try:
     from mpi4py import MPI
-    COMM = MPI.COMM_WORLD
-    RANK = COMM.Get_rank()
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
 except ImportError:
-    logging.warning("MPI is required to run retrievals across multiple cores. Using single core mode only!")
+    MPI = None
 
-#import species
-#species.SpeciesInit()
 
 class RetrievalConfig:
     """
-    The RetrievalConfig class contains all of the data and model level information necessary
+    The RetrievalConfig class contains all the data and model level information necessary
     to run a petitRADTRANS retrieval. The name of the class will be used to name outputs.
     This class is passed to the Retrieval, which runs the actual pymultinest retrieval
     and produces the outputs.
@@ -38,11 +38,11 @@ class RetrievalConfig:
             Can be either 'retrieval', which runs the retrieval normally using pymultinest,
             or 'evaluate', which produces plots from the best fit parameters stored in the
             output post_equal_weights file.
-        AMR : bool
+        amr : bool
             Use an adaptive high resolution pressure grid around the location of cloud condensation.
             This will increase the size of the pressure grid by a constant factor that can be adjusted
             in the setup_pres function.
-        scattering : bool
+        scattering_in_emission : bool
             If using emission spectra, turn scattering on or off.
         pressures : numpy.array
             A log-spaced array of pressures over which to retrieve. 100 points is standard, between
@@ -52,11 +52,9 @@ class RetrievalConfig:
     def __init__(self,
                  retrieval_name="retrieval_name",
                  run_mode="retrieval",
-                 AMR=False,
-                 scattering=False,
-                 distribution="lognormal",
-                 pressures=None,
-                 write_out_spec_sample=False):
+                 amr=False,
+                 scattering_in_emission=False,
+                 pressures=None):
 
         self.retrieval_name = retrieval_name
 
@@ -68,15 +66,14 @@ class RetrievalConfig:
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
             sys.exit(1)
-        self.AMR = AMR
+        self.amr = amr
 
         if pressures is not None:
-            self.p_global = pressures
+            self.pressures = pressures
         else:
-            self.p_global = np.logspace(-6, 3, 100)
+            self.pressures = np.logspace(-6, 3, 100)
 
-        self.scattering = scattering
-        self.distribution = distribution
+        self.scattering_in_emission = scattering_in_emission
         self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
         self.data = {}  #: Dictionary of the datasets used in the retrieval.
         self.instruments = []
@@ -87,11 +84,10 @@ class RetrievalConfig:
         self.plot_kwargs = {}
 
         self._plot_defaults()
-        self.write_out_spec_sample = write_out_spec_sample
 
         self.add_parameter("pressure_scaling", False, value=1)
         self.add_parameter("pressure_width", False, value=1)
-        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
+        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
     def _plot_defaults(self):
         ##################################################################
@@ -134,12 +130,12 @@ class RetrievalConfig:
         self.width = width
         nclouds = len(self.cloud_species)
         if nclouds == 0:
-            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up amr")
-        new_len = self.p_global.shape[0] + nclouds * width * (scaling - 1)
-        self.amr_pressure = np.logspace(np.log10(self.p_global[0]), np.log10(self.p_global[-1]), new_len)
+            print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
+        new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
+        self.amr_pressure = np.logspace(np.log10(self.pressures[0]), np.log10(self.pressures[-1]), new_len)
         self.add_parameter("pressure_scaling", False, value=scaling)
         self.add_parameter("pressure_width", False, value=width)
-        self.add_parameter("pressure_simple", False, value=self.p_global.shape[0])
+        self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
         return self.amr_pressure
 
@@ -165,22 +161,15 @@ class RetrievalConfig:
         self.parameters[name] = Parameter(name, free, value,
                                           transform_prior_cube_coordinate=transform_prior_cube_coordinate)
 
-    def list_available_line_species(self):  # TODO could be static
+    @staticmethod
+    def list_available_line_species():
         """
         List the currently installed opacity tables that are available for species that contribute to the line opacity.
         """
 
-        prt_path = os.environ.get("pRT_input_data_path")
-        if prt_path is None:
-            raise OSError(f"Path to input data not specified!\n"
-                          f"Please set pRT_input_data_path variable in .bashrc / .bash_profile or specify path via\n"
-                          f">>> import os"
-                          f">>> os.environ['pRT_input_data_path'] = 'absolute/path/of/the/folder/input_data'\n"
-                          f"before creating a Radtrans object or loading the nat_cst module.\n"
-                          f"(this will become unnecessary in a future update)"
-                          )
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
-        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/corr_k/")]
+        files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/correlated_k/")]
         files = set([f.split('_R_')[0] for f in files])
         print("\ncorrelated-k opacities")
 
@@ -196,20 +185,13 @@ class RetrievalConfig:
 
         return files.union(lbl)
 
-    def list_available_cloud_species(self):  # TODO could be static
+    @staticmethod
+    def list_available_cloud_species():
         """
         List the currently installed opacity tables that are available for cloud species.
         """
 
-        prt_path = os.environ.get("pRT_input_data_path")
-        if prt_path is None:
-            raise OSError(f"Path to input data not specified!\n"
-                          f"Please set pRT_input_data_path variable in .bashrc / .bash_profile or specify path via\n"
-                          f">>> import os"
-                          f">>> os.environ['pRT_input_data_path'] = 'absolute/path/of/the/folder/input_data'\n"
-                          f"before creating a Radtrans object or loading the nat_cst module.\n"
-                          f"(this will become unnecessary in a future update)"
-                          )
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/clouds/")]
         files = set(files)
@@ -219,20 +201,13 @@ class RetrievalConfig:
 
         return files
 
-    def list_available_cia_species(self):  # TODO could be static
+    @staticmethod
+    def list_available_cia_species():
         """
         List the currently installed opacity tables that are available for CIA species.
         """
 
-        prt_path = os.environ.get("pRT_input_data_path")
-        if prt_path is None:
-            raise OSError(f"Path to input data not specified!\n"
-                          f"Please set pRT_input_data_path variable in .bashrc / .bash_profile or specify path via\n"
-                          f">>> import os"
-                          f">>> os.environ['pRT_input_data_path'] = 'absolute/path/of/the/folder/input_data'\n"
-                          f"before creating a Radtrans object or loading the nat_cst module.\n"
-                          f"(this will become unnecessary in a future update)"
-                          )
+        prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/continuum/cia/")]
         files = set(files)
@@ -268,12 +243,16 @@ class RetrievalConfig:
                 The abundance limits must be given in log10 units of the mass fraction.
         """
         if abund_lim[1] > 0.0:
-            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+            raise ValueError(
+                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+            )
 
         self.line_species = linelist
 
         if not eq:
             for spec in self.line_species:
+                spec = spec.split('.', 1)[0]  # remove possible previous spectral info
+
                 self.parameters[spec] = Parameter(
                     spec,
                     True,
@@ -329,7 +308,9 @@ class RetrievalConfig:
 
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
-            raise ValueError(f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)")
+            raise ValueError(
+                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+            )
 
         self.line_species.append(species)
         if not eq:
@@ -361,8 +342,8 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self,species, eq = True, abund_lim = (-3.5,1.5), scaling_factor = None, 
-                          PBase_lim = None, fixed_abund = None, fixed_base=None):
+    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
+                          scaling_factor=None, fixed_base=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -385,7 +366,7 @@ class RetrievalConfig:
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
                 range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
                 with a typical range being (-5,0).
-            PBase_lim : tuple(float,float)
+            p_base_lim : tuple(float,float)
                 Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
                 Obsolete.
             fixed_abund : Optional(float)
@@ -395,6 +376,8 @@ class RetrievalConfig:
                 The log cloud base pressure. If set, fixes this parameter to a constant value, and it will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds. Not yet compatible
                 with most built in pRT models.
+            scaling_factor :
+                # TODO complete docstring
         """
 
         if species.endswith("(c)"):
@@ -405,9 +388,13 @@ class RetrievalConfig:
         self.cloud_species.append(species)
         cname = species.split('_')[0]
         if scaling_factor is not None:
-            self.parameters['eq_scaling_'+cname] = Parameter('eq_scaling_'+cname,True,\
-                                                transform_prior_cube_coordinate = \
-                                                lambda x : scaling_factor[0] + (scaling_factor[1]-scaling_factor[0])*x)
+            self.parameters['eq_scaling_' + cname] = Parameter(
+                'eq_scaling_' + cname, True,
+                transform_prior_cube_coordinate=lambda x: scaling_factor[0] + (
+                   scaling_factor[1] - scaling_factor[
+                    0]
+                ) * x
+            )
         if not eq:
             if abund_lim[1] > 0.0:
                 raise ValueError(
@@ -427,12 +414,12 @@ class RetrievalConfig:
                     value=fixed_abund
                 )
 
-        if PBase_lim is not None or fixed_base is not None:
+        if p_base_lim is not None or fixed_base is not None:
             if fixed_base is None:
                 self.parameters['log_Pbase_' + cname] = Parameter(
                     'log_Pbase_' + cname,
                     True,
-                    transform_prior_cube_coordinate=lambda x: PBase_lim[0] + (PBase_lim[1] - PBase_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: p_base_lim[0] + (p_base_lim[1] - p_base_lim[0]) * x
                 )
             else:
                 self.parameters['log_Pbase_' + cname] = Parameter(
@@ -441,33 +428,39 @@ class RetrievalConfig:
                     value=fixed_base
                 )
 
-    def add_data(self, 
-                 name, 
-                 path,
+    def add_data(self,
+                 name,
+                 path_to_observations,
                  model_generating_function,
-                 data_resolution = None,
-                 model_resolution = None,
-                 distance = None,
-                 scale = False,
-                 scale_err = False,
-                 offset_bool = False,
-                 wlen_range_micron = None,
-                 external_pRT_reference = None,
-                 opacity_mode = 'c-k',
-                 wlen_bins=None,
-                 pRT_grid=False,
-                 pRT_object=None,
-                 wlen=None,
-                 flux=None,
-                 flux_error=None,
-                 mask=None):
+                 data_resolution=None,
+                 model_resolution=None,
+                 system_distance=None,
+                 scale=False,
+                 scale_err=False,
+                 offset_bool=False,
+                 photometry=False,
+                 photometric_transformation_function=None,
+                 photometric_bin_edges=None,
+                 wavelength_boundaries=None,
+                 external_radtrans_reference=None,
+                 line_opacity_mode='c-k',
+                 wavelength_bin_widths=None,
+                 radtrans_grid=False,
+                 radtrans_object=None,
+                 wavelengths=None,
+                 spectrum=None,
+                 uncertainties=None,
+                 mask=None,
+                 concatenate_flux_epochs_variability=False,
+                 variability_atmospheric_column_model_flux_return_mode=False,
+                 atmospheric_column_flux_mixer=None):
         """
         Create a Data class object.
         # TODO complete docstring
         Args:
             name : str
                 Identifier for this data set.
-            path : str
+            path_to_observations : str
                 Path to observations file, including filename. This can be a txt or dat file containing the wavelength,
                 flux, transit depth and error, or a fits file containing the wavelength, spectrum and covariance matrix.
             model_generating_function : fnc
@@ -478,45 +471,53 @@ class RetrievalConfig:
                 Spectral resolution of the instrument. Optional, allows convolution of model to instrumental line width.
             model_resolution : float
                 Spectral resolution of the model, allowing for low resolution correlated k tables from exo-k.
-            distance : float
+            system_distance : float
                 The distance to the object in cgs units. Defaults to a 10pc normalized distance. All data must
                 be scaled to the same distance before running the retrieval, which can be done using the
                 scale_to_distance method in the Data class.
             scale : bool
                 Turn on or off scaling the data by a constant factor.
-            wlen_range_micron : Tuple
-                A pair of wavelenths in units of micron that determine the lower and upper boundaries of the
+            wavelength_boundaries : Tuple
+                A pair of wavelengths in units of micron that determine the lower and upper boundaries of the
                 model computation.
-            external_pRT_reference : str
+            external_radtrans_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the chi squared
                 of the new Data object. This is useful when two datasets overlap, as only one model computation is
                 required to compute the log likelihood of both datasets.
-            opacity_mode : str
+            line_opacity_mode : str
                 Should the retrieval be run using correlated-k opacities (default, 'c-k'),
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
                 recommended to set the model_resolution parameter.
-            pRT_grid: bool
+            radtrans_grid: bool
                 Set to true if data has been binned to pRT R = 1,000 c-k grid.
         """
-        self.data[name] = Data(name, path,
-                               model_generating_function=model_generating_function,
-                               data_resolution=data_resolution,
-                               model_resolution=model_resolution,
-                               distance=distance,
-                               scale=scale,
-                               scale_err=scale_err,
-                               offset_bool = offset_bool,
-                               wlen_range_micron=wlen_range_micron,
-                               external_pRT_reference=external_pRT_reference,
-                               opacity_mode=opacity_mode,
-                               wlen_bins=wlen_bins,
-                               pRT_grid=pRT_grid,
-                               pRT_object=pRT_object,
-                               wlen=wlen,
-                               flux=flux,
-                               flux_error=flux_error,
-                               mask=mask
-                               )
+        self.data[name] = Data(
+            name=name,
+            path_to_observations=path_to_observations,
+            model_generating_function=model_generating_function,
+            data_resolution=data_resolution,
+            model_resolution=model_resolution,
+            system_distance=system_distance,
+            scale=scale,
+            scale_err=scale_err,
+            offset_bool=offset_bool,
+            photometry=photometry,
+            photometric_transformation_function=photometric_transformation_function,
+            photometric_bin_edges=photometric_bin_edges,
+            wavelength_boundaries=wavelength_boundaries,
+            external_radtrans_reference=external_radtrans_reference,
+            line_opacity_mode=line_opacity_mode,
+            wavelength_bin_widths=wavelength_bin_widths,
+            radtrans_grid=radtrans_grid,
+            radtrans_object=radtrans_object,
+            wavelengths=wavelengths,
+            spectrum=spectrum,
+            uncertainties=uncertainties,
+            mask=mask,
+            concatenate_flux_epochs_variability=concatenate_flux_epochs_variability,
+            variability_atmospheric_column_model_flux_return_mode=variability_atmospheric_column_model_flux_return_mode,
+            atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
+        )
 
     def add_photometry(self, path,
                        model_generating_function,
@@ -525,7 +526,7 @@ class RetrievalConfig:
                        scale=False,
                        wlen_range_micron=None,
                        photometric_transformation_function=None,
-                       external_pRT_reference=None,
+                       external_prt_reference=None,
                        opacity_mode='c-k'):
         """
         Create a Data class object for each photometric point in a photometry file.
@@ -553,7 +554,7 @@ class RetrievalConfig:
             wlen_range_micron : Tuple
                 A pair of wavelenths in units of micron that determine the lower and upper boundaries of
                 the model computation.
-            external_pRT_reference : str
+            external_prt_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the
                 chi squared of the new Data object. This is useful when two datasets overlap, as only
                 one model computation is required to compute the log likelihood of both datasets.
@@ -569,12 +570,13 @@ class RetrievalConfig:
                 try:
                     import species as sp
                     from species.phot.syn_phot import SyntheticPhotometry
+
                     sp.SpeciesInit()
                 except ModuleNotFoundError:  # TODO find what error is expected here
                     logging.error(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
-                    
+
             for line in photometry:
                 # # must be the comment character
                 if line[0] == '#':
@@ -587,16 +589,15 @@ class RetrievalConfig:
                 flux = float(vals[3])
                 err = float(vals[4])
 
-                transform = None
                 if photometric_transformation_function is None:
-                    if COMM is not None and COMM.Get_size()>1:
-                        if RANK == 0:
+                    if comm is not None and comm.Get_size() > 1:
+                        if rank == 0:
                             transform = SyntheticPhotometry(name).spectrum_to_flux
                         else:
                             transform = None  # transform still needs to exist in the other processes
-                        transform = COMM.bcast(transform, 0)
+                        transform = comm.bcast(transform, 0)
                     else:
-                        transform = SyntheticPhotometry(name).spectrum_to_flux                        
+                        transform = SyntheticPhotometry(name).spectrum_to_flux
                 else:
                     transform = photometric_transformation_function
 
@@ -612,16 +613,16 @@ class RetrievalConfig:
                     name,
                     path,
                     model_generating_function=model_generating_function,
-                    distance=distance,
+                    system_distance=distance,
                     photometry=True,
-                    wlen_range_micron=wbins,
+                    wavelength_boundaries=wbins,
                     photometric_bin_edges=[wlow, whigh],
                     data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
-                    external_pRT_reference=external_pRT_reference,
-                    opacity_mode=opacity_mode
+                    external_radtrans_reference=external_prt_reference,
+                    line_opacity_mode=opacity_mode
                 )
-                self.data[name].flux = flux
-                self.data[name].flux_error = err
+                self.data[name].spectrum = flux
+                self.data[name].uncertainties = err

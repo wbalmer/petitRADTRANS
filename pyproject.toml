@@ -1,0 +1,98 @@
+[build-system]
+build-backend = 'mesonpy'
+requires-python = ">=3.9.0"
+requires = [
+    "meson-python>=0.12.1",
+    "ninja>=1.8.2",
+    "Cython>=0.29.35",
+    "pybind11>=2.10.4",
+    "numpy"
+]
+
+[project]
+name = "petitRADTRANS"
+version = "3.0.0b1"
+description = "Exoplanet spectral synthesis tool for retrievals"
+repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
+documentation = "https://petitradtrans.readthedocs.io/en/latest/"
+authors = [
+    {name = "Paul Mollière", email = "molliere@mpia.de"},
+]
+readme = "README.rst"
+license = {file = "LICENSE"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Fortran",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy"
+]
+dependencies = [
+    "meson-python",
+    "ninja",
+    "numpy",
+    "scipy",
+    "astropy",
+    "molmass",
+    "h5py",
+    "pymultinest",
+    "pyvo",
+    "bs4",
+    "selenium",
+    "exo_k"
+]
+
+[project.optional-dependencies]
+retrieval = [
+    "mpi4py",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner"
+]
+full = [
+    "mpi4py",
+    "exo_k",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner",
+    "seaborn",  # only used in nice_corner
+    "species>=0.8.0",  # only used in RetrievalConfig.add_photometry
+    "ultranest"  # alternative to pymultinest
+]
+test = [
+    "build",
+    "wheel",
+    "pytest",
+    "pytest-cov",
+    "mpi4py",
+    "exo_k",
+    "ultranest",
+    "requests",
+    "skycalc-cli",
+    "species>=0.8.0",
+    "matplotlib",
+    "corner",
+    "seaborn"
+]
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.pytest]
+norecursedirs = [
+    ".tox",
+    "build",
+    "docs",
+    "petitRADTRANS",
+    "testing",
+    "scripts"
+]
+
+#[tool.tox]  # TODO add when tox fully supports toml, for now setup is in setup.cfg
+#legacy_tox_ini = """"""

@@ -3,7 +3,7 @@
 import numpy as np
 
 from .context import petitRADTRANS
-from .utils import reference_filenames, radtrans_parameters, temperature_guillot_2010
+from .utils import reference_filenames, test_parameters, temperature_guillot_2010
 
 relative_tolerance = 1e-6
 
@@ -17,7 +17,7 @@ def test_guillot_2010_temperature_profile():
 
     # Check if temperature is as expected
     assert np.allclose(
-        radtrans_parameters['pressures'],
+        test_parameters['pressures'],
         pressure_ref,
         rtol=relative_tolerance,
         atol=0
@@ -32,14 +32,14 @@ def test_guillot_2010_temperature_profile():
 
 
 def test_planck_function():
-    frequencies = petitRADTRANS.nat_cst.c / np.linspace(
-        radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'][0] * 1e-4,
-        radtrans_parameters['spectrum_parameters']['wavelength_range_correlated_k'][1] * 1e-4,
+    frequencies = petitRADTRANS.physical_constants.c / np.linspace(
+        test_parameters['spectrum_parameters']['wavelength_range_correlated_k'][0] * 1e-4,
+        test_parameters['spectrum_parameters']['wavelength_range_correlated_k'][1] * 1e-4,
         10
     )
 
-    planck = petitRADTRANS.nat_cst.b(
-        radtrans_parameters['stellar_parameters']['effective_temperature'],
+    planck = petitRADTRANS.physics.planck_function_hz(
+        test_parameters['stellar_parameters']['effective_temperature'],
         frequencies
     )
 
@@ -57,8 +57,8 @@ def test_planck_function():
 
 
 def test_stellar_model():
-    stellar_spectrum = petitRADTRANS.nat_cst.get_PHOENIX_spec(
-        radtrans_parameters['stellar_parameters']['effective_temperature']
+    stellar_spectrum, _ = petitRADTRANS.stellar_spectra.phoenix.phoenix_star_table.compute_spectrum(
+        test_parameters['stellar_parameters']['effective_temperature']
     )
 
     reference_spectral_radiosity = np.array([

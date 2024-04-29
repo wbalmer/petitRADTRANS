@@ -7,14 +7,19 @@
         "stop_thin_atmosphere": 0,
         "num": 27
     },
-    "mass_fractions": {
+    "mass_fractions_correlated_k": {
         "H2": 0.74,
         "He": 0.24,
-        "H2O_HITEMP": 0.001,
-        "H2O_main_iso": 0.001,
-        "CH4": 0.001,
-        "CO_all_iso": 0.1,
-        "Mg2SiO4(c)": 0.0
+        "1H2-16O__HITEMP.R1000_0.1-250mu": 0.001,
+        "12C-1H4__YT34to10.R1000_0.3-50mu": 0.001,
+        "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
+     },
+    "mass_fractions_line_by_line": {
+        "H2": 0.74,
+        "He": 0.24,
+        "1H2-16O__POKAZATEL.R1e6_0.3-28mu": 0.001,
+        "C-O-NatAbund__HITEMP.R1e6_0.3-28mu": 0.1,
+        "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
     },
     "mean_molar_mass": 2.33,
     "chemical_parameters": {
@@ -43,8 +48,8 @@
         "name": "PSR B1257+12 b",
         "reference_pressure": 0.01,
         "radius": 1.838,
-        "surface_gravity": 281.8382931264455,
-        "eddy_diffusion_coefficient": 31622776.60168379,
+        "reference_gravity": 281.8382931264455,
+        "eddy_diffusion_coefficients": 31622776.60168379,
         "orbit_semi_major_axis": 750000000000.0,
         "surface_reflectance": 0.3
     },
@@ -57,20 +62,20 @@
     "spectrum_parameters": {
         "line_by_line_opacity_sampling": 4,
         "line_species_correlated_k": [
-            "H2O_HITEMP",
-            "CH4"
+            "1H2-16O__HITEMP.R1000_0.1-250mu",
+            "12C-1H4__YT34to10.R1000_0.3-50mu"
         ],
         "line_species_line_by_line": [
-            "H2O_main_iso",
-            "CO_all_iso"
+            "1H2-16O__POKAZATEL.R1e6_0.3-28mu",
+            "C-O-NatAbund__HITEMP.R1e6_0.3-28mu"
         ],
         "rayleigh_species": [
             "H2",
             "He"
         ],
         "continuum_opacities": [
-            "H2-H2",
-            "H2-He"
+            "H2--H2-NatAbund__BoRi.R831_0.6-250mu",
+            "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
         ],
         "wavelength_range_correlated_k": [
             0.9,
@@ -87,7 +92,7 @@
         "cloud_pressure": 0.01,
         "haze_factor": 10.0,
         "cloud_species": {
-            "Mg2SiO4(c)_cd": {
+            "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": {
                 "mass_fraction": 5e-07,
                 "radius": 5e-05,
                 "f_sed": 2.0,
@@ -118,7 +123,8 @@
         "sampling_efficiency": 0.8,
         "n_live_points": 50,
         "const_efficiency_mode": false,
-        "resume": false
+        "resume": false,
+        "seed": 12345
     },
     "mock_observation_parameters": {
         "resolving_power": 60,
@@ -136,7 +142,7 @@
             -4.85e5
         ],
         "n_exposures": 20,
-        "planet_rest_frame_velocity_shift": -1.5e5,
+        "rest_frame_velocity_shift": -1.5e5,
         "relative_error": 0.01
     },
     "ccf_analysis_parameters": {
@@ -146,6 +152,7 @@
         "pixels_per_resolution_element": 2,
         "peak_lsf_factor": 1.5,
         "velocity_interval_extension_factor": -0.3,
-        "kp_factor": 1.5
+        "kp_factor": 1.5,
+        "peak_cutoff": 0.68
     }
 }

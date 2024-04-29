@@ -1,91 +1,127 @@
 """Stores useful generic functions.
 """
 import copy
+import csv
 import warnings
 
 import h5py
 import numpy as np
 
-# from petitRADTRANS.fort_rebin import fort_rebin as fr  # future
-from petitRADTRANS import fort_rebin as fr
 
-
-def box_car_conv(array, points):
-    res = np.zeros_like(array)
-    len_arr = len(array)
-
-    for i in range(len(array)):
-        if (i - points / 2 >= 0) and (i + points / 2 <= len_arr + 1):
-            smooth_val = array[i - points / 2:i + points / 2]
-            res[i] = np.sum(smooth_val) / len(smooth_val)
-        elif i + points / 2 > len_arr + 1:
-            len_use = len_arr + 1 - i
-            smooth_val = array[i - len_use:i + len_use]
-            res[i] = np.sum(smooth_val) / len(smooth_val)
-        elif i - points / 2 < 0:
-            smooth_val = array[:max(2 * i, 1)]
-            res[i] = np.sum(smooth_val) / len(smooth_val)
-    return res
-
-
-# TODO are these actually used outside of calc_met?
-logs_g = np.array([12., 10.93])
-
-logs_met = np.array([1.05, 1.38, 2.7, 8.43, 7.83, 8.69, 4.56, 7.93, 6.24, 7.6, 6.45, 7.51, 5.41,
-                     7.12, 5.5, 6.4, 5.03, 6.34, 3.15, 4.95, 3.93, 5.64, 5.43, 7.5,
-                     4.99, 6.22, 4.19, 4.56, 3.04, 3.65, 3.25, 2.52, 2.87, 2.21, 2.58,
-                     1.46, 1.88])
-
-
-def calc_met(f):
-    return np.log10((f / (np.sum(1e1 ** logs_g) + f * np.sum(1e1 ** logs_met)))
-                    / (1. / (np.sum(1e1 ** logs_g) + np.sum(1e1 ** logs_met))))
-
-
-def calculate_chi2(data, model, uncertainties):
-    return np.sum(((data - model) / uncertainties) ** 2)
-
-
-def calculate_reduced_chi2(data, model, uncertainties, degrees_of_freedom=0):
-    return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom)
-
-
-def calculate_uncertainty(derivatives, uncertainties, covariance_matrix=None):
+class LockedDict(dict):
+    """Derivative of dict with a lock.
+    Can be used to ensure that no new key is added once the lock is on, to prevent errors due to key typos.
     """
-    Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
-    coefficients between x, y, ...
-    The function must be (approximately) linear with its variables within the uncertainties of said variables.
-    For independent variables, set the covariance matrix to identity.
-    Uncertainties can be asymmetric, in that case for N variables, use a (N, 2) array for the uncertainties.
-    Asymmetric uncertainties are handled **the wrong way** (see source 2), but it is better than nothing.
 
-    Sources:
-        1. https://en.wikipedia.org/wiki/Propagation_of_uncertainty
-        2. https://phas.ubc.ca/~oser/p509/Lec_10.pdf
-        3. http://math.jacobs-university.de/oliver/teaching/jacobs/fall2015/esm106/handouts/error-propagation.pdf
-    Args:
-        derivatives: partial derivatives of the function with respect to each variables (df/dx, df/dy, ...)
-        uncertainties: uncertainties of each variable (either a 1D-array or a 2D-array containing - and + unc.)
-        covariance_matrix: covariance matrix between the variables, by default set to the identity matrix
+    def __init__(self):
+        super().__init__()
+        self._locked = False
 
-    Returns:
-        A size-2 array containing the - and + uncertainties of the function
-    """
-    if covariance_matrix is None:
-        covariance_matrix = np.identity(np.size(derivatives))
+    def __copy__(self):
+        """Override the copy.copy method. Necessary to allow locked LockedDict to be copied."""
+        cls = self.__class__
+        result = cls.__new__(cls)
 
-    if np.ndim(uncertainties) == 1:
-        sigmas = derivatives * uncertainties
+        result.unlock()  # force initialization of _locked
 
-        return np.sqrt(np.matmul(sigmas, np.matmul(covariance_matrix, np.transpose(sigmas))))
-    elif np.ndim(uncertainties) == 2:
-        sigma_less = derivatives * uncertainties[:, 0]
-        sigma_more = derivatives * uncertainties[:, 1]
+        # First copy the keys in the new object
+        for key, value in self.items():
+            result[key] = value
 
-        return np.sqrt(np.array([  # beware, this is not strictly correct
-            np.matmul(sigma_less, np.matmul(covariance_matrix, np.transpose(sigma_less))),
-            np.matmul(sigma_more, np.matmul(covariance_matrix, np.transpose(sigma_more)))
-        ]))
+        # Then copy the attributes to prevent the effect of the lock
+        result.__dict__.update(self.__dict__)
+
+        return result
+
+    def __deepcopy__(self, memo):
+        """Override the copy.deepcopy method. Necessary to allow locked LockedDict to be copied."""
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+
+        result.unlock()  # force initialization of _locked
+
+        # First copy the keys in the new object
+        for key, value in self.items():
+            key = copy.deepcopy(key, memo)
+            value = copy.deepcopy(value, memo)
+            result[key] = value
+
+        # Then copy the attributes to prevent the effect of the lock
+        for key, value in self.__dict__.items():
+            setattr(result, key, copy.deepcopy(value, memo))
+
+        return result
+
+    def __setitem__(self, key, value):
+        """Prevent a key to be added if the lock is on."""
+        if key not in self and self._locked:
+            raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
+        else:
+            super().__setitem__(key, value)
+
+    @classmethod
+    def build_and_lock(cls, dictionary=None, **kwargs):
+        """Instantiate a LockedDict and lock it."""
+        new_cls = cls()
+        new_cls.unlock()  # ensure the dictionary can be updated
+        new_cls.update(dictionary, **kwargs)
+        new_cls.lock()
+
+        return new_cls
+
+    def lock(self):
+        self._locked = True
+
+    def update(self, __m=None, **kwargs) -> None:
+        """Ensure that update takes the lock into account and do not remove keys."""
+        __tmp = dict(self)
+
+        if __m is None:
+            __tmp.update(**kwargs)
+        else:
+            __tmp.update(__m, **kwargs)
+
+        # Ensure that no keys are removed during update
+        if len(__tmp.keys()) < len(self.keys()) and self._locked:
+            raise KeyError(
+                f"locked LockedDict has {len(self.keys())} items "
+                f"but the update has {len(__tmp.keys())}, "
+                f"unlock the LockedDict to change the number of keys during an update"
+            )
+
+        for key, value in __tmp.items():
+            self.__setitem__(key, value)
+
+    def unlock(self):
+        self._locked = False
+
+
+def check_all_close(a, b, **kwargs):
+    if isinstance(a, dict):
+        if len(a) != len(b):  # check if both dict have the same number of keys
+            raise AssertionError(f"a and b have a different number of keys ({len(a)} and {len(b)})\n"
+                                 f"{a=}\n"
+                                 f"{b=}")
+
+        for key, value in a.items():
+            # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
+            check_all_close(value, b[key], **kwargs)
+    elif isinstance(a, str):
+        if a != b:
+            raise AssertionError(f"'{a}' != '{b}'")
+    elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
+        for i, value in enumerate(a):
+            check_all_close(value, b[i], **kwargs)
+    elif a is None:
+        if b is not None:
+            raise AssertionError(f"a is None but b is {b}")
+    else:
+        if not np.allclose(a, b, **kwargs):
+            raise AssertionError(f"a and b are not close enough\n"
+                                 f"{a=}\n"
+                                 f"{b=}\n"
+                                 f"{kwargs}")
 
 
 def class_init_args2class_args(string):
@@ -153,13 +189,24 @@ def dataset2obj(obj):
 
         return np.array(new_obj)
     elif isinstance(obj, bytes):
-        return str(obj, 'utf-8')
+        obj = str(obj, 'utf-8')
+
+        if obj == 'None':
+            obj = None
+
+        return obj
     else:
         return obj
 
 
 def dict2hdf5(dictionary, hdf5_file, group='/'):
     """Convert a dictionary into a HDF5 dataset."""
+    if len(dictionary) == 0:
+        hdf5_file.create_dataset(
+            name=group + '__EMPTY_DICT__',
+            data=np.nan
+        )
+
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
             new_group = group + key + '/'
@@ -169,9 +216,13 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
         else:
             if dictionary[key] is None:
                 data = 'None'
+            elif isinstance(dictionary[key], set):
+                data = list(dictionary[key])
             elif hasattr(dictionary[key], 'dtype'):
                 if dictionary[key].dtype == 'O':
                     data = flatten_object(dictionary[key])
+                elif isinstance(dictionary[key].dtype, np.dtypes.StrDType):
+                    data = [str(value) for value in dictionary[key]]
                 else:
                     data = dictionary[key]
             else:
@@ -199,68 +250,33 @@ def fill_object(array, value):
 def flatten_object(array):
     """Flatten a numpy object array."""
     if array.dtype == 'O':
+        if np.ndim(array) <= 1:
+            for i, element in enumerate(array):
+                if element is None or isinstance(element, str):
+                    array[i] = str(element)
+                else:
+                    raise ValueError(f"element '{element}' is not a number nor None, flattening is not possible")
+
+            return array
+
         array = flatten_object(np.concatenate(array))
     else:
+        if np.ndim(array) <= 1:
+            return array
+
         array = np.concatenate(array)
 
     return array
-
-
-def gaussian_weights1d(sigma, truncate=4.0):
-    """Compute a 1D Gaussian convolution kernel.
-    To be used with scipy.ndimage.convolve1d.
-
-    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
-
-    Args:
-        sigma:
-            Standard deviation for Gaussian kernel.
-        truncate:
-            Truncate the filter at this many standard deviations.
-
-    Returns:
-
-    """
-    sd = float(sigma)
-
-    # Make the radius of the filter equal to truncate standard deviations
-    radius = int(truncate * sd + 0.5)
-
-    x = np.arange(-radius, radius + 1)
-    phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
-
-    return phi_x / phi_x.sum()
-
-
-def gaussian_weights_running(sigmas, truncate=4.0):
-    """Compute 1D Gaussian convolution kernels for an array of standard deviations.
-
-    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
-
-    Args:
-        sigmas:
-            Standard deviations for Gaussian kernel.
-        truncate:
-            Truncate the filter at this many standard deviations.
-
-    Returns:
-
-    """
-    # Make the radius of the filter equal to truncate standard deviations
-    radius = int(truncate * np.max(sigmas) + 0.5)
-
-    x = np.arange(-radius, radius + 1)
-    sd = np.tile(sigmas, (x.size, 1)).T
-
-    phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
-
-    return np.transpose(phi_x.T / phi_x.sum(axis=1))
 
 
 def hdf52dict(hdf5_file):
     dictionary = {}
 
     for key in hdf5_file:
+        if key == '__EMPTY_DICT__':
+            if np.isnan(hdf5_file[key]):
+                return {}
+
         if isinstance(hdf5_file[key], h5py.Dataset):
             dictionary[key] = dataset2obj(hdf5_file[key][()])
         elif isinstance(hdf5_file[key], h5py.Group):
@@ -272,86 +288,32 @@ def hdf52dict(hdf5_file):
     return dictionary
 
 
-def mean_uncertainty(uncertainties):
-    """Calculate the uncertainty of the mean of an array.
+def load_csv(file, **kwargs):
+    data = {}
+    header_read = False
 
-    Args:
-        uncertainties: individual uncertainties of the averaged array
+    with open(file) as csv_file:
+        csv_reader = csv.reader(csv_file, **kwargs)
 
-    Returns:
-        The uncertainty of the mean of the array
-    """
-    return np.sqrt(np.sum(uncertainties ** 2)) / np.size(uncertainties)
+        for row in csv_reader:
+            if not header_read:
+                column_names = copy.deepcopy(row)
 
+                for column_name in column_names:
+                    if '# ' in column_name:
+                        column_name = column_name.split('# ', 1)[1]
 
-def median_uncertainties(uncertainties):
-    """Calculate the uncertainty of the median of an array.
+                    data[column_name] = []
 
-    Demonstration:
-        uncertainty ~ standard deviation = sqrt(variance) = sqrt(V)
-        V_mean / V_median = 2 * (N - 1) / (pi * N); (see source)
-        => V_median = V_mean * pi * N / (2 * (N - 1))
-        => uncertainty_median = uncertainty_mean * sqrt(pi * N / (2 * (N - 1)))
+                header_read = True
+            else:
+                for i, column_name in enumerate(data):
+                    data[column_name].append(float(row[i]))
 
-    Source:
-        https://mathworld.wolfram.com/StatisticalMedian.html
+    for column_name, value in data.items():
+        data[column_name] = np.array(value)
 
-    Args:
-        uncertainties: individual uncertainties of the median of the array
-
-    Returns:
-        The uncertainty of the median of the array
-    """
-    return mean_uncertainty(uncertainties) \
-        * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
-
-
-def read_abunds(path):
-    f = open(path)
-    header = f.readlines()[0][:-1]
-    f.close()
-    ret = {}
-
-    dat = np.genfromtxt(path)
-    ret['P'] = dat[:, 0]
-    ret['T'] = dat[:, 1]
-    ret['rho'] = dat[:, 2]
-
-    for i in range(int((len(header) - 21) / 22)):
-        if i % 2 == 0:
-            name = header[21 + i * 22:21 + (i + 1) * 22][3:].replace(' ', '')
-            number = int(header[21 + i * 22:21 + (i + 1) * 22][0:3])
-            # print(name)
-            ret['m' + name] = dat[:, number]
-        else:
-            name = header[21 + i * 22:21 + (i + 1) * 22][3:].replace(' ', '')
-            number = int(header[21 + i * 22:21 + (i + 1) * 22][0:3])
-            # print(name)
-            ret['n' + name] = dat[:, number]
-
-    return ret
-
-
-def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
-    """Re-bin the spectrum using the Fortran rebin_spectrum function, and catch errors occurring there.
-    The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
-
-    Args:
-        input_wavelengths: wavelengths of the input spectrum
-        input_spectrum: spectrum to re-bin
-        rebinned_wavelengths: wavelengths to re-bin the spectrum to. Must be contained within input_wavelengths
-
-    Returns:
-        The re-binned spectrum on the re-binned wavelengths
-    """
-    rebinned_spectrum = fr.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
-
-    if np.all(rebinned_spectrum == -1):
-        raise ValueError(f"something went wrong during re-binning (rebin.f90), check the previous messages")
-    elif np.any(rebinned_spectrum < 0):
-        raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs")
-
-    return rebinned_spectrum
+    return data
 
 
 def remove_mask(data, data_uncertainties):
@@ -393,13 +355,107 @@ def remove_mask(data, data_uncertainties):
     return data_, error_, mask_
 
 
-def running_mean(x, n):
-    cum_sum = np.cumsum(np.insert(x, 0, 0))
-
-    return (cum_sum[n:] - cum_sum[:-n]) / float(n)
-
-
 def savez_compressed_record(file, numpy_record_array):
     """Apply numpy.savez_compressed on a record array."""
     data_dict = {key: numpy_record_array[key] for key in numpy_record_array.dtype.names}
     np.savez_compressed(file, **data_dict)
+
+
+def topological_sort(source):
+    """Perform topological sort on a dictionary.
+
+    Source: https://stackoverflow.com/questions/11557241/python-sorting-a-dependency-list
+
+    Args:
+        source: dictionary of {name: [list of dependencies]} pairs
+
+    Returns:
+        list of names, with dependencies listed first
+    """
+    pending = [(name, set(deps)) for name, deps in source.items()]  # copy deps so we can modify set in-place
+
+    if None not in source:
+        pending.append((None, set()))  # append None "dependency"
+
+    emitted = []
+
+    while pending:
+        next_pending = []
+        next_emitted = []
+
+        for entry in pending:
+            name, deps = entry
+            deps.difference_update(emitted)  # remove deps we emitted last pass
+
+            if deps:  # still has deps? Recheck during next pass
+                next_pending.append(entry)
+            else:  # no more deps? Time to emit
+                yield name
+                emitted.append(name)  # not required, but preserves original ordering
+                next_emitted.append(name)  # remember what we emitted for difference_update() in next pass
+
+        if not next_emitted:  # all entries have unmet deps, a dependency is missing or is cyclic
+            raise ValueError(f"cyclic or missing dependency detected: {next_pending}")
+
+        pending = next_pending
+        emitted = next_emitted
+
+
+def user_input(introduction_message: str, input_message: str, failure_message: str, cancel_message: str,
+               mode: str, max_attempts: int = 5, list_length: int = None):
+    available_modes = ['list', 'y/n']
+
+    if mode not in available_modes:
+        quote = "'"
+        raise ValueError(f"user input mode '{mode}' is not available, "
+                         f"available modes are {quote + ', '.join(available_modes) + quote}")
+
+    if mode == 'list' and list_length is None:
+        raise TypeError("'list' mode missing required argument 'list_size'")
+
+    print(introduction_message)
+
+    for i in range(max_attempts + 1):
+        if i == max_attempts:
+            raise ValueError(f"{failure_message} after {i} attempts")
+
+        if mode == 'y/n':
+            selection = input(
+                f"{input_message} ('y'/'n'; 'cancel')"
+            )
+        elif mode == 'list':
+            selection = input(
+                f"{input_message} (1-{list_length}; 'cancel')"
+            )
+        else:
+            quote = "'"
+            raise ValueError(f"user input mode '{mode}' is not available, "
+                             f"available modes are {quote + ', '.join(available_modes) + quote}")
+
+        if selection == 'cancel':
+            print(cancel_message)
+            return
+
+        if mode == 'y/n':
+            selection = selection.lower()
+
+            if selection == 'y':
+                selection = True
+            elif selection == 'n':
+                selection = False
+            else:
+                print(f"Unclear input '{selection}', please enter 'y' or 'n'")
+                continue
+        elif mode == 'list':
+            if not selection.isdigit():
+                print(f"'{selection}' is not an integer, please enter an integer within 1-{list_length}")
+                continue
+
+            selection = int(selection)
+
+            if selection < 1 or selection > list_length:
+                print(f"{selection} is not within the range 1-{list_length}, "
+                      f"please enter an integer within 1-{list_length}")
+                continue
+
+        return selection

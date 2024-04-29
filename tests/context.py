@@ -1,34 +1,30 @@
 import os
 import sys
 
-import warnings
-
-# Ensure that we are testing the package development files
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Initialize environment variable
-path = os.environ.get("pRT_input_data_path")
-
-if path is None:
-    warnings.warn("system variable pRT_input_data_path was not defined, "
-                  "setting it to the value hardcoded into tests/context.py\n"
-                  "Change it if necessary (this will become unnecessary in a future update)")
-    os.environ["pRT_input_data_path"] = r"/Users/molliere/Documents/programm_data/petitRADTRANS_public/input_data"
-    #os.environ["pRT_input_data_path"] = r"/home/dblain/petitradtrans/input_data"
+# Ensure that we are testing the package installed (*not* the development) files
+del sys.path[0]  # remove current directory from searching path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # add the package directory at the end
 
 import petitRADTRANS
+
+# Fortran extensions
+import petitRADTRANS.fortran_chemistry
+import petitRADTRANS.fortran_rebin
+import petitRADTRANS.fortran_inputs
+import petitRADTRANS.fortran_radtrans_core
+import petitRADTRANS.fortran_rebin
+
+# Python modules
 import petitRADTRANS.ccf
 import petitRADTRANS.ccf.ccf
-import petitRADTRANS.containers
-import petitRADTRANS.containers.planet
-import petitRADTRANS.containers.spectral_model
-import petitRADTRANS.fort_rebin
-import petitRADTRANS.nat_cst
-import petitRADTRANS.poor_mans_nonequ_chem
+import petitRADTRANS.config
+import petitRADTRANS.planet
+import petitRADTRANS.spectral_model
+import petitRADTRANS.stellar_spectra.phoenix
+import petitRADTRANS.physical_constants
+import petitRADTRANS.physics
+import petitRADTRANS.chemistry
+import petitRADTRANS.chemistry.pre_calculated_chemistry
 import petitRADTRANS.radtrans
 import petitRADTRANS.retrieval
-import petitRADTRANS.version
-
-# Future imports
-# import petitRADTRANS.phoenix
-# import petitRADTRANS.physics
+import petitRADTRANS.utils
