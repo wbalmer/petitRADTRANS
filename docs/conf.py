@@ -29,13 +29,15 @@ autodoc_mock_imports = [
     'os',
     'sys',
     'pdb',
-    'h5py'
+    'h5py',
+    'meson-python',
+    'ninja'
 ]
 
 # -- Project information -----------------------------------------------------
 
 project = 'petitRADTRANS'
-copyright = u'2019-2024, Paul Molli\u00E8re'
+copyright = u'2019-2024, the pRT team'
 author = u'pRT team'
 
 # The full version, including alpha/beta/rc tags
