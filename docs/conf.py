@@ -36,7 +36,7 @@ autodoc_mock_imports = [
 
 project = 'petitRADTRANS'
 copyright = u'2019-2024, Paul Molli\u00E8re'
-author = u'Paul Molli\u00E8re'
+author = u'pRT team'
 
 # The full version, including alpha/beta/rc tags
 release = str(importlib.metadata.metadata(project))
