@@ -45,7 +45,7 @@ If you use petitRADTRANS in your work, please cite the following articles:
 
 License
 =======
-Copyright 2019-2024 Paul Mollière
+Copyright 2019-2024 the pRT team
 
 petitRADTRANS is available under the MIT license.
 See the LICENSE file for more information.
