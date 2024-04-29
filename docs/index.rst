@@ -16,7 +16,7 @@ In a nutshell, pRT allows you to calculate planetary transmission or emission sp
 
 .. important:: **This is the documentation of petitRADTRANS, Version 3.**
    Version 3 comes with a lot of quality-of-life features, optimization, and code rationalization, additional opacities, but also with breaking changes.
-   See the `pRT3 changes page <content/pRT3_changes_description.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user, we strongly recommend to switch to Version 3. We explain in the `adding opacities section <content/adding_opacities.html>`_ how your opacity database can be converted to Version 3. This is only relevant if you use non-standard pRT opacities that you calculated or converted yourself. That being said, Version 2 can still be installed via ``pip install petitRADTRANS==2.7.7``, and the old documentation is available in the `documentation website <https://petitradtrans.readthedocs.io/en/2.7.7/>`_. **But please note that Version 2 will not be maintained any longer.**
+   See the `pRT3 changes page <content/pRT3_changes_description.html>`_ for a summary of the pRT 3 improvements and changes. If you are a Version 2 user, we strongly recommend to switch to Version 3. We explain in the `adding opacities section <content/adding_opacities.html>`_ how your opacity database can be converted to Version 3. This is only relevant if you use non-standard pRT opacities that you calculated or converted yourself. That being said, Version 2 can still be installed via ``pip install petitRADTRANS==2.7.7``, and the old documentation is available in the `here <https://petitradtrans.readthedocs.io/en/2.7.7/>`_. **But please note that Version 2 will not be maintained any longer.**
 
 pRT feature list
 ================

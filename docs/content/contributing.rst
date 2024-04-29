@@ -44,7 +44,7 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 5. Go inside the cloned directory. Add an upstream remote and fetch it with:
     .. code-block:: bash
 
-        git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS``
+        git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS
         git fetch upstream
 
 6. Set your ``main`` branch to track upstream using.
