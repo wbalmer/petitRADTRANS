@@ -149,7 +149,7 @@ Setting up the input_data directory
 ===================================
 By default, pRT's input files are downloaded into the ``<home>/petitRADTRANS/input_data`` directory, where ``<home>`` is your home directory (shortcut ``~`` in most OS).
 This can be changed by modifying the pRT config file. All of this is described more in the `"Getting Started" <notebooks/getting_started.html#Configuring-the-input_data-folder>`_ notebook.
-**Please note that the folder that pRT stores its opacities in has to be called ** ``input_data`` (but it can be placed wherever you want).
+**Please note that the folder that pRT stores its opacities in has to be called** ``input_data`` (but it can be placed wherever you want).
 
 .. note::
 
