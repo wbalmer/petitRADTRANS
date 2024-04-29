@@ -49,7 +49,7 @@ Then, install a fortran compiler with:
 
     brew install gcc
 
-.. note:: in general, ``brew install`` is highly recommended to install all the dependencies, as this minimizes the risk of conflicts and issues.
+.. note:: In general, ``brew install`` is highly recommended to install all the dependencies (including conda), as this minimizes the risk of conflicts and issues.
 
 Using gfortran disk images
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

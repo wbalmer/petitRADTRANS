@@ -1,7 +1,7 @@
 ============
 Contributing
 ============
-We welcome all kinds of contributions to petitRADTRANS.
+We welcome contributions to petitRADTRANS. Please reach out to the core developers before working on something you want to see become a part of petitRADTRANS.
 
 Suggestions and reporting issues
 ================================
@@ -31,6 +31,9 @@ Contribute code
 ===============
 Development setup and how to submit changes
 -------------------------------------------
+
+.. important:: If you plan for a large addition that takes a lot of time to develop, please inform the development team early. This is to ensure that we are aware of your project and can gauge whether it should be incorporated into petitRADTRANS. Please note that we cannot guarantee that external developments will be merged into the package before this vetting process. If we believe that pRT will benefit from your addition, we may even suggest to integrate you into the development team for a better coordination of development efforts.
+
 If you would like to make a fix or add a feature to petitRADTRANS, you may proceed as follows:
 
 1. Install `Git <https://git-scm.com/>`_.
@@ -61,8 +64,6 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_.
 
 You may contact by mail members of the development team to inform them about your (future) merge request at any time in the development process. Stay available in case modifications are requested by the development team before merging your branch.
-
-.. important:: If you plan for a large addition that takes a lot of time to develop, please inform the development team early. You may be integrated into the development team for a better coordination of development efforts.
 
 .. tip:: Make atomic Git commits, accompanying comments should be short but descriptive, starting with a verb in the infinitive.
 

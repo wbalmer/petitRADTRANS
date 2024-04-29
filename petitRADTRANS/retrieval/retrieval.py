@@ -209,7 +209,8 @@ class Retrieval:
                     valid = False
 
                 if np.any(np.less(data, 0)):
-                    warnings.warn(f"Negative value detected ({np.nonzero(np.less(data))[0].size} / {data.size})")
+                    warnings.warn(f"Negative value detected ({np.nonzero(np.less(data))[0].size} / {data.size})\n"
+                                  "Make sure that this makes sense for the data set you are considering.")
                     valid = False
         else:
             self._data_are_valid(np.array(data))
