@@ -29,9 +29,7 @@ autodoc_mock_imports = [
     'os',
     'sys',
     'pdb',
-    'h5py',
-    'meson-python',
-    'ninja'
+    'h5py'
 ]
 
 # -- Project information -----------------------------------------------------
