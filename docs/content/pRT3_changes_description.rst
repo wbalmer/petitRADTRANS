@@ -100,6 +100,7 @@ First, move the folder containing your pRT2-formatted opacities of the species y
 
     line_by_line_opacities_dat2h5(
         directory='/path/to/input_data/opacities/lines/line_by_line/species/isotopologue/old_directory',  # change accordingly
+        path_input_data='/path/to/old/pRT2/input_data', # path to old pRT input data folder
         output_name='pRT_valid_opacity_filename',  # e.g., '12C-1H4__HITEMP.R1e6_0.3-28mu', see lbl file naming convention
         molmass=get_species_molar_mass('SpeciesChemicalFormula'),  # change accordingly (e.g. '12C-1H4')
         doi='doi of the opacity source',  # change accordingly, can be left empty for personal use
