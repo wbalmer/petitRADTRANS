@@ -2940,7 +2940,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          save_correlated_k: bool = True, correlated_k_resolving_power: float = 1000,
                          samples: np.ndarray = None, weights: np.ndarray = None,
                          save_line_by_line: bool = True, line_by_line_wavelength_boundaries: np.ndarray = None,
-                         standard_line_by_line_wavelength_boundaries: np.ndarray = None,
+                         standard_line_by_line_wavelength_boundaries: np.ndarray = None, rewrite: bool = False,
                          use_legacy_correlated_k_wavenumbers_sampling: bool = False):
     """Convert opacities loaded with the specied load function into petitRADTRANS line-by-line and correlated-k
     opacities.
@@ -3009,6 +3009,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             Wavelength boundaries to use for the line-by-line conversion.
         standard_line_by_line_wavelength_boundaries:
             Wavelength boundaries to use when generating the lbl standard petitRADTRANS wavelengths.
+        rewrite:
+            if True, rewrite existing converted files
         use_legacy_correlated_k_wavenumbers_sampling:
             If True, use the legacy (pRT2) way to sample the correlated-k wavenumbers.
     """
@@ -3183,6 +3185,14 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             output_directory,
             filename + '.xsec.petitRADTRANS.h5'
         )
+
+        if not os.path.isdir(output_directory):
+            print(f"Creating directory '{output_directory}'")
+            os.makedirs(output_directory)
+
+        if os.path.isfile(hdf5_opacity_file) and not rewrite:
+            raise FileExistsError(f"file '{hdf5_opacity_file}' already exists, "
+                                  f"set rewrite to True to rewrite the file")
 
         print(f" Writing line-by-line file '{hdf5_opacity_file}'...")
 
@@ -3365,6 +3375,14 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             output_directory,
             filename + '.ktable.petitRADTRANS.h5'
         )
+
+        if not os.path.isdir(output_directory):
+            print(f"Creating directory '{output_directory}'")
+            os.makedirs(output_directory)
+
+        if os.path.isfile(hdf5_opacity_file) and not rewrite:
+            raise FileExistsError(f"file '{hdf5_opacity_file}' already exists, "
+                                  f"set rewrite to True to rewrite the file")
 
         print(f" Writing file '{hdf5_opacity_file}'...")
 
