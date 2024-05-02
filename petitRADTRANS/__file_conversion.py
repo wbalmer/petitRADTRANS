@@ -3078,7 +3078,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         opacity_files = glob.glob(os.path.join(opacities_directory, f'*bar{opacity_files_extension}'))
 
     if len(opacity_files) == 0:
-        raise FileNotFoundError(f"no ExoCross file found in directory '{opacities_directory}'")
+        raise FileNotFoundError(f"no file to convert found in directory '{opacities_directory}'")
     elif len(opacity_files) < 130:
         warnings.warn(f"directory '{opacities_directory}' contains only {len(opacity_files)} files, "
                       f"the standard petitRADTRANS temperature-pressure grid size is 130; a finer temperature-pressure "
@@ -3209,7 +3209,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             description=str(description)
         )
 
-        print(f"Successfully converted ExoCross files in '{opacities_directory}' to line-by-line pRT files")
+        print(f"Successfully converted files in '{opacities_directory}' to line-by-line pRT files")
 
     if save_correlated_k:
         print(f"Starting correlated-k conversion (R = {correlated_k_resolving_power})...")
@@ -3404,7 +3404,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             description=description
         )
 
-        print(f"Successfully converted ExoCross files in '{opacities_directory}' to correlated-k pRT files")
+        print(f"Successfully converted files in '{opacities_directory}' to correlated-k pRT files")
 
 
 def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopologue_name,
@@ -3626,11 +3626,14 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     sigmas_prt = sig_interp(wavenumbers_petitradtrans[selection[0]:selection[1]])
 
     # Check if interp values are below 0 or NaN
-    for i in sigmas_prt:
-        if i < 0.:
-            print(i)
-        elif np.isnan(i):
-            print(i)
+    if np.any(np.less(sigmas_prt, 0)):
+        raise ValueError("interpolated opacity has negative values")
+
+    if np.any(~np.isfinite(sigmas_prt)):
+        raise ValueError("interpolated opacity has invalid values")
+
+    if np.all(np.equal(sigmas_prt, 0)):
+        raise ValueError
 
     if save_line_by_line:
         opacities_line_by_line = sigmas_prt
