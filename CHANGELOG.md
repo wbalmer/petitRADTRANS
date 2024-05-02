@@ -4,6 +4,12 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.1] - 2024-05-02
+### Fixed
+- Crash of DACE opacities conversion when not using the debug wavelength grid file.
+- Crash of DACE opacities conversion when converted opacities have an insufficient wavenumber coverage.
+- Crash when loading line-by-line opacities using wavenumber grids with insignificant differences (i.e. < 1e-12 relative differences).
+
 ## [3.0.0] - 2024-04-29
 ### Added
 - Automatic download of missing input_data files.

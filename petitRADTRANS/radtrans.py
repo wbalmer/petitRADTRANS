@@ -3493,12 +3493,14 @@ class Radtrans:
     @staticmethod
     def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, line_by_line_opacity_sampling=1):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
+        frequencies_relative_tolerance = 1e-12  # allow for a small relative deviation from the wavenumber grid
+
         with h5py.File(file_path_hdf5, 'r') as f:
             frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to s-1
 
             selection = np.nonzero(np.logical_and(
-                np.greater_equal(frequency_grid, np.min(frequencies)),
-                np.less_equal(frequency_grid, np.max(frequencies))
+                np.greater_equal(frequency_grid, np.min(frequencies) * (1 - frequencies_relative_tolerance)),
+                np.less_equal(frequency_grid, np.max(frequencies) * (1 + frequencies_relative_tolerance))
             ))[0]
             selection = np.array([selection[0], selection[-1]])
 
@@ -3529,7 +3531,9 @@ class Radtrans:
                 f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
                 f"but frequency grid size is "
                 f"{frequencies.size} ({np.min(frequencies)}--{np.max(frequencies)})\n"
-                f"This may be caused by loading opacities of different resolving power"
+                f"This may be caused by loading opacities of different resolving power "
+                f"or from too different wavenumber grids "
+                f"(frequencies relative tolerance was {frequencies_relative_tolerance:.0e})"
             )
 
         line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
