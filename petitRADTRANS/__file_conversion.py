@@ -3045,11 +3045,15 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     )
 
     if not os.path.isfile(wavenumbers_petitradtrans_file):
+        print("Generating petitRADTRANS wavenumber grid... ", end='')
+
         wavenumbers_petitradtrans = prt_resolving_space(
             start=standard_line_by_line_wavelength_boundaries[0],
             stop=standard_line_by_line_wavelength_boundaries[-1],
             resolving_power=1e6
         )
+
+        wavenumbers_petitradtrans = 1e4 / wavenumbers_petitradtrans[::-1]
     else:
         print("Loading petitRADTRANS wavenumber grid... ", end='')
 
