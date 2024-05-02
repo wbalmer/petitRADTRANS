@@ -3505,8 +3505,9 @@ class Radtrans:
             if line_by_line_opacity_sampling > 1:
                 # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
                 selection[0] -= line_by_line_opacity_sampling - 1  # array is ordered by increasing wavenumber
+
             line_opacities_grid = f['xsecarr'][:, :, selection[0]:selection[-1] + 1]
-            # line_opacities_grid /= f['isotopic_ratio'][()]  # the grid opacities are assuming the Earth isotopic ratio
+
             # Divide by mass to convert cross-sections to opacities
             mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
             line_opacities_grid *= mol_mass_inv
