@@ -3625,6 +3625,29 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     wavenumber_start = int(wavenumber_start[0])
     wavenumbers = np.linspace(wavenumber_start, wavenumber_end, opacities.size)
 
+    # Handle insufficient wavelength coverage
+    d_wavenumbers = np.mean(np.diff(wavenumbers))
+
+    if wavenumber_start > wavenumbers_petitradtrans[selection[0]]:
+        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
+                      f"the requested wavelength lower value "
+                      f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans[selection[0]]} cm-1)"
+                      f"\nOpacities set to 0 within {wavenumbers_petitradtrans[selection[0]]}--{wavenumber_start} cm-1")
+        wavenumbers = np.insert(
+            wavenumbers, 0, [wavenumbers_petitradtrans[selection[0]], wavenumber_start - d_wavenumbers]
+        )
+        opacities = np.insert(opacities, 0, [0, 0])
+
+    if wavenumber_end < wavenumbers_petitradtrans[selection[1]]:
+        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
+                      f"the requested wavelength higher value "
+                      f"({wavenumber_end} cm-1 < {wavenumbers_petitradtrans[selection[1]]} cm-1)"
+                      f"\nOpacities set to 0 within {wavenumber_end}--{wavenumbers_petitradtrans[selection[1]]} cm-1")
+        wavenumbers = np.concatenate(
+            [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans[selection[1]]]]
+        )
+        opacities = np.concatenate([opacities, [0, 0]])
+
     # Interpolate the Dace calculation to that grid
     sig_interp = interp1d(wavenumbers, opacities)
     sigmas_prt = sig_interp(wavenumbers_petitradtrans[selection[0]:selection[1]])
