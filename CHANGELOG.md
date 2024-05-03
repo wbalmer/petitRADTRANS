@@ -4,6 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.2a1] - 2024-05-03
+### Fixed
+- Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
+
 ## [3.0.1] - 2024-05-02
 ### Fixed
 - Crash of DACE opacities conversion when not using the debug wavelength grid file.
