@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Added
 - parameters_relative_tolerance can be changed on a per-request basis in tox unit testing.
+- Allow for vertically variable fsed per species.
 
 
 ## [3.0.1] - 2024-05-02
