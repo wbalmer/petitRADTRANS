@@ -39,7 +39,7 @@ copyright = u'2019-2024, the pRT team'
 author = u'pRT team'
 
 # The full version, including alpha/beta/rc tags
-release = '3.0.2'
+release = '3.0.2a1'
 
 
 # -- General configuration ---------------------------------------------------

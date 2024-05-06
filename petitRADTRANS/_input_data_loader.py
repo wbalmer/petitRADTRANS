@@ -330,6 +330,56 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
                 petitradtrans_config_parser['Default files'][sub_path]
             )
 
+            # Check if spectral info of default file is consistent with requested default file
+            if filename is not None:
+                # Get spectral info
+                resolution_filename, range_filename = _get_spectral_information(filename)
+                resolution_default_file, range_default_file = _get_spectral_information(
+                    petitradtrans_config_parser['Default files'][sub_path]
+                )
+
+                # Check spectral info consistency
+                inconsistent_spectral_info = False
+
+                if resolution_filename != '' and resolution_filename != resolution_default_file:
+                    inconsistent_spectral_info = True
+
+                if range_filename != '' and range_filename != range_default_file:
+                    inconsistent_spectral_info = True
+
+                # Raise error if there is an inconsistency
+                if inconsistent_spectral_info:
+                    # Get all info
+                    name, natural_abundance, charge, cloud_info, _, spectral_info = split_species_all_info(
+                        species=filename
+                    )
+                    _, _, _, _, source, spectral_info_default_file = split_species_all_info(
+                        species=petitradtrans_config_parser['Default files'][sub_path]
+                    )
+
+                    # Remove default file extension to get a clean default file spectral info to display
+                    spectral_info_default_file = spectral_info_default_file.rsplit('.', 3)[0]
+
+                    # Make an example species with added source for the error message
+                    example_species = join_species_all_info(
+                        name=name,
+                        natural_abundance=natural_abundance,
+                        charge=charge,
+                        cloud_info=cloud_info,
+                        source=source,
+                        spectral_info=spectral_info
+                    )
+
+                    raise FileExistsError(
+                        f"More than one file detected in '{full_path}' "
+                        f"with spectral information '{spectral_info}'\n"
+                        f"A default file is already set for species '{name}' "
+                        f"('{petitradtrans_config_parser['Default files'][sub_path]}'), "
+                        f"but with different spectral info ('{spectral_info_default_file}')\n"
+                        f"Add a source to your species name (e.g. '{example_species}'), or update your default file"
+                    )
+
+            # Check if the default file exists
             if os.path.isfile(default_file):
                 return default_file
             else:
