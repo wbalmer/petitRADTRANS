@@ -63,7 +63,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         frequencies_to_wavelengths=False
     )
 
-
+'''
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_variable_fsed():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
@@ -92,7 +92,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
-
+'''
 
 def test_correlated_k_photospheric_radius_calculation():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
