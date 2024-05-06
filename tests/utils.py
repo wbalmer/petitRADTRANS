@@ -35,13 +35,13 @@ reference_filenames = {
 }
 
 reference_filenames['mock_observation_transmission'] = reference_filenames[
-        'correlated_k_transmission_cloud_calculated_radius_scattering'
-    ].rsplit('.', 1)[0] + '.dat'  # using a .dat file is needed for the basic retrieval test
+                                                           'correlated_k_transmission_cloud_calculated_radius_scattering'
+                                                       ].rsplit('.', 1)[
+                                                           0] + '.dat'  # using a .dat file is needed for the basic retrieval test
 reference_filenames['pymultinest_parameter_analysis'] = \
     os.path.join(tests_data_directory, 'test_stats.json')
 reference_filenames['NASA_exoplanet_archive_test'] = \
     os.path.join(tests_data_directory, 'NASA_exoplanet_archive_test.tab')
-
 
 # Make directories if needed
 if not os.path.isdir(tests_results_directory):
@@ -74,7 +74,7 @@ def make_petitradtrans_test_config_file(filename):
                     '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
                     '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
                     'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
-                 },
+                },
                 'mass_fractions_line_by_line': {
                     'H2': 0.74,
                     'He': 0.24,
@@ -134,19 +134,20 @@ def make_petitradtrans_test_config_file(filename):
                     'wavelength_range_line_by_line': [2.3000, 2.3025]
                 },
                 'cloud_parameters': {
-                   'kappa_zero': 0.01,
-                   'gamma_scattering': -4.0,
-                   'cloud_pressure': 0.01,
-                   'haze_factor': 10.0,
-                   'cloud_species': {
-                       'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
-                           'mass_fraction': 5e-7,
-                           'radius': 5e-5,  # (cm)
-                           'f_sed': 2.0,
-                           'sigma_log_normal': 1.05,
-                           'b_hansen': 0.01
-                       },
-                   }
+                    'kappa_zero': 0.01,
+                    'gamma_scattering': -4.0,
+                    'cloud_pressure': 0.01,
+                    'haze_factor': 10.0,
+                    'cloud_species': {
+                        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                            'mass_fraction': 5e-7,
+                            'radius': 5e-5,  # (cm)
+                            'f_sed': 2.0,
+                            'f_sed_variable_setup': [1, 5],  # linearly changes from 1 at bottom to 5 at top
+                            'sigma_log_normal': 1.05,
+                            'b_hansen': 0.01
+                        },
+                    }
                 },
                 'retrieval_parameters': {
                     'planetary_radius_bounds': (1.8, 2.0),

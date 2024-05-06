@@ -64,6 +64,36 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     )
 
 
+def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_variable_fsed():
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
+        test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+
+    benchmark = Benchmark(
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance
+    )
+
+    fsed_min = test_parameters['cloud_parameters']['cloud_species'][
+        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][0]
+    fsed_max = test_parameters['cloud_parameters']['cloud_species'][
+        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][1]
+    fseds = np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
+
+    benchmark.run(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=mass_fractions,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=fseds,
+        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        frequencies_to_wavelengths=False
+    )
+
+
 def test_correlated_k_photospheric_radius_calculation():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
@@ -77,7 +107,7 @@ def test_correlated_k_photospheric_radius_calculation():
 
     cloud_particles_mean_radii = {'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': (
             np.ones_like(temperature_guillot_2010) * test_parameters['cloud_parameters'][
-                'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
+        'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
     )}
 
     atmosphere_ck_scattering._Radtrans__set_sum_opacities(emission=True)
