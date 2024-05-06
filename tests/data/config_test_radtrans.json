@@ -13,7 +13,7 @@
         "1H2-16O__HITEMP.R1000_0.1-250mu": 0.001,
         "12C-1H4__YT34to10.R1000_0.3-50mu": 0.001,
         "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
-     },
+    },
     "mass_fractions_line_by_line": {
         "H2": 0.74,
         "He": 0.24,
@@ -96,6 +96,10 @@
                 "mass_fraction": 5e-07,
                 "radius": 5e-05,
                 "f_sed": 2.0,
+                "f_sed_variable_setup": [
+                    2.0,
+                    2.5
+                ],
                 "sigma_log_normal": 1.05,
                 "b_hansen": 0.01
             }
@@ -128,27 +132,29 @@
     },
     "mock_observation_parameters": {
         "resolving_power": 60,
-        "high_resolution_resolving_power": 1e5,
+        "high_resolution_resolving_power": 100000.0,
         "wavelength_range_high_resolution": [
             2.3005,
-            2.3020
+            2.302
         ],
         "orbital_phase_range": [
-            -1e-2,
-            1e-2
+            -0.01,
+            0.01
         ],
         "system_observer_radial_velocities_range": [
-            -5.0e5,
-            -4.85e5
+            -500000.0,
+            -485000.0
         ],
         "n_exposures": 20,
-        "rest_frame_velocity_shift": -1.5e5,
+        "rest_frame_velocity_shift": -150000.0,
         "relative_error": 0.01
     },
     "ccf_analysis_parameters": {
         "normalize_ccf": true,
         "calculate_ccf_snr": true,
-        "ccf_sum_axes": [0],
+        "ccf_sum_axes": [
+            0
+        ],
         "pixels_per_resolution_element": 2,
         "peak_lsf_factor": 1.5,
         "velocity_interval_extension_factor": -0.3,

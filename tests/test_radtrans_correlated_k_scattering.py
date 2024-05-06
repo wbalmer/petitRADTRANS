@@ -64,7 +64,6 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
     )
 
 
-'''
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_variable_fsed():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
@@ -80,7 +79,8 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][0]
     fsed_max = test_parameters['cloud_parameters']['cloud_species'][
         'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][1]
-    fseds = np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
+    fseds = {'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu' : np.linspace(2.,2.,len(atmosphere_ck_scattering._pressures))}
+    #np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
@@ -93,8 +93,6 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
-'''
-
 
 def test_correlated_k_photospheric_radius_calculation():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])

@@ -1391,9 +1391,9 @@ class Radtrans:
             f_seds = np.array(np.zeros((len(pressures), n_clouds)), dtype='d', order='F')
 
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
-                if isinstance(cloud_f_sed, dict):
+                if isinstance(cloud_f_sed, dict):  # is either dictionary
                     f_seds[:, i_spec] = cloud_f_sed[cloud]
-                elif not hasattr(cloud_f_sed, '__iter__'):
+                else:  # or array with length of number of atmospheric layers, or scalar.
                     f_seds[:, i_spec] = cloud_f_sed
 
             # Calculate cloud_particles_mean_radii then cloud opacities
