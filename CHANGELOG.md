@@ -4,6 +4,11 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.0.2] - 2024-05-06
+### Added
+- parameters_relative_tolerance can be changed on a per-request basis in tox unit testing.
+
+
 ## [3.0.1] - 2024-05-02
 ### Fixed
 - Crash of DACE opacities conversion when not using the debug wavelength grid file.

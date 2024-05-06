@@ -63,6 +63,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering():
         frequencies_to_wavelengths=False
     )
 
+
 '''
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_variable_fsed():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
@@ -93,6 +94,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         frequencies_to_wavelengths=False
     )
 '''
+
 
 def test_correlated_k_photospheric_radius_calculation():
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
@@ -136,7 +138,8 @@ def test_correlated_k_photospheric_radius_calculation():
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_photosphere_median_optical_depth=None,
         cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-        cloud_absorption_opacities=cloud_absorption_opacities
+        cloud_absorption_opacities=cloud_absorption_opacities,
+        increased_parameters_relative_tolerance=1e-14  # since it fails on Paul's laptop otherwise
     )
 
 
