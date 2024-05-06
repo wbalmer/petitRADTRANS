@@ -1204,7 +1204,7 @@ module fortran_radtrans_core
           double precision, intent(in) :: reference_gravity, atmospheric_densities(n_layers), &
                 clouds_particles_densities(n_clouds), &
                 temperatures(n_layers), &
-                mean_molar_masses(n_layers), f_seds(n_clouds), &
+                mean_molar_masses(n_layers), f_seds(n_layers,n_clouds), &
                 cloud_particle_radius_distribution_std, eddy_diffusion_coefficients(n_layers)
           double precision, intent(out) :: cloud_particles_mean_radii(n_layers,n_clouds)
           ! Internal
@@ -1226,7 +1226,7 @@ module fortran_radtrans_core
                     1d-16,1d2,reference_gravity,atmospheric_densities(i_str), &
                     clouds_particles_densities(i_spec),temperatures(i_str),mean_molar_masses(i_str),w_star(i_str))
                 if (r_w(i_str,i_spec) > 1d-16) then
-                   if (f_seds(i_spec) > 1d0) then
+                   if (f_seds(i_str,i_spec) > 1d0) then
                       do i_rad = 1, N_fit
                          rad(i_rad) = r_w(i_str,i_spec)/max(cloud_particle_radius_distribution_std,1.0001d0) &
                             + (r_w(i_str,i_spec)&
@@ -1259,7 +1259,7 @@ module fortran_radtrans_core
                    alpha(i_str,i_spec) = b
                    r_w(i_str,i_spec) = exp(-a/b)
                    cloud_particles_mean_radii(i_str,i_spec) = &
-                       r_w(i_str,i_spec) * f_seds(i_spec)**(1d0/alpha(i_str,i_spec))&
+                       r_w(i_str,i_spec) * f_seds(i_str,i_spec)**(1d0/alpha(i_str,i_spec))&
                        * exp(-(alpha(i_str,i_spec)+6d0)/2d0*log(cloud_particle_radius_distribution_std)**2d0)
                 else
                    cloud_particles_mean_radii(i_str,i_spec) = 1d-17
@@ -1285,7 +1285,7 @@ module fortran_radtrans_core
 
             integer, intent(in)  :: n_layers, n_clouds
             double precision, intent(in) :: reference_gravity, rho(n_layers), clouds_particles_densities(n_clouds), &
-                temperatures(n_layers), mean_molar_masses(n_layers), f_seds(n_clouds), &
+                temperatures(n_layers), mean_molar_masses(n_layers), f_seds(n_layers,n_clouds), &
                 clouds_b_hansen(n_layers,n_clouds), eddy_diffusion_coefficients(n_layers)
             double precision, intent(out) :: clouds_a_hansen(n_layers,n_clouds)
 
@@ -1317,7 +1317,7 @@ module fortran_radtrans_core
                     )
 
                     if (r_w(i_str,i_spec) > 1d-16) then
-                        if (f_seds(i_spec) > 1d0) then
+                        if (f_seds(i_str,i_spec) > 1d0) then
                             do i_rad = 1, N_fit
                                 rad(i_rad) = &
                                     r_w(i_str, i_spec) * clouds_b_hansen(i_str, i_spec) &
@@ -1362,7 +1362,7 @@ module fortran_radtrans_core
                             clouds_a_hansen(i_str, i_spec) = &
                                 (&
                                     clouds_b_hansen(i_str, i_spec) ** (-1d0 * alpha(i_str, i_spec)) &
-                                    * r_w(i_str, i_spec) ** alpha(i_str, i_spec) * f_seds(i_spec) &
+                                    * r_w(i_str, i_spec) ** alpha(i_str, i_spec) * f_seds(i_str,i_spec) &
                                     * (&
                                         clouds_b_hansen(i_str, i_spec) ** 3d0 &
                                         * clouds_b_hansen(i_str, i_spec) ** alpha(i_str, i_spec) &
@@ -1381,7 +1381,7 @@ module fortran_radtrans_core
                             clouds_a_hansen(i_str, i_spec) = &
                                 (&
                                     clouds_b_hansen(i_str, i_spec) ** (-1d0 * alpha(i_str, i_spec)) &
-                                    * r_w(i_str, i_spec) ** alpha(i_str, i_spec) * f_seds(i_spec) &
+                                    * r_w(i_str, i_spec) ** alpha(i_str, i_spec) * f_seds(i_str,i_spec) &
                                     * (&
                                         clouds_b_hansen(i_str, i_spec) ** 3d0 &
                                         * clouds_b_hansen(i_str, i_spec) ** alpha(i_str, i_spec) &

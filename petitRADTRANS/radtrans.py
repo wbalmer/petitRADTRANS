@@ -160,10 +160,10 @@ class Radtrans:
         self.__scattering_in_transmission = False
         self.__sum_opacities = False
         self.__absorber_present = not (
-            len(self._line_species) == 0
-            and len(self._gas_continuum_contributors) == 0
-            and len(self._rayleigh_species) == 0
-            and len(self._cloud_species) == 0
+                len(self._line_species) == 0
+                and len(self._gas_continuum_contributors) == 0
+                and len(self._rayleigh_species) == 0
+                and len(self._cloud_species) == 0
         )
 
         # Initialize line parameters
@@ -828,7 +828,8 @@ class Radtrans:
 
         # Add opaque cloud deck opacity
         if opaque_cloud_top_pressure is not None:
-            continuum_opacities[:, self._pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
+            continuum_opacities[:,
+            self._pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
 
         # Add power law opacity
         if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
@@ -1217,9 +1218,10 @@ class Radtrans:
 
         diff = np.log(cloud_particles_radii[:, None, None]) - np.log(cloud_particles_mean_radii)
         dn_dr = (  # (n_radii, n_layers, n_clouds)
-            n
-            / (cloud_particles_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(cloud_particles_distribution_std))
-            * np.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
+                n
+                / (cloud_particles_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(
+            cloud_particles_distribution_std))
+                * np.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
         )
 
         integrand_scale = (  # (n_radii, n_layers, n_clouds)
@@ -1319,8 +1321,8 @@ class Radtrans:
 
             if clouds_particles_porosity_factor is not None:
                 _cloud_particles_density[i_spec] = (
-                    clouds_loaded_opacities['particles_densities'][i_spec]
-                    * (1 - clouds_particles_porosity_factor[cloud_name])
+                        clouds_loaded_opacities['particles_densities'][i_spec]
+                        * (1 - clouds_particles_porosity_factor[cloud_name])
                 )
             else:
                 _cloud_particles_density[i_spec] = clouds_loaded_opacities['particles_densities']
@@ -1386,13 +1388,13 @@ class Radtrans:
                 )
 
             # Initialize f_seds
-            f_seds = np.zeros(n_clouds)
+            f_seds = np.array(np.zeros((len(pressures), n_clouds)), dtype='d', order='F')
 
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
                 if isinstance(cloud_f_sed, dict):
-                    f_seds[i_spec] = cloud_f_sed[cloud]
+                    f_seds[:, i_spec] = cloud_f_sed[cloud]
                 elif not hasattr(cloud_f_sed, '__iter__'):
-                    f_seds[i_spec] = cloud_f_sed
+                    f_seds[:, i_spec] = cloud_f_sed
 
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
@@ -1467,7 +1469,7 @@ class Radtrans:
 
         if sum_opacities and photospheric_cloud_optical_depths is not None:
             cloud_anisotropic_scattering_opacities = (
-                cloud_anisotropic_extinctions - cloud_final_absorption_opacities
+                    cloud_anisotropic_extinctions - cloud_final_absorption_opacities
             )
             cloud_absorption_opacities = cloud_final_absorption_opacities
 
@@ -1547,13 +1549,13 @@ class Radtrans:
             theta = 5040. / temperatures
 
             f0 = -2.2763 - 1.6850 * np.log10(lamb_use) \
-                + 0.76661 * np.log10(lamb_use) ** 2. \
-                - 0.053346 * np.log10(lamb_use) ** 3.
+                 + 0.76661 * np.log10(lamb_use) ** 2. \
+                 - 0.053346 * np.log10(lamb_use) ** 3.
             f1 = 15.2827 - 9.2846 * np.log10(lamb_use) \
-                + 1.99381 * np.log10(lamb_use) ** 2. \
-                - 0.142631 * np.log10(lamb_use) ** 3.
+                 + 1.99381 * np.log10(lamb_use) ** 2. \
+                 - 0.142631 * np.log10(lamb_use) ** 3.
             f2 = -197.789 + 190.266 * np.log10(lamb_use) - 67.9775 * np.log10(lamb_use) ** 2. \
-                + 10.6913 * np.log10(lamb_use) ** 3. - 0.625151 * np.log10(lamb_use) ** 4.
+                 + 10.6913 * np.log10(lamb_use) ** 3. - 0.625151 * np.log10(lamb_use) ** 4.
 
             ret_val = np.zeros_like(wavelengths)
             ret_val[index] = 1e-26 * electron_partial_pressure * 1e1 ** (
@@ -1680,9 +1682,14 @@ class Radtrans:
         return optical_depths, photon_destruction_probabilities
 
     @staticmethod
-    def _compute_optical_depths_wrapper(pressures, reference_gravity, opacities, continuum_opacities_scattering,
-                                        scattering_in_emission, sum_opacities,
-                                        photospheric_cloud_optical_depths=None, absorber_present=True,
+    def _compute_optical_depths_wrapper(pressures,
+                                        reference_gravity,
+                                        opacities,
+                                        continuum_opacities_scattering,
+                                        scattering_in_emission,
+                                        sum_opacities,
+                                        photospheric_cloud_optical_depths=None,
+                                        absorber_present=True,
                                         **custom_cloud_parameters):
         optical_depths = np.zeros(opacities.shape, dtype='d', order='F')
         photon_destruction_probabilities = None
@@ -1864,6 +1871,8 @@ class Radtrans:
             max_rescaling = 1e100
 
             for f in cloud_f_sed.keys():
+                if isinstance(cloud_f_sed[f], np.ndarray):
+                    raise ValueError(f"Only scalar cloud_f_sed values are allowed for cloud rescaling!")
                 mr = 2. * (cloud_f_sed[f] + 1.)
                 max_rescaling = min(max_rescaling, mr)
 
@@ -1955,13 +1964,13 @@ class Radtrans:
     def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
                                      opacities, continuum_opacities_scattering, scattering_in_emission):
         opacities_rosseland = fcore.compute_rosseland_opacities(
-                opacities[:, :, 0, :],
-                temperatures,
-                weights_gauss,
-                frequency_bins_edges,
-                scattering_in_emission,
-                continuum_opacities_scattering
-            )
+            opacities[:, :, 0, :],
+            temperatures,
+            weights_gauss,
+            frequency_bins_edges,
+            scattering_in_emission,
+            continuum_opacities_scattering
+        )
 
         return opacities_rosseland
 
@@ -2307,7 +2316,7 @@ class Radtrans:
 
             # Get the corresponding frequencies bin edges, +2 is to catch the upper bin edge
             frequency_bins_edges = np.array(
-                frequency_bins_edges[indices_within_boundaries[0]:indices_within_boundaries[-1]+2],
+                frequency_bins_edges[indices_within_boundaries[0]:indices_within_boundaries[-1] + 2],
                 dtype='d',
                 order='F'
             )
@@ -2349,7 +2358,7 @@ class Radtrans:
             A (wavelength, temperature) array containing the CIA opacities.
         """
         factor = combined_mass_fractions / collision_dict['weight'] \
-            * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+                 * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
 
         log10_alpha = np.log10(collision_dict['alpha'])
 
@@ -2841,7 +2850,7 @@ class Radtrans:
             for i_freq in range(self._frequencies.size):
                 tau_p = np.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
                 pressures_tau_p = interp1d(tau_p, self._pressures)
-                if np.max(tau_p) > 2./3.:
+                if np.max(tau_p) > 2. / 3.:
                     photosphere_radius[i_freq] = radius_interp(pressures_tau_p(2 / 3))
                 else:
                     warnings.warn('Atmosphere is too transparent for calculating the "photospheric '
@@ -3588,8 +3597,8 @@ class Radtrans:
 
                 # Load temperature-pressure grid
                 self._lines_loaded_opacities['temperature_pressure_grid'][species], \
-                    self._lines_loaded_opacities['temperature_grid_size'][species], \
-                    self._lines_loaded_opacities['pressure_grid_size'][species] \
+                self._lines_loaded_opacities['temperature_grid_size'][species], \
+                self._lines_loaded_opacities['pressure_grid_size'][species] \
                     = self.load_line_opacities_pressure_temperature_grid(
                     hdf5_file=hdf5_file
                 )
@@ -3639,7 +3648,7 @@ class Radtrans:
         line_opacities_pressure_grid_size = pressure_grid.size
 
         return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
-            line_opacities_pressure_grid_size
+               line_opacities_pressure_grid_size
 
     @staticmethod
     def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
