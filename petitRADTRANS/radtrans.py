@@ -1209,19 +1209,20 @@ class Radtrans:
 
         """
         n = (  # (n_layers, n_clouds)
-                3.0
-                * clouds_mass_fractions
-                * atmosphere_densities[:, None]
-                / (4.0 * np.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
-                * np.exp(-4.5 * np.log(cloud_particles_distribution_std) ** 2)
+            3.0
+            * clouds_mass_fractions
+            * atmosphere_densities[:, None]
+            / (4.0 * np.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
+            * np.exp(-4.5 * np.log(cloud_particles_distribution_std) ** 2)
         )
 
         diff = np.log(cloud_particles_radii[:, None, None]) - np.log(cloud_particles_mean_radii)
         dn_dr = (  # (n_radii, n_layers, n_clouds)
-                n
-                / (cloud_particles_radii[:, None, None] * np.sqrt(2.0 * np.pi) * np.log(
-            cloud_particles_distribution_std))
-                * np.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
+            n / (
+                cloud_particles_radii[:, None, None] * np.sqrt(2.0 * np.pi)
+                * np.log(cloud_particles_distribution_std)
+            )
+            * np.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
         )
 
         integrand_scale = (  # (n_radii, n_layers, n_clouds)
@@ -1548,18 +1549,32 @@ class Radtrans:
             # Convert to Angstrom (from cgs)
             theta = 5040. / temperatures
 
-            f0 = -2.2763 - 1.6850 * np.log10(lamb_use) \
-                 + 0.76661 * np.log10(lamb_use) ** 2. \
-                 - 0.053346 * np.log10(lamb_use) ** 3.
-            f1 = 15.2827 - 9.2846 * np.log10(lamb_use) \
-                 + 1.99381 * np.log10(lamb_use) ** 2. \
-                 - 0.142631 * np.log10(lamb_use) ** 3.
-            f2 = -197.789 + 190.266 * np.log10(lamb_use) - 67.9775 * np.log10(lamb_use) ** 2. \
-                 + 10.6913 * np.log10(lamb_use) ** 3. - 0.625151 * np.log10(lamb_use) ** 4.
+            f0 = (
+                -2.2763
+                - 1.6850 * np.log10(lamb_use)
+                + 0.76661 * np.log10(lamb_use) ** 2.
+                - 0.053346 * np.log10(lamb_use) ** 3.
+            )
+            f1 = (
+                15.2827
+                - 9.2846 * np.log10(lamb_use)
+                + 1.99381 * np.log10(lamb_use) ** 2.
+                - 0.142631 * np.log10(lamb_use) ** 3.
+            )
+            f2 = (
+                -197.789
+                + 190.266 * np.log10(lamb_use)
+                - 67.9775 * np.log10(lamb_use) ** 2.
+                + 10.6913 * np.log10(lamb_use) ** 3.
+                - 0.625151 * np.log10(lamb_use) ** 4.
+            )
 
             ret_val = np.zeros_like(wavelengths)
-            ret_val[index] = 1e-26 * electron_partial_pressure * 1e1 ** (
-                    f0 + f1 * np.log10(theta) + f2 * np.log10(theta) ** 2.)
+            ret_val[index] = (
+                1e-26 * electron_partial_pressure * 10 ** (
+                    f0 + f1 * np.log10(theta) + f2 * np.log10(theta) ** 2.
+                )
+            )
             return ret_val
 
         else:
@@ -1872,9 +1887,10 @@ class Radtrans:
 
             for f in cloud_f_sed.keys():
                 if isinstance(cloud_f_sed[f], np.ndarray):
-                    raise ValueError(f"Only scalar cloud_f_sed values are allowed for cloud rescaling!")
-                mr = 2. * (cloud_f_sed[f] + 1.)
-                max_rescaling = min(max_rescaling, mr)
+                    raise ValueError("Only scalar cloud_f_sed values are allowed for cloud rescaling!")
+
+                _max_rescaling = 2. * (cloud_f_sed[f] + 1.)
+                max_rescaling = min(max_rescaling, _max_rescaling)
 
             relative_cloud_scaling_factor = cloud_scaling_factor / max_rescaling
             print(f"Relative cloud scaling factor: {relative_cloud_scaling_factor}")
@@ -2357,8 +2373,10 @@ class Radtrans:
         Returns:
             A (wavelength, temperature) array containing the CIA opacities.
         """
-        factor = combined_mass_fractions / collision_dict['weight'] \
-                 * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+        factor = (
+            combined_mass_fractions / collision_dict['weight']
+            * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+        )
 
         log10_alpha = np.log10(collision_dict['alpha'])
 
@@ -3596,13 +3614,13 @@ class Radtrans:
                     )
 
                 # Load temperature-pressure grid
-                self._lines_loaded_opacities['temperature_pressure_grid'][species], \
-                self._lines_loaded_opacities['temperature_grid_size'][species], \
-                self._lines_loaded_opacities['pressure_grid_size'][species] \
-                    = self.load_line_opacities_pressure_temperature_grid(
+                (
+                    self._lines_loaded_opacities['temperature_pressure_grid'][species],
+                    self._lines_loaded_opacities['temperature_grid_size'][species],
+                    self._lines_loaded_opacities['pressure_grid_size'][species]
+                ) = self.load_line_opacities_pressure_temperature_grid(
                     hdf5_file=hdf5_file
                 )
-
                 # Load the opacities
                 print(f" Loading line opacities of species '{species}' from file '{hdf5_file}'...", end='')
 
@@ -3647,8 +3665,8 @@ class Radtrans:
         line_opacities_temperature_grid_size = temperature_grid.size
         line_opacities_pressure_grid_size = pressure_grid.size
 
-        return line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size, \
-               line_opacities_pressure_grid_size
+        return (line_opacities_temperature_pressure_grid, line_opacities_temperature_grid_size,
+                line_opacities_pressure_grid_size)
 
     @staticmethod
     def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
