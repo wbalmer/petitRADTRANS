@@ -590,6 +590,8 @@ def _rebuild_isotope_numbers(species, mode='add'):
     else:
         raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
+    species_pattern = r'(\d{1,3})?([A-Z][a-z]?|e)(\d{1,3})?'  # isotope number, element symbol, stoichiometric number
+
     # Handle natural abundance case
     if '-NatAbund' in species:
         if mode == 'add':
@@ -597,7 +599,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
             _species = species.split('--')  # CIA case
 
             for i, __species in enumerate(_species):  # for each colliding species
-                matches = re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{1,3})?', __species)
+                matches = re.findall(species_pattern, __species)
 
                 __species = [group[1] + group[2] for group in matches]
                 _species[i] = isotope_separator.join(__species)
@@ -621,7 +623,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
         for j, isotope in enumerate(isotopes):  # for each separated isotope in the species
             # Match isotope pattern in order to handle the case in which not all isotopes are separated (e.g. "13C2H2")
-            matches = re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{1,3})?', isotope)
+            matches = re.findall(species_pattern, isotope)
 
             if len(matches) == 0:
                 raise ValueError(f"invalid isotope name '{isotope}' in species '{__species}'")
