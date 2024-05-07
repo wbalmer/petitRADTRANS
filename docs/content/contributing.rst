@@ -1,7 +1,7 @@
 ============
 Contributing
 ============
-We welcome contributions to petitRADTRANS. Please reach out to the core developers before working on something you want to see become a part of petitRADTRANS.
+We welcome contributions to petitRADTRANS! If you want to contribute a new capability to the code, especially if it is something more involved, please notify the development team before. This is such that we can gauge whether your contribution can or should be merged into pRT.
 
 Suggestions and reporting issues
 ================================
