@@ -12,7 +12,6 @@ may be performed in order to rule out "unlucky" results.
 import copy
 
 import numpy as np
-import copy as cp
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
@@ -96,11 +95,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
 
 
 def test_correlated_k_photospheric_radius_calculation():
-
     from .benchmark import ReferenceFile
-    original_parameters_relative_tolerance = cp.copy(ReferenceFile.parameters_relative_tolerance)
-    # To make test work on Paul's laptop...
-    ReferenceFile.parameters_relative_tolerance = 1e-14
+
+    original_parameters_relative_tolerance = copy.copy(ReferenceFile.parameters_relative_tolerance)
+    ReferenceFile.parameters_relative_tolerance = 1e-14  # to make test work on Paul's laptop...
 
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
@@ -112,10 +110,13 @@ def test_correlated_k_photospheric_radius_calculation():
         relative_tolerance=relative_tolerance
     )
 
-    cloud_particles_mean_radii = {'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': (
-            np.ones_like(temperature_guillot_2010) * test_parameters['cloud_parameters'][
-        'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
-    )}
+    cloud_particles_mean_radii = {
+        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': (
+            np.ones_like(temperature_guillot_2010)
+            * test_parameters['cloud_parameters'][
+                'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']
+        )
+    }
 
     atmosphere_ck_scattering._Radtrans__set_sum_opacities(emission=True)
 
@@ -262,8 +263,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius_scattering()
         mass_fractions=mass_fractions,
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
-        planet_radius=test_parameters['planetary_parameters']['radius']
-                      * petitRADTRANS.physical_constants.r_jup_mean,
+        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
         cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
