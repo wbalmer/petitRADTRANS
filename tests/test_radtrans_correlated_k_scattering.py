@@ -12,6 +12,7 @@ may be performed in order to rule out "unlucky" results.
 import copy
 
 import numpy as np
+import copy as cp
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
@@ -79,8 +80,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][0]
     fsed_max = test_parameters['cloud_parameters']['cloud_species'][
         'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][1]
-    fseds = {'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu' : np.linspace(2.,2.,len(atmosphere_ck_scattering._pressures))}
-    #np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
+    fseds = np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
 
     benchmark.run(
         temperatures=temperature_guillot_2010,
@@ -94,7 +94,14 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         frequencies_to_wavelengths=False
     )
 
+
 def test_correlated_k_photospheric_radius_calculation():
+
+    from .benchmark import ReferenceFile
+    original_parameters_relative_tolerance = cp.copy(ReferenceFile.parameters_relative_tolerance)
+    # To make test work on Paul's laptop...
+    ReferenceFile.parameters_relative_tolerance = 1e-14
+
     mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
     mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
         test_parameters['cloud_parameters']['cloud_species'][
@@ -136,9 +143,10 @@ def test_correlated_k_photospheric_radius_calculation():
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_photosphere_median_optical_depth=None,
         cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
-        cloud_absorption_opacities=cloud_absorption_opacities,
-        increased_parameters_relative_tolerance=1e-14  # since it fails on Paul's laptop otherwise
+        cloud_absorption_opacities=cloud_absorption_opacities
     )
+
+    ReferenceFile.parameters_relative_tolerance = original_parameters_relative_tolerance
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():

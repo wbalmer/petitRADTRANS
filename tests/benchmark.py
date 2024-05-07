@@ -7,7 +7,6 @@ import importlib.util
 import inspect
 import os
 import sys
-import copy as cp
 
 import h5py
 
@@ -347,12 +346,6 @@ class Benchmark:
                                     f"generate it first to run the test")
 
         reference_file = ReferenceFile.load(reference_file)
-        original_parameters_relative_tolerance = cp.copy(reference_file.parameters_relative_tolerance)
-        increased_parameters_relative_tolerance = kwargs.get('increased_parameters_relative_tolerance')
-        if increased_parameters_relative_tolerance is not None:
-            if increased_parameters_relative_tolerance <= 1e-13:
-                reference_file.parameters_relative_tolerance = increased_parameters_relative_tolerance
-            del kwargs['increased_parameters_relative_tolerance']
 
         print(f"Comparing '{self._name}' results "
               f"from petitRADTRANS-{reference_file.prt_version} ({reference_file.date}) "
@@ -363,8 +356,6 @@ class Benchmark:
             reference_file=reference_file,
             test_parameters=kwargs
         )
-
-        reference_file.parameters_relative_tolerance = original_parameters_relative_tolerance
 
         # Run the function
         outputs = self._run(**kwargs)
