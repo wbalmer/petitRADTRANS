@@ -423,6 +423,12 @@ class SpectralModel(Radtrans):
         # Move axis to (wavelength, ..., exposure) to be able to multiply with orbital longitudes
         planet_radius_normalized_squared = np.moveaxis((1 + planet_radius_normalized) ** 2, -1, 0)
 
+        if np.any(np.greater(impact_parameter_squared, planet_radius_normalized_squared)):
+            raise ValueError(f"planet do not transit: "
+                             f"minimal distance to star center ({np.sqrt(impact_parameter_squared)}) "
+                             f"is greater than the minimum sum of the star and planet radii "
+                             f"({np.sqrt(np.min(planet_radius_normalized_squared))})")
+
         planet_star_centers_distance = np.sqrt(
             impact_parameter_squared + (planet_radius_normalized_squared - impact_parameter_squared)
             * (orbital_longitudes / transit_longitude_half_length) ** 2
