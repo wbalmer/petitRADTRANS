@@ -546,7 +546,7 @@ def _has_isotope(string):
 
 
 def _merge_contiguous_isotopes(species, isotope_separator):
-    isotope_groups = re.findall(r'([A-Z][a-z]?)(\d{1,3})?', species)
+    isotope_groups = re.findall(r'([A-Z][a-z]?|e)(\d{1,3})?', species)
     isotope_groups = [list(isotope_group) for isotope_group in isotope_groups]
 
     # Merge the isotopes, numbers of contiguous isotopes are converted to int, merged groups numbers are set to 0
@@ -645,7 +645,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
                 # Update isotope number
                 if mode == 'add':
-                    if groups[0] == '':
+                    if groups[0] == '' and groups[1] != 'e':
                         groups[0] = f"{Formula(groups[1]).isotope.massnumber}"
                 elif mode == 'remove':
                     if groups[0] != '':
