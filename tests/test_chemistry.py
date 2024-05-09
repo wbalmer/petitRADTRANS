@@ -10,10 +10,14 @@ relative_tolerance = 1e-6
 
 
 def test_chemistry_atmosphere():
-    c_o_ratios = test_parameters['chemical_parameters']['c_o_ratios'][1] \
-                 * np.ones_like(test_parameters['pressures'])
-    metallicities = test_parameters['chemical_parameters']['metallicities'][1] \
-                    * np.ones_like(test_parameters['pressures'])
+    c_o_ratios = (
+        test_parameters['chemical_parameters']['c_o_ratios'][1]
+        * np.ones_like(test_parameters['pressures'])
+    )
+    metallicities = (
+        test_parameters['chemical_parameters']['metallicities'][1]
+        * np.ones_like(test_parameters['pressures'])
+    )
 
     benchmark = Benchmark(
         function=petitRADTRANS.chemistry.pre_calculated_chemistry.pre_calculated_equilibrium_chemistry_table.
