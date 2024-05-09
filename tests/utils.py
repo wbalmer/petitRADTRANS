@@ -82,6 +82,12 @@ def make_petitradtrans_test_config_file(filename):
                     'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
                     'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                 },
+                'mass_fractions_test': [1, -12],  # (log_10 MMR)
+                'filling_species': {
+                    'H2': 37,
+                    'He': 12,
+                    'Ne': 0.06
+                },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
                     'metallicities': [-1.9, 0.0, 3.0],  # (log_10 solar)
@@ -104,13 +110,17 @@ def make_petitradtrans_test_config_file(filename):
                     'reference_gravity': 1e1 ** 2.45,  # (cm.s-2)
                     'eddy_diffusion_coefficients': 10 ** 7.5,
                     'orbit_semi_major_axis': 7.5e11,  # (cm)
+                    'orbital_period': 3600 * 24,  # (s)
+                    'orbital_inclination': 88,  # (deg)
+                    'transit_duration': 3600,  # (s)
                     'surface_reflectance': 0.3
                 },
                 'stellar_parameters': {
                     'effective_temperature': 5778.0,  # (K)
                     'radius': 1.0,  # (R_sun)
                     'mass': 1.0,  # (M_sun)
-                    'incidence_angle': 30  # (deg)
+                    'incidence_angle': 30,  # (deg)
+                    'system_distance': 10  # (ly)
                 },
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,
@@ -154,10 +164,14 @@ def make_petitradtrans_test_config_file(filename):
                     'intrinsic_temperature_bounds': (500, 1500),
                     'log10_cloud_pressure_bounds': (-6, 2),
                     'log10_species_mass_fractions_bounds': (-6, 0),
+                    'radial_velocity_semi_amplitude_bounds': (100e5, 200e5),
+                    'rest_frame_velocity_shift_bounds': (-10e5, 10e5),
+                    'mid_transit_time_bounds': (-600, 600),
                     'sample_spectrum_output': False,
                     'ultranest': False,
                     'sampling_efficiency': 0.8,
                     'n_live_points': 50,
+                    'n_live_points_spectral_model': 1,
                     'const_efficiency_mode': False,
                     'resume': False,
                     'seed': 12345
@@ -171,6 +185,10 @@ def make_petitradtrans_test_config_file(filename):
                     'n_exposures': 20,
                     'rest_frame_velocity_shift': -1.5e5,
                     'relative_error': 1e-2
+                },
+                'preparing_parameters': {
+                    'tellurics_mask_threshold': 0.8,
+                    'polynomial_fit_degree': 2
                 },
                 'ccf_analysis_parameters': {
                     'normalize_ccf': True,

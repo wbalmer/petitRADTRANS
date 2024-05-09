@@ -21,6 +21,15 @@
         "C-O-NatAbund__HITEMP.R1e6_0.3-28mu": 0.1,
         "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
     },
+    "mass_fractions_test": [
+        1,
+        -12
+    ],
+    "filling_species": {
+        "H2": 37,
+        "He": 12,
+        "Ne": 0.06
+    },
     "mean_molar_mass": 2.33,
     "chemical_parameters": {
         "metallicities": [
@@ -51,13 +60,17 @@
         "reference_gravity": 281.8382931264455,
         "eddy_diffusion_coefficients": 31622776.60168379,
         "orbit_semi_major_axis": 750000000000.0,
+        "orbital_period": 86400,
+        "orbital_inclination": 88,
+        "transit_duration": 3600,
         "surface_reflectance": 0.3
     },
     "stellar_parameters": {
         "effective_temperature": 5778.0,
         "radius": 1.0,
         "mass": 1.0,
-        "incidence_angle": 30
+        "incidence_angle": 30,
+        "system_distance": 10
     },
     "spectrum_parameters": {
         "line_by_line_opacity_sampling": 4,
@@ -122,10 +135,23 @@
             -6,
             0
         ],
+        "radial_velocity_semi_amplitude_bounds": [
+            10000000.0,
+            20000000.0
+        ],
+        "rest_frame_velocity_shift_bounds": [
+            -1000000.0,
+            1000000.0
+        ],
+        "mid_transit_time_bounds": [
+            -600,
+            600
+        ],
         "sample_spectrum_output": false,
         "ultranest": false,
         "sampling_efficiency": 0.8,
         "n_live_points": 50,
+        "n_live_points_spectral_model": 1,
         "const_efficiency_mode": false,
         "resume": false,
         "seed": 12345
@@ -148,6 +174,10 @@
         "n_exposures": 20,
         "rest_frame_velocity_shift": -150000.0,
         "relative_error": 0.01
+    },
+    "preparing_parameters": {
+        "tellurics_mask_threshold": 0.8,
+        "polynomial_fit_degree": 2
     },
     "ccf_analysis_parameters": {
         "normalize_ccf": true,
