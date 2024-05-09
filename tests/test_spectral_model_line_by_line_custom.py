@@ -32,7 +32,6 @@ def init_spectral_model_line_by_line():
             guillot_temperature_profile_kappa_ir_z0=test_parameters['temperature_guillot_2010_parameters'][
                 'infrared_mean_opacity'],
             # Chemical parameters
-            use_equilibrium_chemistry=False,
             imposed_mass_fractions=test_parameters['mass_fractions_line_by_line'],
             # Transmission spectrum parameters (radtrans.calc_transm)
             planet_radius=test_parameters[
@@ -66,15 +65,6 @@ def init_spectral_model_line_by_line():
             ),  # cm.s-1
             rest_frame_velocity_shift=test_parameters['mock_observation_parameters'][
                 "rest_frame_velocity_shift"],  # cm.s-1
-            # Reprocessing parameters
-            # uncertainties=model_uncertainties,
-            # airmass=airmasses,
-            # tellurics_mask_threshold=tellurics_mask_threshold,
-            # polynomial_fit_degree=2,
-            # apply_throughput_removal=True,
-            # apply_telluric_lines_removal=True,
-            # Special parameters
-            # Test addition of a useless parameter
             yet_another_useless_parameter42="irrelevant string"
         )
 
@@ -100,7 +90,11 @@ def init_spectral_model_line_by_line():
     # Test custom function
     spectral_model.compute_mass_fractions = calculate_mass_mixing_ratios
     spectral_model.compute_mean_molar_masses = calculate_mean_molar_masses
-    spectral_model.update_model_functions_map()
+
+    # Expect UserWarning caused by yet_another_useless_parameter42 also here, SpectralModel should work fine
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        spectral_model.update_model_functions_map()
 
     return spectral_model
 

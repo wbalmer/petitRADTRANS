@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a3] - 2024-05-09
+## [3.1.0a4] - 2024-05-09
 ### Added
 - Allow for vertically variable fsed per species.
 - Test module for `SpectralModel` using custom functions.
