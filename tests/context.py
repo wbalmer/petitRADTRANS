@@ -27,5 +27,6 @@ import petitRADTRANS.chemistry
 import petitRADTRANS.chemistry.pre_calculated_chemistry
 import petitRADTRANS.radtrans
 import petitRADTRANS.retrieval
+import petitRADTRANS.retrieval.preparing
 import petitRADTRANS.utils
 import petitRADTRANS.math

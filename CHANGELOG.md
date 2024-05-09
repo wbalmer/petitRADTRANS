@@ -4,13 +4,20 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a2] - 2024-05-07
-### Fixed
-- Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
-
+## [3.1.0a3] - 2024-05-09
 ### Added
 - Allow for vertically variable fsed per species.
-- Parameters_relative_tolerance can be changed on a per-request basis in tox unit testing.
+- Test module for `SpectralModel` using custom functions.
+- Test module for `SpectralModel` in `'c-k'` opacity mode.
+
+### Fixed
+- Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
+- Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
+- Silent error when calculating transit light loss for a non-transiting planet.
+
+## [3.0.2] - 2024-05-07
+### Fixed
+- Electron symbol (`'e-'`) not supported as a `Radtrans` mass fraction.
 
 ## [3.0.1] - 2024-05-02
 ### Fixed
