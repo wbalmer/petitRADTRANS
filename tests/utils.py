@@ -268,6 +268,15 @@ def check_cloud_mass_fractions():
                 )
 
 
+def get_main_model_parameters(spectral_model, **kwargs):
+    """Calculate a SpectralModel spectrum and return the temperatures, mass fractions and mean molar masses in
+    addition to wavelengths and spectra."""
+    wavelengths, spectra = spectral_model.calculate_spectrum(**kwargs)
+
+    return (wavelengths, spectra,
+            spectral_model.temperatures, spectral_model.mass_fractions, spectral_model.mean_molar_masses)
+
+
 # Initializations
 def init_guillot_2010_temperature_profile():
     temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
