@@ -518,7 +518,7 @@ class Retrieval:
                 comm.barrier()
 
     @classmethod
-    def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict[str]],
+    def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict],
                   retrieval_name: str = "retrieval_name",
                   run_mode="retrieval", amr=False, output_directory: str = "", use_mpi: bool = False,
                   evaluate_sample_spectra: bool = False, ultranest: bool = False,

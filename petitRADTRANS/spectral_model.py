@@ -2287,7 +2287,7 @@ class SpectralModel(Radtrans):
                   data_wavelengths: np.ndarray[float],
                   data_uncertainties: np.ndarray[float],
                   data_name: str = 'data',
-                  retrieved_parameters: dict[str, dict[str]] = None, model_parameters: dict[str] = None,
+                  retrieved_parameters: dict[str, dict] = None, model_parameters: dict[str] = None,
                   mode: str = 'emission', update_parameters: bool = False,
                   telluric_transmittances: np.ndarray[float] = None,
                   instrumental_deformations: np.ndarray[float] = None,
