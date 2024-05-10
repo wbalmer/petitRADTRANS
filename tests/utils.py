@@ -171,7 +171,7 @@ def make_petitradtrans_test_config_file(filename):
                     'ultranest': False,
                     'sampling_efficiency': 0.8,
                     'n_live_points': 50,
-                    'n_live_points_spectral_model': 1,
+                    'n_live_points_spectral_model': 15,
                     'const_efficiency_mode': False,
                     'resume': False,
                     'seed': 12345
