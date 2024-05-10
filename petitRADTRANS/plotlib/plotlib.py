@@ -155,7 +155,8 @@ def _get_parameter_range(sample_dict, retrieved_parameters, spectral_model=None)
         np.array(coefficients), np.array(offsets), sample_dict
 
 
-def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, true_values, spectral_model=None):
+def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, true_values,
+                                      retrieval_name=None, spectral_model=None):
     # Initialisation
     parameter_names_dict = {}
     parameter_plot_indices_dict = {}
@@ -171,10 +172,10 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
         sample_dict = {}
 
         for i, directory in enumerate(result_directory):
-            sd.append(get_pymultinest_sample_dict(directory))
+            sd.append(get_pymultinest_sample_dict(directory, name=retrieval_name))
             sample_dict[f'{i}'] = None
     else:
-        sd = [get_pymultinest_sample_dict(result_directory)]
+        sd = [get_pymultinest_sample_dict(result_directory, name=retrieval_name)]
         sample_dict = {'': None}
 
     samples = list(sample_dict.keys())
@@ -1312,7 +1313,7 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
             )
 
 
-def plot_result_corner(retrieval_directory, retrieved_parameters,
+def plot_result_corner(retrieval_directory, retrieved_parameters, retrieval_name=None,
                        true_values=None, spectral_model=None, figure_font_size=8,
                        save=True, figure_directory='./', figure_name='result_corner', image_format='png', **kwargs):
     """Plot the posteriors of one or multiple retrievals in the same corner plot.
@@ -1323,6 +1324,8 @@ def plot_result_corner(retrieval_directory, retrieved_parameters,
         retrieved_parameters:
             Dictionary containing all the retrieved parameters and their prior
             # TODO retrieved parameters should be automatically stored in retrievals
+        retrieval_name:
+            Name of the retrieval. If None, the name is extracted from the retrieval directory.
         true_values:
             True values for the parameters
         spectral_model:
@@ -1343,6 +1346,7 @@ def plot_result_corner(retrieval_directory, retrieved_parameters,
     (sample_dict, parameter_names_dict, parameter_plot_indices_dict, parameter_ranges_dict, true_values_dict,
         fig_titles, fig_labels) = _prepare_multiple_retrievals_plot(
         result_directory=retrieval_directory,
+        retrieval_name=retrieval_name,
         retrieved_parameters=retrieved_parameters,
         true_values=true_values,
         spectral_model=spectral_model
