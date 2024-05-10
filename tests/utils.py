@@ -34,14 +34,19 @@ reference_filenames = {
     for key, value in reference_filenames.items()
 }
 
-reference_filenames['mock_observation_transmission'] = reference_filenames[
-                                                           'correlated_k_transmission_cloud_calculated_radius_scattering'
-                                                       ].rsplit('.', 1)[
-                                                           0] + '.dat'  # using a .dat file is needed for the basic retrieval test
-reference_filenames['pymultinest_parameter_analysis'] = \
+reference_filenames['mock_observation_transmission'] = (
+    reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'].rsplit('.', 1)[0]
+    + '.dat'  # using a .dat file is needed for the basic retrieval test
+)
+reference_filenames['pymultinest_parameter_analysis'] = (
     os.path.join(tests_data_directory, 'test_stats.json')
-reference_filenames['NASA_exoplanet_archive_test'] = \
+)
+reference_filenames['pymultinest_parameter_analysis_spectral_model'] = (
+    os.path.join(tests_data_directory, 'test_spectral_model_stats.json')
+)
+reference_filenames['NASA_exoplanet_archive_test'] = (
     os.path.join(tests_data_directory, 'NASA_exoplanet_archive_test.tab')
+)
 
 # Make directories if needed
 if not os.path.isdir(tests_results_directory):
