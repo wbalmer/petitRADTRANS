@@ -4,14 +4,19 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a4] - 2024-05-09
+## [3.1.0a5] - 2024-05-10
 ### Added
-- Allow for vertically variable fsed per species.
+- Possibility to use vertically variable fsed per species.
+- Possibility to specify the retrieval name in `plot_result_corner`.
 - Test module for `SpectralModel` using custom functions.
 - Test module for `SpectralModel` in `'c-k'` opacity mode.
+- Test module for `SpectralModel` in `'lbl'` opacity mode.
+- Test module for `SpectralModel` retrieval framework.
 
 ### Fixed
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
+- Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
+- Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Silent error when calculating transit light loss for a non-transiting planet.
 
