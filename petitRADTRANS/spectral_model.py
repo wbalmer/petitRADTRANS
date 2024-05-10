@@ -2743,7 +2743,7 @@ class SpectralModel(Radtrans):
                 spectrum = np.array([spectrum])
 
         if use_transit_light_loss:
-            if scale:
+            if scale and shift:
                 # TODO fix _calculate_transit_fractional_light_loss_uniform not working when shift is False
                 spectrum = transit_fractional_light_loss_function(
                     spectrum=spectrum,
@@ -2751,7 +2751,7 @@ class SpectralModel(Radtrans):
                     **kwargs
                 )
             else:
-                warnings.warn("'scale' must be True to calculate transit light loss, skipping step...")
+                warnings.warn("'scale' and 'shift' must be True to calculate transit light loss, skipping step...")
 
         # Add telluric transmittance
         if telluric_transmittances is not None:
