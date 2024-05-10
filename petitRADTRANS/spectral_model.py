@@ -2680,17 +2680,19 @@ class SpectralModel(Radtrans):
                 **kwargs
             )
 
-            star_spectrum = np.zeros(wavelengths_shift_system.shape)
+            _star_spectrum = np.zeros(wavelengths_shift_system.shape)
 
             # Get a star spectrum for each exposure
             for i, wavelength_shift in enumerate(wavelengths_shift_system):
-                _, star_spectrum[i] = SpectralModel._rebin_wrap(
+                _, _star_spectrum[i] = SpectralModel._rebin_wrap(
                     wavelengths=star_spectrum_wavelengths,
                     spectrum=star_spectrum,
                     rebinned_wavelengths=wavelength_shift,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
+
+            star_spectrum = _star_spectrum
 
         # Calculate flux received by the observer
         if is_observed and mode == 'emission':
