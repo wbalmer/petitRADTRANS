@@ -1260,7 +1260,7 @@ def guillot_transmission(prt_object,
 
     pcloud = None
     power_law_opacity_coefficient = None
-    haze_factor = None
+    haze_factor = 1.0
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
@@ -1443,7 +1443,7 @@ def guillot_patchy_transmission(prt_object,
                                                                            prt_object.cloud_species)
     # Hazes
     power_law_opacity_coefficient = None
-    haze_factor = None
+    haze_factor = 1.0
     if "power_law_opacity_coefficient" in parameters.keys():
         power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
     if "haze_factor" in parameters.keys():
@@ -1618,7 +1618,7 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
                                                                            prt_object.cloud_species)
     # Hazes
     power_law_opacity_coefficient = None
-    haze_factor = None
+    haze_factor = 1.0
     if "power_law_opacity_coefficient" in parameters.keys():
         power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
     if "haze_factor" in parameters.keys():
@@ -1788,7 +1788,7 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
                                                                            prt_object.cloud_species)
     # Hazes
     power_law_opacity_coefficient = None
-    haze_factor = None
+    haze_factor = 1.0
     if "power_law_opacity_coefficient" in parameters.keys():
         power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
     if "haze_factor" in parameters.keys():
@@ -1939,7 +1939,7 @@ def isothermal_transmission(prt_object,
 
     # Calculate the spectrum
     pcloud = None
-    haze_factor = None
+    haze_factor = 1.0
     power_law_opacity_coefficient = None
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
