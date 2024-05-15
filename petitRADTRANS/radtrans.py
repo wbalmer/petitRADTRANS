@@ -19,8 +19,8 @@ from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
 from petitRADTRANS.utils import LockedDict
-
-
+import petitRADTRANS.jax_radtrans as jrt
+from time import time
 class Radtrans:
     __dat_opacity_files_warning_message = (
         "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
@@ -655,6 +655,7 @@ class Radtrans:
         Returns:
 
         """
+        start = time()
         optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor = (
             self._compute_optical_depths_wrapper(
                 pressures=self._pressures,
@@ -674,6 +675,17 @@ class Radtrans:
                 photospheric_cloud_optical_depths=photospheric_cloud_optical_depths
             )
         )
+        end = time()
+        np.save("fortran_optical_depths",optical_depths)
+        print(f"Fortran optical depths: {end-start}")
+
+        start = time()
+        jax_optical_depths = jrt.compute_species_optical_depths(reference_gravity,self._pressures,opacities)
+        end = time()
+        np.save("jax_optical_depths",jax_optical_depths)
+        print(f"JAX optical depths: {end-start}")
+        print(optical_depths.shape,jax_optical_depths.shape)
+        print(jax_optical_depths/optical_depths)
 
         opacities_rosseland = None
 
@@ -1149,6 +1161,7 @@ class Radtrans:
     @staticmethod
     def _compute_ck_flux(frequencies, temperatures, weights_gauss,
                          emission_cos_angle_grid, emission_cos_angle_grid_weights, optical_depths, return_contribution):
+        start = time()
         flux, emission_contribution = fcore.compute_ck_flux(
             frequencies,
             temperatures,
@@ -1158,7 +1171,23 @@ class Radtrans:
             optical_depths,
             return_contribution
         )
+        end = time()
+        np.save("fortran_flux",flux)
+        jstart = time()
 
+        np.save("fortran_optical_depths",optical_depths)
+
+        jflux = jrt.flux_ck(
+            frequencies,
+            temperatures,
+            weights_gauss,
+            emission_cos_angle_grid,
+            emission_cos_angle_grid_weights,
+            optical_depths
+        )
+        jend = time()
+        np.save("jax_flux",jflux)
+        print(f"Fortran: {end-start} s\nJAX: {jend-jstart} s")
         return flux, emission_contribution
 
     @staticmethod
