@@ -42,10 +42,12 @@ if load_mpi:
     # MPI Multiprocessing
     try:
         from mpi4py import MPI
+
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     except ImportError:
         pass
+
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
     old_input_data_subpaths = LockedDict()
@@ -767,12 +769,12 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     # Load .dat files
     print("Loading dat files...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-            cloud_path, path_input_files, path_reference_files,
-            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-            len(doi_dict), n_cloud_wavelength_bins
-        )
+        cloud_path, path_input_files, path_reference_files,
+        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+        len(doi_dict), n_cloud_wavelength_bins
+    )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -2685,12 +2687,12 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
     # Load .dat files
     print("Loading dat file...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-            cloud_path, path_input_files, path_reference_files,
-            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-            1, n_cloud_wavelength_bins
-        )
+        cloud_path, path_input_files, path_reference_files,
+        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+        1, n_cloud_wavelength_bins
+    )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -2810,7 +2812,6 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
                                                        doi=None,
                                                        description=None,
                                                        wavelength_limit=None):
-
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     n_cloud_wavelength_bins = len(np.genfromtxt(os.path.join(path_to_species_opacity_folder, 'opa_0001.dat'))[:, 0])
@@ -2820,10 +2821,10 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         path_to_species_opacity_folder,
         1,
         n_cloud_wavelength_bins
-     )
+    )
 
     if wavelength_limit is not None:
-        index_bad = (cloud_wavelengths < wavelength_limit[0]*1e-4) | (cloud_wavelengths > wavelength_limit[1]*1e-4)
+        index_bad = (cloud_wavelengths < wavelength_limit[0] * 1e-4) | (cloud_wavelengths > wavelength_limit[1] * 1e-4)
         cloud_absorption_opacities[:, index_bad, :] = 0
         cloud_scattering_opacities[:, index_bad, :] = 0
 
