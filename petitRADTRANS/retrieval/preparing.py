@@ -375,6 +375,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     """
     # Initialization
     degrees_of_freedom = polynomial_fit_degree + 1
+    n_fully_masked = 0
 
     if spectrum.shape[2] <= degrees_of_freedom:
         warnings.warn(f"not enough points in wavelengths axis ({spectrum.shape[2]}) "
@@ -419,6 +420,13 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
 
         # Fit each order
         for j, exposure in enumerate(order):
+            if np.all(exposure.mask):
+                # Handle numpy.linalg.LinAlgError "DLASCLS parameter number 4 had an illegal value"
+                n_fully_masked += 1
+                throughput_fits[i, j, :] = 1
+
+                continue
+
             # The "preferred" numpy polyfit method is actually much slower than the "old" one
             # fit_parameters = np.polynomial.Polynomial.fit(
             #     x=wvl, y=exposure, deg=polynomial_fit_degree, w=weights[i, j, :]
@@ -446,6 +454,9 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         spectral_data_corrected[i, :, :] = order
         spectral_data_corrected[i, :, :] /= throughput_fits[i, :, :]
         reduction_matrix[i, :, :] /= throughput_fits[i, :, :]
+
+    if n_fully_masked > 0:
+        warnings.warn(f"there were {n_fully_masked} fully masked exposures")
 
     # Propagation of uncertainties
     if uncertainties is not None:
