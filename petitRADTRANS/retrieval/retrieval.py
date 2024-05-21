@@ -601,7 +601,7 @@ class Retrieval:
             pressures=pressures  # pressures is not necessary when using SpectralModels
         )
 
-        # Convert retrieved parameters ot RetrievalParameters
+        # Convert retrieved parameters to RetrievalParameters
         if isinstance(retrieved_parameters, dict):
             retrieved_parameters = RetrievalParameter.from_dict(retrieved_parameters)
 

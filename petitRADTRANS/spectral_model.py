@@ -356,8 +356,6 @@ class SpectralModel(Radtrans):
 
                 del parameters[species]
 
-        # TODO add cloud MMR model(s)
-
         for species in parameters['imposed_mass_fractions']:
             if species in parameters and species not in line_species:
                 imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
