@@ -20,8 +20,11 @@ def __init_pipeline(spectrum, uncertainties):
         reduced_data.mask = copy.deepcopy(spectrum.mask)
 
         if uncertainties is not None:
+            if isinstance(uncertainties, np.ma.core.MaskedArray):
+                reduced_data.mask = np.logical_or(reduced_data.mask, uncertainties.mask)
+
             reduced_data_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
-            reduced_data_uncertainties.mask = copy.deepcopy(spectrum.mask)
+            reduced_data_uncertainties.mask = copy.deepcopy(reduced_data.mask)
         else:
             reduced_data_uncertainties = None
     else:
