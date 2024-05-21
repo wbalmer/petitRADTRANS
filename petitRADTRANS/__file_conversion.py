@@ -29,16 +29,23 @@ import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import LockedDict
 
 # MPI Multiprocessing
-try:
-    from mpi4py import MPI
+prt_emcee_mode = os.environ.get("pRT_emcee_mode")
+load_mpi = True
+if prt_emcee_mode == 'True':
+    load_mpi = False
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    rank = 0
-    comm = None
+MPI = None
+rank = 0
+comm = None
 
+if load_mpi:
+    # MPI Multiprocessing
+    try:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    except ImportError:
+        pass
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
     old_input_data_subpaths = LockedDict()

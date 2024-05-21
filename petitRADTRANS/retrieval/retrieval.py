@@ -24,16 +24,23 @@ from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.utils import flatten_object
 
-# MPI Multiprocessing
-try:
-    from mpi4py import MPI
+prt_emcee_mode = os.environ.get("pRT_emcee_mode")
+load_mpi = True
+if prt_emcee_mode == 'True':
+    load_mpi = False
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    rank = 0
-    comm = None
+MPI = None
+rank = 0
+comm = None
+
+if load_mpi:
+    # MPI Multiprocessing
+    try:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    except ImportError:
+        pass
 
 
 class Retrieval:
@@ -949,6 +956,8 @@ class Retrieval:
             if self.configuration.parameters[pp].is_free_parameter:
                 cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
                 i_p += 1
+
+        return cube
 
     def prior_ultranest(self, cube):
         """
