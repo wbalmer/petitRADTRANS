@@ -4,8 +4,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a6] - 2024-05-15
+## [3.1.0a7] - 2024-05-21
 ### Added
+- Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Test module for `SpectralModel` using custom functions.

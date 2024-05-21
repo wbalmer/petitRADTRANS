@@ -769,12 +769,12 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     # Load .dat files
     print("Loading dat files...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-        cloud_path, path_input_files, path_reference_files,
-        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-        len(doi_dict), n_cloud_wavelength_bins
-    )
+            cloud_path, path_input_files, path_reference_files,
+            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+            len(doi_dict), n_cloud_wavelength_bins
+        )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
@@ -2687,12 +2687,12 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
     # Load .dat files
     print("Loading dat file...")
     cloud_particles_densities, cloud_absorption_opacities, cloud_scattering_opacities, \
-    cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
+        cloud_asymmetry_parameter, cloud_wavelengths, cloud_particles_radius_bins, cloud_particles_radii \
         = finput.load_cloud_opacities(
-        cloud_path, path_input_files, path_reference_files,
-        all_cloud_species, all_cloud_isos, all_cloud_species_mode,
-        1, n_cloud_wavelength_bins
-    )
+            cloud_path, path_input_files, path_reference_files,
+            all_cloud_species, all_cloud_isos, all_cloud_species_mode,
+            1, n_cloud_wavelength_bins
+        )
 
     wavenumbers = 1 / cloud_wavelengths[::-1]  # cm to cm-1
 
