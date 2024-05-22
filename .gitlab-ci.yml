@@ -1,5 +1,5 @@
 variables:
-  DOCUMENT: docs/JOSS/paper.md
+  DOCUMENT: docs/JOSS/Blain2024/paper.md
 
 stages:
   - convert
