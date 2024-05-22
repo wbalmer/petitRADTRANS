@@ -4,10 +4,6 @@ Essentially go through a simplified version of the tutorial, and compare the res
 C.f. (https://petitradtrans.readthedocs.io/en/latest/content/notebooks/getting_started.html).
 
 Do not change the parameters used to generate the comparison files, including input_data files, when running the tests.
-
-Due to the way scattering and correlated-k are calculated in petitRADTRANS, results using the same parameters may have
-variations of <~ 1%. To take that into account, an important relative tolerance is set for the tests, and multiple tests
-may be performed in order to rule out "unlucky" results.
 """
 import copy
 
