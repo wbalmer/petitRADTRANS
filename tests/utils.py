@@ -71,7 +71,8 @@ def make_petitradtrans_test_config_file(filename):
                     'start': -6,
                     'stop': 2,
                     'stop_thin_atmosphere': 0,
-                    'num': 27
+                    'num': 27,
+                    'num_performance': 100
                 },
                 'mass_fractions_correlated_k': {
                     'H2': 0.74,
@@ -146,6 +147,7 @@ def make_petitradtrans_test_config_file(filename):
                         "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
                     ],
                     'wavelength_range_correlated_k': [0.9, 1.2],
+                    'wavelength_range_correlated_k_performance': [0.3, 28],
                     'wavelength_range_line_by_line': [2.3000, 2.3025]
                 },
                 'cloud_parameters': {
@@ -227,6 +229,12 @@ def init_test_parameters(recreate_parameter_file=False):
         parameters['pressures']['start'],
         parameters['pressures']['stop_thin_atmosphere'],
         parameters['pressures']['num']
+    )
+
+    parameters['pressures_performance'] = np.logspace(
+        parameters['pressures']['start'],
+        parameters['pressures']['stop'],
+        parameters['pressures']['num_performance']
     )
 
     parameters['pressures'] = np.logspace(

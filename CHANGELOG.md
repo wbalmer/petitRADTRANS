@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a8] - 2024-05-21
+## [3.1.0a9] - 2024-05-22
 ### Added
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Test module for `SpectralModel` in `'c-k'` opacity mode.
 - Test module for `SpectralModel` in `'lbl'` opacity mode.
 - Test module for `SpectralModel` retrieval framework.
+- Performance tests.
 - Source files for JOSS papers.
+
+### Removed
+- Unused test functions.
 
 ### Fixed
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
