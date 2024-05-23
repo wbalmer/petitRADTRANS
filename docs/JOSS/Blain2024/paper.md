@@ -48,10 +48,10 @@ The `SpectralModel` object extends the base capabilities of the petitRADTRANS pa
 The combination of ease-of-use and flexibility offered by `SpectralModel` makes it a powerful tool for high-resolution (but also low-resolution) atmospheric characterisation. With the upcoming first light of a new generation of ground based telescopes, such as the Extremely Large Telescope, `SpectralModel` makes petitRADTRANS ready for the new scientific discoveries that will be unveiled in the next era of high-resolution observations.
 
 # The `SpectralModel` object
-## Features
+## Main features
 ### Spectral parameter calculation framework
 
-![\label{fig:flowchart}Flowchart of `SpectralModel.calculate_spectrum` function. The annotation below the model functions represents an example of execution order of these function, involving the temperature ($T$), the metallicity ($Z$), the time ($t$), the mass fractions (MMR), the mean molar masses (MMW), the orbital phases ($\phi$), the relative velocities ($v$), and the transit effect ($\delta$).](flowchart.pdf)
+![\label{fig:flowchart}Flowchart of `SpectralModel.calculate_spectrum` function. The annotation below the model functions represents an example of execution order of these function after topological sorting, involving the temperature ($T$), the metallicity ($Z$), the time ($t$), the mass fractions (MMR), the mean molar masses (MMW), the orbital phases ($\phi$), the relative velocities ($v$), and the transit effect ($\delta$).](flowchart.pdf)
 
 `SpectralModel` provides a framework to automatise the calculation of the spectral parameters. Each spectral parameter is linked to a function, called here "model function", which calculates its value. This feature can be extended to the parameters required for these functions, and so on. Before calculating spectra, the function's execution order is automatically determined through a topological sorting algorithm[^1] [@Kahn1962]. `SpectralModel` comes with built-in functions [@Blain2024] for all the spectral parameters, so that the object can be used "out-of-the box". Parameters that ultimately do not depend on any function are called "model parameters", and must be given during instantiation.
 
@@ -68,21 +68,21 @@ A way to slightly reduce this memory usage is to load exactly the wavelength ran
 
 [^2]: According to `numpy.ndarray.nbytes`.
 
-### Interface with the `retrieval` module
-The `Retrieval` object has been extended to support spectra with up to 3 dimensions, intended to be order, exposure, and wavelength. It now also has a class method that instantiates a `Retrieval` object from `Data` objects[^3]. The `Data` object has also been extended in two ways: it now allows taking directly data as arrays, instead of requiring an ASCII file, and allows taking directly `Radtrans` (or by extension `SpectralModel`) objects, instead of generating a new one during a `Retrieval` instance.
+### Interface with pRT's `retrieval` module
+The `Retrieval` object has been extended to support spectra with up to 3 dimensions, intended to be order, exposure, and wavelength. It now also has a class method that instantiates a `Retrieval` object from `Data` objects[^3]. The `Data` object has also been extended in two ways: it now allows taking directly data as arrays, instead of requiring an ASCII file, and allows taking directly `Radtrans` (or by extension `SpectralModel`) objects, instead of generating a new one during a `Retrieval` instantiation.
 
 [^3]: pRT's `retrieval` module allows for the retrieval of a combination of datasets.
 
 In addition, `SpectralModel`'s model parameters and spectral modification functions can be advantageously used to simplify the retrieval setup compared to `Radtrans`'. This removes the need for several steps:
 
-- building the `RetrievalConfig` object, as this has been be automated,
+- building the `RetrievalConfig` object, as this has been automated,
 - declaring the fixed parameters, as all model parameters that are not retrieved parameters are *de facto* fixed parameters,
 - writing the retrieval model function, as it is given by the `SpectralModel` itself.
 
 Ground-based high-resolution spectra contain telluric and stellar lines that must be removed. This is usually done with a "preparing" pipeline (also called "detrending" or "pre-processing" pipeline). To this end, a new `retrieval.preparing` sub-module has been implemented, containing the "Polyfit" pipeline [@Blain2024] and the "SysRem" pipeline [@Tamuz2005]. To perform a retrieval when the data are prepared with "Polyfit", the forward model must be prepared in the same way [@Blain2024]. This forward model preparation step can be activated when calculating a spectrum with `SpectralModel`.
 
 ### Ground-based data simulation
-Data ($F$) taken from ground telescopes can be expressed as $F = M_\Theta \circ D + N$ [@Blain2024], where $M_\Theta$ is an exact model with true parameters $\Theta$, $D$ ("deformation matrix") represents the combination of telluric lines, stellar lines, and instrumental deformations (pseudo-continuum, blaze function, ...), and $N$ is the noise. The operator "$\circ$" represents the element-wise product. Telluric lines, noise, and other deformations can be included in a `SpectralModel` object. A time-varying airmass can be added as model parameter to better model the telluric lines. Finally, a command-line interface with ESO's [SKYCALC](https://www.eso.org/observing/etc/bin/gen/form?INS.MODE=swspectr+INS.NAME=SKYCALC) sky model calculator has been implemented.
+Data ($F$) taken from ground telescopes can be expressed as $F = M_\Theta \circ D + N$ [@Blain2024], where $M_\Theta$ is an exact model with true parameters $\Theta$, $D$ ("deformation matrix") represents the combination of telluric lines, stellar lines, and instrumental deformations (pseudo-continuum, blaze function, ...), and $N$ is the noise. The operator "$\circ$" represents the element-wise product. Telluric lines, noise, and other deformations can be included in a `SpectralModel` object. A time-varying airmass can be added as model parameter to better model the telluric lines. Finally, a command-line interface (CLI) with ESO's [SKYCALC](https://www.eso.org/observing/etc/bin/gen/form?INS.MODE=swspectr+INS.NAME=SKYCALC) sky model calculator has been implemented, adapting the CLI provided on [ESO's website](https://www.eso.org/observing/etc/doc/skycalc/helpskycalccli.html).
 
 ## Workflows
 ### Spectra calculation
@@ -99,7 +99,7 @@ Retrieving spectra with `SpectralModel` is done in seven steps:
 3. Setting the retrieved parameters, this is done by filling a `dict`,
 4. Setting the forward model, by instantiating a `SpectralModel` object,
 5. Instantiating a `Data` object with the `SpectralModel` dedicated function,
-6. Instantiating a `Retrieval` object from the previously built `Data` object,
+6. Instantiating a `Retrieval` object from the previously built `Data` object(s),
 7. Running the retrieval.
 
 In addition, a new corner plot function, based on the `corner` package [@Foreman-Mackey2016], has been implemented to ease the representation of the retrieval results with this framework.
@@ -123,14 +123,14 @@ In addition, a new corner plot function, based on the `corner` package [@Foreman
 | Transmission, `'lbl'`          | 6.6                | 3.1               | 3929               | 2230               |
 +================================+====================+===================+====================+====================+
 | - Times are measured using the `cProfile` standard library, from the average of 7 runs.                           |
-| - "RAM" is the peak RAM usage as reported by the `tracemalloc` standard library.                                  |
+| - "RAM": peak RAM usage as reported by the `tracemalloc` standard library.                                        |
 | - `'c-k'`: using correlated-k opacities (CH$_4$ and H$_2$O), from 0.3 to 28 $\mu$m.                               |
 | - `'lbl'`: using line-by-line opacities (CO and H$_2$O), from 0.9 to 1.2 $\mu$m.                                  |
 | - All spectra calculations are done using 100 pressure levels. Emission scattering is activated in `'c-k'` mode.  |
 | - Results obtained on Debian 12.5 (WSL2), CPU: AMD Ryzen 9 3950X @ 3.50 GHz.                                      |
 +================================+====================+===================+====================+====================+
 
-Along with `SpectralModel`, major changes have been made to pRT. The changes focus on optimisations (both for speed and RAM usage) for high-resolution spectra computing, but this also impacts the correlated-k (low-resolution) part of the code (see \autoref{tab:performances}). To speed-up "input data" (opacities, pre-calculated equilibrium chemistry table, star spectra table) loading times, pRT's loading system has been overhauled and the loaded files have been converted from a mix of ASCII files, Fortran unformatted files and [HDF5](https://www.hdfgroup.org/solutions/hdf5/) files (the later being for correlated-k opacities only) to HDF5-only. Opacities now also follow an extended [ExoMol database](https://www.exomol.com/) naming and structure convention. The package's code has also been rationalised, clarified, and refactored. Finally, several quality-of-life features (e.g., missing requested opacities can be automatically downloaded from the project's [Keeper library](https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/), or the `Planet` object).
+Along with `SpectralModel`, major changes have been made to pRT. The changes focus on optimisations (both for speed and RAM usage) for high-resolution spectra computing, but this also impacts the correlated-k (low-resolution) part of the code (see \autoref{tab:performances}). To speed-up "input data" (opacities, pre-calculated equilibrium chemistry table, star spectra table) loading times, pRT's loading system has been overhauled and the loaded files have been converted from a mix of ASCII, Fortran unformatted and [HDF5](https://www.hdfgroup.org/solutions/hdf5/) files to HDF5-only. Opacities now also follow an extended [ExoMol database](https://www.exomol.com/) naming and structure convention. The package's code has also been rationalised, clarified, and refactored. Finally, several quality-of-life features (e.g., missing requested opacities can be automatically downloaded from the project's [Keeper library](https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/), or the `Planet` object) have been implemented.
 
 # Acknowledgements
 
