@@ -742,6 +742,31 @@ def _rebuild_isotope_numbers(species, mode='add'):
     return __species
 
 
+def _split_cloud_info(cloud_info):
+    matter_state = ''
+    structure = ''
+    space_group = ''
+
+    split_list = cloud_info.split('_', 2)
+
+    if split_list[0] in __get_condensed_matter_state('all'):
+        matter_state = split_list[0]
+
+    solid_state = __get_condensed_matter_state('(s)')
+
+    if matter_state == solid_state:
+        if len(split_list) == 1:
+            return matter_state, structure, space_group
+
+        if split_list[1] in __get_solid_structure('all'):
+            structure = split_list[1]
+
+        if len(split_list) == 3:
+            space_group = split_list[2]
+
+    return matter_state, structure, space_group
+
+
 def _split_species_cloud_info(species):
     cloud_info = ''
     name_split = species.split('(', 1)
@@ -1006,63 +1031,100 @@ def get_cia_aliases(name: str) -> str:
 
 
 def get_cloud_aliases(name: str) -> str:
-    cloud_directories = _get_base_cloud_names()
+    cloud_opacities_path = os.path.join(
+        petitradtrans_config_parser.get_input_data_path(),
+        get_input_data_subpaths()['clouds_opacities']
+    )
+
+    cloud_directories = [
+        f.path.rsplit(os.path.sep, 1)[1] for f in os.scandir(cloud_opacities_path) if f.is_dir()
+    ]
 
     _name, spectral_info = _split_species_spectral_info(name)
     _name, method = _split_species_source(_name)
     _name, cloud_info = _split_species_cloud_info(_name)
 
-    if '__' in name:
-        name, method = name.split('__', 1)
+    matter_state, structure, space_group = _split_cloud_info(cloud_info)
+
+    if matter_state == __get_condensed_matter_state('(s)') and structure == __get_solid_structure('crystalline'):
+        # No space group in name, try to find relevant one in the cloud opacities directory
+        if space_group == '' and structure != '':
+            matches = [
+                cloud_directory
+                for cloud_directory in cloud_directories
+                if _name + cloud_info in cloud_directory
+            ]
+
+            # Try to look into the Keeper library if nothing was found locally
+            if len(matches) == 0:
+                keeper_directory_string = '&mode=list'  # directories elements on Keeper end with this string
+
+                keeper_cloud_directories = get_keeper_files_url_paths(
+                    path=cloud_opacities_path,
+                    ext=keeper_directory_string
+                )
+
+                # Remove the Keeper directory string
+                keeper_cloud_directories = {
+                    key.rsplit(keeper_directory_string, 1)[0]
+                    for key in keeper_cloud_directories
+                }
+
+                matches = [
+                    cloud_directory
+                    for cloud_directory in keeper_cloud_directories
+                    if _name + cloud_info in cloud_directory
+                ]
+
+            if len(matches) == 1:
+                _, _cloud_info = _split_species_cloud_info(matches[0])
+                _, _, space_group = _split_cloud_info(_cloud_info)
+                cloud_info += '_' + space_group
+            elif len(matches) > 1:
+                available = "'" + "','".join([match.rsplit('_', 1)[1] for match in matches]) + "'"
+                space_group = matches[0].rsplit('_', 1)[1]
+                cloud_info += '_' + space_group
+
+                if spectral_info != '':
+                    spectral_info = '.' + spectral_info
+
+                if method != '':
+                    method = '__' + method
+
+                _name = _name + cloud_info + method + spectral_info
+
+                raise FileExistsError(
+                    f"more than one solid condensate cloud with name '{name}'\n"
+                    f"Add a space group to your cloud name (e.g., '{_name}')\n"
+                    f"Available space groups with this name: {available}"
+                )
+
+    if spectral_info != '':
+        spectral_info = '.' + spectral_info
+
+    if method != '':
+        method = '__' + method
+
+    natural_abundance_string = __get_natural_abundance_string()
+    condensed_matter_states = __get_condensed_matter_state('all')
+
+    # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
+    if natural_abundance_string not in name and not _has_isotope(name):
+        if not any([condensed_matter_state in name for condensed_matter_state in condensed_matter_states]):
+            raise ValueError(f"cloud species name '{name}' lacks condensed matter state information\n"
+                             f"For liquid particles, cloud species names must include '(l)' (e.g. 'H2O(l)').\n"
+                             f"For solid particles, the cloud species must include '(s)_crystalline' for crystals "
+                             f"or '(s)_amorphous' for amorphous solids (e.g. 'MgSiO3(s)_crystalline').")
+
+        _name = _rebuild_isotope_numbers(
+            species=_name + '-' + natural_abundance_string,
+            mode='add'
+        )
+        name = _name + cloud_info + method + spectral_info
     else:
-        method = None
+        name = _name + cloud_info + method + spectral_info
 
-    if name in cloud_directories:
-        filename = cloud_directories[name]
-    else:
-        if spectral_info is None:
-            spectral_info = ''
-        else:
-            spectral_info = '.' + spectral_info
-
-        if method is None:
-            method = ''
-        else:
-            method = '__' + method
-
-        # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
-        if 'NatAbund' not in name and not _has_isotope(name):
-            if '(s)' not in name and '(l)' not in name:
-                raise ValueError(f"cloud species name '{name}' lacks condensed matter state information\n"
-                                 f"For liquid particles, cloud species names must include '(l)' (e.g. 'H2O(l)').\n"
-                                 f"For solid particles, the cloud species must include '(s)_crystalline' for crystals "
-                                 f"or '(s)_amorphous' for amorphous solids (e.g. 'MgSiO3(s)_crystalline').")
-
-            species, info = name.split('(', 1)
-
-            name = species + '-NatAbund(' + info + method + spectral_info
-        else:
-            name = _name + cloud_info + method + spectral_info
-
-        return name
-
-    _filename, _spectral_info = filename.split('.', 1)
-
-    # Default method
-    if '(s)' in _filename:
-        _method = 'DHS'
-    elif '(l)' in _filename:
-        _method = 'Mie'
-    else:
-        raise ValueError(f"invalid cloud file name: '{filename}'")
-
-    if method is None:
-        method = _method
-
-    if spectral_info is None:
-        spectral_info = _spectral_info
-
-    return _filename + '__' + method + '.' + spectral_info
+    return name
 
 
 def get_default_cloud_resolution() -> str:
