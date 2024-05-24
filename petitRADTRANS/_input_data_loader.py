@@ -66,6 +66,75 @@ def __default_file_selection(files, full_path, sub_path):
     return new_default_file
 
 
+def __get_from_tuple(string, _tuple, _tuple_description):
+    """Base for the naming convention functions."""
+    if string == 'all':
+        return _tuple
+    elif string in _tuple:
+        return string
+    else:
+        implemented = "'" + "'|'".join(_tuple) + "'"
+
+        raise ValueError(
+            f"'{string}' is not an implemented {_tuple_description} (must be {implemented})"
+        )
+
+
+def __get_condensed_matter_state(string, regex_mode=False):
+    """Naming convention for condensed matter state. Access names here, change this to change the convention."""
+    solid_structures = (
+        '(l)',
+        '(s)'
+    )
+
+    condensed_matter_state = __get_from_tuple(
+        string=string,
+        _tuple=solid_structures,
+        _tuple_description='condensed matter state'
+    )
+
+    if regex_mode:
+        condensed_matter_state = condensed_matter_state.replace('(', r'\(')
+        condensed_matter_state = condensed_matter_state.replace(')', r'\)')
+
+    return condensed_matter_state
+
+
+def __get_natural_abundance_string(separator=''):
+    """Naming convention for natural abundance. Access names here, change this to change the convention."""
+    return f'{separator}NatAbund'
+
+
+def __get_spectral_sampling_type(string):
+    """Naming convention for spectral sampling type. Access names here, change this to change the convention."""
+    resolution_types = (
+        'DeltaWavelength',
+        'DeltaWavenumber',
+        'R'
+    )
+
+    return __get_from_tuple(
+        string=string,
+        _tuple=resolution_types,
+        _tuple_description='spectral resolution type'
+    )
+
+
+def __get_solid_structure(string):
+    """Naming convention for solid structure. Access names here, change this to change the convention."""
+    solid_structures = (
+        'amorphous',
+        'crystalline',
+        'structureUnclear'
+    )
+
+    return __get_from_tuple(
+        string=string,
+        _tuple=solid_structures,
+        _tuple_description='solid structure'
+    )
+
+
 def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
     if index_merge is None:
         index_merge = i - 1
@@ -591,11 +660,12 @@ def _rebuild_isotope_numbers(species, mode='add'):
         raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
     species_pattern = r'(\d{1,3})?([A-Z][a-z]?|e)(\d{1,3})?'  # isotope number, element symbol, stoichiometric number
+    natural_abundance_str = __get_natural_abundance_string(separator='-')
 
     # Handle natural abundance case
-    if '-NatAbund' in species:
+    if natural_abundance_str in species:
         if mode == 'add':
-            species = species.rsplit('-NatAbund', 1)[0]
+            species = species.rsplit(natural_abundance_str, 1)[0]
             _species = species.split('--')  # CIA case
 
             for i, __species in enumerate(_species):  # for each colliding species
@@ -606,9 +676,9 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
             species = '--'.join(_species)
 
-            return species + '-NatAbund'
+            return species + natural_abundance_str
         elif mode == 'remove':
-            return species.replace('-NatAbund', '')
+            return species.replace(natural_abundance_str, '')
         else:
             raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
@@ -631,13 +701,12 @@ def _rebuild_isotope_numbers(species, mode='add'):
             for k, groups in enumerate(matches):  # for each non-separated isotope in the "separated isotope"
                 groups = list(groups)  # contains isotope number, element symbol and element count (e.g. 13, C, 2)
 
-                # Handle deuterium
-                if groups[1] == 'D':
+                if groups[1] == 'D':  # handle deuterium
                     if groups[0] == '':
                         groups[0] = '2'
 
                     groups[1] = 'H'
-                elif groups[1] == 'T':
+                elif groups[1] == 'T':  # handle tritium
                     if groups[0] == '':
                         groups[0] = '3'
 
@@ -809,21 +878,55 @@ def check_opacity_name(opacity_name: str):
                          f"CIA separator '--' must be used at most once, "
                          f"but has been used {len(re.findall('--', opacity_name))} times")
 
+    # Get naming conventions
+    natural_abundance_string = __get_natural_abundance_string('-')
+
+    liquid_state = __get_condensed_matter_state('(l)', regex_mode=True)
+    solid_state = __get_condensed_matter_state('(s)', regex_mode=True)
+
+    crystalline = __get_solid_structure('crystalline')
+    amorphous = __get_solid_structure('amorphous')
+    structure_unclear = __get_solid_structure('structureUnclear')
+
+    resolving_power = __get_spectral_sampling_type('R')
+    delta_wavenumber = __get_spectral_sampling_type('DeltaWavenumber')
+    delta_wavelength = __get_spectral_sampling_type('DeltaWavelength')
+
+    # Check if name respect the convention
     if len(re.findall(
             r'^'
             r'(\d{0,3}[A-Z])'  # must start with up to 3 digits or an uppercase character
             r'(\d|[A-Z]|[a-z]|--(?!-)|-(?!-)|\[|])*'  # list of isotopes and their number, can be separated by "-"
-            r'(-NatAbund)?'  # indicate if a mix of isotopologues has been used to make the opacities
+            r'('
+            + natural_abundance_string +  # indicate if a mix of isotopologues has been used to make the opacities
+            r')?'
             r'(_?(\d{1,3})?[+\-pm])?'  # charge (+ or p, - or m), can be separated from the isotopes with a "_"
             r'('  # begin clouds formatting
-            r'(\(l\))'  # liquid state, no additional information required
-            r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
-            r'(crystalline(_\d{3})?'  # crystalline form, can be followed by the space group number (from 001 to 230)
-            r'|amorphous(_[A-Z]{1,5})?'  # amorphous form, can be followed by the amorphous phase name
-            r'|structureUnclear)'  # exceptionally used when the form is not specified by the opacity provider
+            r'('
+            + liquid_state +  # liquid state, no additional information required
+            r')'
+            r'|('
+            + solid_state +  # solid state, it must be specified if the solid is crystalline or amorphous
+            r')_'
+            r'('
+            + crystalline +  # crystalline form ...
+            r'(_\d{3})?'  # ... can be followed by the space group number (from 001 to 230)
+            r'|'
+            + amorphous +  # amorphous form ...
+            r'(_[A-Z]{1,5})?'  # ... can be followed by the amorphous phase name
+            r'|'
+            + structure_unclear +  # exceptionally used when the form is not specified by the opacity provider
+            r')'  # end solid state extra info
             r')?'  # end clouds formatting
             r'(__(\d|[A-Z]|[a-z]|-)+)?'  # source or method
-            r'(\.(R|DeltaWavenumber|DeltaWavelength)\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling mode and value
+            r'(\.('  # begin spectral sampling type
+            + resolving_power +
+            r'|'
+            + delta_wavenumber +
+            r'|'
+            + delta_wavelength +
+            r')'  # end spectral sampling tyoe
+            r'\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling value
             r'(_\d+(\.\d+)?-\d+(\.\d+)?mu)?'  # spectral range (min-max) in um
             r'$',
             opacity_name
@@ -834,7 +937,7 @@ def check_opacity_name(opacity_name: str):
             f"\t- must begin with a number (up to 3 digits) or an uppercase letter\n"
             f"\t- must contains a valid chemical formula\n"
             f"\t- can have isotopes, that should be separated with '-'\n"
-            f"\t- can contain '-NatAbund' to signal a mix of isotopes "
+            f"\t- can contain '{natural_abundance_string}' to signal a mix of isotopes "
             f"(incompatible with providing isotopic information)\n"
             f"\t- can contain '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
             f"signal a ion \n"
@@ -864,10 +967,10 @@ def check_opacity_name(opacity_name: str):
             f"\t- '24Mg2-28Si-16O4(s)_crystalline_068__DHS.R39_0.1-250mu'\n"
         )
 
-    if '-NatAbund' in opacity_name and _has_isotope(opacity_name):
+    if natural_abundance_string in opacity_name and _has_isotope(opacity_name):
         raise ValueError(f"invalid opacity name '{opacity_name}'\n"
                          f"Opacity cannot have one of the species isotopologue (e.g. '1H2-16O') "
-                         f"and all of the species isotopologues ('-NatAbund') at the same time")
+                         f"and all of the species isotopologues ('{natural_abundance_string}') at the same time")
 
 
 def get_cia_aliases(name: str) -> str:
@@ -905,10 +1008,9 @@ def get_cia_aliases(name: str) -> str:
 def get_cloud_aliases(name: str) -> str:
     cloud_directories = _get_base_cloud_names()
 
-    if '.' in name:
-        name, spectral_info = name.split('.', 1)
-    else:
-        spectral_info = None
+    _name, spectral_info = _split_species_spectral_info(name)
+    _name, method = _split_species_source(_name)
+    _name, cloud_info = _split_species_cloud_info(_name)
 
     if '__' in name:
         name, method = name.split('__', 1)
@@ -940,7 +1042,7 @@ def get_cloud_aliases(name: str) -> str:
 
             name = species + '-NatAbund(' + info + method + spectral_info
         else:
-            name = name + method + spectral_info
+            name = _name + cloud_info + method + spectral_info
 
         return name
 
@@ -1201,9 +1303,11 @@ def split_species_all_info(species, final_charge_format='+-'):
     # Remove cloud info
     name, cloud_info = _split_species_cloud_info(name)
 
-    if '-NatAbund' in name:
-        name = name.replace('-NatAbund', '')
-        natural_abundance = 'NatAbund'
+    natural_abundance_string = __get_natural_abundance_string()
+
+    if f"-{natural_abundance_string}" in name:
+        name = name.replace(f'-{natural_abundance_string}', '')
+        natural_abundance = natural_abundance_string
     else:
         natural_abundance = ''
 
