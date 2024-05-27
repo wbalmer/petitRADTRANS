@@ -321,7 +321,7 @@ def flux_ck(frequency,
         # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
         flux = jnp.add(flux,flux_mu*0.5*scat_angle[i_scat_angle]*w_gauss_scat_angle[i_scat_angle])
     #Normalization
-    return flux*4.0*jnp.pi
+    return flux*4.0*jnp.pi, None
 
 @jit
 def planck_f(T,nu):
