@@ -3771,19 +3771,18 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
 
         if os.path.isfile(output_file) and not rewrite:
             print(f"File '{output_file}' already exists, skipping re-binning...")
-            return
+        else:
+            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
+            # Use Exo-k to rebin to low-res
+            tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
+            tab.bin_down(wavenumber_grid)
+            print('Done.')
 
-        print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
-        # Use Exo-k to rebin to low-res
-        tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
-        tab.bin_down(wavenumber_grid)
-        print('Done.')
+            print(f" Writing binned down file '{output_file}'... ", end=' ')
+            tab.write_hdf5(output_file)
+            print('Done.')
 
-        print(f" Writing binned down file '{output_file}'... ", end=' ')
-        tab.write_hdf5(output_file)
-        print('Done.')
-
-        print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
+            print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
 
     if comm is not None:  # wait for the main process to finish the binning down
         comm.barrier()

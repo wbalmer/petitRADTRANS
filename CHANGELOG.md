@@ -3,6 +3,11 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [3.0.4] - 2024-05-28
+### Fixed
+- Fixed MPI parallelisation for exo-k binning.
+- Enforced integer indices for AMR in retrievals.
+
 ## [3.0.3] - 2024-05-15
 ### Fixed
 - Fixed default `haze_factor` value in `retrieval/models.py`.

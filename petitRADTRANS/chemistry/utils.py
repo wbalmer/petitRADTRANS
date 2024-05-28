@@ -176,10 +176,10 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
         intervals = stack
 
     # Intervals to indices
-    indices = [np.arange(0, length, scaling)]
+    indices = [np.arange(0, length, scaling, dtype=int)]
 
     for interval in intervals:
-        indices.append(np.arange(*interval))
+        indices.append(np.arange(*interval,dtype=int))
 
     indices = np.unique(np.concatenate(indices))
 
