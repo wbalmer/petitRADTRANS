@@ -244,6 +244,16 @@ class SpectralModel(Radtrans):
                               f"To remove this warning, add a custom function using this parameter, "
                               f"or remove it from your model")
 
+    def __check_model_functions_map(self):
+        for parameter, model_function in self.model_functions_map.items():
+            if (
+                    model_function is None
+                    and parameter not in self.model_parameters
+                    and parameter not in ['pressures', 'wavelengths', 'mode']
+                    and '_function' not in parameter
+            ):
+                raise ValueError(f"'{parameter}' has no model function and is not a model parameter")
+
     @staticmethod
     def __check_none_model_parameters(explanation_message_=None, **kwargs):
         missing = []
