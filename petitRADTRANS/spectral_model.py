@@ -31,7 +31,7 @@ from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
-from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask, topological_sort
+from petitRADTRANS.utils import dict2hdf5, LockedDict, hdf52dict, fill_object, remove_mask, topological_sort
 
 
 class SpectralModel(Radtrans):
@@ -55,7 +55,9 @@ class SpectralModel(Radtrans):
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
-            wavelengths=None, transit_radii=None, fluxes=None, model_functions_map=None, **model_parameters
+            wavelengths=None, transit_radii=None, fluxes=None,
+            model_functions_map=None, spectral_modification_functions_map=None,
+            **model_parameters
     ):
         """Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
@@ -172,8 +174,7 @@ class SpectralModel(Radtrans):
         self.fluxes = fluxes
 
         # Other model parameters
-        self.model_parameters = None
-        self.model_parameters = self.get_model_parameters(check_relevance=False)
+        self.model_parameters = {}
 
         for model_parameter, value in model_parameters.items():
             self.model_parameters[model_parameter] = value
@@ -197,10 +198,19 @@ class SpectralModel(Radtrans):
         if wavelength_boundaries is None:  # calculate the optimal wavelength boundaries
             if self.wavelengths is not None:
                 self.model_parameters['rebinned_wavelengths'] = copy.deepcopy(self.wavelengths)
-            elif 'rebinned_wavelengths' not in self.model_parameters:
-                raise TypeError("missing required argument "
-                                "'wavelength_boundaries', add this argument to manually set the boundaries or "
-                                "add keyword argument 'rebinned_wavelengths' to set the boundaries automatically")
+            elif 'rebinned_wavelengths' not in model_parameters:
+                raise TypeError(
+                    "missing required argument "
+                    "'wavelength_boundaries', add this argument to manually set the boundaries or "
+                    "add model parameter 'rebinned_wavelengths' to set the boundaries automatically"
+                )
+            elif self.model_parameters['rebinned_wavelengths'] is None:
+                raise TypeError(
+                    "missing required argument "
+                    "'wavelength_boundaries', and model parameter 'rebinned_wavelengths' was not set, "
+                    "add model parameter 'wavelength_boundaries' to manually set the boundaries or "
+                    "add model parameter 'rebinned_wavelengths' to set the boundaries automatically"
+                )
 
             wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
 
@@ -220,8 +230,17 @@ class SpectralModel(Radtrans):
             path_input_data=path_input_data
         )
 
-        self.model_functions_map = self._get_model_functions_map(update_model_parameters=False)
-        self.model_functions_map.update(model_functions_map)
+        self.spectral_modification_functions_map = self._get_spectral_modification_functions_map(
+            custom_map=spectral_modification_functions_map
+        )
+
+        self.model_functions_map = self._get_model_functions_map(
+            update_model_parameters=True,
+            extra_model_parameters=self.model_parameters,
+            custom_map=model_functions_map
+        )
+
+        self.__check_model_functions_map()
 
         self._fixed_model_parameters = set()
 
@@ -232,7 +251,11 @@ class SpectralModel(Radtrans):
         self.__check_model_parameters_relevance()
 
     def __check_model_parameters_relevance(self):
-        default_parameters = self.get_default_parameters(sort=False, spectral_model_specific=False)
+        default_parameters = self.get_default_parameters(
+            sort=False,
+            spectral_model_specific=False,
+            from_maps=True
+        )
 
         for parameter in self.model_parameters:
             if 'log10_' in parameter:
@@ -243,6 +266,16 @@ class SpectralModel(Radtrans):
                               f"SpectralModel\n"
                               f"To remove this warning, add a custom function using this parameter, "
                               f"or remove it from your model")
+
+    def __check_model_functions_map(self):
+        for parameter, model_function in self.model_functions_map.items():
+            if (
+                    model_function is None
+                    and parameter not in self.model_parameters
+                    and parameter not in ['pressures', 'wavelengths', 'mode']
+                    and '_function' not in parameter
+            ):
+                raise ValueError(f"'{parameter}' has no model function and is not a model parameter")
 
     @staticmethod
     def __check_none_model_parameters(explanation_message_=None, **kwargs):
@@ -368,27 +401,6 @@ class SpectralModel(Radtrans):
         return parameters, beta
 
     @staticmethod
-    def _compute_metallicity_wrap(planet_mass=None,
-                                  star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
-                                  metallicity_mass_scaling=7.2, verbose=False, **kwargs):
-        if verbose:
-            print("metallicity set to None, calculating it using scaled metallicity...")
-
-        metallicity = SpectralModel.compute_scaled_metallicity(
-            planet_mass=planet_mass,
-            star_metallicity=star_metallicity,
-            atmospheric_mixing=atmospheric_mixing,
-            metallicity_mass_coefficient=metallicity_mass_coefficient,
-            metallicity_mass_scaling=metallicity_mass_scaling
-        )
-
-        if metallicity <= 0:
-            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
-            metallicity = sys.float_info.min
-
-        return metallicity
-
-    @staticmethod
     def _compute_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
                                               planet_radius_normalized, star_radius,
                                               orbital_longitudes, transit_duration, orbital_period,
@@ -465,7 +477,7 @@ class SpectralModel(Radtrans):
                 else:
                     kwargs['orbital_longitudes'] = orbital_longitudes
 
-            if 'radial_velocity_semi_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
+            if 'radial_velocity_semi_amplitude' not in kwargs:
                 radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function(
                     **kwargs
                 )
@@ -710,10 +722,13 @@ class SpectralModel(Radtrans):
 
         return str(base_error_message) + explanation_message
 
-    def _get_model_functions_map(self, update_model_parameters=True):
-        def __build_dependencies_dict(_parameter, _model_functions_parameters, _map=None):
+    def _get_model_functions_map(self, update_model_parameters=True, extra_model_parameters=None, custom_map=None):
+        def __build_dependencies_dict(_parameter, _model_functions_parameters, _map=None, _parameter0=None):
             if _map is None:
                 _map = {}
+
+            if _parameter0 is None:
+                _parameter0 = _parameter
 
             if _parameter in ['self', 'cls', 'args', 'kwargs']:
                 return _map
@@ -731,56 +746,91 @@ class SpectralModel(Radtrans):
 
             if _parameter in _model_functions_parameters:
                 _model_function = _model_functions_parameters[_parameter]
-                signature = inspect.signature(getattr(self, _model_function))
+
+                if _model_function is None:
+                    _map[_parameter] = {None}
+                    return _map
+
+                if isinstance(_model_function, str):
+                    _model_function = getattr(self, _model_function)
+
+                signature = inspect.signature(_model_function)
 
                 for _model_function_parameter in signature.parameters:
                     if _model_function_parameter == 'kwargs':
                         continue
 
-                    if _model_function_parameter == _parameter:
-                        if _parameter in self.model_parameters:
-                            _map[_parameter].add(None)
-                            continue
-                        else:
-                            raise ValueError(f"parameter '{_parameter}' has a circular dependency "
-                                             f"with '{_model_function}'\n"
-                                             f"Add '{_parameter}' to model parameters, or fix '{_model_function}'")
+                    # Ignore size-0 cycles (i.e. x -> f(x) -> x...)
+                    if _parameter == _model_function_parameter:
+                        _map[_parameter].add(None)
+                        continue
+
+                    # Handle cycles (f_y(x) -> y -> f_x(y) -> x -> f_y(x)...)
+                    if _model_function_parameter == _parameter0:
+                        raise ValueError(
+                            f"parameter '{_parameter0}' has a circular dependency "
+                            f"with '{_model_function}'\n"
+                            f"Add '{_parameter0}' to model parameters, or fix '{_model_function}'"
+                        )
 
                     _map[_parameter].add(_model_function_parameter)
-                    _map = __build_dependencies_dict(_model_function_parameter, _model_functions_parameters, _map)
-            elif _parameter in self.model_parameters:
-                _map[_parameter].add(None)
+                    _map = __build_dependencies_dict(
+                        _model_function_parameter, _model_functions_parameters, _map, _parameter0
+                    )
             else:
-                raise ValueError(f"parameter '{_parameter}' is not a model parameter")
+                _map[_parameter].add(None)
 
             return _map
 
-        spectral_parameters = self._get_spectral_parameters(remove_flag=True, remove_branching=True)
-
-        if update_model_parameters:
-            self.model_parameters = self.get_model_parameters()
+        spectral_parameters = self._get_spectral_parameters(
+            remove_flag=True,
+            remove_branching=True
+        )
 
         # Check that all spectral parameters have a model parameter or a model function to generate them
         # Initialization
         parameter_dependencies = {}
 
-        # Get the spectral parameters function names
+        # Get the spectral parameters default function names
         for spectral_parameter in spectral_parameters:
             if '_function' not in spectral_parameter:  # special functions are model parameters
                 parameter_dependencies[spectral_parameter] = f'compute_{spectral_parameter}'
 
+        # Get the actual model functions
+        model_functions = self.get_model_functions(
+            from_maps=False
+        )
+
         # Get the parameter-function pairs of the model functions
         model_functions_parameters = {
-            model_function.split('compute_', 1)[1]: model_function
-            for model_function in self.get_model_functions()
+            model_function.__name__.split('compute_', 1)[1]: model_function
+            for model_function in model_functions
         }
 
-        # Perform the check
-        for spectral_parameter, model_function in parameter_dependencies.items():
-            if model_function not in list(model_functions_parameters.values()):
-                if spectral_parameter not in self.model_parameters:
+        if custom_map is not None:
+            if not isinstance(custom_map, dict):
+                raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
+
+            model_functions_parameters.update(custom_map)
+
+        model_parameters = self.get_model_parameters(
+            check_relevance=False,
+            model_functions=list(model_functions_parameters.values())
+        )
+
+        if extra_model_parameters is not None:
+            for key, value in extra_model_parameters.items():
+                model_parameters[key] = extra_model_parameters[key]
+
+        if update_model_parameters:
+            self.model_parameters = model_parameters
+
+        # Check if every spectral parameter is calculated by a function
+        for spectral_parameter, spectral_parameter_function in parameter_dependencies.items():
+            if spectral_parameter not in list(model_functions_parameters.keys()):
+                if spectral_parameter not in model_parameters and spectral_parameter != 'reference_gravity':  # TODO implement  # noqa: E501
                     warnings.warn(f"no function to calculate spectral parameter '{spectral_parameter}'\n"
-                                  f"Add function '{model_function}', "
+                                  f"Add function '{spectral_parameter_function}', "
                                   f"or add '{spectral_parameter}' as a model parameter")
                     parameter_dependencies[spectral_parameter] = None
 
@@ -797,7 +847,7 @@ class SpectralModel(Radtrans):
             else:
                 parameter_dependencies[spectral_parameter] = {None}
 
-        for parameter in self.model_parameters:
+        for parameter in model_parameters:
             parameter_dependencies = __build_dependencies_dict(
                 parameter,
                 model_functions_parameters,
@@ -814,16 +864,29 @@ class SpectralModel(Radtrans):
                 model_functions_map[parameter] = model_functions_parameters[parameter]
             elif parameter is None:
                 continue
-            elif (
-                    parameter in self.model_parameters
-                    or parameter in ['pressures', 'wavelengths', 'mode']
-                    or '_function' in parameter
-            ):
-                model_functions_map[parameter] = None
             else:
-                raise ValueError(f"'{parameter}' has no model function and is not a model parameter")
+                model_functions_map[parameter] = None
 
         return model_functions_map
+
+    def _get_spectral_modification_functions_map(self, custom_map=None):
+        default_map = LockedDict.build_and_lock({
+            'scale': self.scale_spectrum,
+            'shift': self.shift_wavelengths,
+            'use_transit_light_loss': self.compute_transit_fractional_light_loss,
+            'convolve': self.convolve,
+            'rebin': self.rebin_spectrum,
+            'prepare': self.preparing_pipeline,
+            'modify': self.modify_spectrum
+        })
+
+        if custom_map is not None:
+            if not isinstance(custom_map, dict):
+                raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
+
+            default_map.update(custom_map)
+
+        return default_map
 
     def _get_spectral_parameters(self, remove_flag=False, remove_branching=False):
         spectral_functions = [
@@ -1039,7 +1102,7 @@ class SpectralModel(Radtrans):
             wavelengths = self.wavelengths  # coming from Radtrans
 
         functions_dict = {
-            parameter: getattr(self, function)
+            parameter: function
             for parameter, function in self.model_functions_map.items()
             if function is not None and parameter not in self._fixed_model_parameters
         }
@@ -1063,7 +1126,10 @@ class SpectralModel(Radtrans):
                     kwargs[parameter] = value.default
 
         # Include spectral parameters
-        spectral_parameters = self._get_spectral_parameters(remove_flag=False, remove_branching=False)
+        spectral_parameters = self._get_spectral_parameters(
+            remove_flag=False,
+            remove_branching=False
+        )
 
         for spectral_parameter, value in spectral_parameters.items():
             if spectral_parameter not in kwargs:
@@ -1142,11 +1208,11 @@ class SpectralModel(Radtrans):
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=copy.copy(self.wavelengths),
             spectrum=spectrum,
-            scale_function=self.scale_spectrum,
-            shift_wavelengths_function=self.shift_wavelengths,
-            transit_fractional_light_loss_function=self.compute_transit_fractional_light_loss,
-            convolve_function=self.convolve,
-            rebin_spectrum_function=self.rebin_spectrum,
+            scale_function=self.spectral_modification_functions_map['scale'],
+            shift_wavelengths_function=self.spectral_modification_functions_map['shift'],
+            transit_fractional_light_loss_function=self.spectral_modification_functions_map['use_transit_light_loss'],
+            convolve_function=self.spectral_modification_functions_map['convolve'],
+            rebin_spectrum_function=self.spectral_modification_functions_map['rebin'],
             **parameters['modification_parameters'],
             **parameters
         )
@@ -1159,7 +1225,7 @@ class SpectralModel(Radtrans):
         # Prepare the spectrum
         if prepare:
             spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
-                self.prepare_spectrum(
+                self.spectral_modification_functions_map['prepare'](
                     spectrum=spectrum,
                     wavelengths=wavelengths,
                     **parameters
@@ -1454,13 +1520,6 @@ class SpectralModel(Radtrans):
         mass_fractions_equilibrium = None
 
         if use_equilibrium_chemistry:
-            # Calculate metallicity
-            if metallicity is None:
-                metallicity = SpectralModel._compute_metallicity_wrap(
-                    metallicity=metallicity,
-                    **kwargs
-                )
-
             # Interpolate chemical equilibrium
             mass_fractions_equilibrium = SpectralModel.compute_equilibrium_mass_fractions(
                 pressures=pressures,
@@ -1580,6 +1639,33 @@ class SpectralModel(Radtrans):
 
         """
         return compute_mean_molar_masses(mass_fractions)
+
+    @staticmethod
+    def compute_metallicity(planet_mass=None,
+                            star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
+                            metallicity_mass_scaling=7.2, verbose=False, metallicity=None, **kwargs):
+        if metallicity is not None:
+            return metallicity
+
+        if planet_mass is None:
+            return None
+
+        if verbose:
+            print("metallicity set to None, calculating it using scaled metallicity...")
+
+        metallicity = SpectralModel.compute_scaled_metallicity(
+            planet_mass=planet_mass,
+            star_metallicity=star_metallicity,
+            atmospheric_mixing=atmospheric_mixing,
+            metallicity_mass_coefficient=metallicity_mass_coefficient,
+            metallicity_mass_scaling=metallicity_mass_scaling
+        )
+
+        if metallicity <= 0:
+            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
+            metallicity = sys.float_info.min
+
+        return metallicity
 
     @staticmethod
     def compute_opaque_cloud_top_pressure(opaque_cloud_top_pressure: float = None, **kwargs):
@@ -1759,15 +1845,6 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_spectral_parameters(model_functions_map, **kwargs):
-        # TODO reimplement metallicity
-        # if kwargs['planet_mass'] is None:
-        #     kwargs['planet_mass'] = reference_gravity2mass_function(**kwargs)
-        # elif kwargs['reference_gravity'] is None:
-        #     kwargs['reference_gravity'] = mass2reference_gravity_function(**kwargs)
-        #
-        # if kwargs['metallicity'] is None:
-        #     kwargs['metallicity'] = metallicity_function(**kwargs)
-
         for model_parameter, function in model_functions_map.items():
             kwargs[model_parameter] = function(**kwargs)
 
@@ -2108,9 +2185,9 @@ class SpectralModel(Radtrans):
 
         return new_spectral_model
 
-    def get_default_parameters(self, sort=True, spectral_model_specific=True):
+    def get_default_parameters(self, sort=True, spectral_model_specific=True, from_maps=True):
         """Get all the default SpectralModel parameters."""
-        def __list_arguments(_object, exclude_functions=None, include_functions=None):
+        def __list_arguments(_object, exclude_functions=None, include_functions=None, _from_maps=False):
             if exclude_functions is None:
                 exclude_functions = []
 
@@ -2119,16 +2196,36 @@ class SpectralModel(Radtrans):
 
             _arguments = set()
 
-            for function in dir(_object):
-                if (
-                        callable(getattr(_object, function))
-                        and (function[0] != '_' or getattr(_object, function) in include_functions)
-                        and getattr(_object, function) not in exclude_functions
-                ):
-                    signature = inspect.signature(getattr(_object, function))
+            if _from_maps:
+                functions = (
+                    list(_object.model_functions_map.values())
+                    + list(_object.spectral_modification_functions_map.values())
+                    + include_functions
+                )
 
-                    for parameter in signature.parameters:
-                        _arguments.add(parameter)
+                for function in functions:
+                    if isinstance(function, str):
+                        function = getattr(_object, function)
+
+                    if (
+                            callable(function)
+                            and function not in exclude_functions
+                    ):
+                        signature = inspect.signature(function)
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
+            else:
+                for function in dir(_object):
+                    if (
+                            callable(getattr(_object, function))
+                            and (function[0] != '_' or getattr(_object, function) in include_functions)
+                            and getattr(_object, function) not in exclude_functions
+                    ):
+                        signature = inspect.signature(getattr(_object, function))
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
 
             return _arguments
 
@@ -2148,8 +2245,12 @@ class SpectralModel(Radtrans):
                 self.save_parameters
             ],
             include_functions=[
-                self.__init_velocities
-            ]
+                self.__init_velocities,
+                self.compute_optimal_wavelength_boundaries,
+                self.compute_scaled_metallicity,
+                self.with_velocity_range
+            ],
+            _from_maps=from_maps
         )
 
         default_parameters.add('modification_parameters')
@@ -2172,33 +2273,84 @@ class SpectralModel(Radtrans):
 
         return default_parameters
 
-    def get_model_functions(self):
+    def get_model_functions(self, include_functions=None, exclude_functions=None,
+                            from_maps=True, model_functions_map=None, spectral_modification_functions_map=None):
+        if include_functions is None:
+            include_functions = []
+
+        if exclude_functions is None:
+            exclude_functions = []
+
         radtrans_functions = set()
 
         for function in dir(Radtrans):
             if callable(getattr(Radtrans, function)):
                 radtrans_functions.add(function)
 
+        _model_functions = set()
+
+        for function in include_functions:
+            if function in exclude_functions:
+                raise ValueError(f"function '{function}' is both included and excluded")
+
+            _model_functions.add(function)
+
+        if from_maps:
+            if model_functions_map is None:
+                model_functions_map = self.model_functions_map
+
+            if spectral_modification_functions_map is None:
+                spectral_modification_functions_map = self.spectral_modification_functions_map
+
+            for function in model_functions_map.values():
+                if function is None or function in exclude_functions:
+                    continue
+
+                _model_functions.add(function)
+
+            for function in spectral_modification_functions_map.values():
+                if function is None or function in exclude_functions:
+                    continue
+
+                _model_functions.add(function)
+        else:
+            for function in SpectralModel.__dict__:
+                if (callable(getattr(self, function))
+                        and 'compute_' in function
+                        and function not in exclude_functions
+                        and function[0] != '_'
+                        and function not in radtrans_functions):
+                    _model_functions.add(function)
+
+            for function in self.__dict__:
+                if (callable(getattr(self, function))
+                        and 'compute_' in function
+                        and function not in exclude_functions
+                        and function[0] != '_'
+                        and function not in radtrans_functions):
+                    _model_functions.add(function)
+
         model_functions = set()
 
-        for function in SpectralModel.__dict__:
-            if (callable(getattr(self, function))
-                    and 'compute_' in function
-                    and function[0] != '_'
-                    and function not in radtrans_functions):
-                model_functions.add(function)
+        for function in _model_functions:
+            if isinstance(function, str):
+                _function = getattr(self, function)
+                _function.__name__ = function
 
-        for function in self.__dict__:
-            if (callable(getattr(self, function))
-                    and 'compute_' in function
-                    and function[0] != '_'
-                    and function not in radtrans_functions):
+                model_functions.add(_function)
+            else:
                 model_functions.add(function)
 
         return model_functions
 
-    def get_model_parameters(self, check_relevance=True):
-        model_functions = self.get_model_functions()
+    def get_model_parameters(self, check_relevance=True, from_function_maps=True,
+                             model_functions_map=None, spectral_modification_functions_map=None, model_functions=None):
+        if model_functions is None:
+            model_functions = self.get_model_functions(
+                from_maps=from_function_maps,
+                model_functions_map=model_functions_map,
+                spectral_modification_functions_map=spectral_modification_functions_map
+            )
 
         model_parameters = {}
 
@@ -2206,7 +2358,13 @@ class SpectralModel(Radtrans):
         spectral_model_attributes = list(SpectralModel.__dict__.keys())
 
         for function in model_functions:
-            signature = inspect.signature(getattr(self, function))
+            if function is None:
+                continue
+
+            if isinstance(function, str):
+                function = getattr(self, function)
+
+            signature = inspect.signature(function)
 
             for parameter, value in signature.parameters.items():
                 if (parameter not in spectral_model_attributes
@@ -2547,11 +2705,17 @@ class SpectralModel(Radtrans):
                     del parameters[parameter]
                 elif parameter == '_fixed_model_parameters':
                     fixed_model_parameters = set(parameters.pop(parameter))
-            elif parameter == 'model_parameters':
-                for key, value in parameters[parameter].items():
-                    parameters[key] = value
 
-                del parameters[parameter]
+        # Convert model parameters to instantiation arguments
+        for key, value in parameters['model_parameters'].items():
+            if key not in parameters:  # prevent Radtrans parameters overwrite
+                parameters[key] = value
+
+        del parameters['model_parameters']
+
+        # Remove custom maps
+        del parameters['model_functions_map']
+        del parameters['spectral_modification_functions_map']
 
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
@@ -2629,7 +2793,6 @@ class SpectralModel(Radtrans):
                         transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
                         **kwargs):
-        # TODO check emission spectrum
         # TODO star observed spectrum will always be re-calculated in this configuration
         # Initialization
         if scale_function is None:
@@ -2892,9 +3055,6 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-    def prepare_spectrum(self, spectrum, **kwargs):
-        return self.preparing_pipeline(spectrum, **kwargs)
-
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
         if np.ndim(rebinned_wavelengths) <= 1 and isinstance(rebinned_wavelengths, np.ndarray):
@@ -3020,13 +3180,35 @@ class SpectralModel(Radtrans):
 
     def save(self, file, save_opacities=False):
         if save_opacities:
-            attribute_dictionary = self.__dict__
+            attribute_dictionary = copy.deepcopy(self.__dict__)
         else:
             attribute_dictionary = {
-                key: value
+                copy.deepcopy(key): copy.deepcopy(value)
                 for key, value in self.__dict__.items()
                 if '_loaded_opacities' not in key
             }
+
+        def __check_map(_map_name, _functions_label):
+            for parameter, function in attribute_dictionary[_map_name].items():
+                if not isinstance(function, str) and function is not None:
+                    attribute_dictionary[_map_name][parameter] = function.__name__
+
+                    if not hasattr(self, attribute_dictionary[_map_name][parameter]):
+                        function_name = attribute_dictionary[_map_name][parameter]
+                        warnings.warn(
+                            f"{_functions_label} '{function_name}' is not a default SpectralModel function\n"
+                            f"Only the function's name will be saved"
+                        )
+
+        if 'model_functions_map' in attribute_dictionary:
+            __check_map('model_functions_map', 'model function')
+        else:
+            warnings.warn("saved SpectralModel object have no model functions map")
+
+        if 'spectral_modification_functions_map' in attribute_dictionary:
+            __check_map('spectral_modification_functions_map', 'spectral modification function')
+        else:
+            warnings.warn("saved SpectralModel object have no spectral modification functions map")
 
         self.save_parameters(
             file=file,
