@@ -31,7 +31,7 @@ from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
-from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask, topological_sort
+from petitRADTRANS.utils import dict2hdf5, LockedDict, hdf52dict, fill_object, remove_mask, topological_sort
 
 
 class SpectralModel(Radtrans):
@@ -2748,7 +2748,6 @@ class SpectralModel(Radtrans):
                         transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
                         **kwargs):
-        # TODO check emission spectrum
         # TODO star observed spectrum will always be re-calculated in this configuration
         # Initialization
         if scale_function is None:
@@ -3010,9 +3009,6 @@ class SpectralModel(Radtrans):
             full=True,
             **kwargs
         )
-
-    def prepare_spectrum(self, spectrum, **kwargs):
-        return self.preparing_pipeline(spectrum, **kwargs)
 
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
