@@ -378,27 +378,6 @@ class SpectralModel(Radtrans):
         return parameters, beta
 
     @staticmethod
-    def _compute_metallicity_wrap(planet_mass=None,
-                                  star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
-                                  metallicity_mass_scaling=7.2, verbose=False, **kwargs):
-        if verbose:
-            print("metallicity set to None, calculating it using scaled metallicity...")
-
-        metallicity = SpectralModel.compute_scaled_metallicity(
-            planet_mass=planet_mass,
-            star_metallicity=star_metallicity,
-            atmospheric_mixing=atmospheric_mixing,
-            metallicity_mass_coefficient=metallicity_mass_coefficient,
-            metallicity_mass_scaling=metallicity_mass_scaling
-        )
-
-        if metallicity <= 0:
-            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
-            metallicity = sys.float_info.min
-
-        return metallicity
-
-    @staticmethod
     def _compute_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
                                               planet_radius_normalized, star_radius,
                                               orbital_longitudes, transit_duration, orbital_period,
@@ -1592,6 +1571,33 @@ class SpectralModel(Radtrans):
         return compute_mean_molar_masses(mass_fractions)
 
     @staticmethod
+    def compute_metallicity(planet_mass=None,
+                            star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
+                            metallicity_mass_scaling=7.2, verbose=False, metallicity=None, **kwargs):
+        if metallicity is not None:
+            return metallicity
+
+        if planet_mass is None:
+            return None
+
+        if verbose:
+            print("metallicity set to None, calculating it using scaled metallicity...")
+
+        metallicity = SpectralModel.compute_scaled_metallicity(
+            planet_mass=planet_mass,
+            star_metallicity=star_metallicity,
+            atmospheric_mixing=atmospheric_mixing,
+            metallicity_mass_coefficient=metallicity_mass_coefficient,
+            metallicity_mass_scaling=metallicity_mass_scaling
+        )
+
+        if metallicity <= 0:
+            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
+            metallicity = sys.float_info.min
+
+        return metallicity
+
+    @staticmethod
     def compute_opaque_cloud_top_pressure(opaque_cloud_top_pressure: float = None, **kwargs):
         return opaque_cloud_top_pressure
 
@@ -1769,15 +1775,6 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_spectral_parameters(model_functions_map, **kwargs):
-        # TODO reimplement metallicity
-        # if kwargs['planet_mass'] is None:
-        #     kwargs['planet_mass'] = reference_gravity2mass_function(**kwargs)
-        # elif kwargs['reference_gravity'] is None:
-        #     kwargs['reference_gravity'] = mass2reference_gravity_function(**kwargs)
-        #
-        # if kwargs['metallicity'] is None:
-        #     kwargs['metallicity'] = metallicity_function(**kwargs)
-
         for model_parameter, function in model_functions_map.items():
             kwargs[model_parameter] = function(**kwargs)
 
