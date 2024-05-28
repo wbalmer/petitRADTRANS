@@ -55,7 +55,9 @@ class SpectralModel(Radtrans):
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
-            wavelengths=None, transit_radii=None, fluxes=None, model_functions_map=None, **model_parameters
+            wavelengths=None, transit_radii=None, fluxes=None,
+            model_functions_map=None, spectral_modification_functions_map=None,
+            **model_parameters
     ):
         """Essentially a wrapper of Radtrans.
         Can be used to construct custom spectral models.
@@ -228,10 +230,14 @@ class SpectralModel(Radtrans):
             path_input_data=path_input_data
         )
 
-        self.model_functions_map = self._get_model_functions_map(update_model_parameters=False)
-        self.model_functions_map.update(model_functions_map)
         self.spectral_modification_functions_map = self._get_spectral_modification_functions_map(
             custom_map=spectral_modification_functions_map
+        )
+
+        self.model_functions_map = self._get_model_functions_map(
+            update_model_parameters=True,
+            extra_model_parameters=self.model_parameters,
+            custom_map=model_functions_map
         )
 
         self.__check_model_functions_map()
@@ -863,6 +869,25 @@ class SpectralModel(Radtrans):
 
         return model_functions_map
 
+    def _get_spectral_modification_functions_map(self, custom_map=None):
+        default_map = LockedDict.build_and_lock({
+            'scale': self.scale_spectrum,
+            'shift': self.shift_wavelengths,
+            'use_transit_light_loss': self.compute_transit_fractional_light_loss,
+            'convolve': self.convolve,
+            'rebin': self.rebin_spectrum,
+            'prepare': self.preparing_pipeline,
+            'modify': self.modify_spectrum
+        })
+
+        if custom_map is not None:
+            if not isinstance(custom_map, dict):
+                raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
+
+            default_map.update(custom_map)
+
+        return default_map
+
     def _get_spectral_parameters(self, remove_flag=False, remove_branching=False):
         spectral_functions = [
             self.calculate_flux,
@@ -1183,11 +1208,11 @@ class SpectralModel(Radtrans):
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=copy.copy(self.wavelengths),
             spectrum=spectrum,
-            scale_function=self.scale_spectrum,
-            shift_wavelengths_function=self.shift_wavelengths,
-            transit_fractional_light_loss_function=self.compute_transit_fractional_light_loss,
-            convolve_function=self.convolve,
-            rebin_spectrum_function=self.rebin_spectrum,
+            scale_function=self.spectral_modification_functions_map['scale'],
+            shift_wavelengths_function=self.spectral_modification_functions_map['shift'],
+            transit_fractional_light_loss_function=self.spectral_modification_functions_map['use_transit_light_loss'],
+            convolve_function=self.spectral_modification_functions_map['convolve'],
+            rebin_spectrum_function=self.spectral_modification_functions_map['rebin'],
             **parameters['modification_parameters'],
             **parameters
         )
@@ -1200,7 +1225,7 @@ class SpectralModel(Radtrans):
         # Prepare the spectrum
         if prepare:
             spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
-                self.prepare_spectrum(
+                self.spectral_modification_functions_map['prepare'](
                     spectrum=spectrum,
                     wavelengths=wavelengths,
                     **parameters
@@ -2160,9 +2185,9 @@ class SpectralModel(Radtrans):
 
         return new_spectral_model
 
-    def get_default_parameters(self, sort=True, spectral_model_specific=True):
+    def get_default_parameters(self, sort=True, spectral_model_specific=True, from_maps=True):
         """Get all the default SpectralModel parameters."""
-        def __list_arguments(_object, exclude_functions=None, include_functions=None):
+        def __list_arguments(_object, exclude_functions=None, include_functions=None, _from_maps=False):
             if exclude_functions is None:
                 exclude_functions = []
 
@@ -2171,16 +2196,36 @@ class SpectralModel(Radtrans):
 
             _arguments = set()
 
-            for function in dir(_object):
-                if (
-                        callable(getattr(_object, function))
-                        and (function[0] != '_' or getattr(_object, function) in include_functions)
-                        and getattr(_object, function) not in exclude_functions
-                ):
-                    signature = inspect.signature(getattr(_object, function))
+            if _from_maps:
+                functions = (
+                    list(_object.model_functions_map.values())
+                    + list(_object.spectral_modification_functions_map.values())
+                    + include_functions
+                )
 
-                    for parameter in signature.parameters:
-                        _arguments.add(parameter)
+                for function in functions:
+                    if isinstance(function, str):
+                        function = getattr(_object, function)
+
+                    if (
+                            callable(function)
+                            and function not in exclude_functions
+                    ):
+                        signature = inspect.signature(function)
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
+            else:
+                for function in dir(_object):
+                    if (
+                            callable(getattr(_object, function))
+                            and (function[0] != '_' or getattr(_object, function) in include_functions)
+                            and getattr(_object, function) not in exclude_functions
+                    ):
+                        signature = inspect.signature(getattr(_object, function))
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
 
             return _arguments
 
