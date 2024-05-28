@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
 - Typos in some comments.
 
+## [3.0.4] - 2024-05-28
+### Fixed
+- Scripts hang forever while loading `exo-k` re-binned opacities on multiple processes.
+- Indices for AMR in retrievals are not integers.
+
 ## [3.0.3] - 2024-05-15
 ### Fixed
 - Fixed default `haze_factor` value in `retrieval/models.py`.
