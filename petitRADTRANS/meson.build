@@ -17,6 +17,8 @@ py.install_sources([
     'spectral_model.py',
     'utils.py',
     'jax_radtrans.py',
+    'jax_rayleigh_scattering.py',
+    'jax_interpolate_line_opacities.py',
     '_input_data_loader.py',
     '__debug.py',
     '__file_conversion.py',

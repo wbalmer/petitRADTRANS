@@ -40,3 +40,6 @@ l_sun = float(a_cst.L_sun.cgs.value)
 
 r_jup_mean = 6.9911e9  # (cm) Jupiter's mean radius
 s_earth = 1.3654e6  # (erg.s-1.cm-2) source: https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2010GL045777
+
+# Rayleigh scattering
+standard_number_density_for_refractive_index = 25.47e18 #https://ui.adsabs.harvard.edu/abs/2005JQSRT..92..293S/abstract

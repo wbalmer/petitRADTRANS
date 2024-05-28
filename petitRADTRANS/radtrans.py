@@ -20,6 +20,8 @@ from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
 from petitRADTRANS.utils import LockedDict
 import petitRADTRANS.jax_radtrans as jrt
+from petitRADTRANS.jax_rayleigh_scattering import compute_rayleigh_scattering_opacities
+from petitRADTRANS.jax_interpolate_line_opacities import interpolate_line_opacities
 from time import time
 
 import jax.numpy as jnp
@@ -1970,7 +1972,7 @@ class Radtrans:
                                  f"(listed species: {list(mass_fractions.keys())}, "
                                  f"listed species basenames {list(base_species_mass_fractions.keys())}:)")
 
-            rayleigh_scattering_opacities += haze_factor * fcore.compute_rayleigh_scattering_opacities(
+            rayleigh_scattering_opacities += haze_factor * compute_rayleigh_scattering_opacities(
                 species,
                 base_species_mass_fractions[species],
                 wavelengths_angstroem,
@@ -2408,16 +2410,15 @@ class Radtrans:
         if n_line_species > 0:
             line_opacities = jnp.zeros(
                 (n_g, n_frequencies, n_line_species, n_layers), dtype='d') #, order='F'
-
+            
             for i, species in enumerate(line_opacities_grid):
-                line_opacities = line_opacities.at[:, :, i, :].set(finput.interpolate_line_opacities(
+                line_opacities_temperature_pressure_grid = \
+                    line_opacities_temperature_pressure_grid[species].reshape(line_opacities_temperature_grid_size[species],line_opacities_pressure_grid_size[species],2)
+                line_opacities = line_opacities.at[:, :, i, :].set(interpolate_line_opacities(
                     pressures,
                     temperatures,
-                    line_opacities_temperature_pressure_grid[species],
-                    True,  # always assume custom PT grid with new format
-                    line_opacities_temperature_grid_size[species],
-                    line_opacities_pressure_grid_size[species],
-                    line_opacities_grid[species]
+                    line_opacities_temperature_pressure_grid,
+                    line_opacities_grid[species],
                 ))
         else:
             line_opacities = jnp.zeros(
