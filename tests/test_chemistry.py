@@ -33,6 +33,7 @@ def test_chemistry_atmosphere():
         full=True
     )
 
+
 def test_chemistry_atmosphere_quench():
     c_o_ratios = test_parameters['chemical_parameters']['c_o_ratios'][1] \
                  * np.ones_like(test_parameters['pressures'])
