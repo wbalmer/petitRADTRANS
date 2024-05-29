@@ -518,7 +518,7 @@ class Radtrans:
             species_basename = get_species_basename(species)
 
             if species_basename not in base_species_mass_fractions:
-                base_species_mass_fractions[species_basename] = mass_fraction
+                base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
             else:
                 base_species_mass_fractions[species_basename] += mass_fraction
 
