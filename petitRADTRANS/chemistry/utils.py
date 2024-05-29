@@ -1,10 +1,135 @@
 import copy
 import sys
+import warnings
 
 import numpy as np
 
 from petitRADTRANS._input_data_loader import get_species_basename, get_species_isotopologue_name
-from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
+                                                 get_species_elements)
+
+
+_solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
+    # atomic number, log10 elemental abundance, uncertainty
+    """
+1 12.00 0.00
+2 10.924 0.02
+3 3.27 0.03
+4 1.31 0.04
+5 2.77 0.03
+6 8.47 0.06
+7 7.85 0.12
+8 8.73 0.07
+9 4.61 0.09
+10 8.15 0.10
+11 6.27 0.03
+12 7.52 0.02
+13 6.42 0.03
+14 7.51 0.01
+15 5.43 0.03
+16 7.15 0.03
+17 5.23 0.06
+18 6.50 0.10
+19 5.07 0.02
+20 6.27 0.03
+21 3.04 0.03
+22 4.90 0.03
+23 3.95 0.03
+24 5.63 0.02
+25 5.47 0.03
+26 7.45 0.02
+27 4.86 0.02
+28 6.20 0.03
+29 4.24 0.04
+30 4.61 0.60
+31 3.07 0.02
+32 3.59 0.03
+33 2.29 0.03
+34 3.34 0.03
+35 2.60 0.09
+36 3.22 0.08
+37 2.36 0.03
+38 2.88 0.02
+39 2.15 0.02
+40 2.55 0.04
+41 1.4 0.04
+42 1.92 0.04
+44 1.77 0.01
+45 1.04 0.02
+46 1.65 0.02
+47 1.21 0.02
+48 1.71 0.02
+49 0.76 0.02
+50 2.07 0.03
+51 1.06 0.05
+52 2.18 0.02
+53 1.71 0.15
+54 2.25 0.08
+55 1.08 0.02
+56 2.17 0.02
+57 1.17 0.02
+58 1.58 0.02
+59 0.75 0.01
+60 1.45 0.01
+62 0.94 0.02
+63 0.51 0.02
+64 1.05 0.02
+65 0.31 0.02
+66 1.12 0.02
+67 0.46 0.02
+68 0.92 0.02
+69 0.11 0.02
+70 0.91 0.02
+71 0.09 0.02
+72 0.70 0.03
+73 -0.16 0.02
+74 0.67 0.04
+75 0.23 0.03
+76 1.33 0.03
+77 1.31 0.02
+78 1.60 0.03
+79 0.80 0.03
+80 1.08 0.15
+81 0.76 0.04
+82 2.03 0.03
+83 0.66 0.03
+90 0.04 0.02
+92 -0.54 0.03
+"""
+)
+
+
+def _compute_h_ratios(elemental_abundances: dict[int, float]) -> dict[int, float]:
+    """Calculate the ratio over the hydrogen elemental abundance of other elements."""
+    if 1 not in elemental_abundances:
+        raise ValueError("cannot calculate hydrogen ratios if no hydrogen is present "
+                         "(key '1' was lacking in provided dict)")
+
+    if np.any(elemental_abundances[1] <= 0):
+        raise ValueError(f"hydrogen abundance must always be > 0, but was {elemental_abundances[1]}")
+
+    return {
+        atomic_number: abundance / elemental_abundances[1]
+        for atomic_number, abundance in elemental_abundances.items()
+    }
+
+
+def _compute_z_ratios(elemental_abundances: dict[int, float]) -> float:
+    """Calculate the metal to non-metal abundances from elemental abundances."""
+    if 1 not in elemental_abundances:
+        elemental_abundances[1] = 0
+
+    if 2 not in elemental_abundances:
+        elemental_abundances[2] = 0
+
+    if np.any(elemental_abundances[1] <= 0) and np.any(elemental_abundances[2] <= 0):
+        raise ValueError(f"cannot calculate metallicity if no hydrogen and no helium is present "
+                         f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
+
+    non_metal_abundances = elemental_abundances[1] + elemental_abundances[2]
+    metal_abundances = np.sum(np.array(list(elemental_abundances.values()))[2:], axis=0)
+
+    return metal_abundances / non_metal_abundances
 
 
 def compute_mean_molar_masses(abundances):
@@ -107,7 +232,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling
                 mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
             else:  # ensure that the sum is exactly 1 in spite of numerical errors
                 mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
-                mass_fractions[species] = 0
+                mass_fractions[species] = np.zeros(1)
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
                 # Sanity check
@@ -186,6 +311,27 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     return pressures[indices], indices
 
 
+def get_solar_elemental_abundances() -> dict[int, float]:
+    """Parse the solar elemental abundances string."""
+    abundances = _solar_elemental_abundances.split('\n')
+
+    dictionary = {}
+
+    for abundance in abundances:
+        if abundance == '':
+            continue
+
+        atomic_number, abundance, uncertainty = abundance.split(' ')
+
+        atomic_number = int(atomic_number)
+        abundance = float(abundance)
+        # uncertainty = float(uncertainty)
+
+        dictionary[atomic_number] = 10 ** abundance
+
+    return dictionary
+
+
 def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     """Convert mass fractions to volume mixing ratios.
 
@@ -206,7 +352,29 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def simplify_species_list(species_list: list, specify_natural_abundance: bool = False) -> list:
+def mass_fractions2metallicity(mass_fractions: dict[str, np.ndarray[float]], mean_molar_masses: np.ndarray[float]):
+    """Calculate the metallicity and element-over-hydrogen abundance ratios.
+
+    Args:
+        mass_fractions:
+            Dictionary of mass fractions for all atmospheric species.
+            Dictionary keys are the species names. Values are the mass fractions of each species at each layer.
+        mean_molar_masses:
+            The atmospheric mean molecular weight in amu, at each atmospheric layer.
+    Returns:
+        The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
+        The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
+        the atmospheric H ratio ('local' key), and its value relative to the solar H ratio ('relative to solar' key)
+    """
+    volume_mixing_ratios = mass_fractions2volume_mixing_ratios(
+        mass_fractions=mass_fractions,
+        mean_molar_masses=mean_molar_masses
+    )
+
+    return volume_mixing_ratios2metallicity(volume_mixing_ratios)
+
+
+def simplify_species_list(species_list: list) -> list:
     species_basenames = [get_species_basename(species) for species in species_list]
     species_isotopologue_names = [get_species_isotopologue_name(species) for species in species_list]
 
@@ -239,3 +407,73 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
         mass_fractions[species] = volume_mixing_ratio * get_species_molar_mass(species) / mean_molar_masses
 
     return mass_fractions
+
+
+def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]]):
+    """Calculate the metallicity and element-over-hydrogen abundance ratios.
+
+    Args:
+        volume_mixing_ratios:
+            Dictionary of volume mixing ratios for all atmospheric species.
+            Dictionary keys are the species names. Values are the VMR of each species at each layer.
+    Returns:
+        The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
+        The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
+        the atmospheric H ratio ('local' key), and its value relative to the solar H ratio ('relative to solar' key)
+    """
+    elements = {}
+
+    sum_vmrs = 0.0
+
+    for species, volume_mixing_ratio in volume_mixing_ratios.items():
+        if species == 'e-':
+            _elements = {'H': 1}
+        else:
+            _elements = get_species_elements(species)
+
+        sum_vmrs += volume_mixing_ratio
+
+        for symbol, amount in _elements.items():
+            if symbol not in elements:
+                elements[symbol] = amount * volume_mixing_ratio
+            else:
+                elements[symbol] += amount * volume_mixing_ratio
+
+    if 'H' not in elements:
+        raise ValueError("cannot calculate metallicity if no hydrogen is present in atmosphere")
+
+    if 'He' not in elements:
+        elements['He'] = 0.0
+
+    if np.ndim(sum_vmrs) == 0:
+        sum_vmrs = np.array([sum_vmrs])
+
+    for i, sum_vmr in enumerate(sum_vmrs):
+        if np.abs(sum_vmr - 1.0) > 1e-6:
+            warnings.warn(f"the sum of volume mixing ratios at level {i} is not 1 ({sum_vmr}), "
+                          f"results may be inaccurate")
+
+    # Convert keys from symbol to atomic number
+    elemental_abundances = {
+        element_symbol2element_number(symbol): amount
+        for symbol, amount in elements.items()
+    }
+
+    solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances())
+    h_ratios = _compute_h_ratios(elemental_abundances)
+
+    solar_z_ratio = _compute_z_ratios(solar_h_ratios)
+    z_ratio = _compute_z_ratios(h_ratios)
+
+    metallicity = z_ratio / solar_z_ratio
+
+    h_ratios = {
+        list(h_ratios.keys())[i]: {
+            'description': f"{list(elements.keys())[i]}/H",
+            'local': h_ratio, 'relative to solar': h_ratio / solar_h_ratios[list(h_ratios.keys())[i]]
+        }
+        for i, h_ratio in enumerate(h_ratios.values())
+        if i != 0
+    }
+
+    return metallicity, h_ratios
