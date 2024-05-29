@@ -1520,6 +1520,22 @@ class SpectralModel(Radtrans):
         mass_fractions_equilibrium = None
 
         if use_equilibrium_chemistry:
+            missing = {}
+
+            if metallicity is None:
+                missing['metallicity'] = metallicity
+
+            if co_ratio is None:
+                missing['co_ratio'] = co_ratio
+
+            if len(missing) > 0:
+                names = ', '.join(list(missing.keys()))
+                values = list(missing.values())
+
+                raise ValueError(f"equilibrium chemistry function missing {names} values (were {values})\n"
+                                 f"Add 'metallicity' as a model parameter, check your metallicity model function, "
+                                 f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
+
             # Interpolate chemical equilibrium
             mass_fractions_equilibrium = SpectralModel.compute_equilibrium_mass_fractions(
                 pressures=pressures,
