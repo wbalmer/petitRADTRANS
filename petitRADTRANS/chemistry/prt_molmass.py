@@ -1,12 +1,28 @@
 """Interface between molmass and petitRADTRANS."""
-
-from molmass import Formula
+from molmass import ELEMENTS, Formula
 
 from petitRADTRANS._input_data_loader import get_species_isotopologue_name, split_species_all_info
 from petitRADTRANS.physical_constants import e_molar_mass
 
 
-def get_molmass_name(species):
+def element_number2element_symbol(atomic_number: int) -> str:
+    """Convert an element's atomic number (e.g. 6) to its element symbol (e.g. 'C')."""
+    for element in ELEMENTS:
+        if element.number == atomic_number:
+            return element.symbol
+
+    raise ValueError(f"atomic number '{atomic_number}' is not implemented")
+
+
+def element_symbol2element_number(symbol: str) -> int:
+    """Convert an element symbol (e.g. 'C') to its atomic number (e.g. 6)."""
+    for element in ELEMENTS:
+        if element.symbol == symbol:
+            return element.number
+
+    raise ValueError(f"symbol '{symbol}' is not an element symbol")
+
+
 def get_molmass_name(species: str):
     """Convert a pRT species' name into a molmass-compatible name."""
     species = get_species_isotopologue_name(species, join=True)
