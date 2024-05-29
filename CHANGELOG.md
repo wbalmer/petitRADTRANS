@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a11] - 2024-05-28
+## [3.1.0a12] - 2024-05-29
 ### Added
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
@@ -25,9 +25,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
+- Mass fractions being modified when calculating CIA opacities in some cases.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash when preparing fully masked spectral pixed.
 - Silent error when calculating transit light loss for a non-transiting planet.
+- Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
 - Typos in some comments.
 
