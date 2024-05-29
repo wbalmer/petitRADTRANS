@@ -40,7 +40,45 @@ def get_molmass_name(species: str):
     return isotopes
 
 
-def get_species_molar_mass(species):
+def get_species_elements(species: str) -> dict[str, int]:
+    """Decompose a species into its elements and their amount.
+
+    Example:
+        >>> get_species_elements('H2O')
+        >>> {'H': 2, 'O': 1}
+
+    Args:
+        species: pRT chemical formula of the species
+
+    Returns:
+        A dictionary containing the element symbols of the species as keys and their amount as values.
+    """
+    elements = {}
+
+    names = get_molmass_name(species)
+
+    if len(names) == 1:
+        names.append('')
+
+    for name in names[:-1]:
+        _elements = Formula(name)._elements
+
+        for _element, info_dict in _elements.items():
+            number = tuple(info_dict.values())
+
+            if len(number) > 1:
+                raise ValueError(f"molmass element dict for one isotope should have 1 value, but had {len(number)}")
+
+            number = number[0]
+
+            if _element not in elements:
+                elements[_element] = number
+            else:
+                elements[_element] += number
+
+    return elements
+
+
 def get_species_molar_mass(species: str) -> float:
     """
     Get the molecular mass of a given species.
