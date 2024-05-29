@@ -7,6 +7,8 @@ from petitRADTRANS.physical_constants import e_molar_mass
 
 
 def get_molmass_name(species):
+def get_molmass_name(species: str):
+    """Convert a pRT species' name into a molmass-compatible name."""
     species = get_species_isotopologue_name(species, join=True)
 
     name, natural_abundance, charge, _, _, _ = split_species_all_info(species)
