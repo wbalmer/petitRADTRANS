@@ -48,7 +48,7 @@ def get_species_molar_mass(species: str) -> float:
 
     names = get_molmass_name(species)
 
-    molar_mass = None
+    molar_mass = 0.0
 
     if natural_abundance and len(names) == 1:
         return Formula(names[0]).mass
@@ -56,7 +56,6 @@ def get_species_molar_mass(species: str) -> float:
         raise ValueError(f"species '{species}' has the natural abundance flag, "
                          f"but several isotopes were detected: ({names})")
     elif not natural_abundance:
-        molar_mass = 0.0
         charge = None
 
         # molmass cannot manage formulae containing both '[]'-separated isotopes and charges,
