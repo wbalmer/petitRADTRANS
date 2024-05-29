@@ -106,7 +106,7 @@ def check_all_close(a, b, **kwargs):
 
         for key, value in a.items():
             # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
-            check_all_close(value, b[key], **kwargs)
+            check_all_close(value, b[str(key)], **kwargs)
     elif isinstance(a, str):
         if a != b:
             raise AssertionError(f"'{a}' != '{b}'")
@@ -209,7 +209,7 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
 
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
-            new_group = group + key + '/'
+            new_group = group + str(key) + '/'
             dict2hdf5(dictionary[key], hdf5_file, new_group)
         elif callable(dictionary[key]):
             print(f"Skipping callable '{key}': dtype('O') has no native HDF5 equivalent")
