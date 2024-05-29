@@ -25,6 +25,7 @@ def get_molmass_name(species: str):
 
 
 def get_species_molar_mass(species):
+def get_species_molar_mass(species: str) -> float:
     """
     Get the molecular mass of a given species.
 
