@@ -792,6 +792,9 @@ def _split_species_charge(species, final_charge_format='+-'):
     charge = ''
     name = copy.deepcopy(species)
 
+    if species[-2:] in ['Tm', 'Am', 'Cm', 'Fm']:  # prevent matches with atomic Thulium, Americium, Curium and Fermium
+        return name, ''
+
     if len(charge_pattern_match) == 1:
         charge = charge_pattern_match[0][0]
         len_charge = len(charge)

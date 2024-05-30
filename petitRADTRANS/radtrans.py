@@ -518,7 +518,7 @@ class Radtrans:
             species_basename = get_species_basename(species)
 
             if species_basename not in base_species_mass_fractions:
-                base_species_mass_fractions[species_basename] = mass_fraction
+                base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
             else:
                 base_species_mass_fractions[species_basename] += mass_fraction
 
@@ -2507,7 +2507,7 @@ class Radtrans:
                     the atmospheric temperature in K, at each atmospheric layer
                     (1-d numpy array, same length as pressure array).
                 mass_fractions:
-                    dictionary of mass fractions for all atmospheric absorbers.
+                    Dictionary of mass fractions for all atmospheric absorbers.
                     Dictionary keys are the species names. Every mass fraction array has same length as pressure array.
                 mean_molar_masses:
                     the atmospheric mean molecular weight in amu, at each atmospheric layer
