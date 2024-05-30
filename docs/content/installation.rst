@@ -124,7 +124,7 @@ To be able to use the retrieval module, execute:
 
 .. code-block:: bash
 
-    pip install petitRADTRANS[retrievals] --no-build-isolation
+    pip install petitRADTRANS[retrieval] --no-build-isolation
 
 Compiling pRT from source
 =========================
