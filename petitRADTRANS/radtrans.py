@@ -2375,7 +2375,7 @@ class Radtrans:
         factor = combined_mass_fractions / weights \
             * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
 
-        log10_alpha = np.log10(alphas)
+        log10_alpha = jnp.log10(alphas)
 
         #if collision_dict['temperature'].shape[0] > 1:
         # Interpolation on temperatures for each wavelength point
@@ -2412,12 +2412,12 @@ class Radtrans:
                 (n_g, n_frequencies, n_line_species, n_layers), dtype='d') #, order='F'
             
             for i, species in enumerate(line_opacities_grid):
-                line_opacities_temperature_pressure_grid = \
+                line_opacities_tp_grid = \
                     line_opacities_temperature_pressure_grid[species].reshape(line_opacities_temperature_grid_size[species],line_opacities_pressure_grid_size[species],2)
                 line_opacities = line_opacities.at[:, :, i, :].set(interpolate_line_opacities(
                     pressures,
                     temperatures,
-                    line_opacities_temperature_pressure_grid,
+                    line_opacities_tp_grid,
                     line_opacities_grid[species],
                 ))
         else:

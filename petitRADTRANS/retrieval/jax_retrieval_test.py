@@ -4,6 +4,7 @@ from jax import random, numpy as jnp
 from jaxns import DefaultNestedSampler
 from jaxns import Model
 from jaxns import Prior
+from jaxns import summary, plot_diagnostics, plot_cornerplot, save_results, load_results, save_pytree
 
 tfpd = tfp.distributions
 
@@ -415,28 +416,28 @@ global_parameters['pressure_width'] = Parameter('pressure_width', False, value =
 
 global_parameters["planet_radius"] = Parameter(name = "planet_radius",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=0.8*cst.r_jup, high= 3.0*cst.r_jup))
+                                               distribution = tfpd.Uniform(low=0.8*cst.r_jup, high= 2.0*cst.r_jup))
 global_parameters["log_g"] = Parameter(name = "log_g",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=2.5, high= 6.0))
+                                               distribution = tfpd.Uniform(low=3.5, high= 5.0))
 global_parameters["T_int"] = Parameter(name = "T_int",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=100.0, high= 3000.0))
+                                               distribution = tfpd.Uniform(low=100.0, high= 2000.0))
 global_parameters["T_equ"] = Parameter(name = "T_equ",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=100.0, high= 3000.0))
+                                               distribution = tfpd.Uniform(low=100.0, high= 2000.0))
 global_parameters["log_gamma"] = Parameter(name = "log_gamma",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=-4, high= 2))
+                                               distribution = tfpd.Uniform(low=-3, high= 1))
 global_parameters["log_kappa_IR"] = Parameter(name = "log_kappa_IR",
                                                is_free_parameter = True,
                                                distribution = tfpd.Uniform(low=-4, high= 2))
 global_parameters["H2O__POKAZATEL"] = Parameter(name = "H2O__POKAZATEL",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=-8, high= -0.5))
+                                               distribution = tfpd.Uniform(low=-4, high= -0.5))
 global_parameters["CO-NatAbund__HITEMP"] = Parameter(name = "CO-NatAbund__HITEMP",
                                                is_free_parameter = True,
-                                               distribution = tfpd.Uniform(low=-8, high= -0.5))
+                                               distribution = tfpd.Uniform(low=-4, high= -0.5))
 def prior_model():
     for key,parameter in global_parameters.items():
         parameter.set_prior()
@@ -455,10 +456,14 @@ model = Model(prior_model=prior_model,
               log_likelihood=log_likelihood)
 ns = DefaultNestedSampler(
     model=model,
-    max_samples=1e8,
-    num_live_points = 400,
+    max_samples=1e7,
+    num_live_points = 40,
     parameter_estimation = True,
-    verbose=False)
+    num_parallel_workers = 1,
+    verbose=True)
 
 termination_reason, state = ns(random.PRNGKey(42654))
 results = ns.to_results(termination_reason=termination_reason, state=state)
+summary(results)
+plot_diagnostics(results,"jax_testretrieval_diagnostics.pdf")
+plot_corner(results,"jax_testretrieval_corner.pdf")

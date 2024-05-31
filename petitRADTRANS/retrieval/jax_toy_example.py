@@ -4,7 +4,7 @@ from jax import random, numpy as jnp
 from jaxns import DefaultNestedSampler
 from jaxns import Model
 from jaxns import Prior
-
+from jaxns import summary, plot_diagnostics, plot_cornerplot, save_results, load_results, save_pytree
 tfpd = tfp.distributions
 
 from jax._src.scipy.linalg import solve_triangular
@@ -33,9 +33,9 @@ J = jnp.linalg.solve(data_cov + prior_cov, prior_cov)
 post_mu = prior_mu + J.T @ (data_mu - prior_mu)
 post_cov = prior_cov - J.T @ (prior_cov + data_cov) @ J
 
-print("True logZ={}".format(true_logZ))
-print("True post_mu={}".format(post_mu))
-print("True post_cov={}".format(post_cov))
+#print("True logZ={}".format(true_logZ))
+#print("True post_mu={}".format(post_mu))
+#print("True post_cov={}".format(post_cov))
 
 
 
@@ -59,15 +59,17 @@ import jax
 from time import time
 start = time()
 # Create the nested sampler class. In this case without any tuning.
+
 ns = DefaultNestedSampler(
     model=model,
     max_samples=1e8,
     num_live_points = 400,
     parameter_estimation = True,
-    verbose=False)
+    verbose=True)
 
 termination_reason, state = jax.jit(ns)(random.PRNGKey(42654))
 results = ns.to_results(termination_reason=termination_reason, state=state)
+save_results(results,'jaxns_toy_model_results.npz')
 
 end = time()
 print(f"JAXNS sampling runtime = {end-start} s")
@@ -97,3 +99,4 @@ PMN runtime = 48.168988943099976 s
 evidence: -54.0 +- 0.4
 
 """
+summary(results)
