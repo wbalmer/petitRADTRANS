@@ -232,7 +232,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling
                 mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
             else:  # ensure that the sum is exactly 1 in spite of numerical errors
                 mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
-                mass_fractions[species] = np.zeros(1)
+                mass_fractions[species] = 0
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
                 # Sanity check
