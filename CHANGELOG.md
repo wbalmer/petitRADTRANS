@@ -4,8 +4,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a14] - 2024-06-04
+## [3.1.0a15] - 2024-06-07
 ### Added
+- Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
 - Possibility to custom `SpectralModel` spectral modification functions at instantiation.
