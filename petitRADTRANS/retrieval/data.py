@@ -396,8 +396,8 @@ class Data:
                   plotting,
                   parameters=None,
                   per_datapoint=False,
-                  atmospheric_model_column_fluxes=None
-                  ):
+                  atmospheric_model_column_fluxes=None,
+                  generate_mock_data=False):
         """
         Calculate the chi square between the model and the data.
 
@@ -413,6 +413,9 @@ class Data:
             atmospheric_model_column_fluxes : numpy.ndarray
                 The fluxes of individual atmospheric columns in case the retrieval is run in the associated
                 column_flux_return mode.
+            generate_mock_data : bool
+                Generate mock data for input = output tests. This is done in get_chisq because here the actual data
+                and the forward models are brought to the same shape (resolution convolved, rebinned, column mixed).
         Returns:
             logL : float
                 The log likelihood of the model given the data.
@@ -555,12 +558,22 @@ class Data:
 
             if not self.photometry:
                 plt.clf()
+                plt.title(self.name)
                 plt.plot(self.wavelengths, flux_rebinned)
                 plt.errorbar(self.wavelengths,
                              self.spectrum * self.scale_factor,
                              yerr=f_err,
                              fmt='+')
                 plt.show()
+
+        if generate_mock_data:
+
+            # Check if the mock data folder exists, if not create it:
+            if not os.path.exists("mock_data"):
+                os.makedirs("mock_data")
+
+            np.savetxt("mock_data/" + self.name + "_mock_data.dat",
+                       np.column_stack((self.wavelengths, flux_rebinned, self.uncertainties)))
 
         if per_datapoint:
             return log_l_per_datapoint

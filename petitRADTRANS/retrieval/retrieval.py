@@ -59,7 +59,8 @@ class Retrieval:
             use_prt_plot_style: bool = True,
             test_plotting: bool = False,
             uncertainties_mode: str = "default",
-            print_log_likelihood_for_debugging=False
+            print_log_likelihood_for_debugging=False,
+            generate_mock_data=False
     ):
         """
         This class implements the retrieval method using petitRADTRANS and pymultinest.
@@ -98,6 +99,11 @@ class Retrieval:
                     - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
             print_log_likelihood_for_debugging : bool
                 If True, the current log likelihood of a forward model run will be printed to the console.
+            generate_mock_data : bool
+                If True, the retrieval will generate a mock data set by sampling the prior distributions and bring
+                it into the exact same shape as the input data. This is useful for testing the retrieval setup in input
+                = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
+                following file names: data.name + '_mock_data.dat'.
         """
         self.configuration = configuration
 
@@ -119,6 +125,8 @@ class Retrieval:
         self.uncertainties_mode = uncertainties_mode
 
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
+
+        self.generate_mock_data = generate_mock_data
 
         self.output_directory = output_directory
 
@@ -1201,7 +1209,8 @@ class Retrieval:
                             self.test_plotting,
                             self.configuration.parameters,
                             per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
                     elif np.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -1256,7 +1265,8 @@ class Retrieval:
                             self.test_plotting,
                             self.configuration.parameters,
                             per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
 
             # Save sampled outputs if necessary.
@@ -1274,6 +1284,9 @@ class Retrieval:
                     )
 
                     self.best_fit_spectra[data_name] = [wavelengths_model, spectrum_model]
+
+        if self.generate_mock_data:
+            sys.exit(1)
 
         if per_datapoint:
             return log_l_per_datapoint_dict
