@@ -18,7 +18,7 @@ from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
-from petitRADTRANS.utils import LockedDict
+from petitRADTRANS.utils import intersection_indices, LockedDict
 
 
 class Radtrans:
@@ -537,6 +537,34 @@ class Radtrans:
         return cia
 
     @staticmethod
+    def __get_frequency_grids_intersection_indices(frequencies, file_frequencies):
+        """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
+
+        For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3] and some loaded opacity frequency grid
+        is in the interval [0.3, ..., 3, ..., 28], then the output indices will be the indices corresponding to
+        [0.3, ..., 3] on the Radtrans frequency grid, and on the file frequency grid.
+
+        Args:
+            frequencies: the Radtrans frequency grid
+            file_frequencies: the file frequency grid
+
+        Returns:
+            The indices of the intersection between both grids, for the Radtrans grid and the file grid0
+        """
+        indices_opacities, indices_file = intersection_indices(
+            array1=frequencies,
+            array2=file_frequencies
+        )
+
+        if np.nonzero(indices_opacities)[0].size != np.nonzero(indices_file)[0].size:
+            raise ValueError(
+                f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
+                f"cannot be broadcast to indexing result of size {np.nonzero(indices_file)[0].size}\n"
+                f"This may be caused by loading opacities of different resolving power")
+
+        return indices_opacities, indices_file
+
+    @staticmethod
     def __get_line_opacity_file(path_input_data, species, category):
         if category == 'correlated_k_opacities':
             matches = get_opacity_input_file(
@@ -759,6 +787,17 @@ class Radtrans:
         Returns:
 
         """
+        if np.any(np.less_equal(temperatures, 0)):
+            warnings.warn(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
+
+        for species, mass_fraction in mass_fractions.items():
+            if np.any(np.less(mass_fraction, 0)):
+                warnings.warn(f"mass fractions for species '{species}' ('mass_fractions') "
+                              f"contains negative values ({mass_fraction})")
+
+        if np.any(np.less(mean_molar_masses, 0)):
+            warnings.warn(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
+
         # Initialization
         self.__scattering_in_transmission = False
         cloud_absorption_opacities = None
@@ -2289,36 +2328,60 @@ class Radtrans:
         if self._line_opacity_mode == 'c-k':  # correlated-k
             # Get dimensions of molecular opacity arrays for a given P-T point, they define the resolution
             # Use the first entry of self.line_species for this, if given
-            hdf5_file = self.__get_line_opacity_file(
+            opacities_file = self.__get_line_opacity_file(
                 path_input_data=self._path_input_data,
                 species=self._line_species[0],
                 category='correlated_k_opacities'
             )
 
-            with h5py.File(hdf5_file, 'r') as f:
+            with h5py.File(opacities_file, 'r') as f:
                 frequency_bins_edges = cst.c * f['bin_edges'][:][::-1]
 
-            # Extend the wavelength range if user requests larger range than what first line opa species contains
             wavelengths = cst.c / frequency_bins_edges * 1e4  # Hz to um
+        elif self._line_opacity_mode == 'lbl':  # line-by-line
+            # Load the wavelength grid
+            opacities_file = get_opacity_input_file(
+                path_input_data=self._path_input_data,
+                category='line_by_line_opacities',
+                species=self._line_species[0]
+            )
 
-            if wavelengths[-1] < self._wavelength_boundaries[1]:
-                delta_log_wavelength = np.diff(np.log10(wavelengths))[-1]
-                add_high = 1e1 ** np.arange(
-                    np.log10(wavelengths[-1]),
-                    np.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
-                    delta_log_wavelength
-                )[1:]
-                wavelengths = np.concatenate((wavelengths, add_high))
+            with h5py.File(opacities_file, 'r') as f:
+                frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to Hz
 
-            if wavelengths[0] > self._wavelength_boundaries[0]:
-                delta_log_wavelength = np.diff(np.log10(wavelengths))[0]
-                add_low = 1e1 ** (-np.arange(
-                    -np.log10(wavelengths[0]),
-                    -np.log10(self._wavelength_boundaries[0]) + delta_log_wavelength,
-                    delta_log_wavelength
-                )[1:][::-1])
-                wavelengths = np.concatenate((add_low, wavelengths))
+            if frequency_grid[0] == frequency_grid[1]:  # handle duplicated last wavenumber
+                frequency_grid = frequency_grid[1:]
 
+            wavelengths = cst.c / frequency_grid[::-1] * 1e4  # Hz to um
+        else:
+            raise ValueError(f"line opacity mode must be 'c-k' or 'lbl', but was '{self._line_opacity_mode}'")
+
+        # Extend the wavelength range if user requests larger range than what first line opa species contains
+        if wavelengths[-1] < self._wavelength_boundaries[1]:
+            delta_log_wavelength = np.diff(np.log10(wavelengths))[-1]
+
+            add_high = 1e1 ** np.arange(
+                np.log10(wavelengths[-1]),
+                np.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
+                delta_log_wavelength
+            )[1:]
+            wavelengths = np.concatenate((wavelengths, add_high))
+
+        if wavelengths[0] > self._wavelength_boundaries[0]:
+            delta_log_wavelength = np.diff(np.log10(wavelengths))[0]
+
+            if delta_log_wavelength == 0:  # handle duplicate first wavelength
+                delta_log_wavelength = np.diff(np.log10(wavelengths))[1]
+
+            add_low = 1e1 ** (-np.arange(
+                -np.log10(wavelengths[0]),
+                -np.log10(self._wavelength_boundaries[0]) + delta_log_wavelength,
+                delta_log_wavelength
+            )[1:][::-1])
+            wavelengths = np.concatenate((add_low, wavelengths))
+
+        # Get back to frequencies
+        if self._line_opacity_mode == 'c-k':
             frequency_bins_edges = cst.c / (wavelengths * 1e-4)  # um to Hz
             frequencies = (frequency_bins_edges[1:] + frequency_bins_edges[:-1]) * 0.5
 
@@ -2336,17 +2399,8 @@ class Radtrans:
                 dtype='d',
                 order='F'
             )
-        elif self._line_opacity_mode == 'lbl':  # line-by-line
-            # Load the wavelength grid
-            opacities_file = get_opacity_input_file(
-                path_input_data=self._path_input_data,
-                category='line_by_line_opacities',
-                species=self._line_species[0]
-            )
-
-            with h5py.File(opacities_file, 'r') as f:
-                frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to Hz
-
+        elif self._line_opacity_mode == 'lbl':
+            frequency_grid = cst.c / (wavelengths[::-1] * 1e-4)  # um to Hz
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_frequency_grid(
                 frequency_grid=frequency_grid,
                 wavelength_boundaries=self._wavelength_boundaries,
@@ -3478,42 +3532,27 @@ class Radtrans:
             n_temperatures = len(f['t'][:])
             n_pressures = len(f['p'][:])
 
-            # Swap axes to correctly load ExoMol tables.
+            # Reshape k-table to petitRADTRANS format
             k_table = np.array(f['kcoeff'])
             k_table = np.swapaxes(k_table, 0, 1)
-            k_table2 = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
-            k_table2 = np.swapaxes(k_table2, 0, 2)
-            k_table2 = k_table2[:, ::-1, :]
+            k_table = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
+            k_table = np.swapaxes(k_table, 0, 2)
+            k_table = k_table[:, ::-1, :]
 
-            # Initialize an empty array that has the same spectral entries as
-            # pRT object has nominally. Only fill those values where the ExoMol tables
-            # have entries.
-            ret_val = np.zeros(
-                g_size * frequencies.size * temperature_pressure_grid_size
-            ).reshape(
-                (g_size, frequencies.size, 1, temperature_pressure_grid_size)
+            indices_opacities, indices_file = Radtrans.__get_frequency_grids_intersection_indices(
+                frequencies=frequencies,
+                file_frequencies=_frequencies
             )
-            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
-                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
-            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
 
-            if np.nonzero(index_fill)[0].size != np.nonzero(index_use)[0].size:
-                raise ValueError(
-                    f"frequencies size mismatch: value frequency array of size {np.nonzero(index_fill)[0].size} "
-                    f"cannot be broadcast to indexing result of size {np.nonzero(index_use)[0].size}\n"
-                    f"This may be caused by loading opacities of different resolving power")
-
-            ret_val[:, index_fill, 0, :] = k_table2[:, index_use, :]
-
-            ret_val[ret_val < 0.] = 0.
+            # Fill opacity array
+            opacities = np.zeros((g_size, frequencies.size, 1, temperature_pressure_grid_size))
+            opacities[:, indices_opacities, 0, :] = k_table[:, indices_file, :]
+            opacities[opacities < 0.] = 0.
 
             # Divide by mass to convert cross-sections to opacities
             mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
 
-        line_opacities_grid = ret_val * mol_mass_inv
-
-        # line_opacities_grid = line_opacities_grid[:, :, np.newaxis, :]
+        line_opacities_grid = opacities * mol_mass_inv
 
         return line_opacities_grid
 
@@ -3553,24 +3592,32 @@ class Radtrans:
             if line_by_line_opacity_sampling > 1:
                 frequency_grid = frequency_grid[::line_by_line_opacity_sampling]
 
-            raise ValueError(
-                f"file selected frequencies size is "
-                f"{line_opacities_grid.shape[-1]} ({np.min(frequency_grid)}--{np.max(frequency_grid)}), "
-                f"but frequency grid size is "
-                f"{frequencies.size} ({np.min(frequencies)}--{np.max(frequencies)})\n"
-                f"This may be caused by loading opacities of different resolving power "
-                f"or from too different wavenumber grids "
-                f"(frequencies relative tolerance was {frequencies_relative_tolerance:.0e})"
+            if frequency_grid[-1] == frequency_grid[-2]:  # handle duplicated last wavenumber
+                frequency_grid = frequency_grid[:-1]
+                line_opacities_grid = line_opacities_grid[:, :, :-1]
+
+            indices_opacities, indices_file = Radtrans.__get_frequency_grids_intersection_indices(
+                frequencies=frequencies,
+                file_frequencies=frequency_grid
             )
 
-        line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
-        line_opacities_grid = line_opacities_grid.reshape(
-            (line_opacities_grid.shape[0] * line_opacities_grid.shape[1], line_opacities_grid.shape[2])
-        )  # (tp, wvl)
-        line_opacities_grid = np.swapaxes(line_opacities_grid, 0, 1)  # (wvl, tp)
-        line_opacities_grid = line_opacities_grid[np.newaxis, :, np.newaxis, :]  # (g, wvl, species, tp)
+            # Fill opacity array
+            _line_opacities_grid = np.zeros(
+                (line_opacities_grid.shape[0], line_opacities_grid.shape[1], frequencies.size)
+            )
+            _line_opacities_grid[:, :, indices_opacities] = line_opacities_grid[:, :, indices_file]
+            del line_opacities_grid
+        else:
+            _line_opacities_grid = line_opacities_grid
 
-        return line_opacities_grid
+        _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (t, p, wvl)
+        _line_opacities_grid = _line_opacities_grid.reshape(
+            (_line_opacities_grid.shape[0] * _line_opacities_grid.shape[1], _line_opacities_grid.shape[2])
+        )  # (tp, wvl)
+        _line_opacities_grid = np.swapaxes(_line_opacities_grid, 0, 1)  # (wvl, tp)
+        _line_opacities_grid = _line_opacities_grid[np.newaxis, :, np.newaxis, :]  # (g, wvl, species, tp)
+
+        return _line_opacities_grid
 
     def load_line_opacities(self, path_input_data):
         """Read the line opacities for spectral calculation.
