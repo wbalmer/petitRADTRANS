@@ -18,7 +18,7 @@ from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
-from petitRADTRANS.utils import LockedDict
+from petitRADTRANS.utils import intersection_indices, LockedDict
 
 
 class Radtrans:
@@ -535,6 +535,34 @@ class Radtrans:
             cia.append(gas_continuum_contributor)
 
         return cia
+
+    @staticmethod
+    def __get_frequency_grids_intersection_indices(frequencies, file_frequencies):
+        """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
+
+        For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3] and some loaded opacity frequency grid
+        is in the interval [0.3, ..., 3, ..., 28], then the output indices will be the indices corresponding to
+        [0.3, ..., 3] on the Radtrans frequency grid, and on the file frequency grid.
+
+        Args:
+            frequencies: the Radtrans frequency grid
+            file_frequencies: the file frequency grid
+
+        Returns:
+            The indices of the intersection between both grids, for the Radtrans grid and the file grid0
+        """
+        indices_opacities, indices_file = intersection_indices(
+            array1=frequencies,
+            array2=file_frequencies
+        )
+
+        if np.nonzero(indices_opacities)[0].size != np.nonzero(indices_file)[0].size:
+            raise ValueError(
+                f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
+                f"cannot be broadcast to indexing result of size {np.nonzero(indices_file)[0].size}\n"
+                f"This may be caused by loading opacities of different resolving power")
+
+        return indices_opacities, indices_file
 
     @staticmethod
     def __get_line_opacity_file(path_input_data, species, category):
