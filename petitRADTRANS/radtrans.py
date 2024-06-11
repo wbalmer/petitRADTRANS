@@ -759,6 +759,17 @@ class Radtrans:
         Returns:
 
         """
+        if np.any(np.less_equal(temperatures, 0)):
+            warnings.warn(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
+
+        for species, mass_fraction in mass_fractions.items():
+            if np.any(np.less(mass_fraction, 0)):
+                warnings.warn(f"mass fractions for species '{species}' ('mass_fractions') "
+                              f"contains negative values ({mass_fraction})")
+
+        if np.any(np.less(mean_molar_masses, 0)):
+            warnings.warn(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
+
         # Initialization
         self.__scattering_in_transmission = False
         cloud_absorption_opacities = None
