@@ -170,7 +170,7 @@ def make_petitradtrans_test_config_file(filename):
                     'planetary_radius_bounds': (1.8, 2.0),
                     'intrinsic_temperature_bounds': (500, 1500),
                     'log10_cloud_pressure_bounds': (-6, 2),
-                    'log10_species_mass_fractions_bounds': (-6, 0),
+                    'log10_species_mass_fractions_bounds': (-6, -1),
                     'radial_velocity_semi_amplitude_bounds': (100e5, 200e5),
                     'rest_frame_velocity_shift_bounds': (-10e5, 10e5),
                     'mid_transit_time_bounds': (-600, 600),
