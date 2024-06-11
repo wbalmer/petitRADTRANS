@@ -2,6 +2,7 @@
 """
 import copy
 import csv
+import sys
 import warnings
 
 import h5py
@@ -286,6 +287,33 @@ def hdf52dict(hdf5_file):
                           f"hdf52dict() can only handle types 'Dataset' and 'Group'")
 
     return dictionary
+
+
+def intersection_indices(array1, array2):
+    """Get the indices of the intersection between two sorted arrays in increasing order.
+
+    For example, if array1 is [0.1, ..., 0.3, ..., 3] and array2 is interval [0.3, ..., 3, ..., 28], then the output
+    indices will be the indices corresponding to [0.3, ..., 3] in both arrays.
+
+    Args:
+        array1: the first array
+        array2: the second array
+
+    Returns:
+        The indices of the intersection between both arrays, for the first and the second array.
+    """
+    tiny = 10 ** -sys.float_info.dig
+
+    indices1 = np.logical_and(
+        np.less_equal(array1, array2[0] * (1. + tiny)),
+        np.greater_equal(array1, array2[-1] * (1. - tiny))
+    )
+    indices2 = np.logical_and(
+        np.less_equal(array2, array1[0] * (1. + tiny)),
+        np.greater_equal(array2, array1[-1] * (1. - tiny))
+    )
+
+    return indices1, indices2
 
 
 def load_csv(file, **kwargs):
