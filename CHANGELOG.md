@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
 - Typos in some comments.
 
+## [3.0.5] - 2024-06-12
+### Fixed
+- Crash when including H- opacities.
+
 ## [3.0.4] - 2024-05-28
 ### Fixed
 - Scripts hang forever while loading `exo-k` re-binned opacities on multiple processes.

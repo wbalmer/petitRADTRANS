@@ -1671,8 +1671,8 @@ class Radtrans:
     def _compute_h_minus_opacities(mass_fractions, pressures, temperatures, frequencies, frequency_bins_edges,
                                    mean_molar_masses, **kwargs):
         """Calculate the H- opacity."""
-        wavelengths = cst.c / frequencies * 1e8,  # Hz to Angstroem
-        wavelengths_bin_edges = cst.c / frequency_bins_edges * 1e8,  # Hz to Angstroem
+        wavelengths = cst.c / frequencies * 1e8  # Hz to Angstroem
+        wavelengths_bin_edges = cst.c / frequency_bins_edges * 1e8  # Hz to Angstroem
 
         ret_val = np.array(np.zeros(len(wavelengths) * len(pressures)).reshape(
             len(wavelengths),
