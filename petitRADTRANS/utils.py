@@ -59,6 +59,11 @@ class LockedDict(dict):
         if key not in self and self._locked:
             raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
         else:
+            if key in self:  # handle nested LockedDicts
+                if isinstance(self[key], LockedDict) and isinstance(value, dict):
+                    self[key].update(value)
+                    value = self[key]
+
             super().__setitem__(key, value)
 
     @classmethod
