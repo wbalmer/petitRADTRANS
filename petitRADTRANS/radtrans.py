@@ -622,6 +622,29 @@ class Radtrans:
         }
 
     @staticmethod
+    def __get_opacity_sources_dict():
+        return LockedDict.build_and_lock({
+            'init': LockedDict.build_and_lock({
+                'line_species': [],
+                'gas_continuum_contributors': [],
+                'rayleigh_species': [],
+                'cloud_species': []
+            }),
+            'runtime': LockedDict.build_and_lock({
+                'opaque_cloud_top_pressure': None,
+                'power_law': LockedDict.build_and_lock({
+                    'power_law_opacity_350nm': None,
+                    'power_law_opacity_coefficient': None,
+                }),
+                'gray_opacity': None,
+                'cloud_photosphere_median_optical_depth': None,
+                'additional_absorption_opacities_function': None,
+                'additional_scattering_opacities_function': None,
+                'stellar_intensities': None
+            })
+        })
+
+    @staticmethod
     def __init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
         if clouds_particles_porosity_factor is None:
             clouds_particles_porosity_factor = {species: -np.inf for species in cloud_species}
@@ -2516,6 +2539,194 @@ class Radtrans:
         )
 
         return np.array(bin_edges)
+
+    def calculate_contribution_spectra(self, mode,
+                                       opaque_cloud_top_pressure=None,
+                                       power_law_opacity_350nm=None,
+                                       power_law_opacity_coefficient=None,
+                                       gray_opacity=None,
+                                       cloud_photosphere_median_optical_depth=None,
+                                       additional_absorption_opacities_function=None,
+                                       additional_scattering_opacities_function=None,
+                                       stellar_intensities=None,
+                                       **kwargs):
+        # Store opacity sources values
+        opacity_sources = self.__get_opacity_sources_dict()
+        opacity_sources.update({
+            'init': {
+                'line_species': copy.deepcopy(self.line_species),
+                'gas_continuum_contributors': copy.deepcopy(self.gas_continuum_contributors),
+                'cloud_species': copy.deepcopy(self.cloud_species),
+                'rayleigh_species': copy.deepcopy(self.rayleigh_species)
+            },
+            'runtime': {
+                'opaque_cloud_top_pressure': opaque_cloud_top_pressure,
+                'power_law': {
+                    'power_law_opacity_350nm': power_law_opacity_350nm,
+                    'power_law_opacity_coefficient': power_law_opacity_coefficient,
+                },
+                'gray_opacity': gray_opacity,
+                'cloud_photosphere_median_optical_depth': cloud_photosphere_median_optical_depth,
+                'additional_absorption_opacities_function': additional_absorption_opacities_function,
+                'additional_scattering_opacities_function': additional_scattering_opacities_function,
+                'stellar_intensities': stellar_intensities
+            }
+        })
+
+        # Default values for opacity sources
+        opacity_source_default = self.__get_opacity_sources_dict()
+
+        # Initialize spectral mode
+        if mode == 'emission':
+            spectral_function = 'calculate_flux'
+        elif mode == 'transmission':
+            spectral_function = 'calculate_transit_radii'
+
+            # Remove spectral parameters that are not implemented in transmission
+            del opacity_sources['runtime']['cloud_photosphere_median_optical_depth']
+            del opacity_sources['runtime']['stellar_intensities']
+        else:
+            raise ValueError(f"mode '{mode}' is not implemented, "
+                             f"available modes are 'emission'|'transmission'")
+
+        # Initialize opacity contributions dict
+        opacity_contributions = {}
+
+        # Total spectrum
+        spectral_parameters = {
+            copy.deepcopy(k): copy.deepcopy(v)
+            for k, v in kwargs.items()
+        }
+
+        for key, value in opacity_sources['runtime'].items():
+            if key == 'power_law':
+                spectral_parameters['power_law_opacity_350nm'] = copy.deepcopy(value['power_law_opacity_350nm'])
+                spectral_parameters['power_law_opacity_coefficient'] = copy.deepcopy(
+                    value['power_law_opacity_coefficient'])
+            else:
+                spectral_parameters[key] = copy.deepcopy(value)
+
+        opacity_contributions['Total'] = self.__getattr__(spectral_function)(
+            **spectral_parameters
+        )
+
+        # Contribution spectra
+        _default_radtrans = None
+        _default_mass_fractions = None
+
+        for opacity_type, opacity_source in opacity_sources.items():
+            if opacity_type == 'init':  # fixed (at instantiation) opacity sources
+                for opacity, species_list in opacity_source.items():  # all fixed opacity sources are lists
+                    opacity_contributions[opacity] = {}
+
+                    # Init a temporary radtrans object with only the relevant opacity source
+                    for species in species_list:
+                        fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
+                        fixed_opacity_sources[opacity] = [species]
+
+                        print(f"Generating temporary Radtrans object with '{opacity}': '{species}'")
+
+                        # Instantiate a default Radtrans object that will be used for runtime opacity sources
+                        if _default_radtrans is None:
+                            _default_radtrans = Radtrans(
+                                pressures=copy.deepcopy(self.pressures) * 1e-6,  # cgs to bar
+                                wavelength_boundaries=copy.deepcopy(self.wavelength_boundaries),
+                                line_opacity_mode=copy.deepcopy(self.line_opacity_mode),
+                                line_by_line_opacity_sampling=copy.deepcopy(
+                                    self.line_by_line_opacity_sampling),
+                                scattering_in_emission=copy.deepcopy(self.scattering_in_emission),
+                                emission_angle_grid=copy.deepcopy(self.emission_angle_grid),
+                                anisotropic_cloud_scattering=copy.deepcopy(
+                                    self.anisotropic_cloud_scattering),
+                                path_input_data=copy.deepcopy(self.path_input_data),
+                                **fixed_opacity_sources
+                            )
+
+                        if _default_mass_fractions is None:
+                            _default_mass_fractions = {species: np.zeros(self.pressures.size)}
+
+                        # Use the first line species in order to keep the resolving power consistent in all spectra
+                        if opacity != 'line_species':
+                            fixed_opacity_sources['line_species'] = copy.deepcopy(_default_radtrans.line_species)
+
+                        _radtrans = Radtrans(
+                            pressures=copy.deepcopy(self.pressures) * 1e-6,  # cgs to bar
+                            wavelength_boundaries=copy.deepcopy(self.wavelength_boundaries),
+                            line_opacity_mode=copy.deepcopy(self.line_opacity_mode),
+                            line_by_line_opacity_sampling=copy.deepcopy(self.line_by_line_opacity_sampling),
+                            scattering_in_emission=copy.deepcopy(self.scattering_in_emission),
+                            emission_angle_grid=copy.deepcopy(self.emission_angle_grid),
+                            anisotropic_cloud_scattering=copy.deepcopy(self.anisotropic_cloud_scattering),
+                            path_input_data=copy.deepcopy(self.path_input_data),
+                            **fixed_opacity_sources
+                        )
+
+                        # Generate the spectrum containing only the relevant fixed opacity source
+                        spectral_parameters = {}
+
+                        # Fill the spectral parameters with default values for all runtime opacity sources
+                        for _key, _value in kwargs.items():
+                            if _key in opacity_source_default['runtime']:
+                                spectral_parameters[_key] = copy.deepcopy(opacity_source_default['runtime'][_key])
+                            elif _key == 'mass_fractions':
+                                spectral_parameters[_key] = copy.deepcopy(_value)
+
+                                # Fixes the first line species MMR to 0 so that it does not impact the spectrum
+                                if species not in _default_mass_fractions:
+                                    spectral_parameters[_key].update(_default_mass_fractions)
+                            else:  # non-opacity spectral parameters
+                                spectral_parameters[_key] = copy.deepcopy(_value)
+
+                        opacity_contributions[opacity][species] = _radtrans.__getattr__(spectral_function)(
+                            **spectral_parameters
+                        )
+
+                        del _radtrans  # free up some memory
+            else:  # variable (at runtime) opacity sources
+                for opacity, opacity_value in opacity_source.items():
+                    if opacity_value is None:
+                        opacity_contributions[opacity] = None
+                        continue
+
+                    spectral_parameters = {}
+
+                    # Handle power law dual parameters special case
+                    if opacity == 'power_law':
+                        for key, value in opacity_value.items():
+                            spectral_parameters[key] = copy.deepcopy(value)
+
+                        if np.any(np.equal(list(spectral_parameters.values()), None)):
+                            if not np.all(np.equal(list(spectral_parameters.values()), None)):
+                                missing = []
+
+                                for k, v in spectral_parameters.items():
+                                    if v is None:
+                                        missing.append(k)
+
+                                missing = "'" + ", '".join(missing) + "'"
+
+                                warnings.warn(f"opacity '{opacity}' requires {len(spectral_parameters)} parameters, "
+                                              f"but lacks value for parameters {missing}")
+
+                            opacity_contributions[opacity] = None
+                            continue
+                    else:
+                        spectral_parameters[opacity] = copy.deepcopy(opacity_value)
+
+                    # Fill the spectral parameters with default values for non-relevant opacity sources
+                    for key, value in kwargs.items():
+                        if key in opacity_source_default['runtime']:
+                            spectral_parameters[key] = copy.deepcopy(opacity_source_default['runtime'][key])
+                        elif key == 'mass_fractions':
+                            spectral_parameters[key] = copy.deepcopy(_default_mass_fractions)
+                        else:  # non-opacity spectral parameters
+                            spectral_parameters[key] = copy.deepcopy(value)
+
+                    opacity_contributions[opacity] = _default_radtrans.__getattr__(spectral_function)(
+                        **spectral_parameters
+                    )
+
+        return opacity_contributions
 
     def calculate_flux(
             self,
