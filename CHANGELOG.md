@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a17] - 2024-06-11
+## [3.1.0a18] - 2024-06-12
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
+- Function to plot opacity contribution spectra.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Test module for `SpectralModel` using custom functions.
 - Test module for `SpectralModel` in `'c-k'` opacity mode.
@@ -34,6 +36,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Silent error when calculating transit light loss for a non-transiting planet.
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
+- Typos in some docs.
 - Typos in some comments.
 
 ## [3.0.5] - 2024-06-12

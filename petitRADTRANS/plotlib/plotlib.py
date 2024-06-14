@@ -5,18 +5,25 @@ import warnings
 import corner
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 from matplotlib.lines import Line2D
 from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS._input_data_loader import (
+    get_cia_aliases, get_species_basename, get_species_scientific_name, split_species_all_info
+)
 from petitRADTRANS.chemistry.clouds import (
     return_t_cond_fe, return_t_cond_fe_l, return_t_cond_fe_comb, return_t_cond_kcl, return_t_cond_mgsio3,
     return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.planet import Planet
-from petitRADTRANS.plotlib.style import update_figure_font_size
+from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
+from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+from petitRADTRANS.spectral_model import SpectralModel
+from petitRADTRANS.utils import LockedDict
 
 
 def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list, color_list,
@@ -924,6 +931,230 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
 
     if save:
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
+
+
+def plot_opacity_contributions(radtrans_object: Radtrans,
+                               mode: str,
+                               include: list = 'all',
+                               exclude: list = None,
+                               opacity_contributions: dict = None,
+                               colors: dict = None,
+                               line_styles: dict = None,
+                               fill_below: bool = False,
+                               fill_alpha: float = 0.5,
+                               fig_size: tuple = (12.8, 4.8),
+                               opaque_cloud_top_pressure: float = None,
+                               power_law_opacity_350nm: float = None,
+                               power_law_opacity_coefficient: float = None,
+                               gray_opacity: float = None,
+                               cloud_photosphere_median_optical_depth: float = None,
+                               additional_absorption_opacities_function: callable = None,
+                               additional_scattering_opacities_function: callable = None,
+                               stellar_intensities: npt.NDArray[float] = None,
+                               star_radius: float = None,
+                               **kwargs):
+    if exclude is None:
+        exclude = []
+
+    spectrum_factor = 1
+    y_label = 'Flux (A.U.)'
+
+    if mode == 'transmission':
+        if star_radius is not None:
+            y_label = 'Transit depth (ppm)'
+            spectrum_factor = 1e-6  # unity to ppm
+        else:
+            y_label = 'Transit radius (m)'
+            spectrum_factor = 1e-2  # cm to m
+    elif mode == 'emission':
+        y_label = r'Flux (W$\cdot$m-2/$\mu$m)'
+        spectrum_factor = 1e-1  # erg.s-1.cm-2/cm to W.m-2/um
+
+    opacity_sources_colors = LockedDict.build_and_lock({
+        'line_species': None,
+        'gas_continuum_contributors': None,
+        'cloud_species': None,
+        'rayleigh_species': None,
+        'opaque_cloud_top_pressure': 'darkgray',
+        'power_law': 'red',
+        'gray_opacity': 'gray',
+        'cloud_photosphere_median_optical_depth': 'gold',
+        'additional_absorption_opacities_function': 'darkviolet',
+        'additional_scattering_opacities_function': 'magenta',
+        'stellar_intensities': 'yellow',
+        'Total': 'k'
+    })
+
+    opacity_sources_linestyles = LockedDict.build_and_lock({
+        'line_species': '-',
+        'gas_continuum_contributors': '--',
+        'cloud_species': '-.',
+        'rayleigh_species': (0, (1, 0.66)),  # densely dotted
+        'opaque_cloud_top_pressure': '-.',
+        'power_law': ':',
+        'gray_opacity': ':',
+        'cloud_photosphere_median_optical_depth': '-.',
+        'additional_absorption_opacities_function': ':',
+        'additional_scattering_opacities_function': ':',
+        'stellar_intensities': '-',
+        'Total': '-'
+    })
+
+    if colors is None:
+        colors = {}
+
+    if line_styles is None:
+        line_styles = {}
+
+    opacity_sources_colors.update(colors)
+    opacity_sources_linestyles.update(line_styles)
+
+    # Get the contribution spectra
+    if opacity_contributions is None:
+        if isinstance(radtrans_object, SpectralModel):
+            local_variables = locals()
+
+            _radtrans_object = radtrans_object
+
+            for local_variable, value in local_variables.items():
+                if local_variable in radtrans_object.model_parameters and local_variable is not None:
+                    if _radtrans_object is radtrans_object:
+                        _radtrans_object = copy.deepcopy(radtrans_object)
+
+                    _radtrans_object.model_parameters[local_variable] = value
+
+            opacity_contributions = _radtrans_object.calculate_contribution_spectra(mode=mode)
+        else:
+            opacity_contributions = radtrans_object.calculate_contribution_spectra(
+                mode=mode,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+                gray_opacity=gray_opacity,
+                cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+                additional_absorption_opacities_function=additional_absorption_opacities_function,
+                additional_scattering_opacities_function=additional_scattering_opacities_function,
+                stellar_intensities=stellar_intensities,
+                **kwargs
+            )
+
+    # Setup species colors
+    default_species_color_index = (i for i in range(1001))
+
+    for opacity_source, species_list in opacity_contributions.items():
+        if not isinstance(species_list, dict):
+            continue
+
+        if opacity_sources_colors[opacity_source] is None:
+            opacity_sources_colors[opacity_source] = {}
+
+        for species in species_list:
+            if opacity_source == 'gas_continuum_contributors':
+                _species = split_species_all_info(get_cia_aliases(species))[0]
+                _species = _species.split('--', 1)
+
+                if _species[0] == _species[1]:
+                    _species = _species[0]
+                elif 'H2' in _species:
+                    if _species[0] == 'H2':
+                        _species = _species[1]
+                    else:
+                        _species = _species[0]
+                else:
+                    _species = _species[0]
+
+            else:
+                _species = species
+
+            if species not in opacity_sources_colors[opacity_source]:
+                species_color = get_species_color(get_species_basename(_species), implemented_only=False)
+
+                if species_color == default_color:
+                    i = next(default_species_color_index)
+
+                    if i == 1000:
+                        raise ValueError("cannot support more than 1000 species")
+
+                    species_color = f"C{i}"
+
+                opacity_sources_colors[opacity_source][species] = species_color
+
+    # Plot
+    fig, axe = plt.subplots(1, 1)
+    fig.set_size_inches(fig_size)
+
+    if fill_below:
+        function = 'fill_between'
+        alpha = fill_alpha
+    else:
+        function = 'plot'
+        alpha = 1
+
+    for opacity_type, opacity_source in opacity_contributions.items():
+        if isinstance(opacity_source, tuple):
+            _opacity_type = opacity_type.replace('_', ' ')
+
+            if include != 'all' and _opacity_type not in include:
+                continue
+
+            if opacity_type in exclude or opacity_source is None:
+                continue
+
+            if opacity_type == 'Total':
+                z_order = 10
+                function = 'plot'
+                alpha = 1
+            else:
+                z_order = 1
+
+            getattr(axe, function)(
+                opacity_source[0] * 1e-2, opacity_source[1] * spectrum_factor,
+                label=_opacity_type, color=opacity_sources_colors[opacity_type],
+                linestyle=opacity_sources_linestyles[opacity_type],
+                zorder=z_order,
+                alpha=alpha
+            )
+
+            if opacity_type == 'Total' and fill_below:
+                function = 'fill_between'
+                alpha = fill_alpha
+        elif opacity_source is None:
+            continue
+        else:
+            for species, spectrum in opacity_source.items():
+                _species = get_species_scientific_name(species)
+
+                if opacity_type == 'rayleigh_species':
+                    _species += ' (Rayleigh)'
+                    __species = species + ' (Rayleigh)'
+                else:
+                    __species = species
+
+                if include != 'all' and __species not in include:
+                    continue
+
+                if __species in exclude or opacity_source is None:
+                    continue
+
+                getattr(axe, function)(
+                    spectrum[0] * 1e-2, spectrum[1] * spectrum_factor,
+                    label=_species,
+                    color=opacity_sources_colors[opacity_type][species],
+                    linestyle=opacity_sources_linestyles[opacity_type],
+                    alpha=alpha
+                )
+
+    axe.set_xlabel('Wavelength (m)')
+
+    if mode == 'transmission':
+        axe.set_ylabel(y_label)
+
+    axe.set_xlim([radtrans_object.wavelength_boundaries[0] * 1e-6, radtrans_object.wavelength_boundaries[1] * 1e-6])
+
+    fig.tight_layout()
+    fig.legend()
+
+    return opacity_contributions
 
 
 def plot_planet_context(planet_name: str, mass_radius_uncertainty_tolerance: float = 0.15,
