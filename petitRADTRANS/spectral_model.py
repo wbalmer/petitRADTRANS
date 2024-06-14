@@ -10,6 +10,7 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
@@ -38,8 +39,8 @@ class SpectralModel(Radtrans):
     # TODO add transit duration function
     def __init__(
             self,
-            pressures: np.ndarray[float] = None,
-            wavelength_boundaries: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
+            wavelength_boundaries: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -47,7 +48,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
             radial_velocity_semi_amplitude_function: callable = None,
@@ -958,31 +959,58 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
+    def calculate_contribution_spectra(self, mode=None, **kwargs):
+        if mode is None and self.model_parameters['modification_parameters']['mode'] is not None:
+            mode = copy.deepcopy(self.model_parameters['modification_parameters']['mode'])
+
+        parameters = {}
+
+        if mode == 'emission':
+            function = 'calculate_flux'
+        elif mode == 'transmission':
+            function = 'calculate_transit_radii'
+        else:
+            raise ValueError(f"mode must be 'emission' or 'transmission', not '{mode}'")
+
+        signature = inspect.signature(self.__getattr__(function))
+
+        for parameter in signature.parameters:
+            if parameter in self.model_parameters:
+                parameters[parameter] = copy.deepcopy(self.model_parameters[parameter])
+
+        return super().calculate_contribution_spectra(
+            mode=mode,
+            temperatures=self.temperatures,
+            mass_fractions=self.mass_fractions,
+            mean_molar_masses=self.mean_molar_masses,
+            **parameters
+        )
+
     def calculate_emission_spectrum(
             self,
             reference_gravity: float,
             planet_radius: float = None,
             opaque_cloud_top_pressure: float = None,
-            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None,
             cloud_particle_radius_distribution_std: float = None,
             cloud_particles_radius_distribution: str = 'lognormal',
-            cloud_hansen_a: dict[str, np.ndarray[float]] = None,
-            cloud_hansen_b: dict[str, np.ndarray[float]] = None,
+            cloud_hansen_a: dict[str, npt.NDArray[float]] = None,
+            cloud_hansen_b: dict[str, npt.NDArray[float]] = None,
             cloud_f_sed: float = None,
-            eddy_diffusion_coefficients: np.ndarray[float] = None,
+            eddy_diffusion_coefficients: npt.NDArray[float] = None,
             haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
             emission_geometry: str = 'dayside_ave',
-            stellar_intensities: np.ndarray[float] = None,
+            stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
             orbit_semi_major_axis: float = None,
             star_irradiation_angle: float = 0.0,
-            reflectances: np.ndarray[float] = None,
-            emissivities: np.ndarray[float] = None,
+            reflectances: npt.NDArray[float] = None,
+            emissivities: npt.NDArray[float] = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
@@ -991,7 +1019,7 @@ class SpectralModel(Radtrans):
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
             **kwargs
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1157,7 +1185,7 @@ class SpectralModel(Radtrans):
 
         return temperatures, mass_fractions, mean_molar_mass, _model_parameters
 
-    def calculate_spectrum(self, mode='emission', parameters=None, update_parameters=False,
+    def calculate_spectrum(self, mode='emission', parameters=None, update_parameters=True,
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
@@ -1248,7 +1276,7 @@ class SpectralModel(Radtrans):
             planet_radius: float,
             variable_gravity: bool = True,
             opaque_cloud_top_pressure: float = None,
-            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None,
             cloud_particle_radius_distribution_std: float = None,
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
@@ -1266,7 +1294,7 @@ class SpectralModel(Radtrans):
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
             **kwargs
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_radii(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1334,7 +1362,7 @@ class SpectralModel(Radtrans):
         return cloud_f_sed
 
     @staticmethod
-    def compute_cloud_particles_mean_radii(cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_particles_mean_radii(cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_particles_mean_radii
 
     @staticmethod
@@ -1346,11 +1374,11 @@ class SpectralModel(Radtrans):
         return clouds_particles_porosity_factor
 
     @staticmethod
-    def compute_cloud_hansen_a(cloud_hansen_a: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_hansen_a(cloud_hansen_a: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_hansen_a
 
     @staticmethod
-    def compute_cloud_hansen_b(cloud_hansen_b: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_hansen_b(cloud_hansen_b: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_hansen_b
 
     @staticmethod
@@ -1358,11 +1386,11 @@ class SpectralModel(Radtrans):
         return cloud_photosphere_median_optical_depth
 
     @staticmethod
-    def compute_emissivities(emissivities: np.ndarray[float] = None, **kwargs):
+    def compute_emissivities(emissivities: npt.NDArray[float] = None, **kwargs):
         return emissivities
 
     @staticmethod
-    def compute_eddy_diffusion_coefficients(eddy_diffusion_coefficients: np.ndarray[float] = None, **kwargs):
+    def compute_eddy_diffusion_coefficients(eddy_diffusion_coefficients: npt.NDArray[float] = None, **kwargs):
         return eddy_diffusion_coefficients
 
     @staticmethod
@@ -1690,7 +1718,7 @@ class SpectralModel(Radtrans):
     @staticmethod
     def compute_optimal_wavelength_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
                                               relative_velocities=None, rebin_range_margin_power=15, **kwargs
-                                              ) -> np.ndarray[float]:
+                                              ) -> npt.NDArray[float]:
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(rebinned_wavelengths, 'dtype'):
             if rebinned_wavelengths.dtype != 'O':
@@ -1753,7 +1781,7 @@ class SpectralModel(Radtrans):
         return orbit_semi_major_axis
 
     @staticmethod
-    def compute_orbital_longitudes(times: np.ndarray[float] = None, mid_transit_time: float = None,
+    def compute_orbital_longitudes(times: npt.NDArray[float] = None, mid_transit_time: float = None,
                                    orbital_period: float = None, **kwargs):
         if times is None and mid_transit_time is None and orbital_period is None:
             return None
@@ -1830,7 +1858,7 @@ class SpectralModel(Radtrans):
         return reference_pressure
 
     @staticmethod
-    def compute_reflectances(reflectances: np.ndarray[float] = None, **kwargs):
+    def compute_reflectances(reflectances: npt.NDArray[float] = None, **kwargs):
         return reflectances
 
     @staticmethod
@@ -2096,8 +2124,8 @@ class SpectralModel(Radtrans):
             sample_extraction_method_parameters: dict[str] = None,
             model_file: str = None,
             retrieval_name: str = None,
-            pressures: np.ndarray[float] = None,
-            wavelength_boundaries: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
+            wavelength_boundaries: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -2105,7 +2133,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
             radial_velocity_semi_amplitude_function: callable = None,
@@ -2461,15 +2489,15 @@ class SpectralModel(Radtrans):
             mean_molar_masses=self.mean_molar_masses
         )
 
-    def init_data(self, data_spectrum: np.ndarray[float],
-                  data_wavelengths: np.ndarray[float],
-                  data_uncertainties: np.ndarray[float],
+    def init_data(self, data_spectrum: npt.NDArray[float],
+                  data_wavelengths: npt.NDArray[float],
+                  data_uncertainties: npt.NDArray[float],
                   data_name: str = 'data',
                   retrieved_parameters: dict[str, dict] = None, model_parameters: dict[str] = None,
                   mode: str = 'emission', update_parameters: bool = False,
-                  telluric_transmittances: np.ndarray[float] = None,
-                  instrumental_deformations: np.ndarray[float] = None,
-                  noise_matrix: np.ndarray[float] = None,
+                  telluric_transmittances: npt.NDArray[float] = None,
+                  instrumental_deformations: npt.NDArray[float] = None,
+                  noise_matrix: npt.NDArray[float] = None,
                   scale: bool = False, shift: bool = False, use_transit_light_loss: bool = False,
                   convolve: bool = False, rebin: bool = False, prepare: bool = False) -> Data:
         """Initialize a Data object using a SpectralModel object.
@@ -3343,21 +3371,21 @@ class SpectralModel(Radtrans):
     @classmethod
     def with_velocity_range(
             cls,
-            radial_velocity_semi_amplitude_range: np.ndarray[float] = None,
-            rest_frame_velocity_shift_range: np.ndarray[float] = None,
-            mid_transit_times_range: np.ndarray[float] = None,
-            times: np.ndarray[float] = None,
-            system_observer_radial_velocities: np.ndarray[float] = None,
+            radial_velocity_semi_amplitude_range: npt.NDArray[float] = None,
+            rest_frame_velocity_shift_range: npt.NDArray[float] = None,
+            mid_transit_times_range: npt.NDArray[float] = None,
+            times: npt.NDArray[float] = None,
+            system_observer_radial_velocities: npt.NDArray[float] = None,
             orbital_period: float = None,
             star_mass: float = None,
             orbit_semi_major_axis: float = None,
-            rebinned_wavelengths: np.ndarray[float] = None,
+            rebinned_wavelengths: npt.NDArray[float] = None,
             orbital_inclination: float = 90.0,
             mid_transit_time: float = None,
             radial_velocity_semi_amplitude: float = None,
             rest_frame_velocity_shift: float = None,
             shift_wavelengths_function: callable = None,
-            pressures: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -3365,7 +3393,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
             radial_velocity_semi_amplitude_function: callable = None,

@@ -654,10 +654,10 @@ def _rebuild_isotope_numbers(species, mode='add'):
     # Set isotope explicit separator
     if mode == 'add':
         isotope_separator = '-'
-    elif mode == 'remove':
+    elif mode == 'remove' or mode == 'scientific':
         isotope_separator = ''  # no separator in remove mode
     else:
-        raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
+        raise ValueError(f"iter isotopes mode must be 'add'|'remove'|'scientific', but was '{mode}'")
 
     species_pattern = r'(\d{1,3})?([A-Z][a-z]?|e)(\d{1,3})?'  # isotope number, element symbol, stoichiometric number
     natural_abundance_str = __get_natural_abundance_string(separator='-')
@@ -677,7 +677,7 @@ def _rebuild_isotope_numbers(species, mode='add'):
             species = '--'.join(_species)
 
             return species + natural_abundance_str
-        elif mode == 'remove':
+        elif mode == 'remove' or mode == 'scientific':
             return species.replace(natural_abundance_str, '')
         else:
             raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
@@ -719,6 +719,12 @@ def _rebuild_isotope_numbers(species, mode='add'):
                 elif mode == 'remove':
                     if groups[0] != '':
                         groups[0] = ''  # remove isotope number
+                elif mode == 'scientific':
+                    if groups[0] != '':  # isotope number
+                        groups[0] = '$^{' + groups[0] + '}$'
+
+                    if groups[2] != '':  # stoichiometric number
+                        groups[2] = '$_{' + groups[2] + '}$'
                 else:
                     raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
@@ -737,7 +743,12 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
         _species[i] = _species_tmp
 
-    __species = '--'.join(_species)  # join species to rebuild collision
+    if mode == 'scientific':
+        cia_separator = '$-$'
+    else:
+        cia_separator = '--'
+
+    __species = cia_separator.join(_species)  # join species to rebuild collision
 
     return __species
 
@@ -1333,6 +1344,13 @@ def get_species_isotopologue_name(species: str, join: bool = False) -> str:
         return join_species_all_info(name, charge=charge, cloud_info=cloud_info)
     else:
         return name
+
+
+def get_species_scientific_name(species: str) -> str:
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_charge_format='+-')
+
+    # Remove isotopic numbers
+    return rf"{_rebuild_isotope_numbers(name, mode='scientific')}"
 
 
 def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):

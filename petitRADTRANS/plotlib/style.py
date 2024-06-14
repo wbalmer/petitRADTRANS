@@ -21,6 +21,10 @@ wavenumber_units = r'cm$^{-1}$'
 wavelength_units = r'cm'
 flux_units = r'erg$\cdot$s$^{-1}\cdot$cm${-2}$/cm$^{-1}$'
 
+
+default_color = 'magenta'
+
+
 __species_color = {
     'CH4': 'C7',
     'CO': 'C3',
@@ -93,14 +97,14 @@ __cloud_color = {
 }
 
 
-def get_species_color(species):
+def get_species_color(species, implemented_only=False):
     if species in __species_color:
         return __species_color[species]
     elif species in __cloud_color:
         return __cloud_color[species]
     elif species in __other_gases_color:
         return __other_gases_color[species]
-    else:
+    elif implemented_only:
         available_species = []
 
         for k in __species_color:
@@ -118,6 +122,8 @@ def get_species_color(species):
 
         raise ValueError(f"'{species}' has no pre-defined color; "
                          f"available species are {available_species}")
+    else:
+        return default_color
 
 
 def set_petitradtrans_plot_style():

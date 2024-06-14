@@ -5,6 +5,7 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
@@ -47,8 +48,8 @@ class Radtrans:
 
     def __init__(
             self,
-            pressures: np.ndarray[float] = None,
-            wavelength_boundaries: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
+            wavelength_boundaries: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -56,7 +57,7 @@ class Radtrans:
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None
     ):
@@ -116,7 +117,7 @@ class Radtrans:
         # Initialize properties
         if pressures is None:
             warnings.warn("pressure was not set, initializing one layer at 1 bar")
-            pressures = np.array([1.0])  # bar
+            pressures: npt.NDArray[float] = np.array([1.0])  # bar
 
         self._pressures = pressures * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
 
@@ -319,7 +320,7 @@ class Radtrans:
         return self._frequencies
 
     @frequencies.setter
-    def frequencies(self, array: np.ndarray[float]):
+    def frequencies(self, array: npt.NDArray[float]):
         warnings.warn(
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
@@ -333,7 +334,7 @@ class Radtrans:
         return self._frequency_bins_edges
 
     @frequency_bins_edges.setter
-    def frequency_bins_edges(self, array: np.ndarray[float]):
+    def frequency_bins_edges(self, array: npt.NDArray[float]):
         warnings.warn(self.__line_opacity_property_setting_warning_message)
         self._frequency_bins_edges = array
 
@@ -396,7 +397,7 @@ class Radtrans:
         self._path_input_data = path
 
     @property
-    def pressures(self):
+    def pressures(self) -> npt.NDArray[float]:
         # TODO pressures doesn't need to be a property
         return self._pressures
 
@@ -429,7 +430,7 @@ class Radtrans:
         return self._wavelength_boundaries
 
     @wavelength_boundaries.setter
-    def wavelength_boundaries(self, array: np.ndarray[float]):
+    def wavelength_boundaries(self, array: npt.NDArray[float]):
         warnings.warn(self.__property_setting_warning_message)
         self.__check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
@@ -619,6 +620,29 @@ class Radtrans:
         return {
             'H-': Radtrans._compute_h_minus_opacities
         }
+
+    @staticmethod
+    def __get_opacity_sources_dict():
+        return LockedDict.build_and_lock({
+            'init': LockedDict.build_and_lock({
+                'line_species': [],
+                'gas_continuum_contributors': [],
+                'rayleigh_species': [],
+                'cloud_species': []
+            }),
+            'runtime': LockedDict.build_and_lock({
+                'opaque_cloud_top_pressure': None,
+                'power_law': LockedDict.build_and_lock({
+                    'power_law_opacity_350nm': None,
+                    'power_law_opacity_coefficient': None,
+                }),
+                'gray_opacity': None,
+                'cloud_photosphere_median_optical_depth': None,
+                'additional_absorption_opacities_function': None,
+                'additional_scattering_opacities_function': None,
+                'stellar_intensities': None
+            })
+        })
 
     @staticmethod
     def __init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
@@ -2495,7 +2519,7 @@ class Radtrans:
         return line_opacities
 
     @staticmethod
-    def compute_bins_edges(middle_bin_points: np.ndarray[float]) -> np.ndarray[float]:
+    def compute_bins_edges(middle_bin_points: npt.NDArray[float]) -> npt.NDArray[float]:
         """Calculate bin edges for middle bin points.
 
         Args:
@@ -2516,11 +2540,199 @@ class Radtrans:
 
         return np.array(bin_edges)
 
+    def calculate_contribution_spectra(self, mode,
+                                       opaque_cloud_top_pressure=None,
+                                       power_law_opacity_350nm=None,
+                                       power_law_opacity_coefficient=None,
+                                       gray_opacity=None,
+                                       cloud_photosphere_median_optical_depth=None,
+                                       additional_absorption_opacities_function=None,
+                                       additional_scattering_opacities_function=None,
+                                       stellar_intensities=None,
+                                       **kwargs):
+        # Store opacity sources values
+        opacity_sources = self.__get_opacity_sources_dict()
+        opacity_sources.update({
+            'init': {
+                'line_species': copy.deepcopy(self.line_species),
+                'gas_continuum_contributors': copy.deepcopy(self.gas_continuum_contributors),
+                'cloud_species': copy.deepcopy(self.cloud_species),
+                'rayleigh_species': copy.deepcopy(self.rayleigh_species)
+            },
+            'runtime': {
+                'opaque_cloud_top_pressure': opaque_cloud_top_pressure,
+                'power_law': {
+                    'power_law_opacity_350nm': power_law_opacity_350nm,
+                    'power_law_opacity_coefficient': power_law_opacity_coefficient,
+                },
+                'gray_opacity': gray_opacity,
+                'cloud_photosphere_median_optical_depth': cloud_photosphere_median_optical_depth,
+                'additional_absorption_opacities_function': additional_absorption_opacities_function,
+                'additional_scattering_opacities_function': additional_scattering_opacities_function,
+                'stellar_intensities': stellar_intensities
+            }
+        })
+
+        # Default values for opacity sources
+        opacity_source_default = self.__get_opacity_sources_dict()
+
+        # Initialize spectral mode
+        if mode == 'emission':
+            spectral_function = 'calculate_flux'
+        elif mode == 'transmission':
+            spectral_function = 'calculate_transit_radii'
+
+            # Remove spectral parameters that are not implemented in transmission
+            del opacity_sources['runtime']['cloud_photosphere_median_optical_depth']
+            del opacity_sources['runtime']['stellar_intensities']
+        else:
+            raise ValueError(f"mode '{mode}' is not implemented, "
+                             f"available modes are 'emission'|'transmission'")
+
+        # Initialize opacity contributions dict
+        opacity_contributions = {}
+
+        # Total spectrum
+        spectral_parameters = {
+            copy.deepcopy(k): copy.deepcopy(v)
+            for k, v in kwargs.items()
+        }
+
+        for key, value in opacity_sources['runtime'].items():
+            if key == 'power_law':
+                spectral_parameters['power_law_opacity_350nm'] = copy.deepcopy(value['power_law_opacity_350nm'])
+                spectral_parameters['power_law_opacity_coefficient'] = copy.deepcopy(
+                    value['power_law_opacity_coefficient'])
+            else:
+                spectral_parameters[key] = copy.deepcopy(value)
+
+        opacity_contributions['Total'] = self.__getattr__(spectral_function)(
+            **spectral_parameters
+        )
+
+        # Contribution spectra
+        _default_radtrans = None
+        _default_mass_fractions = None
+
+        for opacity_type, opacity_source in opacity_sources.items():
+            if opacity_type == 'init':  # fixed (at instantiation) opacity sources
+                for opacity, species_list in opacity_source.items():  # all fixed opacity sources are lists
+                    opacity_contributions[opacity] = {}
+
+                    # Init a temporary radtrans object with only the relevant opacity source
+                    for species in species_list:
+                        fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
+                        fixed_opacity_sources[opacity] = [species]
+
+                        print(f"Generating temporary Radtrans object with '{opacity}': '{species}'")
+
+                        # Instantiate a default Radtrans object that will be used for runtime opacity sources
+                        if _default_radtrans is None:
+                            _default_radtrans = Radtrans(
+                                pressures=copy.deepcopy(self.pressures) * 1e-6,  # cgs to bar
+                                wavelength_boundaries=copy.deepcopy(self.wavelength_boundaries),
+                                line_opacity_mode=copy.deepcopy(self.line_opacity_mode),
+                                line_by_line_opacity_sampling=copy.deepcopy(
+                                    self.line_by_line_opacity_sampling),
+                                scattering_in_emission=copy.deepcopy(self.scattering_in_emission),
+                                emission_angle_grid=copy.deepcopy(self.emission_angle_grid),
+                                anisotropic_cloud_scattering=copy.deepcopy(
+                                    self.anisotropic_cloud_scattering),
+                                path_input_data=copy.deepcopy(self.path_input_data),
+                                **fixed_opacity_sources
+                            )
+
+                        if _default_mass_fractions is None:
+                            _default_mass_fractions = {species: np.zeros(self.pressures.size)}
+
+                        # Use the first line species in order to keep the resolving power consistent in all spectra
+                        if opacity != 'line_species':
+                            fixed_opacity_sources['line_species'] = copy.deepcopy(_default_radtrans.line_species)
+
+                        _radtrans = Radtrans(
+                            pressures=copy.deepcopy(self.pressures) * 1e-6,  # cgs to bar
+                            wavelength_boundaries=copy.deepcopy(self.wavelength_boundaries),
+                            line_opacity_mode=copy.deepcopy(self.line_opacity_mode),
+                            line_by_line_opacity_sampling=copy.deepcopy(self.line_by_line_opacity_sampling),
+                            scattering_in_emission=copy.deepcopy(self.scattering_in_emission),
+                            emission_angle_grid=copy.deepcopy(self.emission_angle_grid),
+                            anisotropic_cloud_scattering=copy.deepcopy(self.anisotropic_cloud_scattering),
+                            path_input_data=copy.deepcopy(self.path_input_data),
+                            **fixed_opacity_sources
+                        )
+
+                        # Generate the spectrum containing only the relevant fixed opacity source
+                        spectral_parameters = {}
+
+                        # Fill the spectral parameters with default values for all runtime opacity sources
+                        for _key, _value in kwargs.items():
+                            if _key in opacity_source_default['runtime']:
+                                spectral_parameters[_key] = copy.deepcopy(opacity_source_default['runtime'][_key])
+                            elif _key == 'mass_fractions':
+                                spectral_parameters[_key] = copy.deepcopy(_value)
+
+                                # Fixes the first line species MMR to 0 so that it does not impact the spectrum
+                                if species not in _default_mass_fractions:
+                                    spectral_parameters[_key].update(_default_mass_fractions)
+                            else:  # non-opacity spectral parameters
+                                spectral_parameters[_key] = copy.deepcopy(_value)
+
+                        opacity_contributions[opacity][species] = _radtrans.__getattr__(spectral_function)(
+                            **spectral_parameters
+                        )
+
+                        del _radtrans  # free up some memory
+            else:  # variable (at runtime) opacity sources
+                for opacity, opacity_value in opacity_source.items():
+                    if opacity_value is None:
+                        opacity_contributions[opacity] = None
+                        continue
+
+                    spectral_parameters = {}
+
+                    # Handle power law dual parameters special case
+                    if opacity == 'power_law':
+                        for key, value in opacity_value.items():
+                            spectral_parameters[key] = copy.deepcopy(value)
+
+                        if np.any(np.equal(list(spectral_parameters.values()), None)):
+                            if not np.all(np.equal(list(spectral_parameters.values()), None)):
+                                missing = []
+
+                                for k, v in spectral_parameters.items():
+                                    if v is None:
+                                        missing.append(k)
+
+                                missing = "'" + ", '".join(missing) + "'"
+
+                                warnings.warn(f"opacity '{opacity}' requires {len(spectral_parameters)} parameters, "
+                                              f"but lacks value for parameters {missing}")
+
+                            opacity_contributions[opacity] = None
+                            continue
+                    else:
+                        spectral_parameters[opacity] = copy.deepcopy(opacity_value)
+
+                    # Fill the spectral parameters with default values for non-relevant opacity sources
+                    for key, value in kwargs.items():
+                        if key in opacity_source_default['runtime']:
+                            spectral_parameters[key] = copy.deepcopy(opacity_source_default['runtime'][key])
+                        elif key == 'mass_fractions':
+                            spectral_parameters[key] = copy.deepcopy(_default_mass_fractions)
+                        else:  # non-opacity spectral parameters
+                            spectral_parameters[key] = copy.deepcopy(value)
+
+                    opacity_contributions[opacity] = _default_radtrans.__getattr__(spectral_function)(
+                        **spectral_parameters
+                    )
+
+        return opacity_contributions
+
     def calculate_flux(
             self,
-            temperatures: np.ndarray[float],
+            temperatures: npt.NDArray[float],
             mass_fractions: dict[str, np.ndarray[float]],
-            mean_molar_masses: np.ndarray[float],
+            mean_molar_masses: npt.NDArray[float],
             reference_gravity: float,
             planet_radius: float = None,
             opaque_cloud_top_pressure: float = None,
@@ -2531,20 +2743,20 @@ class Radtrans:
             cloud_hansen_b: dict[str, np.ndarray[float]] = None,
             clouds_particles_porosity_factor: dict[str, float] = None,
             cloud_f_sed: float = None,
-            eddy_diffusion_coefficients: np.ndarray[float] = None,
+            eddy_diffusion_coefficients: npt.NDArray[float] = None,
             haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
             emission_geometry: str = 'dayside_ave',
-            stellar_intensities: np.ndarray[float] = None,
+            stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
             orbit_semi_major_axis: float = None,
             star_irradiation_angle: float = 0.0,
-            reflectances: np.ndarray[float] = None,
-            emissivities: np.ndarray[float] = None,
+            reflectances: npt.NDArray[float] = None,
+            emissivities: npt.NDArray[float] = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
@@ -2553,7 +2765,7 @@ class Radtrans:
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
             return_opacities: bool = False,
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
             Args:
@@ -2851,18 +3063,18 @@ class Radtrans:
 
     def calculate_photosphere_radius(
             self,
-            temperatures: np.ndarray[float],
-            mean_molar_masses: np.ndarray[float],
+            temperatures: npt.NDArray[float],
+            mean_molar_masses: npt.NDArray[float],
             reference_gravity: float,
             planet_radius: float,
-            opacities: np.ndarray[float],
-            continuum_opacities_scattering: np.ndarray[float],
+            opacities: npt.NDArray[float],
+            continuum_opacities_scattering: npt.NDArray[float],
             cloud_f_sed: float,
             cloud_photosphere_median_optical_depth: float,
-            cloud_anisotropic_scattering_opacities: np.ndarray[float],
-            cloud_absorption_opacities: np.ndarray[float],
-            optical_depths: np.ndarray[float] = None
-    ) -> np.ndarray[float]:
+            cloud_anisotropic_scattering_opacities: npt.NDArray[float],
+            cloud_absorption_opacities: npt.NDArray[float],
+            optical_depths: npt.NDArray[float] = None
+    ) -> npt.NDArray[float]:
         """Calculate the photosphere radius.
         TODO complete docstring
         Args:
@@ -2933,9 +3145,9 @@ class Radtrans:
 
     def calculate_rosseland_planck_opacities(
             self,
-            temperatures: np.ndarray[float],
-            mass_fractions: np.ndarray[float],
-            mean_molar_masses: np.ndarray[float],
+            temperatures: npt.NDArray[float],
+            mass_fractions: dict[str, npt.NDArray[float]],
+            mean_molar_masses: npt.NDArray[float],
             reference_gravity: float,
             opaque_cloud_top_pressure: float = None,
             cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
@@ -2950,7 +3162,7 @@ class Radtrans:
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's Rosseland and Planck mean opacities.
 
             Args:
@@ -2993,6 +3205,8 @@ class Radtrans:
                     included cloud species and for each atmospheric layer,
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
+                clouds_particles_porosity_factor (Optional[dict]):
+                    A dictionary containing the particle porosity factor for each cloud species.
                 cloud_f_sed (Optional[float]):
                     cloud settling parameter
                 eddy_diffusion_coefficients (Optional):
@@ -3082,9 +3296,9 @@ class Radtrans:
 
     def calculate_transit_radii(
             self,
-            temperatures: np.ndarray[float],
+            temperatures: npt.NDArray[float],
             mass_fractions: dict[str, np.ndarray[float]],
-            mean_molar_masses: np.ndarray[float],
+            mean_molar_masses: npt.NDArray[float],
             reference_gravity: float,
             reference_pressure: float,
             planet_radius: float,
@@ -3109,7 +3323,7 @@ class Radtrans:
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
             return_opacities: bool = False
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
 

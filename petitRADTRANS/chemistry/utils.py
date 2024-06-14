@@ -3,6 +3,7 @@ import sys
 import warnings
 
 import numpy as np
+import numpy.typing as npt
 
 from petitRADTRANS._input_data_loader import get_species_basename, get_species_isotopologue_name
 from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
@@ -352,7 +353,7 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, np.ndarray[float]], mean_molar_masses: np.ndarray[float]):
+def mass_fractions2metallicity(mass_fractions: dict[str, np.ndarray[float]], mean_molar_masses: npt.NDArray[float]):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
