@@ -959,6 +959,33 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
+    def calculate_contribution_spectra(self, mode=None, **kwargs):
+        if mode is None and self.model_parameters['modification_parameters']['mode'] is not None:
+            mode = copy.deepcopy(self.model_parameters['modification_parameters']['mode'])
+
+        parameters = {}
+
+        if mode == 'emission':
+            function = 'calculate_flux'
+        elif mode == 'transmission':
+            function = 'calculate_transit_radii'
+        else:
+            raise ValueError(f"mode must be 'emission' or 'transmission', not '{mode}'")
+
+        signature = inspect.signature(self.__getattr__(function))
+
+        for parameter in signature.parameters:
+            if parameter in self.model_parameters:
+                parameters[parameter] = copy.deepcopy(self.model_parameters[parameter])
+
+        return super().calculate_contribution_spectra(
+            mode=mode,
+            temperatures=self.temperatures,
+            mass_fractions=self.mass_fractions,
+            mean_molar_masses=self.mean_molar_masses,
+            **parameters
+        )
+
     def calculate_emission_spectrum(
             self,
             reference_gravity: float,
