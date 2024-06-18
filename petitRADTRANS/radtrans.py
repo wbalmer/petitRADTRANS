@@ -1636,7 +1636,7 @@ class Radtrans:
                 wavelengths,
                 temperatures[i_struct],
                 p_e[i_struct]
-            ) / cst.amu * mass_fractions['H'][i_struct]
+            ) / cst.amu * mass_fractions['H-'][i_struct]
 
             ret_val[:, i_struct] = opacities_h_minus_bf * mass_fractions['H-'][i_struct] + opacities_h_minus_ff
 
