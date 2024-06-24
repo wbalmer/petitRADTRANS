@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a18] - 2024-06-12
+## [3.1.0a19] - 2024-06-24
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
 - Typos in some docs.
 - Typos in some comments.
+
+## [3.0.6] - 2024-06-18
+### Fixed
+- Fixed additional crash when using H- opacities.
 
 ## [3.0.5] - 2024-06-12
 ### Fixed
