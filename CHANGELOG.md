@@ -3,6 +3,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [3.0.6] - 2024-06-18
+### Fixed
+- Fixed additional crash when using H- opacities.
 
 ## [3.1.0a18] - 2024-06-12
 ### Added
