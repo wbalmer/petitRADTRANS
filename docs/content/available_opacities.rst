@@ -248,10 +248,10 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2021.107949
       - --
     * - Na
-      - 23Na__Allard
-      - 23Na__Allard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
+      - 23Na__NewAllard
+      - 23Na__NewAllard.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1051/0004-6361/201935593
-      - --
+      - `S. der Regt <mailto:regt@strw.leidenuniv.nl>`_
     * - Na
       - 23Na__Burrows
       - 23Na__Burrows.R1000_0.1-250mu.ktable.petitRADTRANS.h5
@@ -566,9 +566,9 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
     * - Na
-      - 23Na__Allard
-      - VALD, Allard wings, see `Mollière+2019 <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_
-      - --
+      - 23Na__NewAllard
+      - 10.1051/0004-6361/201935593
+      - `S. de Regt <regt@strw.leidenuniv.nl>`_
     * - Na
       - 23Na__Burrows
       - VALD,  `Burrows wings <https://ui.adsabs.harvard.edu/abs/2003ApJ...583..985B/abstract>`_
@@ -672,10 +672,6 @@ The available line-by-line opacities are listed below. When multiple source are 
     * - VO
       - 51VO__VOMYT
       - `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
-      - `S. de Regt <regt@strw.leidenuniv.nl>`_
-    * - VO_ExoMol_Specific_Transitions **!!**
-      - **!! Exact difference with "normal" version unknown !!**
-      - Most accurate transitions from `McKemmish et al. (2016) <https://academic.oup.com/mnras/article-lookup/doi/10.1093/mnras/stw1969>`_
       - `S. de Regt <regt@strw.leidenuniv.nl>`_
     * - Y
       - 89Y__Kurucz
