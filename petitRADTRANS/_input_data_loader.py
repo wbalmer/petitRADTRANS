@@ -316,7 +316,8 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect_spectral_information=False,
+def _get_input_file(path_input_data, sub_path, files=None, filename=None,
+                    expect_spectral_information=False, expect_default_file_exists=True,
                     find_all=False, display_other_files=False):
     full_path = os.path.join(path_input_data, sub_path)
 
@@ -330,23 +331,30 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
             matching_files = []
             resolution_filename = ''
             _filename = filename.split('.', 1)[0]
+            _filename_source = _split_species_source(_filename)[1]
 
             if expect_spectral_information:
                 resolution_filename, range_filename = _get_spectral_information(filename)
 
                 # First pass, try to use default resolution
                 for file in files:
-                    _file, spectral_info = file.split('.', 1)
+                    _file, spectral_info = _split_species_spectral_info(file)
 
                     resolution_file, range_file = _get_spectral_information(spectral_info)
+                    _file_source = _split_species_source(_file)[1]
+
+                    if _file_source == '':
+                        warnings.warn(f"file '{file}' lacks a source")
 
                     if resolution_file == '' or range_file == '':
-                        warnings.warn(f"file '{file}' lack spectral information "
+                        warnings.warn(f"file '{file}' lacks spectral information "
                                       f"(resolution: {resolution_file}, range: {range_file})")
 
-                    _file = file.split('.', 1)[0]
-
                     if _filename in _file:
+                        if _filename_source != '':
+                            if _filename_source != _file_source:
+                                continue
+
                         if resolution_filename != '':
                             range_match = False
 
@@ -369,9 +377,14 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
             # Second pass, take any matching file regardless of resolution
             if len(matching_files) == 0 and resolution_filename == '':
                 for file in files:
-                    _file = file.split('.', 1)[0]
+                    _file = _split_species_spectral_info(file)[0]
+                    _file_source = _split_species_source(_file)[1]
 
                     if _filename in _file:
+                        if _filename_source != '':
+                            if _filename_source != _file_source:
+                                continue
+
                         matching_files.append(file)
 
             if len(matching_files) == 0:
@@ -451,6 +464,8 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
             # Check if the default file exists
             if os.path.isfile(default_file):
                 return default_file
+            elif not expect_default_file_exists:
+                return os.path.split(default_file)[-1]
             else:
                 raise FileNotFoundError(
                     f"no such file: '{default_file}'\n"
@@ -502,6 +517,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
         files=list(url_paths.keys()),
         filename=filename,
         expect_spectral_information=expect_spectral_information,
+        expect_default_file_exists=False,
         find_all=find_all,
         display_other_files=True
     )
@@ -513,6 +529,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
             files=None,
             filename=filename,
             expect_spectral_information=expect_spectral_information,
+            expect_default_file_exists=True,
             find_all=find_all,
             display_other_files=True
         )
@@ -1194,6 +1211,7 @@ def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect
             sub_path=sub_path,
             filename=file,
             expect_spectral_information=expect_spectral_information,
+            expect_default_file_exists=True,
             find_all=find_all
         )
 

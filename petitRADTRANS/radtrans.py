@@ -567,15 +567,9 @@ class Radtrans:
 
     @staticmethod
     def __get_line_opacity_file(path_input_data, species, category):
-        if category == 'correlated_k_opacities':
-            matches = get_opacity_input_file(
-                path_input_data=path_input_data,
-                category=category,
-                species=species,
-                find_all=True,
-                search_online=False
-            )
+        hdf5_file = None
 
+        if category == 'correlated_k_opacities':
             default_species, spectral_info = _split_species_spectral_info(species)
             target_resolving_power, _ = _get_spectral_information(spectral_info)
 
@@ -585,16 +579,16 @@ class Radtrans:
             if target_resolving_power == '':
                 target_resolving_power = int(get_default_correlated_k_resolution()[1:])
 
-            # Try to bin down the opacities
-            if len(matches) == 0 or target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
-                hdf5_file = get_opacity_input_file(
-                    path_input_data=path_input_data,
-                    category=category,
-                    species=default_species,
-                    find_all=False,
-                    search_online=True
-                )
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category=category,
+                species=default_species,
+                find_all=False,
+                search_online=True
+            )
 
+            # Try to bin down the opacities
+            if target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
                 state = rebin_ck_line_opacities(
                     input_file=hdf5_file,
                     target_resolving_power=target_resolving_power,
@@ -605,13 +599,16 @@ class Radtrans:
                 if state == -1:
                     raise RuntimeError("unable to perform binning down, please install exo_k")
 
-        hdf5_file = get_opacity_input_file(
-            path_input_data=path_input_data,
-            category=category,
-            species=species,
-            find_all=False,
-            search_online=True
-        )
+                hdf5_file = None
+
+        if hdf5_file is None:
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category=category,
+                species=species,
+                find_all=False,
+                search_online=True
+            )
 
         return hdf5_file
 
