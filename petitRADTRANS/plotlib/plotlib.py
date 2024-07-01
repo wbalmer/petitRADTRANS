@@ -456,7 +456,7 @@ def contour_corner(sampledict,
                 quantiles=quantiles,
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
-                smooth=True,
+                smooth=False,
                 show_titles=True,
                 title_fmt=".2f",
                 truth_color='r',
@@ -478,7 +478,7 @@ def contour_corner(sampledict,
                 hist2d_levels=hist2d_levels,
                 fig=fig,
                 **hist2d_kwargs,
-                smooth=True,
+                smooth=False,
                 show_titles=False,  # only show titles (median +1sigma -1sigma) for the first sample
                 title_fmt=None,
                 truth_color='r',
@@ -498,7 +498,7 @@ def contour_corner(sampledict,
                                  loc='upper right')
 
     if output_file is not None:
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        plt.savefig(output_file, bbox_inches='tight')
 
     return fig
 

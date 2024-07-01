@@ -3,6 +3,12 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [3.0.7] - 2024-07-01
+### Fixed
+- Fixed log-likelihood bug from change in sample array shape [(issue 71)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/71). All internal sample arrays should now have shape (number_params,number_samples).
+- Fixed corner plot memory bug.
+- Updated contribution plots and abundance plots for pRT3.
+
 ## [3.0.6] - 2024-06-18
 ### Fixed
 - Fixed additional crash when using H- opacities.
