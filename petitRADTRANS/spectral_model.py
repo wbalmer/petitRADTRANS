@@ -1609,7 +1609,7 @@ class SpectralModel(Radtrans):
                     f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
                 )
 
-                mass_fractions[species] = sys.float_info.min
+                mass_fractions[species] = sys.float_info.min * np.ones(pressures.size)
 
         # Ensure that filling species are initialized as an array
         for species in filling_species:
