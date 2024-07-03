@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a19] - 2024-06-24
+## [3.1.0a22] - 2024-07-03
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -32,12 +32,21 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
 - Mass fractions being modified when calculating CIA opacities in some cases.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
+- Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectral pixed.
-- Silent error when calculating transit light loss for a non-transiting planet.
+- Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
+- Unable to automatically download a default opacity file.
+- Silent error when calculating the transit effect for a non-transiting planet.
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
 - Typos in some docs.
 - Typos in some comments.
+
+## [3.0.7] - 2024-07-01
+### Fixed
+- Fixed log-likelihood bug from change in sample array shape [(issue 71)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/71). All internal sample arrays should now have shape (number_params,number_samples).
+- Fixed corner plot memory bug.
+- Updated contribution plots and abundance plots for pRT3.
 
 ## [3.0.6] - 2024-06-18
 ### Fixed

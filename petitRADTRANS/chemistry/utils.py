@@ -115,7 +115,7 @@ def _compute_h_ratios(elemental_abundances: dict[int, float]) -> dict[int, float
     }
 
 
-def _compute_z_ratios(elemental_abundances: dict[int, float]) -> float:
+def _compute_z_ratios(elemental_abundances: dict[int, float], sorted: bool = True) -> float:
     """Calculate the metal to non-metal abundances from elemental abundances."""
     if 1 not in elemental_abundances:
         elemental_abundances[1] = 0
@@ -128,7 +128,17 @@ def _compute_z_ratios(elemental_abundances: dict[int, float]) -> float:
                          f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
 
     non_metal_abundances = elemental_abundances[1] + elemental_abundances[2]
-    metal_abundances = np.sum(np.array(list(elemental_abundances.values()))[2:], axis=0)
+
+    if not sorted:
+        sorted_abundances = np.array(
+            list(elemental_abundances.values())[i] for i in np.argsort(list(elemental_abundances.keys()))
+        )
+    else:
+        sorted_abundances = np.array(
+            list(elemental_abundances.values())
+        )
+
+    metal_abundances = np.sum(sorted_abundances[2:], axis=0)
 
     return metal_abundances / non_metal_abundances
 
@@ -353,7 +363,7 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, np.ndarray[float]], mean_molar_masses: npt.NDArray[float]):
+def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], mean_molar_masses: npt.NDArray[float]):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
@@ -455,22 +465,31 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
                           f"results may be inaccurate")
 
     # Convert keys from symbol to atomic number
-    elemental_abundances = {
+    _elemental_abundances = {
         element_symbol2element_number(symbol): amount
         for symbol, amount in elements.items()
+    }
+
+    sorted_elements_indices = np.argsort(list(_elemental_abundances.keys()))
+
+    elemental_abundances = {
+        list(_elemental_abundances.keys())[i]: list(_elemental_abundances.values())[i]
+        for i in sorted_elements_indices
     }
 
     solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances())
     h_ratios = _compute_h_ratios(elemental_abundances)
 
-    solar_z_ratio = _compute_z_ratios(solar_h_ratios)
-    z_ratio = _compute_z_ratios(h_ratios)
+    solar_z_ratio = _compute_z_ratios(solar_h_ratios, sorted=True)
+    z_ratio = _compute_z_ratios(h_ratios, sorted=True)
 
     metallicity = z_ratio / solar_z_ratio
 
+    elements = [list(elements.keys())[i] for i in sorted_elements_indices]
+
     h_ratios = {
         list(h_ratios.keys())[i]: {
-            'description': f"{list(elements.keys())[i]}/H",
+            'description': f"{elements[i]}/H",
             'local': h_ratio, 'relative to solar': h_ratio / solar_h_ratios[list(h_ratios.keys())[i]]
         }
         for i, h_ratio in enumerate(h_ratios.values())

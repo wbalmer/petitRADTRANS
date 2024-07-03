@@ -464,7 +464,7 @@ def contour_corner(sampledict,
                 quantiles=quantiles,
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
-                smooth=True,
+                smooth=False,
                 show_titles=True,
                 title_fmt=".2f",
                 truth_color='r',
@@ -486,7 +486,7 @@ def contour_corner(sampledict,
                 hist2d_levels=hist2d_levels,
                 fig=fig,
                 **hist2d_kwargs,
-                smooth=True,
+                smooth=False,
                 show_titles=False,  # only show titles (median +1sigma -1sigma) for the first sample
                 title_fmt=None,
                 truth_color='r',
@@ -506,7 +506,7 @@ def contour_corner(sampledict,
                                  loc='upper right')
 
     if output_file is not None:
-        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        plt.savefig(output_file, bbox_inches='tight')
 
     return fig
 
@@ -942,6 +942,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                                line_styles: dict = None,
                                fill_below: bool = False,
                                fill_alpha: float = 0.5,
+                               x_axis_scale: str = 'linear',
+                               y_axis_scale: str = 'linear',
                                fig_size: tuple = (12.8, 4.8),
                                opaque_cloud_top_pressure: float = None,
                                power_law_opacity_350nm: float = None,
@@ -1062,7 +1064,6 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                         _species = _species[0]
                 else:
                     _species = _species[0]
-
             else:
                 _species = species
 
@@ -1090,6 +1091,9 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
         function = 'plot'
         alpha = 1
 
+    min_y = np.inf
+    max_y = -np.inf
+
     for opacity_type, opacity_source in opacity_contributions.items():
         if isinstance(opacity_source, tuple):
             _opacity_type = opacity_type.replace('_', ' ')
@@ -1107,8 +1111,10 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
             else:
                 z_order = 1
 
+            _spectrum = opacity_source[1] * spectrum_factor
+
             getattr(axe, function)(
-                opacity_source[0] * 1e-2, opacity_source[1] * spectrum_factor,
+                opacity_source[0] * 1e-2, _spectrum,
                 label=_opacity_type, color=opacity_sources_colors[opacity_type],
                 linestyle=opacity_sources_linestyles[opacity_type],
                 zorder=z_order,
@@ -1118,6 +1124,12 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
             if opacity_type == 'Total' and fill_below:
                 function = 'fill_between'
                 alpha = fill_alpha
+
+            if np.min(_spectrum) < min_y:
+                min_y = np.min(_spectrum)
+
+            if np.max(_spectrum) > max_y:
+                max_y = np.max(_spectrum)
         elif opacity_source is None:
             continue
         else:
@@ -1127,6 +1139,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                 if opacity_type == 'rayleigh_species':
                     _species += ' (Rayleigh)'
                     __species = species + ' (Rayleigh)'
+                elif opacity_type == 'gas_continuum_contributors':
+                    __species = species.rsplit('-NatAbund', 1)[0]
                 else:
                     __species = species
 
@@ -1136,6 +1150,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                 if __species in exclude or opacity_source is None:
                     continue
 
+                _spectrum = spectrum[1] * spectrum_factor
+
                 getattr(axe, function)(
                     spectrum[0] * 1e-2, spectrum[1] * spectrum_factor,
                     label=_species,
@@ -1144,12 +1160,24 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                     alpha=alpha
                 )
 
+                if np.min(_spectrum) < min_y:
+                    min_y = np.min(_spectrum)
+
+                if np.max(_spectrum) > max_y:
+                    max_y = np.max(_spectrum)
+
     axe.set_xlabel('Wavelength (m)')
 
     if mode == 'transmission':
         axe.set_ylabel(y_label)
 
     axe.set_xlim([radtrans_object.wavelength_boundaries[0] * 1e-6, radtrans_object.wavelength_boundaries[1] * 1e-6])
+
+    delta_y = max_y - min_y
+    axe.set_ylim([min_y - delta_y * 0.05, max_y + delta_y * 0.05])
+
+    axe.set_xscale(x_axis_scale)
+    axe.set_yscale(y_axis_scale)
 
     fig.tight_layout()
     fig.legend()
