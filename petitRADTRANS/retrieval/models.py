@@ -31,7 +31,6 @@ import numpy as np
 
 from petitRADTRANS.chemistry.core import get_abundances
 from petitRADTRANS.planet import Planet
-from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.physics import (
     flux2irradiance,
     temperature_profile_function_ret_model, temperature_profile_function_guillot_global,

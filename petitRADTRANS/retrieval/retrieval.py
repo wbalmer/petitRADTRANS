@@ -40,6 +40,7 @@ if load_mpi:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     except ImportError:
+        MPI = None
         pass
 
 
@@ -1555,7 +1556,7 @@ class Retrieval:
                              model_generating_function=None,
                              contribution=False,
                              prt_object=None,
-                             prt_reference=None):
+                             prt_reference=None) -> tuple:
         """
         Retrieve a full wavelength range model based on the given parameters.
 
@@ -2382,7 +2383,7 @@ class Retrieval:
                 duse = self.configuration.data[duse.external_radtrans_reference]
 
             for rint in rands:
-                samp = samples[:-1,int(rint)]
+                samp = samples[:-1, int(rint)]
                 params = self.build_param_dict(samp, parameters_read)
                 ret_val = duse.model_generating_function(
                     prt_object,
@@ -2481,7 +2482,7 @@ class Retrieval:
                 if self.configuration.parameters[pp].is_free_parameter:
                     for i_s in range(len(parameters_read)):
                         if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                            samples_use[i_p,:] = sample_dict[self.configuration.retrieval_name][i_s,:]
+                            samples_use[i_p, :] = sample_dict[self.configuration.retrieval_name][i_s, :]
                     i_p += 1
 
             print("Best fit parameters")
@@ -2495,7 +2496,7 @@ class Retrieval:
                 if self.configuration.parameters[pp].is_free_parameter:
                     for i_s in range(len(parameters_read)):
                         if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                            print(self.configuration.parameters[pp].name, samples_use[i_p,best_fit_index])
+                            print(self.configuration.parameters[pp].name, samples_use[i_p, best_fit_index])
                             i_p += 1
 
             # Plotting
@@ -2599,7 +2600,7 @@ class Retrieval:
         from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 
         if marker_cmap is None:
-            marker_cmap = plt.cm.bwr
+            marker_cmap = plt.colormaps['bwr']
 
         if not self.use_mpi or rank == 0:
             # Avoiding saving the model spectrum to the sampled spectrum dictionary.
@@ -2611,6 +2612,7 @@ class Retrieval:
             if not self.configuration.run_mode == 'evaluate':
                 logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
+
             print("\nPlotting Best-fit spectrum")
 
             fig, axes = plt.subplots(
@@ -2651,18 +2653,19 @@ class Retrieval:
                 verbose=True,
                 show_chi2=True
             )
+
             if not only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
 
             markersize = None
-            if marker_color_type is not None:
+            markerfacecolors = {}
 
+            if marker_color_type is not None:
                 markersize = 10
 
                 l, b, w, h = ax.get_position().bounds
                 cax = fig.add_axes([l + w + 0.015 * w, b, 0.025 * w, h])
 
-                markerfacecolors = {}
                 vmin, vmax = np.inf, -np.inf
                 for name, dd in self.configuration.data.items():
                     assert hasattr(dd, marker_color_type)
@@ -2703,10 +2706,13 @@ class Retrieval:
                         flux, edges, _ = binned_statistic(
                             dd.wavelengths, dd.spectrum, 'mean', dd.wavelengths.shape[0] / ratio
                         )
-                        error, _, _ = binned_statistic(
-                            dd.wavelengths, dd.uncertainties,
-                            'mean', dd.wavelengths.shape[0] / ratio
-                        ) / np.sqrt(ratio)
+                        error, _, _ = (
+                            binned_statistic(
+                                dd.wavelengths, dd.uncertainties,
+                                'mean', dd.wavelengths.shape[0] / ratio
+                            )
+                            / np.sqrt(ratio)
+                        )
 
                         wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
                         wlen_bins = np.zeros_like(wlen)
@@ -2739,10 +2745,8 @@ class Retrieval:
 
                 flux = (flux * scale) - offset
                 if f"{dd.name}_b" in self.configuration.parameters.keys():
-                    # TODO best_fit_parameters is not an attribute of Retrieval 
-                    #raise ValueError("undefined attribute 'Retrieval.best_fit_parameters'")
-                    error = np.sqrt(error**2 + 10 ** (self.best_fit_parameters[f"{dd.name}_b"].value))
-
+                    # TODO best_fit_parameters is not an attribute of Retrieval
+                    error = np.sqrt(error**2 + 10 ** self.best_fit_parameters[f"{dd.name}_b"].value)
 
                 if not dd.photometry:
                     if dd.external_radtrans_reference is None:
@@ -2793,13 +2797,17 @@ class Retrieval:
                             pass
                 # Plot the data
                 marker = 'o'
+
                 if dd.photometry:
                     marker = 's'
+
                 if not dd.photometry:
                     label = dd.name
+
                     for i in range(len(flux)):
                         color_i = 'C0'
                         ecolor = 'C0'
+
                         if marker_color_type is not None:
                             color_i = markerfacecolors[name][i]
                             ecolor = 'k'
@@ -2837,7 +2845,6 @@ class Retrieval:
                         label = None
                 else:
                     # Don't label photometry?
-
                     for i in range(len(flux)):
                         color_i = 'grey'
                         ecolor = 'grey'
@@ -3087,7 +3094,7 @@ class Retrieval:
                 else:
                     print(f"Generating sampled spectrum {i_sample} / {self.configuration.plot_kwargs['nsample']}...")
 
-                    parameters = self.build_param_dict(samples_use[:-1,random_index], parameters_read)
+                    parameters = self.build_param_dict(samples_use[:-1, random_index], parameters_read)
                     parameters["contribution"] = Parameter("contribution", False, value=False)
                     ret_val = self.get_full_range_model(parameters, prt_object=atmosphere)
 
@@ -3510,10 +3517,10 @@ class Retrieval:
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
-                errscale = 1.0
                 offset = 0.0
                 spectrum = dd.spectrum
                 error = dd.uncertainties
+
                 if self.configuration.run_mode == 'evaluate':
                     if dd.scale:
                         scale = self.best_fit_parameters[f"{name}_scale_factor"].value
@@ -3584,9 +3591,6 @@ class Retrieval:
                 self.configuration.run_mode = 'evaluate'
             print("\nPlotting Best-fit contribution function")
 
-            # Get best-fit index
-            log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-
             # Let's set up a standardized pressure array, regardless of AMR stuff.
             amr = self.configuration.amr
             self.configuration.amr = False
@@ -3594,11 +3598,7 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            #if amr:
-            #     pressures = self.configuration._setup_pres()
-            # Calculate the temperature structure
             self.pt_plot_mode = True
-            #pressures, t = self.log_likelihood(samples_use[:-1, best_fit_index], 0, 0)
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
@@ -3664,9 +3664,6 @@ class Retrieval:
             # *1e6 for units (cgs from bar)
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            #if amr:
-            #    for name, dd in self.configuration.data.items():
-            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
@@ -3731,14 +3728,9 @@ class Retrieval:
 
         if not self.use_mpi or rank == 0:
             print("\nPlotting Abundances profiles")
-            # if self.prt_plot_style:
-            #     import petitRADTRANS.retrieval.plot_style as ps  # TODO never used
-
 
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
-            #if amr:
-            #     pressures = self.configuration._setup_pres()
 
             self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
@@ -3839,7 +3831,7 @@ class Retrieval:
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)
-                    
+
             # Let's set up a standardized pressure array, regardless of AMR stuff.
             amr = self.configuration.amr
             self.configuration.amr = False
@@ -3948,9 +3940,6 @@ class Retrieval:
             # Restore the correct pressure arrays.
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            #if amr:
-            #    for name, dd in self.configuration.data.items():
-            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
