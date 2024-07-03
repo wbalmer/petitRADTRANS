@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
-- Function to plot opacity contribution spectra.
+- Function to plot the above opacity contribution spectra.
+- Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
+- Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Test module for `SpectralModel` using custom functions.
 - Test module for `SpectralModel` in `'c-k'` opacity mode.
@@ -22,6 +24,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Test module for `SpectralModel` retrieval framework.
 - Performance tests.
 - Source files for JOSS papers.
+
+### Changed
+- Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 
 ### Removed
 - Unused test functions.
@@ -33,12 +38,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Mass fractions being modified when calculating CIA opacities in some cases.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
-- Crash when preparing fully masked spectral pixed.
+- Crash when preparing fully masked spectra.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
-- Incorrect behaviour: non-matching in-preparation data and uncertainties masks are tolerated.
+- Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
 - Typos in some docs.
 - Typos in some comments.
 
