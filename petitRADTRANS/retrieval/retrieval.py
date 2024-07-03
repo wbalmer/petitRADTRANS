@@ -1900,7 +1900,7 @@ class Retrieval:
             parameters_read = parameter_dict[ret]
 
             for sample in samples_use:
-                m_frac, _ = self.get_mass_fraction(sample[:-1], parameters_read)
+                m_frac, _ = self.get_mass_fractions(sample[:-1], parameters_read)
                 mass_fractions.append(np.array(list(m_frac.values())))
 
             mass_fractions = np.array(mass_fractions)
