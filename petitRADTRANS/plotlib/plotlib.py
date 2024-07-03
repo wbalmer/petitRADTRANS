@@ -1137,6 +1137,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                 if opacity_type == 'rayleigh_species':
                     _species += ' (Rayleigh)'
                     __species = species + ' (Rayleigh)'
+                elif opacity_type == 'gas_continuum_contributors':
+                    __species = species.rsplit('-NatAbund', 1)[0]
                 else:
                     __species = species
 
@@ -1145,6 +1147,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
 
                 if __species in exclude or opacity_source is None:
                     continue
+
+                _spectrum = spectrum[1] * spectrum_factor
 
                 getattr(axe, function)(
                     spectrum[0] * 1e-2, spectrum[1] * spectrum_factor,
