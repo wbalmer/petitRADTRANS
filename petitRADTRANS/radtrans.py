@@ -2618,6 +2618,11 @@ class Radtrans:
 
                     # Init a temporary radtrans object with only the relevant opacity source
                     for species in species_list:
+                        if opacity == 'gas_continuum_contributors':
+                            species = get_cia_aliases(species)
+                        elif opacity == 'cloud_species':
+                            species = get_cloud_aliases(species)
+
                         fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
                         fixed_opacity_sources[opacity] = [species]
 
