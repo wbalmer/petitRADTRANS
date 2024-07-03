@@ -942,6 +942,8 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                                line_styles: dict = None,
                                fill_below: bool = False,
                                fill_alpha: float = 0.5,
+                               x_axis_scale: str = 'linear',
+                               y_axis_scale: str = 'linear',
                                fig_size: tuple = (12.8, 4.8),
                                opaque_cloud_top_pressure: float = None,
                                power_law_opacity_350nm: float = None,
@@ -1173,6 +1175,9 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
 
     delta_y = max_y - min_y
     axe.set_ylim([min_y - delta_y * 0.05, max_y + delta_y * 0.05])
+
+    axe.set_xscale(x_axis_scale)
+    axe.set_yscale(y_axis_scale)
 
     fig.tight_layout()
     fig.legend()
