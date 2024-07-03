@@ -1758,14 +1758,12 @@ class Retrieval:
             name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
         species = [
-            spec.split(
-                self.configuration.data.resolving_power_str
-            )[0]
+            spec.split('.')[0]
             for spec in self.configuration.data[name].radtrans_object.line_species
         ]
 
         abundances, mmw, _, _ = get_abundances(
-            self.configuration.pressures,
+            pressures,
             temps,
             cp.copy(species),
             cp.copy(self.configuration.data[name].radtrans_object.cloud_species),
@@ -1950,7 +1948,7 @@ class Retrieval:
             samples : numpy.ndarray
                 An array of samples and likelihoods taken from a post_equal_weights file
         """
-        log_l = samples[:, -1]
+        log_l = samples[-1, :]
         best_fit_index = np.argmax(log_l)
         print(f"Best fit likelihood = {log_l[best_fit_index]:.2f}")
         return log_l[best_fit_index], best_fit_index
@@ -1969,7 +1967,7 @@ class Retrieval:
             if val.is_free_parameter:
                 params.append(key)
 
-        self.get_max_likelihood_params(samples[best_fit_index:, -1], params)
+        self.get_max_likelihood_params(samples[:-1, best_fit_index], params)
         norm = 0.0
 
         for name, dd in self.configuration.data.items():
@@ -2374,9 +2372,9 @@ class Retrieval:
             parameters_read = param_dict[name]
 
             if nsample == "all":
-                rands = np.linspace(0, samples.shape[0] - 1, samples.shape[0])
+                rands = np.linspace(0, samples.shape[1] - 1, samples.shape[1])
             else:
-                rands = np.random.randint(0, samples.shape[0], int(nsample))
+                rands = np.random.randint(0, samples.shape[1], int(nsample))
 
             duse = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]]
 
@@ -2384,7 +2382,7 @@ class Retrieval:
                 duse = self.configuration.data[duse.external_radtrans_reference]
 
             for rint in rands:
-                samp = samples[int(rint), :-1]
+                samp = samples[:-1,int(rint)]
                 params = self.build_param_dict(samp, parameters_read)
                 ret_val = duse.model_generating_function(
                     prt_object,
@@ -2483,7 +2481,7 @@ class Retrieval:
                 if self.configuration.parameters[pp].is_free_parameter:
                     for i_s in range(len(parameters_read)):
                         if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                            samples_use[:, i_p] = sample_dict[self.configuration.retrieval_name][:, i_s]
+                            samples_use[i_p,:] = sample_dict[self.configuration.retrieval_name][i_s,:]
                     i_p += 1
 
             print("Best fit parameters")
@@ -2497,7 +2495,7 @@ class Retrieval:
                 if self.configuration.parameters[pp].is_free_parameter:
                     for i_s in range(len(parameters_read)):
                         if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                            print(self.configuration.parameters[pp].name, samples_use[best_fit_index][i_p])
+                            print(self.configuration.parameters[pp].name, samples_use[i_p,best_fit_index])
                             i_p += 1
 
             # Plotting
@@ -2741,9 +2739,10 @@ class Retrieval:
 
                 flux = (flux * scale) - offset
                 if f"{dd.name}_b" in self.configuration.parameters.keys():
-                    # TODO best_fit_parameters is not an attribute of Retrieval
-                    raise ValueError("undefined attribute 'Retrieval.best_fit_parameters'")
-                    # error = np.sqrt(error + 10 ** (self.best_fit_parameters["{dd.name}_b"]))
+                    # TODO best_fit_parameters is not an attribute of Retrieval 
+                    #raise ValueError("undefined attribute 'Retrieval.best_fit_parameters'")
+                    error = np.sqrt(error**2 + 10 ** (self.best_fit_parameters[f"{dd.name}_b"].value))
+
 
                 if not dd.photometry:
                     if dd.external_radtrans_reference is None:
@@ -3056,7 +3055,7 @@ class Retrieval:
 
             print("\nPlotting Best-fit spectrum with " + str(self.configuration.plot_kwargs["nsample"]) + " samples.")
             print("This could take some time...")
-            len_samples = samples_use.shape[0]
+            len_samples = samples_use.shape[1]
             path = os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name)
 
             wmin = 99999.0
@@ -3088,7 +3087,7 @@ class Retrieval:
                 else:
                     print(f"Generating sampled spectrum {i_sample} / {self.configuration.plot_kwargs['nsample']}...")
 
-                    parameters = self.build_param_dict(samples_use[random_index, :-1], parameters_read)
+                    parameters = self.build_param_dict(samples_use[:-1,random_index], parameters_read)
                     parameters["contribution"] = Parameter("contribution", False, value=False)
                     ret_val = self.get_full_range_model(parameters, prt_object=atmosphere)
 
@@ -3448,6 +3447,7 @@ class Retrieval:
             p_use_dict = {}
 
             for name, params in parameter_dict.items():
+                # Corner plot requires sample_dict to be transposed
                 samples_use = cp.copy(sample_dict[name]).T
                 parameters_use = cp.copy(params)
                 parameter_plot_indices = []
@@ -3594,13 +3594,11 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            if amr:
-                for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(pressures)
-
+            #if amr:
+            #     pressures = self.configuration._setup_pres()
             # Calculate the temperature structure
             self.pt_plot_mode = True
-            pressures, t = self.log_likelihood(samples_use[:-1, best_fit_index], 0, 0)
+            #pressures, t = self.log_likelihood(samples_use[:-1, best_fit_index], 0, 0)
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
@@ -3666,9 +3664,9 @@ class Retrieval:
             # *1e6 for units (cgs from bar)
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            if amr:
-                for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
+            #if amr:
+            #    for name, dd in self.configuration.data.items():
+            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
@@ -3736,15 +3734,11 @@ class Retrieval:
             # if self.prt_plot_style:
             #     import petitRADTRANS.retrieval.plot_style as ps  # TODO never used
 
-            # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.configuration.amr
-            self.configuration.amr = False
+
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
-            pressures = self.configuration.pressures  # prevent eventual reference before assignment
-            if amr:
-                for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(pressures)
+            #if amr:
+            #     pressures = self.configuration._setup_pres()
 
             self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
@@ -3797,14 +3791,14 @@ class Retrieval:
                     else:
                         abund_dict, mmw = self.get_mass_fractions(sample[:-1], parameters_read)
                     for species in species_to_plot:
-                        abundances[species.split(self.configuration.data.resolving_power_str)[0]].append(
-                            abund_dict[species.split(self.configuration.data.resolving_power_str)[0]]
+                        abundances[species.split('.')[0]].append(
+                            abund_dict[species.split('.')[0]]
                         )
 
                 # Plot median and 1sigma contours
                 for i, species in enumerate(species_to_plot):
                     low, med, high = np.quantile(
-                        np.array(abundances[species.split(self.configuration.data.resolving_power_str)[0]]),
+                        np.array(abundances[species.split('.')[0]]),
                         [0.159, 0.5, 0.841],
                         axis=0
                     )
@@ -3839,13 +3833,17 @@ class Retrieval:
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
                 for i, spec in enumerate(species_to_plot):
-                    ax.plot(abund_dict[spec.split(self.configuration.data.resolving_power_str)[0]],
+                    ax.plot(abund_dict[spec.split('.')[0]],
                             pressures,
                             label=spec.split('_')[0],
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)
-
+                    
+            # Let's set up a standardized pressure array, regardless of AMR stuff.
+            amr = self.configuration.amr
+            self.configuration.amr = False
+            pressures = self.configuration.pressures
             # Check to see if we're weighting by the emission contribution.
             if contribution:
                 bf_wlen, bf_spectrum, bf_contribution = self.get_best_fit_model(
@@ -3950,9 +3948,9 @@ class Retrieval:
             # Restore the correct pressure arrays.
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            if amr:
-                for name, dd in self.configuration.data.items():
-                    dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
+            #if amr:
+            #    for name, dd in self.configuration.data.items():
+            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None

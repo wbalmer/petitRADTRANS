@@ -211,8 +211,7 @@ def emission_model_diseq(prt_object,
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_hansen_b=b_hans,
         cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution,
-        frequencies_to_wavelengths=True
+        cloud_particles_radius_distribution=distribution
     )
 
     if not contribution:
@@ -1129,8 +1128,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         cloud_particle_radius_distribution_std=sigma_lnorm,
         cloud_hansen_b=b_hans,
         cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution,
-        frequencies_to_wavelengths=True
+        cloud_particles_radius_distribution=distribution
     )
 
     if not contribution:
@@ -1301,8 +1299,7 @@ def guillot_transmission(prt_object,
             opaque_cloud_top_pressure=pcloud,
             haze_factor=haze_factor,
             power_law_opacity_coefficient=power_law_opacity_coefficient,
-            return_contribution=contribution,
-            frequencies_to_wavelengths=False
+            return_contribution=contribution
         )
     else:
         results = prt_object.calculate_transit_radii(
@@ -1312,17 +1309,16 @@ def guillot_transmission(prt_object,
             mean_molar_masses=mmw,
             planet_radius=planet_radius,
             reference_pressure=reference_pressure,
-            return_contribution=contribution,
-            frequencies_to_wavelengths=False
+            return_contribution=contribution
         )
 
     if not contribution:
-        frequencies, transit_radii, _ = results
+        wlen_model, transit_radii, _ = results
         additional_output = None
     else:
-        frequencies, transit_radii, additional_output = results
+        wlen_model, transit_radii, additional_output = results
 
-    wlen_model = cst.c / frequencies / 1e-4
+    wlen_model *= 1e4
     spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
     if contribution:
         return wlen_model, spectrum_model, additional_output['transmission_contribution']
@@ -1830,12 +1826,12 @@ def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot
     )
 
     if not contribution:
-        frequencies, transit_radii, _ = results
+        wlen_model, transit_radii, _ = results
         additional_outputs = None
     else:
-        frequencies, transit_radii, additional_outputs = results
+        wlen_model, transit_radii, additional_outputs = results
 
-    wlen_model = cst.c / frequencies / 1e-4
+    wlen_model *= 1e4
     spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
     patchiness = parameters["patchiness"].value
     spectrum_model = (patchiness * spectrum_model_cloudy) + \
