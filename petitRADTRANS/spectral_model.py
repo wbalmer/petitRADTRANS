@@ -2858,6 +2858,9 @@ class SpectralModel(Radtrans):
             if np.ndim(rebinned_wavelengths) <= 1:
                 rebinned_wavelengths = np.array([rebinned_wavelengths])
 
+        if star_flux is None:
+            star_flux = (None, None)
+
         star_spectrum_wavelengths = star_flux[0]
         star_spectrum = star_flux[1]
 
