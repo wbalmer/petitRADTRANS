@@ -808,6 +808,10 @@ class SpectralModel(Radtrans):
             for model_function in model_functions
         }
 
+        # Also add the parameters of the spectral functions
+        model_functions_parameters['emission_spectrum'] = self.calculate_emission_spectrum
+        model_functions_parameters['transmission_spectrum'] = self.calculate_transmission_spectrum
+
         if custom_map is not None:
             if not isinstance(custom_map, dict):
                 raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
@@ -2292,6 +2296,8 @@ class SpectralModel(Radtrans):
                 self.__init_velocities,
                 self.compute_optimal_wavelength_boundaries,
                 self.compute_scaled_metallicity,
+                self.calculate_emission_spectrum,
+                self.calculate_transmission_spectrum,
                 self.with_velocity_range
             ],
             _from_maps=from_maps
@@ -2420,10 +2426,12 @@ class SpectralModel(Radtrans):
                     else:
                         model_parameters[parameter] = None
 
+        # Include or update instantiated model parameters
         if self.model_parameters is not None:
             for parameter in self.model_parameters:
                 model_parameters[parameter] = self.model_parameters[parameter]
 
+        # Initialize the modification parameters dict
         model_parameters['modification_parameters'] = {}
 
         # Check relevance of model parameters
@@ -2758,8 +2766,11 @@ class SpectralModel(Radtrans):
         del parameters['model_parameters']
 
         # Remove custom maps
-        del parameters['model_functions_map']
-        del parameters['spectral_modification_functions_map']
+        if 'model_functions_map' in parameters:
+            del parameters['model_functions_map']
+
+        if 'spectral_modification_functions_map' in parameters:
+            del parameters['spectral_modification_functions_map']
 
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
