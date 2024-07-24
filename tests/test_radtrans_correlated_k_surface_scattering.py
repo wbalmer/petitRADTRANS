@@ -47,7 +47,7 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         mass_fractions=test_parameters['mass_fractions_correlated_k'],
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
-        emission_geometry='non-isotropic',
+        irradiation_geometry='non-isotropic',
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],

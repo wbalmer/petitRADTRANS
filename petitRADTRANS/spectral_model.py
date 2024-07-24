@@ -1007,7 +1007,8 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            emission_geometry: str = 'dayside_ave',
+            irradiation_geometry: str = 'dayside_ave',
+            emission_geometry: str = None,
             stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
@@ -1024,6 +1025,10 @@ class SpectralModel(Radtrans):
             return_cloud_contribution: bool = False,
             **kwargs
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
+        if emission_geometry is not None:
+            # Deprecation warning is handled in Radtrans
+            irradiation_geometry = emission_geometry  # TODO remove when emission_geometry is removed
+
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1043,7 +1048,8 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            emission_geometry=emission_geometry,
+            irradiation_geometry=irradiation_geometry,
+            emission_geometry=emission_geometry,  # TODO remove when emission_geometry is removed
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
             star_radius=star_radius,

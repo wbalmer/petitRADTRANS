@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a23] - 2024-07-04
+## [3.1.0a24] - 2024-07-24
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
 - Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
+- Warning when only one of the two parameters necessary to include a power law opacity has been set.
 - Test module for `SpectralModel` using custom functions.
 - Test module for `SpectralModel` in `'c-k'` opacity mode.
 - Test module for `SpectralModel` in `'lbl'` opacity mode.
@@ -26,12 +27,14 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Source files for JOSS papers.
 
 ### Changed
+- Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. Parameter `emission_geometry` will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 
 ### Removed
 - Unused test functions.
 
 ### Fixed
+- Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
@@ -43,6 +46,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.
+- Function maps of `SpectralModel` are incorrectly loaded.
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
 - Typos in some docs.

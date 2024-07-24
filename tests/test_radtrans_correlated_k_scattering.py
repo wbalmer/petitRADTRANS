@@ -169,7 +169,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
-        emission_geometry=geometry,
+        irradiation_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
@@ -201,7 +201,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
-        emission_geometry=geometry,
+        irradiation_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
@@ -233,7 +233,7 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scatteri
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
         cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
             'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
-        emission_geometry=geometry,
+        irradiation_geometry=geometry,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
         star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
         orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
