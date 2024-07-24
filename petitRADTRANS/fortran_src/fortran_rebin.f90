@@ -22,9 +22,23 @@ module rebin_utils
             integer :: i, i_input
             double precision :: nu1, nu2, y_ax, del_nu, ddel_nu, slope, add_fl, min_flux, max_flux
 
-            i_input = 1
+            i_input = 2
 
             do i = 1, n_rebin
+                do while (input_wavelengths(i_input - 1) >= rebin_bin_low(i))
+                    i_input = i_input - 1
+
+                    if (i_input == 0) then
+                        write(*, *) "fortran_rebin Error: input wavelength array needs to extend at least half" // &
+                            " a bin width further than output wavelength array:"
+                        write(*, *) "min input wavelength:", input_wavelengths(1)
+                        write(*, *) "bin ", i, " lower boundary: ", rebin_bin_low(i)
+
+                        rebinned_spectrum = -1d0
+                        return
+                    end if
+                end do
+
                 do while (input_wavelengths(i_input) < rebin_bin_low(i))
                     i_input = i_input + 1
                 end do
