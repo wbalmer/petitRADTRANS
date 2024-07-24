@@ -902,6 +902,26 @@ class Radtrans:
                     n_layers=self._pressures.size
                 )
             )
+        elif not (power_law_opacity_350nm is None and power_law_opacity_coefficient is None):
+            if power_law_opacity_350nm is None:
+                none_parameter = 'power_law_opacity_350nm'
+            elif power_law_opacity_coefficient is None:
+                none_parameter = 'power_law_opacity_coefficient'
+            else:
+                raise RuntimeError(
+                    f"one of the two power law opacity parameters must be None, "
+                    f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
+                    f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
+                )
+
+            warnings.warn(
+                f"to include a power law opacity, "
+                f"both parameters 'power_law_opacity_350nm' "
+                f"and 'power_law_opacity_coefficient' "
+                f"must be not None, but '{none_parameter}' is None\n"
+                f"To remove this warning, set '{none_parameter}' with a float, or set both parameters to None\n"
+                f"Power law opacity will not be included"
+            )
 
         # Check if photospheric_cloud_optical_depths is used with
         # a single cloud model. Combining cloud opacities
@@ -2751,7 +2771,8 @@ class Radtrans:
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            emission_geometry: str = 'dayside_ave',
+            irradiation_geometry: str = 'dayside_ave',
+            emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
             stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
@@ -2827,10 +2848,12 @@ class Radtrans:
                     Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
                     atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
                     of clouds in the photospheric region.
-                emission_geometry (Optional[string]):
+                irradiation_geometry (Optional[string]):
                     if equal to ``'dayside_ave'``: use the dayside average geometry.
                     If equal to ``'planetary_ave'``: use the planetary average geometry.
                     If equal to ``'non-isotropic'``: use the non-isotropic geometry.
+                emission_geometry (Optional[string]):
+                    Deprecated, same as irradiation_geometry.
                 stellar_intensities (Optional[array]):
                     The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
                 star_effective_temperature (Optional[float]):
@@ -2869,7 +2892,7 @@ class Radtrans:
                     model resolution is sufficient to resolve any variations.
                 frequencies_to_wavelengths (Optional[bool]):
                     if True, convert the frequencies (Hz) output to wavelengths (cm),
-                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-2.cm-2/cm)
+                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
                 return_contribution (Optional[bool]):
                     If ``True`` the emission contribution function will be calculated. Default is ``False``.
                 return_photosphere_radius (Optional[bool]):
@@ -2882,6 +2905,15 @@ class Radtrans:
                     if True, the absorption opacities and scattering opacities for species and clouds, as well as the
                     optical depths, are returned
         """
+        if emission_geometry is not None:
+            irradiation_geometry = emission_geometry
+
+            warnings.warn(
+                "'emission_geometry' is deprecated and will be removed in a future update. "
+                "Use 'irradiation_geometry' instead",
+                FutureWarning
+            )
+
         if reference_gravity <= 0:
             raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
 
@@ -2974,7 +3006,7 @@ class Radtrans:
                 reference_gravity=reference_gravity,
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
-                emission_geometry=emission_geometry,
+                emission_geometry=irradiation_geometry,
                 star_irradiation_cos_angle=star_irradiation_cos_angle,
                 stellar_intensity=stellar_intensities,
                 reflectances=reflectances,

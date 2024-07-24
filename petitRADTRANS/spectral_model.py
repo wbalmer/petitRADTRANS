@@ -808,6 +808,10 @@ class SpectralModel(Radtrans):
             for model_function in model_functions
         }
 
+        # Also add the parameters of the spectral functions
+        model_functions_parameters['emission_spectrum'] = self.calculate_emission_spectrum
+        model_functions_parameters['transmission_spectrum'] = self.calculate_transmission_spectrum
+
         if custom_map is not None:
             if not isinstance(custom_map, dict):
                 raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
@@ -1003,7 +1007,8 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            emission_geometry: str = 'dayside_ave',
+            irradiation_geometry: str = 'dayside_ave',
+            emission_geometry: str = None,
             stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
@@ -1020,6 +1025,10 @@ class SpectralModel(Radtrans):
             return_cloud_contribution: bool = False,
             **kwargs
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
+        if emission_geometry is not None:
+            # Deprecation warning is handled in Radtrans
+            irradiation_geometry = emission_geometry  # TODO remove when emission_geometry is removed
+
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1039,7 +1048,8 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            emission_geometry=emission_geometry,
+            irradiation_geometry=irradiation_geometry,
+            emission_geometry=emission_geometry,  # TODO remove when emission_geometry is removed
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
             star_radius=star_radius,
@@ -2292,6 +2302,8 @@ class SpectralModel(Radtrans):
                 self.__init_velocities,
                 self.compute_optimal_wavelength_boundaries,
                 self.compute_scaled_metallicity,
+                self.calculate_emission_spectrum,
+                self.calculate_transmission_spectrum,
                 self.with_velocity_range
             ],
             _from_maps=from_maps
@@ -2420,10 +2432,12 @@ class SpectralModel(Radtrans):
                     else:
                         model_parameters[parameter] = None
 
+        # Include or update instantiated model parameters
         if self.model_parameters is not None:
             for parameter in self.model_parameters:
                 model_parameters[parameter] = self.model_parameters[parameter]
 
+        # Initialize the modification parameters dict
         model_parameters['modification_parameters'] = {}
 
         # Check relevance of model parameters
@@ -2758,8 +2772,11 @@ class SpectralModel(Radtrans):
         del parameters['model_parameters']
 
         # Remove custom maps
-        del parameters['model_functions_map']
-        del parameters['spectral_modification_functions_map']
+        if 'model_functions_map' in parameters:
+            del parameters['model_functions_map']
+
+        if 'spectral_modification_functions_map' in parameters:
+            del parameters['spectral_modification_functions_map']
 
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
@@ -2857,6 +2874,9 @@ class SpectralModel(Radtrans):
         if rebinned_wavelengths is not None:
             if np.ndim(rebinned_wavelengths) <= 1:
                 rebinned_wavelengths = np.array([rebinned_wavelengths])
+
+        if star_flux is None:
+            star_flux = (None, None)
 
         star_spectrum_wavelengths = star_flux[0]
         star_spectrum = star_flux[1]
