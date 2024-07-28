@@ -15,8 +15,8 @@ class LockedDict(dict):
     """
 
     def __init__(self):
-        super().__init__()
         self._locked = False
+        super().__init__()
 
     def __copy__(self):
         """Override the copy.copy method. Necessary to allow locked LockedDict to be copied."""
@@ -56,6 +56,9 @@ class LockedDict(dict):
 
     def __setitem__(self, key, value):
         """Prevent a key to be added if the lock is on."""
+        if not hasattr(self, '_locked'):
+            self._locked = False
+
         if key not in self and self._locked:
             raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
         else:

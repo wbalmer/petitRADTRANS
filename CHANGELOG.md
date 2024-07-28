@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a24] - 2024-07-24
+## [3.1.0a25] - 2024-07-28
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Fixed
 - Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
+- Crash when unpickling `LockedDict` objects.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectra.
 - Crash when using a fresh `SpectralModel` instance's `calculate_spectrum` with `update_parameters=False` without initializing `star_flux`.
+- Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.
