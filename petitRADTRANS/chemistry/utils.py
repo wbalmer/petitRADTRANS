@@ -9,7 +9,6 @@ from petitRADTRANS._input_data_loader import get_species_basename, get_species_i
 from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
                                                  get_species_elements)
 
-
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
     # atomic number, log10 elemental abundance, uncertainty
     """
@@ -390,8 +389,8 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
             If True, helium will not be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
         only_atmospheric_species_for_solar_metallicity:
-            If True, only the species also present in the planet atmosphere will be used to calculate the solar metallicity.
-            If False, all species present in the sun will be used to calculate the solar metallicity.
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar
+            metallicity. If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -404,8 +403,7 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
 
     return volume_mixing_ratios2metallicity(volume_mixing_ratios,
                                             neglectHe=neglectHe,
-                                            only_atmospheric_species_for_solar_metallicity=
-                                            only_atmospheric_species_for_solar_metallicity)
+                                            only_atmospheric_species_for_solar_metallicity=only_atmospheric_species_for_solar_metallicity)
 
 
 def simplify_species_list(species_list: list) -> list:
@@ -456,8 +454,8 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
             If True, helium will not be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
         only_atmospheric_species_for_solar_metallicity:
-            If True, only the species also present in the planet atmosphere will be used to calculate the solar metallicity.
-            If False, all species present in the sun will be used to calculate the solar metallicity.
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar
+            metallicity. If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
