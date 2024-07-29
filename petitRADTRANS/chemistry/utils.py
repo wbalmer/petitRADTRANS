@@ -326,8 +326,12 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     return pressures[indices], indices
 
 
-def get_solar_elemental_abundances() -> dict[int, float]:
-    """Parse the solar elemental abundances string."""
+def get_solar_elemental_abundances(keep_list=None) -> dict[int, float]:
+    """Parse the solar elemental abundances string.
+        Args:
+            keep_list : list
+                List of atomic numbers to keep in the returned dictionary. If None, all atomic numbers are kept.
+    """
     abundances = _solar_elemental_abundances.split('\n')
 
     dictionary = {}
@@ -337,6 +341,9 @@ def get_solar_elemental_abundances() -> dict[int, float]:
             continue
 
         atomic_number, abundance, uncertainty = abundance.split(' ')
+        if keep_list is not None:
+            if int(atomic_number) not in keep_list:
+                continue
 
         atomic_number = int(atomic_number)
         abundance = float(abundance)
@@ -369,7 +376,8 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
 
 def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
                                mean_molar_masses: npt.NDArray[float],
-                               neglectHe: bool = False):
+                               neglectHe: bool = False,
+                               only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
@@ -381,6 +389,9 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
         neglectHe:
             If True, helium will not be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
+        only_atmospheric_species_for_solar_metallicity:
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar metallicity.
+            If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -392,7 +403,9 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
     )
 
     return volume_mixing_ratios2metallicity(volume_mixing_ratios,
-                                            neglectHe=neglectHe)
+                                            neglectHe=neglectHe,
+                                            only_atmospheric_species_for_solar_metallicity=
+                                            only_atmospheric_species_for_solar_metallicity)
 
 
 def simplify_species_list(species_list: list) -> list:
@@ -431,7 +444,8 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
 
 
 def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]],
-                                     neglectHe: bool = False):
+                                     neglectHe: bool = False,
+                                     only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
@@ -441,6 +455,9 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
         neglectHe:
             If True, helium will not be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
+        only_atmospheric_species_for_solar_metallicity:
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar metallicity.
+            If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -491,7 +508,10 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
         for i in sorted_elements_indices
     }
 
-    solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances())
+    keep_list = None
+    if only_atmospheric_species_for_solar_metallicity:
+        keep_list = list(elemental_abundances.keys())
+    solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances(keep_list=keep_list))
     h_ratios = _compute_h_ratios(elemental_abundances)
 
     solar_z_ratio = _compute_z_ratios(solar_h_ratios, sorted=True, neglectHe=neglectHe)
