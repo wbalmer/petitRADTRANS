@@ -1717,7 +1717,7 @@ def _get_prt2_line_by_line_names():
 
 
 def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                   rewrite=False, old_paths=False, clean=False):
+                                   memory_map_mode=False, rewrite=False, old_paths=False, clean=False):
     """Using ExoMol units for HDF5 files."""
 
     # Initialize infos
@@ -2141,6 +2141,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
             opacities_pressures=opacities_pressures,
             opacities_temperatures=opacities_temperatures,
             line_paths=line_paths,
+            memory_map_mode=memory_map_mode,
             rewrite=rewrite,
             clean=clean
         )
@@ -3450,7 +3451,7 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
                                   path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   contributor=None, description=None,
                                   opacities_pressures=None, opacities_temperatures=None, line_paths=None,
-                                  rewrite=False, clean=False):
+                                  memory_map_mode=False, rewrite=False, clean=False):
     """Using ExoMol units for HDF5 files."""
     check_opacity_name(output_name)
 
@@ -3545,7 +3546,12 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
     wavelengths = finput.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_lines)
     wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 
-    opacities = np.zeros((line_paths_.size, wavelengths.size))
+    if not memory_map_mode:
+        memory_map_file = None
+        opacities = np.zeros((line_paths_.size, wavelengths.size))
+    else:  # thanks to Luke Finnerty for this fix
+        memory_map_file = 'temp.memmap'
+        opacities = np.memmap(memory_map_file, dtype='float32', mode='w+', shape=(line_paths_.size, wavelengths.size))
 
     for i, line_path in enumerate(line_paths_):
         if not os.path.isfile(line_path):
@@ -3578,6 +3584,11 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
         contributor=contributor,
         description=description
     )
+
+    del opacities
+
+    if memory_map_mode:
+        os.remove(memory_map_file)
 
     print("Done.")
 
@@ -4059,7 +4070,7 @@ def write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
 
 
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                rewrite=False, old_paths=False, clean=False):
+                memory_map_mode=False, rewrite=False, old_paths=False, clean=False):
     path_input_data = os.path.abspath(path_input_data)
 
     if not old_paths:
@@ -4086,7 +4097,10 @@ def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(
     _correlated_k_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Line-by-line opacities...")
-    _line_by_line_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _line_by_line_opacities_dat2h5(
+        path_input_data=path_input_data,
+        memory_map_mode=memory_map_mode, rewrite=rewrite, old_paths=old_paths, clean=clean
+    )
 
     print("Successfully converted all .dat files into HDF5")
 
