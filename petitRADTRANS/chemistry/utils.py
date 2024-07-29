@@ -115,7 +115,9 @@ def _compute_h_ratios(elemental_abundances: dict[int, float]) -> dict[int, float
     }
 
 
-def _compute_z_ratios(elemental_abundances: dict[int, float], sorted: bool = True) -> float:
+def _compute_z_ratios(elemental_abundances: dict[int, float],
+                      sorted: bool = True,
+                      neglectHe: bool = False) -> float:
     """Calculate the metal to non-metal abundances from elemental abundances."""
     if 1 not in elemental_abundances:
         elemental_abundances[1] = 0
@@ -127,7 +129,9 @@ def _compute_z_ratios(elemental_abundances: dict[int, float], sorted: bool = Tru
         raise ValueError(f"cannot calculate metallicity if no hydrogen and no helium is present "
                          f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
 
-    non_metal_abundances = elemental_abundances[1] + elemental_abundances[2]
+    non_metal_abundances = elemental_abundances[1]
+    if not neglectHe:
+        non_metal_abundances += elemental_abundances[2]
 
     if not sorted:
         sorted_abundances = np.array(
@@ -363,7 +367,9 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], mean_molar_masses: npt.NDArray[float]):
+def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
+                               mean_molar_masses: npt.NDArray[float],
+                               neglectHe: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
@@ -372,6 +378,9 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], me
             Dictionary keys are the species names. Values are the mass fractions of each species at each layer.
         mean_molar_masses:
             The atmospheric mean molecular weight in amu, at each atmospheric layer.
+        neglectHe:
+            If True, helium will not be neglected as a non-metal in the metallicity calculation,
+            such that everything is defined with respect to hydrogen.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -382,7 +391,8 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], me
         mean_molar_masses=mean_molar_masses
     )
 
-    return volume_mixing_ratios2metallicity(volume_mixing_ratios)
+    return volume_mixing_ratios2metallicity(volume_mixing_ratios,
+                                            neglectHe=neglectHe)
 
 
 def simplify_species_list(species_list: list) -> list:
@@ -420,13 +430,17 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
     return mass_fractions
 
 
-def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]]):
+def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]],
+                                     neglectHe: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
         volume_mixing_ratios:
             Dictionary of volume mixing ratios for all atmospheric species.
             Dictionary keys are the species names. Values are the VMR of each species at each layer.
+        neglectHe:
+            If True, helium will not be neglected as a non-metal in the metallicity calculation,
+            such that everything is defined with respect to hydrogen.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -480,8 +494,8 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
     solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances())
     h_ratios = _compute_h_ratios(elemental_abundances)
 
-    solar_z_ratio = _compute_z_ratios(solar_h_ratios, sorted=True)
-    z_ratio = _compute_z_ratios(h_ratios, sorted=True)
+    solar_z_ratio = _compute_z_ratios(solar_h_ratios, sorted=True, neglectHe=neglectHe)
+    z_ratio = _compute_z_ratios(h_ratios, sorted=True, neglectHe=neglectHe)
 
     metallicity = z_ratio / solar_z_ratio
 
