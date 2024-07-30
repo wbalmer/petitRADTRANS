@@ -390,7 +390,7 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
         mean_molar_masses:
             The atmospheric mean molecular weight in amu, at each atmospheric layer.
         neglect_he:
-            If True, helium will not be neglected as a non-metal in the metallicity calculation,
+            If True, helium will be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
         only_atmospheric_species_for_solar_metallicity:
             If True, only the species also present in the planet atmosphere will be used to calculate the solar
@@ -456,7 +456,7 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
             Dictionary of volume mixing ratios for all atmospheric species.
             Dictionary keys are the species names. Values are the VMR of each species at each layer.
         neglect_he:
-            If True, helium will not be neglected as a non-metal in the metallicity calculation,
+            If True, helium will be neglected as a non-metal in the metallicity calculation,
             such that everything is defined with respect to hydrogen.
         only_atmospheric_species_for_solar_metallicity:
             If True, only the species also present in the planet atmosphere will be used to calculate the solar
