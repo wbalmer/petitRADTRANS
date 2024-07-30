@@ -15,7 +15,7 @@ import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmospheric_layer,
+from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmosphere,
                                            mass_fractions2volume_mixing_ratios, simplify_species_list)
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
@@ -36,6 +36,341 @@ from petitRADTRANS.utils import dict2hdf5, LockedDict, hdf52dict, fill_object, r
 
 
 class SpectralModel(Radtrans):
+    r"""Extension of the Radtrans object. Used to construct custom spectral models.
+
+    The parameters required for the Radtrans spectral functions are calculated from "model functions", which require
+    "model parameters". All parameters are calculated in order thanks to a topological sorting algorithm. Looping
+    dependencies are not supported by default.
+
+    Spectra can be generated with the calculate_spectrum function. Several spectral modification functions are
+    available.
+
+    A Data object can be initialised with the init_data function, which can then be used to generate a Retrieval object
+    with the Retrieval.from_data function.
+
+    Some features are detailed below.
+
+    Automatic wavelength boundaries calculation:
+        The model wavelength boundaries can be determined from the rebinned_wavelengths model parameter, taking into
+        account Doppler shift if necessary, using the following model parameters (see below for a description):
+            - relative_velocities
+            - system_observer_radial_velocities
+            - is_orbiting
+            - orbital_longitudes
+            - orbital_phases
+            - rest_frame_velocity_shift
+            - radial_velocity_semi_amplitude
+        The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
+        orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
+        velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
+
+    Custom functions and kwargs:
+        The compute_* functions can be rewritten in scripts if necessary. Functions calculate_* should not be
+        rewritten. Custom functions *must* include the **kwargs argument, even if it is not used. This is by design,
+        to allow for any model parameter to be used with an arbitrarily complex custom function.
+
+    Default model parameters:
+        Default model parameters used when calling the SpectralModel built-in functions. This list may change when
+        using custom functions.
+        Radtrans spectral parameters can also be used as model parameters (see next section).
+
+        airmass:
+            Airmass of the observations, must be an array with one element per exposure.
+            Used to calculate telluric transmittances and in ground-based high-resolution data preparation.
+        apply_telluric_lines_removal:
+            If True, apply the telluric lines removal correction of the retrieval.preparing.polyfit function.
+        apply_throughput_removal:
+            If True, apply the instrumental throughput removal correction of the retrieval.preparing.polyfit function.
+        atmospheric_mixing:
+            Scaling factor [0, 1] representing how well metals are mixed in the atmosphere.
+            Used to calculate the atmospheric metallicity when the metallicity model parameter is None.
+        carbon_pressure_quench:
+            (bar) Pressure where the carbon species are quenched, used with equilibrium chemistry.
+        co_ratio:
+            Desired carbon to oxygen ratios, obtained by increasing the amount of oxygen. Can be a scalar or an array
+            with one element per layer.
+            Used to calculate mass fractions when equilibrium chemistry is activated
+            (``use_equilibrium_chemistry=True``).
+        constance_tolerance:
+            Relative tolerance on input resolving power to apply constant or running convolutions.
+        convolve_resolving_power:
+            Resolving power of the convolved spectrum, used when the convolve argument is True.
+        correct_uncertainties:
+            If True, the uncertainties of the prepared spectrum are corrected from the preparing steps.
+        filling_species:
+            Dictionary with filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None. Filling species are used to ensure that the MMR at each layer is
+            1. See chemistry.utils.fill_atmospheric_layer for more details.
+        guillot_temperature_profile_gamma:
+            Ratio between visual and infrared opacity.
+            Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        guillot_temperature_profile_kappa_ir_z0:
+            (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere.
+            The effective infrared opacity is obtained from this parameter times the metallicity.
+            Used with the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        imposed_mass_fractions:
+            Mass fractions imposed when calculating the mass fractions. See SpectralModel.compute_mass_fractions for
+            more details.
+        instrumental_deformations:
+            Array of shape (n_orders, n_exposures, n_wavelengths) that will be multiplied to the spectrum after the
+            modification step.
+        intrinsic_temperature:
+            (K) The planet's intrinsic temperature.
+            Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        is_around_star:
+            If True, and if the spectral emission mode is 'emission', model parameter star_flux can be calculated. It
+            is then used to calculate stellar_intensities (for emission spectra), and when scaling the spectrum
+            (``scale=True``).
+        is_observed:
+            If True, and if the spectral calculation mode is ``'emission'``, calculates the spectral flux received by
+            the observer, taking into account the distance between the target and the observer.
+        is_orbiting:
+            If True, model parameter ``radial_velocity`` is calculated from orbital parameters (see previous section).
+        metallicity:
+            Ratio between heavy elements and H2 + He compared to solar.
+            Used with equilibrium chemistry.
+        metallicity_mass_coefficient:
+            Power of the mass-metallicity relationship.
+            Used to calculate the metallicity.
+        metallicity_mass_scaling:
+            Scaling factor of the mass-metallicity relationship.
+            Used to calculate the metallicity.
+        mid_transit_time:
+            (s) Mid-transit time of the planet's primary transit.
+            Used to calculate the transit effect (``use_transit_light_loss=True``).
+        modification_parameters:
+            Dictionary with the SpectralModel modification flags as keys and their status as values.
+            The modification parameters are:
+                - scale,
+                - shift,
+                - use_transit_light_loss,
+                - convolve,
+                - rebin,
+                - prepare.
+        noise_matrix:
+            Array of shape (n_orders, n_exposures, n_wavelengths) that will be added to the spectrum after the
+            modification step.
+        orbit_semi_major_axis:
+            (cm) Semi-major axis of the planet's orbit.
+            Used to calculate the radial velocities, transit effect, and stellar intensities.
+        orbital_inclination:
+            (deg) Angle between the normal of the planet orbital plane and the axis of observation,
+            i.e. 90 degree: edge view, 0 degree: top view.
+            Used to calculate the radial velocities, and transit effect.
+        orbital_longitudes:
+            (deg) Orbital longitudes of the observation's exposures.
+            Used to calculate the radial velocities, and transit effect.
+            Can also be calculated from model parameters ``times`` or ``orbital_phases``.
+        orbital_period:
+            (s) Period of the planet's orbit.
+            Used to calculate the orbital longitudes and the transit effect.
+        planet_mass:
+            (g) Mass of the planet.
+            Can be used to calculate the metallicity, the planet radius, or the reference gravity.
+        polynomial_fit_degree:
+            Degree of the polynomial fit used to prepare the spectrum, in the retrieval.preparing.polyfit function
+        radial_velocity_semi_amplitude:
+            (cm.s-1) Radial orbital velocity semi-amplitude of the planet (Kp).
+            Used to calculate the planet's relative velocities. Can be automatically calculated.
+        rebin_range_margin_power:
+            Relative wavelength margin to use for the automatic wavelength boundary calculation.
+        rebinned_wavelengths:
+            (cm) Wavelengths at which to rebin the spectrum (``rebin=True``).
+        relative_velocities:
+            (cm.s-1) Array of relative velocities between the target and the observer.
+            Can be automatically calculated.
+            Used when shifting the spectrum (``shift=True``).
+        rest_frame_velocity_shift:
+            (cm.s-1) Shift in the planet's rest frame velocity.
+            Used when shifting the spectrum (``shift=True``).
+        star_effective_temperature:
+            (K) Effective temeprature of the planet's star.
+            Used to calculate the stellar intensities.
+        star_mass:
+            (g) Mass of the star.
+            Used to calculate the relative velocities.
+        star_metallicity:
+             Metallicity of the star in solar metallicity.
+             Used to calculate the metallicity.
+        star_radius:
+            (cm) Radius of the planet's star.
+            Used to calculate the stellar intensities, the scaled spectrum, and the transit effect.
+        system_distance:
+            (cm) Distance between the target and the observer.
+            Used to calculate the emission spectrum when ``is_observed`` is True.
+        system_observer_radial_velocities:
+            (cm.s-1) Array of velocities between the system and the observer.
+        telluric_transmittances:
+            Telluric transmittance in the observation conditions.
+            Used for simulating observations.
+        telluric_transmittances_wavelengths:
+            (cm) Wavelengths of the telluric transmittances.
+        tellurics_mask_threshold:
+            Mask wavelengths where the atmospheric transmittance estimate is below this value.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        temperature:
+            (K) When ``temperature_profile_mode='isothermal'``, the value of the temperature.
+            When ``temperature_profile_mode='guillot'``, it corresponds to the equilibrium temperature.
+        temperature_profile_mode:
+            If ``'isothermal'``, the temperature profile is isothermal
+            If ``guillot``, the temperature profile follows the Guillot 2010 temperature profile.
+        times:
+            (s) Array of size n_exposures.
+            Used to calculate the orbital longitudes.
+        transit_duration:
+            (s) Duration of the planet total transit (T14)
+            Used to calculate the transit effect.
+        uncertainties:
+            Spectrum uncertainties.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        uncertainties_as_weights:
+            If True, the uncertainties are used as fit weights when preparing the spectrum.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        use_equilibrium_chemistry:
+            If True, use pRT equilibrium chemistry module to calculate the mass fractions. Does not override the
+            imposed mass fractions.
+        verbose:
+            If True, displays additional information when running some SpectralModel functions.
+
+    Radtrans model parameters:
+        Model parameters used when calling the Radtrans spectral functions.
+
+        cloud_f_sed:
+            Cloud settling parameter.
+        cloud_hansen_a:
+            A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
+            layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+            If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
+            (recommended).
+        cloud_hansen_b:
+            A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
+            layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
+            the particle area (1/cloud_hansen_a^2).
+        cloud_particle_radius_distribution_std:
+            Width of the log-normal cloud particle size distribution.
+        cloud_particles_mean_radii:
+            Dictionary of mean particle radii for all cloud species.
+            Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
+        cloud_particles_radius_distribution:
+            The cloud particle size distribution to use.
+            Can be either 'lognormal' (default) or 'hansen'.
+            If hansen, the cloud_hansen_b parameters must be used.
+        cloud_photosphere_median_optical_depth:
+            Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
+            atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
+            of clouds in the photospheric region.
+        clouds_particles_porosity_factor:
+            A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
+            are calculated using the Distribution of Hollow Spheres (DHS) method.
+        eddy_diffusion_coefficients:
+            The atmospheric eddy diffusion coefficient in cgs
+            (i.e. :math:`\\rm cm^2/s`),
+            at each atmospheric layer
+            (1-d numpy array, same length as pressure array).
+        emissivities:
+            # TODO
+        frequencies_to_wavelengths:
+            If True, convert the frequencies (Hz) output to wavelengths (cm)
+        gray_opacity:
+            Gray opacity value, to be added to the opacity at all pressures and wavelengths
+            (units :math:`\\rm cm^2/g`).
+        haze_factor:
+            Scalar factor, increasing the gas Rayleigh scattering cross-section.
+        irradiation_geometry:
+            If equal to ``'dayside_ave'``: use the dayside average geometry.
+            If equal to ``'planetary_ave'``: use the planetary average geometry.
+            If equal to ``'non-isotropic'``: use the non-isotropic geometry.
+        opaque_cloud_top_pressure:
+            (bar) Pressure where an opaque cloud deck is added to the absorption opacity.
+        planet_radius:
+            (cm) Radius of the planet.
+        power_law_opacity_350nm:
+            Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
+        power_law_opacity_coefficient:
+            Has to be given if kappa_zero is defined, this is the
+            wavelength powerlaw index of the parametrized scattering
+            opacity.
+        reference_gravity:
+            (cm.s-2) Gravity at the planet's reference pressure.
+        reference_pressure:
+            (bar) Reference pressure used to set the planet's radius.
+        reflectances:
+            # TODO
+        return_cloud_contribution:
+            If True, the cloud contribution is calculated.
+        return_contribution:
+            If True the spectral contribution function is calculated.
+        return_photosphere_radius:
+            If True, the photosphere radius is calculated and returned.
+            Only for emission spectra.
+        return_radius_hydrostatic_equilibrium:
+            If True, the radius at hydrostatic equilibrium of the planet is returned.
+            Only for transmission spectra.
+        return_rosseland_optical_depths:
+            If True, the Rosseland opacities and optical depths are calculated and returned.
+            Only for emission spectra.
+        star_irradiation_angle:
+            Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
+            the non-isotropic geometry scenario.
+        stellar_intensities:
+            (W.m-2/um) The stellar intensity to use. If None, it is calculated using a PHOENIX model.
+        variable_gravity:
+            Standard is ``True``. If ``False`` the gravity will be
+            constant as a function of pressure, during the transmission
+            radius calculation.
+
+    Args:
+        pressures:
+            (bar) array containing the pressures of the model, from lowest to highest.
+        line_species:
+            list of strings, denoting which line absorber species to include; must match the opacity file names.
+        rayleigh_species:
+            list of strings, denoting which Rayleigh scattering species to include; must match the opacity file
+            names.
+        continuum_opacities:
+            list of strings, denoting which continuum absorber species to include; must match the opacity file
+            names.
+        cloud_species:
+            list of strings, denoting which cloud opacity species to include; must match the opacity file names.
+        line_opacity_mode:
+            if equal to ``'c-k'``: use low-resolution mode, at
+            :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
+            assumption. if equal to ``'lbl'``: use high-resolution mode, at
+            :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
+            treatment.
+        scattering_in_emission:
+            Will be ``False`` by default.
+            If ``True`` scattering will be included in the emission spectral
+            calculations. Note that this increases the runtime of pRT!
+        line_by_line_opacity_sampling:
+            Will be ``None`` by default. If integer positive value, and if
+            ``mode == 'lbl'`` is ``True``, then this will only consider every
+            line_by_line_opacity_sampling-nth point of the high-resolution opacities.
+            This may be desired in the case where medium-resolution spectra are
+            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+            :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+            may make sense to carry out the calculations with line_by_line_opacity_sampling = 10,
+            for example, and then re-binning to the final desired resolution:
+            this may save time! The user should verify whether this leads to
+            solutions which are identical to the re-binned results of the fiducial
+            :math:`10^6` resolution. If not, this parameter must not be used.
+        temperatures:
+            array containing the temperatures of the model, at each pressure.
+        mass_fractions:
+            dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
+        mean_molar_masses:
+            dictionary containing the mean_molar_masses of the model, at each pressure.
+        wavelength_boundaries:
+            (um) list containing the min and max wavelength of the model. Can be automatically determined from
+        wavelengths:
+            (um) wavelengths of the model.
+        transit_radii:
+            transit radii of the model.
+        fluxes:
+            (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
+        **model_parameters:
+            dictionary of parameters. The keys can match arguments of functions used to generate the model.
+    """
     # TODO add transit duration function
     def __init__(
             self,
@@ -60,86 +395,6 @@ class SpectralModel(Radtrans):
             model_functions_map=None, spectral_modification_functions_map=None,
             **model_parameters
     ):
-        """Essentially a wrapper of Radtrans.
-        Can be used to construct custom spectral models.
-
-        Initialised like a Radtrans object. Additional parameters, that are used to generate the spectrum, are stored
-        into the attribute model_parameters.
-        The spectrum is generated with the calculate_spectrum function.
-        A retrieval object can be initialised with the init_retrieval function.
-        The generated Retrieval can be run using the run_retrieval function.
-
-        The model wavelength boundaries can be determined from the rebinned_wavelengths model parameter, taking into
-        account Doppler shift if necessary, using the following model parameters:
-            - relative_velocities: (cm.s-1) array of relative velocities between the target and the observer
-            - system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
-            - is_orbiting: if True, radial_velocity_semi_amplitude is calculated and relative velocities depends on
-                orbital position parameters, listed below.
-            - orbital_longitudes (deg) array of orbital longitudes
-            - orbital_phases: array of orbital phases
-            - rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
-            - radial_velocity_semi_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
-        The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
-        orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
-        velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
-
-        Custom functions and kwargs:
-            The compute_* functions can be rewritten in scripts if necessary. Functions calculate_* should not be
-            rewritten. Custom functions *must* include the **kwargs argument, even if it is not used. This is by design,
-            to allow for any model parameter to be used with an arbitrarily complex custom function.
-
-        Args:
-            pressures:
-                (bar) array containing the pressures of the model, from lowest to highest.
-            line_species:
-                list of strings, denoting which line absorber species to include; must match the opacity file names.
-            rayleigh_species:
-                list of strings, denoting which Rayleigh scattering species to include; must match the opacity file
-                names.
-            continuum_opacities:
-                list of strings, denoting which continuum absorber species to include; must match the opacity file
-                names.
-            cloud_species:
-                list of strings, denoting which cloud opacity species to include; must match the opacity file names.
-            line_opacity_mode:
-                if equal to ``'c-k'``: use low-resolution mode, at
-                :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
-                assumption. if equal to ``'lbl'``: use high-resolution mode, at
-                :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
-                treatment.
-            scattering_in_emission:
-                Will be ``False`` by default.
-                If ``True`` scattering will be included in the emission spectral
-                calculations. Note that this increases the runtime of pRT!
-            line_by_line_opacity_sampling:
-                Will be ``None`` by default. If integer positive value, and if
-                ``mode == 'lbl'`` is ``True``, then this will only consider every
-                line_by_line_opacity_sampling-nth point of the high-resolution opacities.
-                This may be desired in the case where medium-resolution spectra are
-                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
-                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10,
-                for example, and then re-binning to the final desired resolution:
-                this may save time! The user should verify whether this leads to
-                solutions which are identical to the re-binned results of the fiducial
-                :math:`10^6` resolution. If not, this parameter must not be used.
-            temperatures:
-                array containing the temperatures of the model, at each pressure.
-            mass_fractions:
-                dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
-            mean_molar_masses:
-                dictionary containing the mean_molar_masses of the model, at each pressure.
-            wavelength_boundaries:
-                (um) list containing the min and max wavelength of the model. Can be automatically determined from
-            wavelengths:
-                (um) wavelengths of the model.
-            transit_radii:
-                transit radii of the model.
-            fluxes:
-                (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
-            **model_parameters:
-                dictionary of parameters. The keys can match arguments of functions used to generate the model.
-        """
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = self.compute_radial_velocity_semi_amplitude
         else:
@@ -1473,8 +1728,9 @@ class SpectralModel(Radtrans):
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
             use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
-            filling_species: if True, the atmosphere will be filled with H2 and He (using h2h2_ratio)
-                if the sum of MMR is < 1 TODO use None and a dict of species instead of a flag
+            filling_species:
+                Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+                filling species are represented with None.
             verbose: if True, print additional information
 
         Returns:
@@ -1886,7 +2142,7 @@ class SpectralModel(Radtrans):
 
         Args:
             planet_mass: (g) mass of the planet
-            star_metallicity: metallicity of the planet in solar metallicity
+            star_metallicity: metallicity of the star in solar metallicity
             atmospheric_mixing: scaling factor [0, 1] representing how well metals are mixed in the atmosphere
             metallicity_mass_coefficient: power of the relation
             metallicity_mass_scaling: scaling factor of the relation
@@ -1998,7 +2254,20 @@ class SpectralModel(Radtrans):
         Spectrum must be scaled.
 
         Args:
-            spectrum: the scaled spectrum
+            spectrum:
+                The scaled spectrum.
+            orbit_semi_major_axis:
+                (cm) Semi-major axis of the planet's orbit.
+            orbital_inclination:
+                (deg) Orbital inclination of the planet's orbit.
+            star_radius:
+                (cm) Radius of the planet's star.
+            orbital_longitudes:
+                Orbital longitudes of the observed planet's transit.
+            transit_duration:
+                (s) Duration of the planet's transit.
+            orbital_period:
+                (s) Period of the planet's orbit.
 
         Returns:
             The scaled spectrum, taking into account the transit light loss.

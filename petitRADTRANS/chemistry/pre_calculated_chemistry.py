@@ -11,6 +11,10 @@ from petitRADTRANS._input_data_loader import get_input_file
 
 
 class PreCalculatedEquilibriumChemistryTable:
+    """Used to store petitRADTRANS's pre-calculated mass fractions at chemical equilibrium.
+
+    The interpolate_mass_fractions function can be used to get mass fractions at given thermochemical conditions.
+    """
     def __init__(self):
         self._loaded = False
 

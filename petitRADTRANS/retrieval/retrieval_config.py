@@ -21,15 +21,13 @@ except ImportError:
 
 
 class RetrievalConfig:
-    """
-    The RetrievalConfig class contains all the data and model level information necessary
-    to run a petitRADTRANS retrieval. The name of the class will be used to name outputs.
-    This class is passed to the Retrieval, which runs the actual pymultinest retrieval
-    and produces the outputs.
+    """Contain all the data and model level information necessary to run a petitRADTRANS retrieval.
 
-    The general usage of this class is to define it, add the parameters and their priors,
-    add the opacity sources, the data together with a model for each dataset, and then
-    configure a few plotting arguments.
+    The name of the class will be used to name outputs.
+    This class is passed to the Retrieval, which runs the actual pymultinest retrieval and produces the outputs.
+
+    The general usage of this class is to define it, add the parameters and their priors, add the opacity sources,
+    the data together with a model for each dataset, and then configure a few plotting arguments.
 
     Args:
         retrieval_name : str

@@ -17,6 +17,268 @@ from petitRADTRANS.math import calculate_uncertainty, longitude2phase, phase2lon
 
 
 class Planet:
+    r"""Used to store planet- and star-related data and perform useful planet-related operations.
+
+    The data can be automatically downloaded from the NASA Exoplanet Archive.
+
+    Args:
+        name:
+            Name of the planet. When using the NASA Exoplanet Archive, the given name is case and space sensitive.
+        mass:
+            (g) Mass of the planet.
+        mass_error_upper:
+            (g) Upper error on the planet's mass.
+        mass_error_lower:
+            (g) Lower error on the planet's mass.
+        radius:
+            (cm) Radius of the planet.
+        radius_error_upper:
+            (cm) Upper error on the planet's radius.
+        radius_error_lower:
+            (cm) Lower error on the planet's radius.
+        orbit_semi_major_axis:
+            (cm) Orbit semi-major-axis of the planet.
+        orbit_semi_major_axis_error_upper:
+            (cm) Upper error on the planet's orbit semi-major-axis.
+        orbit_semi_major_axis_error_lower:
+            (cm) Lower error on the planet's orbit semi-major-axis.
+        orbital_eccentricity:
+            Orbital eccentricity of the planet.
+        orbital_eccentricity_error_upper:
+            Upper error on the planet's orbital eccentricity.
+        orbital_eccentricity_error_lower:
+            Lower error on the planet's orbital eccentricity.
+        orbital_inclination:
+            (deg) Orbital inclination of the planet.
+        orbital_inclination_error_upper:
+            (deg) Upper error on the planet's orbital inclination.
+        orbital_inclination_error_lower:
+            (deg) Lower error on the planet's orbital inclination.
+        orbital_period:
+            (s) Orbital period of the planet.
+        orbital_period_error_upper:
+            (s)
+        orbital_period_error_lower:
+            (s)
+        argument_of_periastron:
+            (deg) Argument of periastron of the planet.
+        argument_of_periastron_error_upper:
+            (deg)
+        argument_of_periastron_error_lower:
+            (deg)
+        epoch_of_periastron:
+            (s) Epoch of periastron of the planet.
+        epoch_of_periastron_error_upper:
+            (s)
+        epoch_of_periastron_error_lower:
+            (s)
+        ra:
+            Right ascension of the planet's star.
+        dec:
+            Declination of the planet's star.
+        x:
+            (cm) Position of the planet in a rectangular coordinate system along the x-axis (not used).
+        y:
+            (cm) Position of the planet in a rectangular coordinate system along the y-axis (not used).
+        z:
+            (cm) Position of the planet in a rectangular coordinate system along the z-axis (not used).
+        reference_pressure:
+            (bar) Reference pressure used to set the planet's radius.
+        density:
+            (g.cm-3) Density of the planet.
+        density_error_upper:
+            (g.cm-3)
+        density_error_lower:
+            (g.cm-3)
+        reference_gravity:
+
+        reference_gravity_error_upper:
+            (cm.s-2)
+        reference_gravity_error_lower:
+            (cm.s-2)
+        equilibrium_temperature:
+            (K) Equilibrium temperature of the planet.
+        equilibrium_temperature_error_upper:
+            (K)
+        equilibrium_temperature_error_lower:
+            (K)
+        insolation_flux:
+            (erg.s.cm2) Flux received by the planet from its star.
+        insolation_flux_error_upper:
+            (erg.s.cm2)
+        insolation_flux_error_lower:
+            (erg.s.cm2)
+        bond_albedo:
+            Bond albedo of the planet.
+        bond_albedo_error_upper:
+        bond_albedo_error_lower:
+        transit_depth:
+            Transit depth of the planet, relative to its star.
+        transit_depth_error_upper:
+        transit_depth_error_lower:
+        transit_midpoint_time:
+            (s) Mid-transit time of the planet.
+        transit_midpoint_time_error_upper:
+            (s)
+        transit_midpoint_time_error_lower:
+            (s)
+        transit_duration:
+            (s) Duration of the planet's transit.
+        transit_duration_error_upper:
+            (s)
+        transit_duration_error_lower:
+            (s)
+        projected_obliquity:
+            (deg) Projected obliquity of the planet's orbit.
+        projected_obliquity_error_upper:
+            (deg)
+        projected_obliquity_error_lower:
+            (deg)
+        true_obliquity:
+            (deg) True obliquity of the planet's orbit.
+        true_obliquity_error_upper:
+            (deg)
+        true_obliquity_error_lower:
+            (deg)
+        radial_velocity_semi_amplitude:
+            (cm.s-1) Semi-amplitude of the planet's radial velocity from its orbital motion.
+        radial_velocity_semi_amplitude_error_upper:
+            (cm.s-1)
+        radial_velocity_semi_amplitude_error_lower:
+            (cm.s-1)
+        planet_stellar_radius_ratio:
+            Ratio between the planet's radius and its star's.
+        planet_stellar_radius_ratio_error_upper:
+        planet_stellar_radius_ratio_error_lower:
+        semi_major_axis_stellar_radius_ratio:
+            Ratio between the planet's orbit semi-major axis and its star's radius.
+        semi_major_axis_stellar_radius_ratio_error_upper:
+        semi_major_axis_stellar_radius_ratio_error_lower:
+        reference:
+            Reference for the planet's data.
+        discovery_year:
+            Year of discovery of the planet.
+        discovery_method:
+            Method of discovery of the planet.
+        discovery_reference:
+            Reference for the discovery of the planet.
+        confirmation_status:
+            Whether the planet's existence is confirmed.
+        host_name:
+            Name of the planet's host (star).
+        star_spectral_type:
+            Spectral type of the planet's star.
+        star_mass:
+            (g) Mass of the planet's star.
+        star_mass_error_upper:
+            (g)
+        star_mass_error_lower:
+            (g)
+        star_radius:
+            (cm) Radius of the planet's star.
+        star_radius_error_upper:
+            (cm)
+        star_radius_error_lower:
+            (cm)
+        star_age:
+            (s) Age of the planet's star.
+        star_age_error_upper:
+            (s)
+        star_age_error_lower:
+            (s)
+        star_metallicity:
+            Metallicity of the planet's star, relative to the solar metallicity.
+        star_metallicity_error_upper:
+        star_metallicity_error_lower:
+        star_effective_temperature:
+            (K) Effective temperature of the planet's star.
+        star_effective_temperature_error_upper:
+            (K)
+        star_effective_temperature_error_lower:
+            (K)
+        star_luminosity:
+            (erg.s-1) Luminosity of the planet's star.
+        star_luminosity_error_upper:
+            (erg.s-1)
+        star_luminosity_error_lower:
+            (erg.s-1)
+        star_rotational_period:
+            (s) Rotational period of the planet's star.
+        star_rotational_period_error_upper:
+            (s)
+        star_rotational_period_error_lower:
+            (s)
+        star_radial_velocity:
+            (cm.s-1) Radial velocity of the planet's star.
+        star_radial_velocity_error_upper:
+            (cm.s-1)
+        star_radial_velocity_error_lower:
+            (cm.s-1)
+        star_rotational_velocity:
+            (cm.s-1) Rotational velocity of the planet's star.
+        star_rotational_velocity_error_upper:
+            (cm.s-1)
+        star_rotational_velocity_error_lower:
+            (cm.s-1)
+        star_density:
+            (g.cm-3) Density of the planet's star.
+        star_density_error_upper:
+            (g.cm-3)
+        star_density_error_lower:
+            (g.cm-3)
+        star_reference_gravity:
+            (cm.s-2) Reference gravity of the planet's star.
+        star_reference_gravity_error_upper:
+            (cm.s-2)
+        star_reference_gravity_error_lower:
+            (cm.s-2)
+        star_reference:
+            Reference for the data of the planet's star.
+        system_star_number:
+            Number of stars in the planet's system.
+        system_planet_number:
+            Number of planets in the planet's system.
+        system_moon_number:
+            Number of moons in the planet's system.
+        system_distance:
+            (cm) Distance between the Solar system barycenter and the barycenter of the planet's system.
+        system_distance_error_upper:
+            (cm)
+        system_distance_error_lower:
+            (cm)
+        system_apparent_magnitude_v:
+            Apparent magnitude of the planet's star in band V.
+        system_apparent_magnitude_v_error_upper:
+        system_apparent_magnitude_v_error_lower:
+        system_apparent_magnitude_j:
+            Apparent magnitude of the planet's star in band J.
+        system_apparent_magnitude_j_error_upper:
+        system_apparent_magnitude_j_error_lower:
+        system_apparent_magnitude_k:
+            Apparent magnitude of the planet's star in band K.
+        system_apparent_magnitude_k_error_upper:
+        system_apparent_magnitude_k_error_lower:
+        system_proper_motion:
+            (deg.s-1) Total proper motion of the planet's system.
+        system_proper_motion_error_upper:
+            (deg.s-1)
+        system_proper_motion_error_lower:
+            (deg.s-1)
+        system_proper_motion_ra:
+            (deg.s-1) Right ascension proper motion of the planet's system.
+        system_proper_motion_ra_error_upper:
+            (deg.s-1)
+        system_proper_motion_ra_error_lower:
+            (deg.s-1)
+        system_proper_motion_dec:
+            (deg.s-1) Declination proper motion of the planet's system.
+        system_proper_motion_dec_error_upper:
+            (deg.s-1)
+        system_proper_motion_dec_error_lower:
+            (deg.s-1)
+        units:
+            Units of the attributes.
+    """
     def __init__(
             self,
             name,

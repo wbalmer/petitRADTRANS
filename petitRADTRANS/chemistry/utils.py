@@ -191,11 +191,10 @@ def fill_atmospheric_layer(mass_fractions: dict[str, npt.NDArray[float]], fillin
 
     Args:
         mass_fractions:
-            Mass fractions in the atmosphere. Must be a directory with the species as keys and the mass fraction at one
-            layer.
+            Dictionary with the species as keys and the mass fraction in one layer as values.
         filling_species:
-            Species to fill the atmosphere with. Must be a directory with the species as keys and the weights of the
-            mass fractions. Unweighted filling species are represented with None.
+            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None.
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """

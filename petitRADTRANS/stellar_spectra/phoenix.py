@@ -11,6 +11,10 @@ from petitRADTRANS._input_data_loader import get_input_file
 
 
 class PhoenixStarTable:
+    """Used to store petitRADTRANS's PHOENIX star spectrum models.
+
+    The compute_spectrum function can be used to get a star spectrum at a given temperature.
+    """
     def __init__(self):
         self._loaded = False
 

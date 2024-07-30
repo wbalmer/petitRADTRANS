@@ -23,6 +23,51 @@ from petitRADTRANS.utils import intersection_indices, LockedDict
 
 
 class Radtrans:
+    r"""Calculate spectra using a given set of opacities.
+
+    Args:
+        pressures (Optional):
+            (bar) Array defining the pressure grid to be used for the spectral calculations.
+        wavelength_boundaries (Optional):
+            list containing left and right border of wavelength region to be considered, in micron. If nothing else
+            is specified, it will be equal to ``[0.05, 300]``, hence using the full petitRADTRANS wavelength range
+            (0.11 to 250 microns for ``'c-k'`` mode, 0.3 to 30 microns for the ``'lbl'`` mode). The larger the
+            range the longer the computation time.
+        line_species (Optional):
+            list of strings, denoting which line absorber species to include.
+        gas_continuum_contributors (Optional):
+            list of strings, denoting which continuum absorber species to include.
+        rayleigh_species (Optional):
+            list of strings, denoting which Rayleigh scattering species to include.
+        cloud_species (Optional):
+            list of strings, denoting which cloud opacity species to include.
+        line_opacity_mode (Optional[string]):
+            if equal to ``'c-k'``: use low-resolution mode, at :math:`\\lambda/\\Delta \\lambda = 1000`, with the
+            correlated-k assumption. if equal to ``'lbl'``: use high-resolution mode, at
+            :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line treatment.
+        line_by_line_opacity_sampling (Optional[int]):
+            If ``mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
+            high-resolution opacities. This can be used to save time and RAM.
+            The user should verify whether this leads to solutions which are identical to the results of the
+            non down-sampled :math:`10^6` resolution.
+        scattering_in_emission (Optional[bool]):
+            Will be ``False`` by default.
+            If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
+            the runtime of pRT!
+        emission_angle_grid (Optional):
+            Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
+            and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
+            the angles, and emission_angle_grid[1] being the weights.
+            A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
+            If None, a default set of values and weights are used.
+        anisotropic_cloud_scattering (Optional[bool, str]):
+            If True, anisotropic cloud scattering opacities are used for the spectral calculations.
+            If False, isotropic cloud scattering opacities are used for the spectral calculations.
+            If 'auto' (recommended), anisotropic_cloud_scattering is set to True for emission spectrum
+            calculations, and to False for transmission spectrum calculations.
+        path_input_data (Optional[str]):
+            Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
+    """
     __dat_opacity_files_warning_message = (
         "loading opacities from .dat files is discouraged, the HDF5 format offer better performances at for a lower "
         "memory usage\n\n"
@@ -61,51 +106,6 @@ class Radtrans:
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None
     ):
-        r"""Object for calculating spectra using a given set of opacities.
-
-        Args:
-            pressures (Optional):
-                (bar) Array defining the pressure grid to be used for the spectral calculations.
-            wavelength_boundaries (Optional):
-                list containing left and right border of wavelength region to be considered, in micron. If nothing else
-                is specified, it will be equal to ``[0.05, 300]``, hence using the full petitRADTRANS wavelength range
-                (0.11 to 250 microns for ``'c-k'`` mode, 0.3 to 30 microns for the ``'lbl'`` mode). The larger the
-                range the longer the computation time.
-            line_species (Optional):
-                list of strings, denoting which line absorber species to include.
-            gas_continuum_contributors (Optional):
-                list of strings, denoting which continuum absorber species to include.
-            rayleigh_species (Optional):
-                list of strings, denoting which Rayleigh scattering species to include.
-            cloud_species (Optional):
-                list of strings, denoting which cloud opacity species to include.
-            line_opacity_mode (Optional[string]):
-                if equal to ``'c-k'``: use low-resolution mode, at :math:`\\lambda/\\Delta \\lambda = 1000`, with the
-                correlated-k assumption. if equal to ``'lbl'``: use high-resolution mode, at
-                :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line treatment.
-            line_by_line_opacity_sampling (Optional[int]):
-                If ``mode = 'lbl'``, then this will only load every line_by_line_opacity_sampling-nth point of the
-                high-resolution opacities. This can be used to save time and RAM.
-                The user should verify whether this leads to solutions which are identical to the results of the
-                non down-sampled :math:`10^6` resolution.
-            scattering_in_emission (Optional[bool]):
-                Will be ``False`` by default.
-                If ``True`` scattering will be included in the emission spectral calculations. Note that this increases
-                the runtime of pRT!
-            emission_angle_grid (Optional):
-                Array defining the cosines of the angle grid to be used for the emission spectrum calculations,
-                and their weights. The array is of shape (2, n_angles), with emission_angle_grid[0] being the cosines of
-                the angles, and emission_angle_grid[1] being the weights.
-                A dictionary of array with keys 'cos_angles' and 'weights' can also be used.
-                If None, a default set of values and weights are used.
-            anisotropic_cloud_scattering (Optional[bool, str]):
-                If True, anisotropic cloud scattering opacities are used for the spectral calculations.
-                If False, isotropic cloud scattering opacities are used for the spectral calculations.
-                If 'auto' (recommended), anisotropic_cloud_scattering is set to True for emission spectrum
-                calculations, and to False for transmission spectrum calculations.
-            path_input_data (Optional[str]):
-                Path to the input_data folder, containing the files to be loaded by petitRADTRANS.
-        """
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
@@ -1045,7 +1045,7 @@ class Radtrans:
             line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
         )
 
-        # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting.
+        # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting
         opacities = self._combine_opacities(
             line_species_mass_fractions=line_species_mass_fractions,
             opacities=opacities,
@@ -2894,7 +2894,7 @@ class Radtrans:
                     if True, convert the frequencies (Hz) output to wavelengths (cm),
                     and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
                 return_contribution (Optional[bool]):
-                    If ``True`` the emission contribution function will be calculated. Default is ``False``.
+                    If True the emission contribution function is be calculated.
                 return_photosphere_radius (Optional[bool]):
                     if True, the photosphere radius is calculated and returned
                 return_rosseland_optical_depths (Optional[bool]):
@@ -3454,9 +3454,7 @@ class Radtrans:
                 frequencies_to_wavelengths (Optional[bool]):
                     if True, convert the frequencies (Hz) output to wavelengths (cm)
                 return_contribution (Optional[bool]):
-                    If ``True`` the transmission and emission
-                    contribution function will be
-                    calculated. Default is ``False``.
+                    If True the transmission and emission contribution function is calculated.
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated and returned
                 return_radius_hydrostatic_equilibrium (Optional[bool]):

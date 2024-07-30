@@ -15,14 +15,14 @@ from .utils import tests_references_directory, tests_error_directory
 
 
 class TestFile:
-    def __init__(self, absolute_tolerance: float = None, relative_tolerance: float = None):
-        """Base class for test files.
-        Can be loaded and saved. Contains the test tolerances, the petitRADTRANS version and the date of the test.
+    """Base class for test files.
+    Can be loaded and saved. Contains the test tolerances, the petitRADTRANS version and the date of the test.
 
-        Args:
-            absolute_tolerance: absolute tolerance of the test
-            relative_tolerance: relative tolerance of the test
-        """
+    Args:
+        absolute_tolerance: absolute tolerance of the test
+        relative_tolerance: relative tolerance of the test
+    """
+    def __init__(self, absolute_tolerance: float = None, relative_tolerance: float = None):
         self.prt_version = petitRADTRANS.__version__
         self.date = None
         self.absolute_tolerance = absolute_tolerance
@@ -146,22 +146,22 @@ class ReferenceFile(TestFile):
 
 
 class Benchmark:
+    """Class to test a function.
+    The function tested is given arguments. Both the arguments/parameters and its outputs are compared with values
+    contained in a reference file, with given absolute and relative tolerances for the parameters and the outputs.
+    The reference file can also be generated.
+
+    Args:
+        function: function to test.
+        absolute_tolerance: absolute tolerance to use when comparing the outputs with those of the reference file.
+        relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
+        name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
+    """
     _make_reference_file = False
     _reference_file_rewrite = False
 
     def __init__(self, function: callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
                  name: str = None):
-        """Class to test a function.
-        The function tested is given arguments. Both the arguments/parameters and its outputs are compared with values
-        contained in a reference file, with given absolute and relative tolerances for the parameters and the outputs.
-        The reference file can also be generated.
-
-        Args:
-            function: function to test.
-            absolute_tolerance: absolute tolerance to use when comparing the outputs with those of the reference file.
-            relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
-            name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
-        """
         if name is None:
             name = inspect.currentframe().f_back.f_code.co_name  # the name of the function that instantiated Benchmark
 

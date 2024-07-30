@@ -45,6 +45,49 @@ if load_mpi:
 
 
 class Retrieval:
+    """Implement the retrieval method using petitRADTRANS and pymultinest.
+
+    A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
+    and priors. The run() method then uses pymultinest to sample the parameter space, producing
+    posterior distributions for parameters and bayesian evidence for models.
+    Various useful plotting functions have also been included, and can be run once the retrieval is
+    complete.
+
+    Args:
+        configuration : RetrievalConfig
+            A RetrievalConfig object that describes the retrieval to be run. This is the user
+            facing class that must be setup for every retrieval.
+        output_directory : Str
+            The directory in which the output folders should be written
+        evaluate_sample_spectra : Bool
+            Produce plots and data files for random samples drawn from the outputs of pymultinest.
+        ultranest : bool
+            If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
+            but is significantly slower.
+        corner_plot_names : List(Str)
+            List of additional retrieval names that should be included in the corner plotlib.
+        use_prt_plot_style : Bool
+            Use the petitRADTRANS plotting style as described in style.py. Recommended to
+            turn this parameter to false if you want to use interactive plotting, or if the
+            test_plotting parameter is True.
+        test_plotting : Bool
+            Only use when running locally. A boolean flag that will produce plots
+            for each sample when pymultinest is run.
+        uncertainties_mode : Str
+            Uncertainties handling method during the retrieval.
+                - "default": the uncertainties are fixed.
+                - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
+                  (https://doi.org/10.1093/mnras/staa228).
+                - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
+                - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
+        print_log_likelihood_for_debugging : bool
+            If True, the current log likelihood of a forward model run will be printed to the console.
+        generate_mock_data : bool
+            If True, the retrieval will generate a mock data set by sampling the prior distributions and bring
+            it into the exact same shape as the input data. This is useful for testing the retrieval setup in input
+            = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
+            following file names: data.name + '_mock_data.dat'.
+    """
     def __init__(
             self,
             configuration: RetrievalConfig,
@@ -63,49 +106,6 @@ class Retrieval:
             print_log_likelihood_for_debugging=False,
             generate_mock_data=False
     ):
-        """
-        This class implements the retrieval method using petitRADTRANS and pymultinest.
-        A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
-        and priors. The run() method then uses pymultinest to sample the parameter space, producing
-        posterior distributions for parameters and bayesian evidence for models.
-        Various useful plotting functions have also been included, and can be run once the retrieval is
-        complete.
-
-        Args:
-            configuration : RetrievalConfig
-                A RetrievalConfig object that describes the retrieval to be run. This is the user
-                facing class that must be setup for every retrieval.
-            output_directory : Str
-                The directory in which the output folders should be written
-            evaluate_sample_spectra : Bool
-                Produce plots and data files for random samples drawn from the outputs of pymultinest.
-            ultranest : bool
-                If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
-                but is significantly slower.
-            corner_plot_names : List(Str)
-                List of additional retrieval names that should be included in the corner plotlib.
-            use_prt_plot_style : Bool
-                Use the petitRADTRANS plotting style as described in style.py. Recommended to
-                turn this parameter to false if you want to use interactive plotting, or if the
-                test_plotting parameter is True.
-            test_plotting : Bool
-                Only use when running locally. A boolean flag that will produce plots
-                for each sample when pymultinest is run.
-            uncertainties_mode : Str
-                Uncertainties handling method during the retrieval.
-                    - "default": the uncertainties are fixed.
-                    - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
-                      (https://doi.org/10.1093/mnras/staa228).
-                    - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
-                    - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
-            print_log_likelihood_for_debugging : bool
-                If True, the current log likelihood of a forward model run will be printed to the console.
-            generate_mock_data : bool
-                If True, the retrieval will generate a mock data set by sampling the prior distributions and bring
-                it into the exact same shape as the input data. This is useful for testing the retrieval setup in input
-                = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
-                following file names: data.name + '_mock_data.dat'.
-        """
         self.configuration = configuration
 
         if len(self.configuration.line_species) < 1:
