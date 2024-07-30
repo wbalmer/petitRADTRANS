@@ -322,7 +322,7 @@ def temperature_profile_function_guillot_dayside(pressures, infrared_mean_opacit
         infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
-            The ratio between the visual and infrated opacity.
+            The ratio between the visual and infrared opacity.
         gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
         intrinsic_temperature (float):
@@ -354,7 +354,7 @@ def temperature_profile_function_guillot_global(pressures, infrared_mean_opacity
         infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
-            The ratio between the visual and infrated opacity.
+            The ratio between the visual and infrared opacity.
         gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
         intrinsic_temperature (float):
@@ -398,7 +398,7 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gr
 
     Args:
         pressures: (bar) pressures of the profile
-        gamma: ratio between visual and infrated opacity
+        gamma: ratio between visual and infrared opacity
         reference_gravity: (cm.s-2) surface gravity
         intrinsic_temperature: (K) intrinsic temperature
         equilibrium_temperature: (K) equilibrium temperature

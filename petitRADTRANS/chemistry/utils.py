@@ -115,7 +115,10 @@ def _compute_h_ratios(elemental_abundances: dict[int, float]) -> dict[int, float
     }
 
 
-def _compute_z_ratios(elemental_abundances: dict[int, float], sorted: bool = True) -> float:
+def _compute_z_ratios(elemental_abundances: dict[int, float],
+                      sort: bool = True,
+                      neglect_he: bool = False
+                      ) -> float:
     """Calculate the metal to non-metal abundances from elemental abundances."""
     if 1 not in elemental_abundances:
         elemental_abundances[1] = 0
@@ -127,9 +130,12 @@ def _compute_z_ratios(elemental_abundances: dict[int, float], sorted: bool = Tru
         raise ValueError(f"cannot calculate metallicity if no hydrogen and no helium is present "
                          f"(H = {elemental_abundances[1]}, He = {elemental_abundances[2]})")
 
-    non_metal_abundances = elemental_abundances[1] + elemental_abundances[2]
+    non_metal_abundances = elemental_abundances[1]
 
-    if not sorted:
+    if not neglect_he:
+        non_metal_abundances += elemental_abundances[2]
+
+    if not sort:
         sorted_abundances = np.array(
             list(elemental_abundances.values())[i] for i in np.argsort(list(elemental_abundances.keys()))
         )
@@ -165,8 +171,62 @@ def compute_mean_molar_masses(abundances):
     return 1.0 / mean_molar_masses
 
 
-def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling_species: dict
-                           ) -> dict[str, np.ndarray[float]]:
+def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict
+                    ) -> dict[str, npt.NDArray[float]]:
+    """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
+
+    See fill_atmospheric_layer for more details.
+
+    Args:
+        mass_fractions:
+            Dictionary with the species as keys and the mass fraction in all layers as values.
+        filling_species:
+            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None.
+    Returns:
+        A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
+    """
+    n_layers = list(mass_fractions.values())[0].size
+    all_species = set(list(mass_fractions.keys()) + list(filling_species.keys()))
+
+    filled_mass_fractions = {
+        species: np.zeros(n_layers)
+        for species in all_species
+    }
+
+    for i in range(n_layers):
+        # Take mass fractions from the current layer
+        mass_fractions_i = {
+            species: float(mass_fraction[i])
+            for species, mass_fraction in mass_fractions.items()
+        }
+
+        # Handle filling species special cases
+        filling_species_i = {}
+
+        for species, weights in filling_species.items():
+            if weights is None or isinstance(weights, str):
+                filling_species_i[species] = weights
+            elif hasattr(weights, '__iter__'):
+                filling_species_i[species] = weights[i]
+            else:
+                filling_species_i[species] = weights
+
+        # Fill the layer
+        mass_fractions_i = fill_atmospheric_layer(
+            mass_fractions=mass_fractions_i,
+            filling_species=filling_species_i
+        )
+
+        # Update mass fractions
+        for species in mass_fractions_i:
+            filled_mass_fractions[species][i] = mass_fractions_i[species]
+
+    return filled_mass_fractions
+
+
+def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict
+                           ) -> dict[str, float]:
     """Fill an atmospheric layer with filling species, so that the sum of the mass fractions is 1.
     The filling species values are weights that are used to fill the atmospheric layer following:
         X_i = w_i / sum(w) * X_f,
@@ -185,14 +245,20 @@ def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling
 
     Args:
         mass_fractions:
-            Mass fractions in the atmosphere. Must be a directory with the species as keys and the mass fraction at one
-            layer.
+            Dictionary with the species as keys and the mass fraction in one layer as values.
         filling_species:
-            Species to fill the atmosphere with. Must be a directory with the species as keys and the weights of the
-            mass fractions. Unweighted filling species are represented with None.
+            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None.
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
+    for species, mass_fraction in mass_fractions.items():
+        if np.size(mass_fraction) > 1:
+            raise ValueError(
+                f"mass fractions values in one layer must be scalars, "
+                f"but mass fraction for species '{species}' was of size {np.size(mass_fraction)}"
+            )
+
     # Change nothing if no filling species given
     if filling_species is None or len(filling_species) == 0:
         return mass_fractions
@@ -224,7 +290,8 @@ def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling
     # Calculate the sums
     mass_fraction_to_fill = 1 - (
         np.sum([
-            mass_fraction for species, mass_fraction in mass_fractions.items()
+            mass_fraction
+            for species, mass_fraction in mass_fractions.items()
             if species not in filling_species
         ])
     )
@@ -243,7 +310,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, np.ndarray[float]], filling
                 mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
             else:  # ensure that the sum is exactly 1 in spite of numerical errors
                 mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
-                mass_fractions[species] = 0
+                mass_fractions[species] = 0.0
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
                 # Sanity check
@@ -322,8 +389,12 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     return pressures[indices], indices
 
 
-def get_solar_elemental_abundances() -> dict[int, float]:
-    """Parse the solar elemental abundances string."""
+def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, float]:
+    """Parse the solar elemental abundances string.
+        Args:
+            keep_list:
+                List of atomic numbers to keep in the returned dictionary. If None, all atomic numbers are kept.
+    """
     abundances = _solar_elemental_abundances.split('\n')
 
     dictionary = {}
@@ -332,11 +403,15 @@ def get_solar_elemental_abundances() -> dict[int, float]:
         if abundance == '':
             continue
 
-        atomic_number, abundance, uncertainty = abundance.split(' ')
+        atomic_number, abundance, _ = abundance.split(' ')  # 3rd column contains the uncertainties, not used yet
 
         atomic_number = int(atomic_number)
+
+        if keep_list is not None:
+            if atomic_number not in keep_list:
+                continue
+
         abundance = float(abundance)
-        # uncertainty = float(uncertainty)
 
         dictionary[atomic_number] = 10 ** abundance
 
@@ -363,7 +438,10 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], mean_molar_masses: npt.NDArray[float]):
+def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
+                               mean_molar_masses: npt.NDArray[float],
+                               neglect_he: bool = False,
+                               only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
@@ -372,6 +450,12 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], me
             Dictionary keys are the species names. Values are the mass fractions of each species at each layer.
         mean_molar_masses:
             The atmospheric mean molecular weight in amu, at each atmospheric layer.
+        neglect_he:
+            If True, helium will be neglected as a non-metal in the metallicity calculation,
+            such that everything is defined with respect to hydrogen.
+        only_atmospheric_species_for_solar_metallicity:
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar
+            metallicity. If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -382,7 +466,11 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]], me
         mean_molar_masses=mean_molar_masses
     )
 
-    return volume_mixing_ratios2metallicity(volume_mixing_ratios)
+    return volume_mixing_ratios2metallicity(
+        volume_mixing_ratios,
+        neglect_he=neglect_he,
+        only_atmospheric_species_for_solar_metallicity=only_atmospheric_species_for_solar_metallicity
+    )
 
 
 def simplify_species_list(species_list: list) -> list:
@@ -420,13 +508,20 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
     return mass_fractions
 
 
-def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]]):
+def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]], neglect_he: bool = False,
+                                     only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:
         volume_mixing_ratios:
             Dictionary of volume mixing ratios for all atmospheric species.
             Dictionary keys are the species names. Values are the VMR of each species at each layer.
+        neglect_he:
+            If True, helium will be neglected as a non-metal in the metallicity calculation,
+            such that everything is defined with respect to hydrogen.
+        only_atmospheric_species_for_solar_metallicity:
+            If True, only the species also present in the planet atmosphere will be used to calculate the solar
+            metallicity. If False, all species present in the sun will be used to calculate the solar metallicity.
     Returns:
         The atmospheric metallicity and a dictionary containing element-over-hydrogen abundance ratios.
         The dictionary keys are the elements atomic numbers. Values are dictionaries containing the plain-text H ratio,
@@ -459,7 +554,7 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
     if np.ndim(sum_vmrs) == 0:
         sum_vmrs = np.array([sum_vmrs])
 
-    for i, sum_vmr in enumerate(sum_vmrs):
+    for i, sum_vmr in enumerate(list(sum_vmrs)):
         if np.abs(sum_vmr - 1.0) > 1e-6:
             warnings.warn(f"the sum of volume mixing ratios at level {i} is not 1 ({sum_vmr}), "
                           f"results may be inaccurate")
@@ -477,11 +572,16 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
         for i in sorted_elements_indices
     }
 
-    solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances())
+    keep_list = None
+
+    if only_atmospheric_species_for_solar_metallicity:
+        keep_list = list(elemental_abundances.keys())
+
+    solar_h_ratios = _compute_h_ratios(get_solar_elemental_abundances(keep_list=keep_list))
     h_ratios = _compute_h_ratios(elemental_abundances)
 
-    solar_z_ratio = _compute_z_ratios(solar_h_ratios, sorted=True)
-    z_ratio = _compute_z_ratios(h_ratios, sorted=True)
+    solar_z_ratio = _compute_z_ratios(solar_h_ratios, sort=True, neglect_he=neglect_he)
+    z_ratio = _compute_z_ratios(h_ratios, sort=True, neglect_he=neglect_he)
 
     metallicity = z_ratio / solar_z_ratio
 

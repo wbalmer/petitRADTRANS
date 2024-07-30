@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a25] - 2024-07-28
+## [3.1.0a28] - 2024-07-30
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
 - Function to plot the above opacity contribution spectra.
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
+- Function to fill all layers of an atmosphere at once with filling species.
 - Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Warning when only one of the two parameters necessary to include a power law opacity has been set.
@@ -45,6 +46,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when preparing fully masked spectra.
 - Crash when using a fresh `SpectralModel` instance's `calculate_spectrum` with `update_parameters=False` without initializing `star_flux`.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
+- Incorrect filling mass fraction calculation in some cases.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.

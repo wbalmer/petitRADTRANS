@@ -956,6 +956,12 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - MgSiO3(s)__Mie
       - Mg-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
+    * - MgSiO3(s)__DHS-glassy
+      - Mg-Si-O3-NatAbund(s)_amorphous__DHS-glassy.R39_0.1-250mu.cotable.petitRADTRANS.h5
+      - 1994A&A...292..641J, 1995A&A...300..503D
+    * - MgSiO3(s)__Mie-glassy
+      - Mg-Si-O3-NatAbund(s)_amorphous__Mie-glassy.R39_0.2-250mu.cotable.petitRADTRANS.h5
+      - 1994A&A...292..641J, 1995A&A...300..503D
     * - MgSiO3(s)_crystalline__DHS
       - Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1998A&A...339..904J, 10.1086/192321
