@@ -171,8 +171,62 @@ def compute_mean_molar_masses(abundances):
     return 1.0 / mean_molar_masses
 
 
-def fill_atmospheric_layer(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict
-                           ) -> dict[str, npt.NDArray[float]]:
+def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict
+                    ) -> dict[str, npt.NDArray[float]]:
+    """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
+
+    See fill_atmospheric_layer for more details.
+
+    Args:
+        mass_fractions:
+            Dictionary with the species as keys and the mass fraction in all layers as values.
+        filling_species:
+            Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None.
+    Returns:
+        A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
+    """
+    n_layers = list(mass_fractions.values())[0].size
+    all_species = set(list(mass_fractions.keys()) + list(filling_species.keys()))
+
+    filled_mass_fractions = {
+        species: np.zeros(n_layers)
+        for species in all_species
+    }
+
+    for i in range(n_layers):
+        # Take mass fractions from the current layer
+        mass_fractions_i = {
+            species: float(mass_fraction[i])
+            for species, mass_fraction in mass_fractions.items()
+        }
+
+        # Handle filling species special cases
+        filling_species_i = {}
+
+        for species, weights in filling_species.items():
+            if weights is None or isinstance(weights, str):
+                filling_species_i[species] = weights
+            elif hasattr(weights, '__iter__'):
+                filling_species_i[species] = weights[i]
+            else:
+                filling_species_i[species] = weights
+
+        # Fill the layer
+        mass_fractions_i = fill_atmospheric_layer(
+            mass_fractions=mass_fractions_i,
+            filling_species=filling_species_i
+        )
+
+        # Update mass fractions
+        for species in mass_fractions_i:
+            filled_mass_fractions[species][i] = mass_fractions_i[species]
+
+    return filled_mass_fractions
+
+
+def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict
+                           ) -> dict[str, float]:
     """Fill an atmospheric layer with filling species, so that the sum of the mass fractions is 1.
     The filling species values are weights that are used to fill the atmospheric layer following:
         X_i = w_i / sum(w) * X_f,
@@ -198,6 +252,13 @@ def fill_atmospheric_layer(mass_fractions: dict[str, npt.NDArray[float]], fillin
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
+    for species, mass_fraction in mass_fractions.items():
+        if np.size(mass_fraction) > 1:
+            raise ValueError(
+                f"mass fractions values in one layer must be scalars, "
+                f"but mass fraction for species '{species}' was of size {np.size(mass_fraction)}"
+            )
+
     # Change nothing if no filling species given
     if filling_species is None or len(filling_species) == 0:
         return mass_fractions
@@ -229,7 +290,8 @@ def fill_atmospheric_layer(mass_fractions: dict[str, npt.NDArray[float]], fillin
     # Calculate the sums
     mass_fraction_to_fill = 1 - (
         np.sum([
-            mass_fraction for species, mass_fraction in mass_fractions.items()
+            mass_fraction
+            for species, mass_fraction in mass_fractions.items()
             if species not in filling_species
         ])
     )
@@ -248,7 +310,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, npt.NDArray[float]], fillin
                 mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
             else:  # ensure that the sum is exactly 1 in spite of numerical errors
                 mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
-                mass_fractions[species] = np.zeros(mass_fractions[species].shape)
+                mass_fractions[species] = 0.0
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
                 # Sanity check

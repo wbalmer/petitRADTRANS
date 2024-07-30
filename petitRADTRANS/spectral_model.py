@@ -981,7 +981,7 @@ class SpectralModel(Radtrans):
     def _get_model_functions_map(self, update_model_parameters=True, extra_model_parameters=None, custom_map=None):
         def __build_dependencies_dict(_parameter, _model_functions_parameters, _map=None, _parameter0=None):
             if _map is None:
-                _map = {}
+                _map: dict[str, set] = {}
 
             if _parameter0 is None:
                 _parameter0 = _parameter
@@ -1219,8 +1219,11 @@ class SpectralModel(Radtrans):
         return wavelengths_tmp, spectrum
 
     def calculate_contribution_spectra(self, mode=None, **kwargs):
-        if mode is None and self.model_parameters['modification_parameters']['mode'] is not None:
-            mode = copy.deepcopy(self.model_parameters['modification_parameters']['mode'])
+        if mode is None and isinstance(self.model_parameters['modification_parameters'], dict):
+            modification_parameters: dict = self.model_parameters['modification_parameters']
+
+            if modification_parameters['mode'] is not None:
+                mode = copy.deepcopy(modification_parameters['mode'])
 
         parameters = {}
 
@@ -1888,30 +1891,10 @@ class SpectralModel(Radtrans):
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
                 if len(filling_species) > 0:  # fill the atmosphere using the filling species
-                    # Take mass fractions from the current layer
-                    mass_fractions_i = {
-                        species: mass_fraction[i] for species, mass_fraction in mass_fractions.items()
-                    }
-
-                    # Handle filling species special cases
-                    filling_species_i = {}
-
-                    for species, weights in filling_species.items():
-                        if weights is None or isinstance(weights, str):
-                            filling_species_i[species] = weights
-                        elif hasattr(weights, '__iter__'):
-                            filling_species_i[species] = weights[i]
-                        else:
-                            filling_species_i[species] = weights
-
-                    # Fill the layer and update mass fractions
-                    mass_fractions_i = fill_atmospheric_layer(
-                        filling_species=filling_species_i,
-                        mass_fractions=mass_fractions_i
+                    mass_fractions = fill_atmosphere(
+                        mass_fractions=mass_fractions,
+                        filling_species=filling_species
                     )
-
-                    for species in mass_fractions_i:
-                        mass_fractions[species][i] = mass_fractions_i[species]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
                                   f"Set filling_species to automatically fill the atmosphere "
