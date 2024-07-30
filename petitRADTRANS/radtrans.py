@@ -1045,7 +1045,7 @@ class Radtrans:
             line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
         )
 
-        # Combine line opacities with continuum opacities
+        # Combine line opacities with continuum opacities, apply line opacity mass fraction weighting.
         opacities = self._combine_opacities(
             line_species_mass_fractions=line_species_mass_fractions,
             opacities=opacities,
