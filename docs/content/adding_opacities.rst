@@ -225,24 +225,27 @@ The above ``format2petitradtrans()`` function also provides the tool to convert 
                          file_extension,
                          molmass,
                          wavelength_file,
-                         wavenumbers_petitradtrans,
+                         wavenumbers_petitradtrans_line_by_line,
                          save_line_by_line,
                          rebin,
                          selection):
 
         ...
 
-        return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
+        return cross_sections, cross_sections_line_by_line, wavenumbers, pressure, temperature
 
-Not all the input arguments need to be used. For the outputs, take care of the following:
+Note that the input must be exactly as shown here, even if not all arguments are used in the function.
+For the outputs, take care of the following:
 
-- ``opacities`` must be in cm2/molecule.
-- ``opacities_line_by_line`` must be in cm2/molecule, and interpolated to ``wavenumbers_petitradtrans``.
+- ``cross_sections`` must be in cm2/molecule.
+- ``cross_sections_line_by_line`` must be in cm2/molecule, and interpolated to ``wavenumbers_petitradtrans_line_by_line``.
 - ``wavenumbers`` must be the wavenumbers corresponding to ``opacities``, in cm-1.
 - ``pressure`` must be in bar.
 - ``temperature`` must be in K.
 
 Ideally, ``my_load_function`` must be applied to one file containing the opacities at one pressure and one temperature. The ``format2petitradtrans`` function will take care of fetching the files in ``opacities_directory`` with the ``opacity_files_extension`` extension (see below).
+
+.. important:: The opacities, opacities_line_by_line and wavenumbers must be returned in increasing wavenumber order!
 
 You can then proceed to the conversion as follows:
 

@@ -2965,17 +2965,19 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                 - file_extension: see opacity_files_extension below
                 - molmass: molar mass of the species (automatically set)
                 - wavelength_file: see spectral_dimension_file below
-                - wavenumbers_petitradtrans: the petitRADTRANS wavenumber grid (automatically set)
+                - wavenumbers_petitradtrans_line_by_line: the petitRADTRANS wavenumber grid for line-by-line opacities
+                  (automatically set)
                 - save_line_by_line: see save_line_by_line below
                 - rebin: see rebin below
                 - selection: indices corresponding to the wavenumbers to be exctracted
             Not all of the above arguments have to be used.
             The function must output the following, in that order:
-                - opacities: (cm2/molecule) the opacities
-                - opacities_line_by_line: (cm2/molecule), the opacities, interpolated to wavenumbers_petitradtrans
+                - cross_sections: (cm2/molecule) the opacities
+                - cross_sections_line_by_line: (cm2/molecule), the opacities, interpolated to wavenumbers_petitradtrans
                 - wavenumbers: (cm-1) the wavenumbers corresponding to opacities
                 - pressure: (bar) the pressure of the opacities
                 - temperature: (K) the temperature of the opacities
+            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber order!
         opacities_directory:
             Directory in which the opacity files are stored.
         natural_abundance:
@@ -3126,11 +3128,16 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             file_extension=opacity_files_extension,
             wavelength_file=spectral_dimension_file,
             molmass=molmass,
-            wavenumbers_petitradtrans=wavenumbers_petitradtrans,
+            wavenumbers_petitradtrans_line_by_line=wavenumbers_line_by_line,
             save_line_by_line=save_line_by_line,
             rebin=rebin,
             selection=selection
         )
+
+        # Raise error if the wavenumbers are not sorted in increasing order
+        if not np.all(np.diff(wavenumbers) > 0):
+            raise ValueError("wavenumbers (and cross-sections) returned by external opacity loading function must be "
+                             "sorted in increasing order!")
 
         if i == 0:
             __wavenumbers = wavenumbers
