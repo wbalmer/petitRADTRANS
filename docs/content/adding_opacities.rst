@@ -245,7 +245,7 @@ For the outputs, take care of the following:
 
 Ideally, ``my_load_function`` must be applied to one file containing the opacities at one pressure and one temperature. The ``format2petitradtrans`` function will take care of fetching the files in ``opacities_directory`` with the ``opacity_files_extension`` extension (see below).
 
-.. important:: The opacities, opacities_line_by_line and wavenumbers must be returned in increasing wavenumber order!
+.. important:: The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber order!
 
 You can then proceed to the conversion as follows:
 
