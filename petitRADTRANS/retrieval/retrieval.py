@@ -2766,6 +2766,8 @@ class Retrieval:
                             spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
                                                          self.best_fit_spectra[dd.external_radtrans_reference][1],
                                                          dd.data_resolution)
+                        elif dd.radtrans_grid:
+                            spectrum_model = self.best_fit_spectra[dd.external_radtrans_reference][1]
                         else:
                             spectrum_model = None  # TODO prevent reference before assignment
 

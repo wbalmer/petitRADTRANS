@@ -3506,8 +3506,8 @@ class Radtrans:
         additional_outputs = {}
 
         if return_opacities:
-            additional_outputs['opacities'] = opacities
-            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
+            additional_outputs['opacities'] = copy.deepcopy(opacities)
+            additional_outputs['continuum_opacities_scattering'] = copy.deepcopy(continuum_opacities_scattering)
 
         if cloud_particles_mean_radii is not None:
             additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii

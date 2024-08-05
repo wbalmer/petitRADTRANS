@@ -2977,7 +2977,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                 - wavenumbers: (cm-1) the wavenumbers corresponding to opacities
                 - pressure: (bar) the pressure of the opacities
                 - temperature: (K) the temperature of the opacities
-            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber order!
+            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing
+            wavenumber order!
         opacities_directory:
             Directory in which the opacity files are stored.
         natural_abundance:
@@ -3603,13 +3604,13 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
         __remove_files([directory])
 
 
-def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_petitradtrans=None,
+def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_petitradtrans_line_by_line=None,
               save_line_by_line=False, rebin=True, selection=None):
     """Read a DACE opacity file."""
     import struct
 
-    if wavenumbers_petitradtrans is None:
-        raise TypeError("missing 1 required argument: 'wavenumbers_petitradtrans'")
+    if wavenumbers_petitradtrans_line_by_line is None:
+        raise TypeError("missing 1 required argument: 'wavenumbers_petitradtrans_line_by_line'")
 
     if wavelength_file is not None:
         warnings.warn("Dace opacities does not require a wavelength file\n"
@@ -3654,29 +3655,33 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     # Handle insufficient wavelength coverage
     d_wavenumbers = np.mean(np.diff(wavenumbers))
 
-    if wavenumber_start > wavenumbers_petitradtrans[selection[0]]:
-        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
-                      f"the requested wavelength lower value "
-                      f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans[selection[0]]} cm-1)"
-                      f"\nOpacities set to 0 within {wavenumbers_petitradtrans[selection[0]]}--{wavenumber_start} cm-1")
+    if wavenumber_start > wavenumbers_petitradtrans_line_by_line[selection[0]]:
+        warnings.warn(
+          f"wavenumber coverage of converted opacities does not extend to "
+          f"the requested wavelength lower value "
+          f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans_line_by_line[selection[0]]} cm-1)"
+          f"\nOpacities set to 0 within {wavenumbers_petitradtrans_line_by_line[selection[0]]}--{wavenumber_start} cm-1"
+        )
         wavenumbers = np.insert(
-            wavenumbers, 0, [wavenumbers_petitradtrans[selection[0]], wavenumber_start - d_wavenumbers]
+            wavenumbers, 0, [wavenumbers_petitradtrans_line_by_line[selection[0]], wavenumber_start - d_wavenumbers]
         )
         opacities = np.insert(opacities, 0, [0, 0])
 
-    if wavenumber_end < wavenumbers_petitradtrans[selection[1]]:
-        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
-                      f"the requested wavelength higher value "
-                      f"({wavenumber_end} cm-1 < {wavenumbers_petitradtrans[selection[1]]} cm-1)"
-                      f"\nOpacities set to 0 within {wavenumber_end}--{wavenumbers_petitradtrans[selection[1]]} cm-1")
+    if wavenumber_end < wavenumbers_petitradtrans_line_by_line[selection[1]]:
+        warnings.warn(
+            f"wavenumber coverage of converted opacities does not extend to "
+            f"the requested wavelength higher value "
+            f"({wavenumber_end} cm-1 < {wavenumbers_petitradtrans_line_by_line[selection[1]]} cm-1)"
+            f"\nOpacities set to 0 within {wavenumber_end}--{wavenumbers_petitradtrans_line_by_line[selection[1]]} cm-1"
+        )
         wavenumbers = np.concatenate(
-            [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans[selection[1]]]]
+            [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans_line_by_line[selection[1]]]]
         )
         opacities = np.concatenate([opacities, [0, 0]])
 
     # Interpolate the Dace calculation to that grid
     sig_interp = interp1d(wavenumbers, opacities)
-    sigmas_prt = sig_interp(wavenumbers_petitradtrans[selection[0]:selection[1]])
+    sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
 
     # Check if interp values are below 0 or NaN
     if np.any(np.less(sigmas_prt, 0)):
@@ -3698,13 +3703,13 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
 
 
-def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wavenumbers_petitradtrans=None,
+def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wavenumbers_petitradtrans_line_by_line=None,
                   save_line_by_line=False, rebin=True, selection=None):
     if wavelength_file is None:
         raise TypeError("missing required argument 'wavelength_file'")
 
-    if wavenumbers_petitradtrans is None:
-        raise TypeError("missing required argument 'wavenumbers_petitradtrans'")
+    if wavenumbers_petitradtrans_line_by_line is None:
+        raise TypeError("missing required argument 'wavenumbers_petitradtrans_line_by_line'")
 
     if molmass is not None:
         pass  # silent warning
@@ -3745,7 +3750,7 @@ def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wave
         # Interpolate the ExoCross calculation to that grid
         print(" Interpolating...")
         sig_interp = interp1d(wavenumbers, opacities)
-        sigmas_prt = sig_interp(wavenumbers_petitradtrans)
+        sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line)
     else:
         n_lines = finput.count_file_line_number_sequential(file)
         sigma = finput.load_all_line_by_line_opacities_sequential(file, n_lines)
