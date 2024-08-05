@@ -2951,7 +2951,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          save_line_by_line: bool = True, line_by_line_wavelength_boundaries: np.ndarray = None,
                          standard_line_by_line_wavelength_boundaries: np.ndarray = None, rewrite: bool = False,
                          use_legacy_correlated_k_wavenumbers_sampling: bool = False):
-    """Convert opacities loaded with the specied load function into petitRADTRANS line-by-line and correlated-k
+    """Convert opacities loaded with the specified load function into petitRADTRANS line-by-line and correlated-k
     opacities.
 
     Args:
@@ -2969,15 +2969,17 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                   (automatically set)
                 - save_line_by_line: see save_line_by_line below
                 - rebin: see rebin below
-                - selection: indices corresponding to the wavenumbers to be exctracted
+                - selection: indices corresponding to the wavenumbers to be extracted
             Not all of the above arguments have to be used.
             The function must output the following, in that order:
-                - cross_sections: (cm2/molecule) the opacities
-                - cross_sections_line_by_line: (cm2/molecule), the opacities, interpolated to wavenumbers_petitradtrans
-                - wavenumbers: (cm-1) the wavenumbers corresponding to opacities
-                - pressure: (bar) the pressure of the opacities
-                - temperature: (K) the temperature of the opacities
-            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber order!
+                - cross_sections: (cm2/molecule) the cross-sections
+                - cross_sections_line_by_line: (cm2/molecule), the cross-sections,
+                    interpolated to wavenumbers_petitradtrans_line_by_line
+                - wavenumbers: (cm-1) the wavenumbers corresponding to cross-sections
+                - pressure: (bar) the pressure of the cross-sections
+                - temperature: (K) the temperature of the cross-sections
+            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber
+            order.
         opacities_directory:
             Directory in which the opacity files are stored.
         natural_abundance:
@@ -3128,7 +3130,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             file_extension=opacity_files_extension,
             wavelength_file=spectral_dimension_file,
             molmass=molmass,
-            wavenumbers_petitradtrans_line_by_line=wavenumbers_line_by_line,
+            wavenumbers_petitradtrans_line_by_line=wavenumbers_line_by_line,  # TODO fix by changing wavenumbers_petitradtrans to wavenumbers_petitradtrans_line_by_line in the load_exocross and load_dace functions # noqa E501
             save_line_by_line=save_line_by_line,
             rebin=rebin,
             selection=selection
@@ -3137,7 +3139,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         # Raise error if the wavenumbers are not sorted in increasing order
         if not np.all(np.diff(wavenumbers) > 0):
             raise ValueError("wavenumbers (and cross-sections) returned by external opacity loading function must be "
-                             "sorted in increasing order!")
+                             "sorted in increasing order")
 
         if i == 0:
             __wavenumbers = wavenumbers
