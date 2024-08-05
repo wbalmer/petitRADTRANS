@@ -95,7 +95,7 @@ def main(n_runs, trace_memory):
 
     if trace_memory:
         petitRADTRANS.__debug.malloc_peak_snapshot(' Memory usage')
-        petitRADTRANS.__debug.malloc_top_lines_snapshot('Correlated-k memory usage')
+        petitRADTRANS.__debug.malloc_top_lines_snapshot('Line-by-line memory usage')
 
     print(f"Done.")
 

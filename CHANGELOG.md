@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a30] - 2024-08-05
+## [3.1.0a31] - 2024-08-05
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Fixed return_opacities=True bug in calculate_transit_radii().
 - Function format2petitradtrans applied the incorrect pRT wavelength grid to the lbl opacity conversion.
 - Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
+- Function `format2petitradtrans` incorrectly applying pRT wavelength grid if custom cross-section wavenumbers are not in increasing order.
 - Crash when unpickling `LockedDict` objects.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
