@@ -30,12 +30,14 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Changed
 - Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. Parameter `emission_geometry` will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
+- Requested input and output parameter names for externally provided function to load opacities for format2petitradtrans: since cm^2 should be returned it should be called cross-sections, not opacities.
 
 ### Removed
 - Unused test functions.
 
 ### Fixed
 - Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
+- Function `format2petitradtrans` incorrectly applying pRT wavelength grid if custom cross-section wavenumbers are not in increasing order.
 - Crash when unpickling `LockedDict` objects.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
