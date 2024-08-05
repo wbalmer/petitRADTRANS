@@ -1080,11 +1080,13 @@ def get_cloud_aliases(name: str) -> str:
     if matter_state == __get_condensed_matter_state('(s)') and structure == __get_solid_structure('crystalline'):
         # No space group in name, try to find relevant one in the cloud opacities directory
         if space_group == '' and structure != '':
-            matches = [
-                cloud_directory
-                for cloud_directory in cloud_directories
-                if _name + cloud_info in cloud_directory
-            ]
+            matches = []
+
+            for cloud_directory in cloud_directories:
+                cloud_directory_name, cloud_directory_info = _split_species_cloud_info(cloud_directory)
+
+                if cloud_directory_name == _name and cloud_info in cloud_directory_info:
+                    matches.append(cloud_directory)
 
             # Try to look into the Keeper library if nothing was found locally
             if len(matches) == 0:
