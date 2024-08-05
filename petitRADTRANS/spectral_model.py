@@ -111,9 +111,6 @@ class SpectralModel(Radtrans):
         imposed_mass_fractions:
             Mass fractions imposed when calculating the mass fractions. See SpectralModel.compute_mass_fractions for
             more details.
-        instrumental_deformations:
-            Array of shape (n_orders, n_exposures, n_wavelengths) that will be multiplied to the spectrum after the
-            modification step.
         intrinsic_temperature:
             (K) The planet's intrinsic temperature.
             Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
@@ -147,9 +144,6 @@ class SpectralModel(Radtrans):
                 - convolve,
                 - rebin,
                 - prepare.
-        noise_matrix:
-            Array of shape (n_orders, n_exposures, n_wavelengths) that will be added to the spectrum after the
-            modification step.
         orbit_semi_major_axis:
             (cm) Semi-major axis of the planet's orbit.
             Used to calculate the radial velocities, transit effect, and stellar intensities.
@@ -200,11 +194,6 @@ class SpectralModel(Radtrans):
             Used to calculate the emission spectrum when ``is_observed`` is True.
         system_observer_radial_velocities:
             (cm.s-1) Array of velocities between the system and the observer.
-        telluric_transmittances:
-            Telluric transmittance in the observation conditions.
-            Used for simulating observations.
-        telluric_transmittances_wavelengths:
-            (cm) Wavelengths of the telluric transmittances.
         tellurics_mask_threshold:
             Mask wavelengths where the atmospheric transmittance estimate is below this value.
             Used when preparing the spectrum with retrieval.preparing.polyfit function.
