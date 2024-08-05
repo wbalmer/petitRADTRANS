@@ -2905,7 +2905,7 @@ class Radtrans:
                     if True, the absorption opacities and scattering opacities for species and clouds, as well as the
                     optical depths, are returned
         """
-        if emission_geometry is not None:
+        if emission_geometry is not None:  # TODO remove in 4.0
             irradiation_geometry = emission_geometry
 
             warnings.warn(
