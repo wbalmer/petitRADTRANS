@@ -1464,7 +1464,7 @@ class Radtrans:
                     f"Set the missing arguments, "
                     f"or directly set cloud particle radii "
                     f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
-                    f"and argument 'cloud_particles_distribution_std'.\n"
+                    f"and argument 'cloud_particle_radius_distribution_std'.\n"
                     f"The cloud particle radii are necessary to calculate the cloud opacities."
                 )
 
@@ -2638,9 +2638,13 @@ class Radtrans:
 
                     # Init a temporary radtrans object with only the relevant opacity source
                     for species in species_list:
+                        _user_cloud_species = None
+
+                        # Use full names for CIA and clouds to have a clean legend when plotting the opacities
                         if opacity == 'gas_continuum_contributors':
                             species = get_cia_aliases(species)
                         elif opacity == 'cloud_species':
+                            _user_cloud_species = copy.deepcopy(species)
                             species = get_cloud_aliases(species)
 
                         fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
@@ -2698,6 +2702,14 @@ class Radtrans:
                                     spectral_parameters[_key].update(_default_mass_fractions)
                             else:  # non-opacity spectral parameters
                                 spectral_parameters[_key] = copy.deepcopy(_value)
+
+                        # Update the user's cloud name to the full one everywhere it is needed to prevent crashes
+                        if opacity == 'cloud_species':
+                            for _key, _value in spectral_parameters.items():
+                                if isinstance(_value, dict):
+                                    if _user_cloud_species in _value:
+                                        _value[species] = copy.deepcopy(_value[_user_cloud_species])
+                                        del _value[_user_cloud_species]
 
                         opacity_contributions[opacity][species] = _radtrans.__getattr__(spectral_function)(
                             **spectral_parameters
@@ -2905,7 +2917,7 @@ class Radtrans:
                     if True, the absorption opacities and scattering opacities for species and clouds, as well as the
                     optical depths, are returned
         """
-        if emission_geometry is not None:
+        if emission_geometry is not None:  # TODO remove in 4.0
             irradiation_geometry = emission_geometry
 
             warnings.warn(
@@ -3506,8 +3518,8 @@ class Radtrans:
         additional_outputs = {}
 
         if return_opacities:
-            additional_outputs['opacities'] = opacities
-            additional_outputs['continuum_opacities_scattering'] = continuum_opacities_scattering
+            additional_outputs['opacities'] = copy.deepcopy(opacities)
+            additional_outputs['continuum_opacities_scattering'] = copy.deepcopy(continuum_opacities_scattering)
 
         if cloud_particles_mean_radii is not None:
             additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
