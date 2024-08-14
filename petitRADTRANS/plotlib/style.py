@@ -154,7 +154,6 @@ def set_petitradtrans_plot_style():
             'linewidth': 3}
     figure = {'titlesize': 32,
               'figsize': (16, 10),
-              'dpi': 300,
               'autolayout': True}
     legend = {'fancybox': True,
               'fontsize': 24}

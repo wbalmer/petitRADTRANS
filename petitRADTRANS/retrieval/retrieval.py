@@ -2336,7 +2336,7 @@ class Retrieval:
 
         prt_object = Radtrans(
             pressures=p,
-            line_species=cp.copy(self.configuration.line_species),
+            line_species=cp.copy(species),
             rayleigh_species=cp.copy(self.configuration.rayleigh_species),
             gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
             cloud_species=cp.copy(self.configuration.cloud_species),
