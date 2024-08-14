@@ -128,12 +128,19 @@ def setup_clouds(pressures, parameters, cloud_species):
         kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
 
+
 def setup_simple_clouds_hazes(parameters):
+    """
+    Setup clouds for transmission spectrum
+
+    Args:
+        parameters (dict): dictionary of atmospheric parameters
+    """
     pcloud = None
     power_law_opacity_coefficient = None
     haze_factor = 1.0
     power_law_opacity_350nm = None
-    
+
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
@@ -144,7 +151,8 @@ def setup_simple_clouds_hazes(parameters):
         haze_factor = 10 ** parameters["haze_factor"].value
     if "power_law_opacity_350nm" in parameters.keys():
         power_law_opacity_350nm = parameters["power_law_opacity_350nm"].value
-    return pcloud,power_law_opacity_coefficient,haze_factor,power_law_opacity_350nm
+    return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
+
 
 def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
     """

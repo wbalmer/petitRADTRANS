@@ -162,7 +162,7 @@ Testing the installation
 Open a new terminal window. Then open python and type:
 
 .. code-block:: python
-		
+
     from petitRADTRANS.radtrans import Radtrans
     radtrans = Radtrans(line_species=['CH4'])
 
@@ -214,6 +214,11 @@ Linking the MultiNest libraries the usual way may not work on a Mac when using `
     conda install mpi4py
 
 In case of troubles, if you use Homebrew, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help. If you do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
+A common error with Apple silicon when trying to run retrievals is ``AttributeError: dlsym(RTLD_DEFAULT, run): symbol not found``. This is a problem inherited from ``pymultinest``, and to solve it you should add the following lines of code before importing pRT or ``pymultinest``.
+
+.. code-block:: bash
+    import os
+    os.environ["DYLB_LIBRARY_PATH"] = "/path/to/Multinest/lib"
 
 Other issues
 ------------

@@ -60,7 +60,7 @@ class Data:
             data_resolution : float or np.ndarray
                 Spectral resolution of the instrument. Optional, allows convolution of model to
                 instrumental line width. If the data_resolution is an array, the resolution can
-                vary as as a function of wavelength. The array should have the same shape as 
+                vary as as a function of wavelength. The array should have the same shape as
                 the input wavelength array, and should specify the spectral resolution at each
                 wavelength bin.
             model_resolution : float
@@ -719,7 +719,7 @@ class Data:
                 The convolved spectrum.
         """
         if isinstance(instrument_res, np.ndarray):
-            return fortran_convolve.variable_width_convolution(input_wavelength, input_flux,instrument_res)
+            return fortran_convolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
         # From talking to Ignas: delta lambda of resolution element
         # is FWHM of the LSF's standard deviation, hence:
         sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
