@@ -3,6 +3,20 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [3.1.0] - 2024-08-14
+### Added
+- Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter.
+- Added in a subroutine to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
+- Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
+### Fixed
+- Solved [(issue 76)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76). Updated model functions to accept 350nm scattering as an optional parameter.
+- Solved [(issue 80)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80). Bug fixes to `madhushudhan_seager_transmission` function
+- Solved [(issue 82)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82). Bug fix due to change in shape of sample arrays for pRT3.
+- Fixed bug in emission retrieval tutorial, changing names of cloud parameters.
+### Changed
+- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
+- Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
+
 ## [3.0.7] - 2024-07-01
 ### Fixed
 - Fixed log-likelihood bug from change in sample array shape [(issue 71)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/71). All internal sample arrays should now have shape (number_params,number_samples).

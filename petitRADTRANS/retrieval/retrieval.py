@@ -1519,7 +1519,7 @@ class Retrieval:
             if self.configuration.parameters[pp].is_free_parameter:
                 for i_s in range(len(parameters_read)):
                     if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                        samples_use[i_p] = np.median(samples[:, i_s])
+                        samples_use[i_p] = np.median(samples[i_s, :])
                 i_p += 1
         self.best_fit_parameters = self.build_param_dict(samples_use, parameters_read)
 
