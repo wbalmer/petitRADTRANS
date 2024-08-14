@@ -1339,6 +1339,9 @@ class Retrieval:
                 else:
                     wlen_model, spectrum_model = ret_val
 
+            if dd.data_resolution is not None:
+                spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution)
+
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [wlen_model, spectrum_model]
             else:
@@ -2374,10 +2377,10 @@ class Retrieval:
                 else:
                     wlen, model, __ = ret_val
 
-                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["R_pl"].value)
+                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["planet_radius"].value)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
-            np.save(os.path.join(self.output_directory, "evaluate_" + name, "sampled_teff"), np.array(teffs))
+            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff"), np.array(teffs)
         return tdict
 
     def plot_all(self,
