@@ -1343,6 +1343,7 @@ class Retrieval:
                 else:
                     wlen_model, spectrum_model = ret_val
             if dd.data_resolution_array_model is not None:
+                dd.intialise_data_resolution(wlen_model)
                 spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution_array_model)
             elif dd.data_resolution is not None:
                 spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution)
