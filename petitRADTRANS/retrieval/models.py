@@ -1388,12 +1388,10 @@ def calculate_emission_spectrum(prt_object,
     # Set the cloud abundances to 0 for clear case
     if "remove_cloud_species" in parameters.keys():
         for cloud in parameters["remove_cloud_species"].value:
-            cname = cloud.split('_')[0]
-            abundances[cname] = np.zeros_like(temperatures)
+            abundances[cloud] = np.zeros_like(temperatures)
     else:
         for cloud in prt_object.cloud_species:
-            cname = cloud.split('_')[0]
-            abundances[cname] = np.zeros_like(temperatures)
+            abundances[cloud] = np.zeros_like(temperatures)
 
     wlen_model, flux, additional_opacities = prt_object.calculate_flux(
         temperatures=temperatures,
