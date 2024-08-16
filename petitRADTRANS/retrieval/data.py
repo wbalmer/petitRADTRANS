@@ -368,7 +368,7 @@ class Data:
 
     def intialise_data_resolution(self):
         if isinstance(self.data_resolution,np.ndarray):
-            self.data_resolution_array_model = np.interp(self.radtrans_object,self.wavelengths,self.data_resolution)
+            self.data_resolution_array_model = np.interp(1e4*cst.c/self.radtrans_object._frequencies,self.wavelengths,self.data_resolution)
 
     def update_bins(self, wlens):
         self.wavelength_bin_widths = np.zeros_like(wlens)
@@ -457,7 +457,11 @@ class Data:
                     model_spectra.append(spectrum_model)
 
                 for spectrum_model in model_spectra:
-                    if self.data_resolution is not None:
+                    if self.data_resolution_array_model is not None:
+                        spectrum_model = self.convolve(wlen_model,
+                                                       spectrum_model,
+                                                       self.data_resolution_array_model)
+                    elif self.data_resolution is not None:
                         spectrum_model = self.convolve(wlen_model,
                                                        spectrum_model,
                                                        self.data_resolution)

@@ -2381,7 +2381,7 @@ class Retrieval:
                 else:
                     wlen, model, __ = ret_val
 
-                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["planet_radius"].value)
+                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["planet_radius"].value,use_si_units=True)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
             np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(teffs))
