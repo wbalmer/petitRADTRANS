@@ -874,7 +874,7 @@ class Retrieval:
 
             # Setup for non-uniform spectral resolution
             if isinstance(dd.data_resolution,np.ndarray):
-                dd.intialise_data_resolution()
+                dd.intialise_data_resolution(1e4*cst.c/rt_object._frequencies)
 
     def _error_check_model_function(self):
         free_params = []
@@ -1968,7 +1968,6 @@ class Retrieval:
                 if dd.scale_err:
                     f_err = f_err * sf
                 if f"{name}_b" in self.configuration.parameters.keys():
-                    print(self.best_fit_parameters.keys())
                     f_err = np.sqrt(f_err ** 2 + 10 ** self.best_fit_parameters[f"{name}_b"].value)
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
             norm = norm + add
@@ -2175,6 +2174,8 @@ class Retrieval:
         d_o_f = 0
 
         for name, dd in self.configuration.data.items():
+            if isinstance(dd.data_resolution,np.ndarray):
+                dd.intialise_data_resolution(wlen_model)
             d_o_f += np.size(dd.spectrum)
             sf = 1
             log_l += dd.get_chisq(
@@ -2733,6 +2734,7 @@ class Retrieval:
                     if dd.external_radtrans_reference is None:
                         spectrum_model = self.best_fit_spectra[name][1]
                         if dd.data_resolution_array_model is not None:
+                            dd.intialise_data_resolution(self.best_fit_spectra[name][0])
                             spectrum_model = dd.convolve(self.best_fit_spectra[name][0],
                                                          self.best_fit_spectra[name][1],
                                                          dd.data_resolution_array_model)
@@ -2749,6 +2751,7 @@ class Retrieval:
                         )
                     else:
                         if dd.data_resolution is not None:
+                            dd.intialise_data_resolution(self.best_fit_spectra[dd.external_radtrans_reference][0])
                             spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
                                                          self.best_fit_spectra[dd.external_radtrans_reference][1],
                                                          dd.data_resolution_array_model)
