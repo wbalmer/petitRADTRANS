@@ -1342,8 +1342,9 @@ class Retrieval:
                                                                       dd.name)
                 else:
                     wlen_model, spectrum_model = ret_val
-
-            if dd.data_resolution is not None:
+            if dd.data_resolution_array_model is not None:
+                spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution_array_model)
+            elif dd.data_resolution is not None:
                 spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution)
 
             if self.evaluate_sample_spectra:
@@ -2731,10 +2732,15 @@ class Retrieval:
                 if not dd.photometry:
                     if dd.external_radtrans_reference is None:
                         spectrum_model = self.best_fit_spectra[name][1]
-                        if dd.data_resolution is not None:
+                        if dd.data_resolution_array_model is not None:
+                            spectrum_model = dd.convolve(self.best_fit_spectra[name][0],
+                                                         self.best_fit_spectra[name][1],
+                                                         dd.data_resolution_array_model)
+                        elif dd.data_resolution is not None:
                             spectrum_model = dd.convolve(self.best_fit_spectra[name][0],
                                                          self.best_fit_spectra[name][1],
                                                          dd.data_resolution)
+
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -2743,6 +2749,10 @@ class Retrieval:
                         )
                     else:
                         if dd.data_resolution is not None:
+                            spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
+                                                         self.best_fit_spectra[dd.external_radtrans_reference][1],
+                                                         dd.data_resolution_array_model)
+                        elif dd.data_resolution is not None:
                             spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
                                                          self.best_fit_spectra[dd.external_radtrans_reference][1],
                                                          dd.data_resolution)
