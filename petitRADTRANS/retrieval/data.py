@@ -366,9 +366,9 @@ class Data:
         self.system_distance = distance
         return self.system_distance
 
-    def intialise_data_resolution(self):
+    def intialise_data_resolution(self,wavelengths_model):
         if isinstance(self.data_resolution,np.ndarray):
-            self.data_resolution_array_model = np.interp(1e4*cst.c/self.radtrans_object._frequencies,self.wavelengths,self.data_resolution)
+            self.data_resolution_array_model = np.interp(wavelengths_model,self.wavelengths,self.data_resolution)
 
     def update_bins(self, wlens):
         self.wavelength_bin_widths = np.zeros_like(wlens)
