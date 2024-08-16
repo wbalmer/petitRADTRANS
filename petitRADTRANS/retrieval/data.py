@@ -150,6 +150,8 @@ class Data:
             logging.warning("Your system distance is less than 1 pc, are you sure you're using cgs units?")
 
         self.data_resolution = data_resolution
+        self.data_resolution_array_model = None
+
         self.model_resolution = model_resolution
         self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
@@ -363,6 +365,10 @@ class Data:
 
         self.system_distance = distance
         return self.system_distance
+
+    def intialise_data_resolution(self):
+        if isinstance(self.data_resolution,np.ndarray):
+            self.data_resolution_array_model = np.interp(self.radtrans_object,self.wavelengths,self.data_resolution)
 
     def update_bins(self, wlens):
         self.wavelength_bin_widths = np.zeros_like(wlens)

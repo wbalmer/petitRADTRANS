@@ -872,6 +872,10 @@ class Retrieval:
 
                 dd.radtrans_object = rt_object
 
+            # Setup for non-uniform spectral resolution
+            if isinstance(dd.data_resolution,np.ndarray):
+                dd.intialise_data_resolution()
+
     def _error_check_model_function(self):
         free_params = []
 
@@ -2341,7 +2345,7 @@ class Retrieval:
             gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
             cloud_species=cp.copy(self.configuration.cloud_species),
             line_opacity_mode='c-k',
-            wavelength_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=np.array([0.4, 100]),
             scattering_in_emission=self.configuration.scattering_in_emission
         )
 
@@ -2380,7 +2384,7 @@ class Retrieval:
                 tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["planet_radius"].value)
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
-            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff"), np.array(teffs)
+            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(teffs))
         return tdict
 
     def plot_all(self,

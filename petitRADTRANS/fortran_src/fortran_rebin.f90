@@ -168,8 +168,8 @@ module fortran_rebin
                 rebinned_spectrum &
             )
         end subroutine rebin_spectrum
-    
-        
+
+
         subroutine rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths, &
                                       n_rebin, n_wavelengths, rebinned_spectrum)
             use rebin_utils, only: rebinning_interpolation, write_input_size_error, write_out_of_bounds_error
@@ -182,14 +182,14 @@ module fortran_rebin
             double precision, intent(out) :: rebinned_spectrum(n_rebin)
             ! internal
             double precision :: rebin_bin_low(n_rebin), rebin_bin_high(n_rebin)
-            
+
             ! Check output array size
             if (n_rebin < 2) then
                 call write_input_size_error(n_rebin, rebinned_spectrum)
 
                 return
             end if
-    
+
             rebinned_spectrum = 0d0
 
             ! Get bin boundaries
@@ -207,7 +207,7 @@ module fortran_rebin
 
                 return
             end if
-    
+
             call rebinning_interpolation(&
                 input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin, n_wavelengths, &
                 rebinned_spectrum &
@@ -221,29 +221,29 @@ module fortran_convolve
     contains
     subroutine variable_width_convolution(input_wavelength,input_flux,resolutions,&
                                           input_spectrum_length,convolved_spectrum)
-        
+
         implicit none
 
         ! Convolve a spectrum with a variable with gaussian kernel.
-        ! Based on implementation from Ben Burningham for Brewster. 
+        ! Based on implementation from Ben Burningham for Brewster.
         ! https://github.com/fwang23nh/brewster_v2/blob/master/bbconv.f90
-        ! 
+        !
         ! input_wavelength - units of micron
         ! input_flux - arbitrary units
         ! resolutions - spectral resolving power, R
         ! convolved_spectrum - same units as input_flux
         !f2py intent(inout) modspec,observed_spectrum
         !f2py intent(out) convolved_spectrum
-      
-        double precision,intent(in) :: input_wavelength(input_spectrum_length),input_flux(input_spectrum_length),&
-        resolutions(input_spectrum_length)
         integer,intent(in) :: input_spectrum_length
+        double precision,intent(in) :: input_wavelength(input_spectrum_length), input_flux(input_spectrum_length), &
+        resolutions(input_spectrum_length)
+
         double precision,intent(out) :: convolved_spectrum(input_spectrum_length)
         double precision :: gauss(input_spectrum_length)
         integer :: i
         double precision:: sigma
-      
-      
+
+
         do i = 1, input_spectrum_length
            !sigma is FWHM / 2.355
            sigma = (input_wavelength(i) / resolutions(i)) / 2.355
@@ -251,6 +251,6 @@ module fortran_convolve
            gauss = gauss/ sum(gauss)
            convolved_spectrum(i)= sum(gauss*input_flux)
         end do
-      
+
       end subroutine variable_width_convolution
 end module fortran_convolve
