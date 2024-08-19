@@ -888,8 +888,8 @@ class Retrieval:
                 dd.radtrans_object = rt_object
 
             # Setup for non-uniform spectral resolution
-            if isinstance(dd.data_resolution,np.ndarray):
-                dd.intialise_data_resolution(1e4*cst.c/rt_object._frequencies)
+            if isinstance(dd.data_resolution, np.ndarray):
+                dd.intialise_data_resolution(1e4*cst.c/rt_object.frequencies)
 
     def _error_check_model_function(self):
         free_params = []
@@ -1366,9 +1366,9 @@ class Retrieval:
                     wlen_model, spectrum_model = ret_val
             if dd.data_resolution_array_model is not None:
                 dd.intialise_data_resolution(wlen_model)
-                spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution_array_model)
+                spectrum_model = dd.convolve(wlen_model, spectrum_model, dd.data_resolution_array_model)
             elif dd.data_resolution is not None:
-                spectrum_model = dd.convolve(wlen_model, spectrum_model,dd.data_resolution)
+                spectrum_model = dd.convolve(wlen_model, spectrum_model, dd.data_resolution)
 
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [wlen_model, spectrum_model]
@@ -2197,7 +2197,7 @@ class Retrieval:
         d_o_f = 0
 
         for name, dd in self.configuration.data.items():
-            if isinstance(dd.data_resolution,np.ndarray):
+            if isinstance(dd.data_resolution, np.ndarray):
                 dd.intialise_data_resolution(wlen_model)
             d_o_f += np.size(dd.spectrum)
             sf = 1
@@ -2406,7 +2406,13 @@ class Retrieval:
                 else:
                     wlen, model, __ = ret_val
 
-                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["planet_radius"].value,use_si_units=True)
+                tfit = compute_effective_temperature(
+                    wlen,
+                    model,
+                    params["D_pl"].value,
+                    params["planet_radius"].value,
+                    use_si_units=True
+                    )
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
             np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(teffs))
@@ -3620,7 +3626,7 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            #self.pt_plot_mode = True
+            # self.pt_plot_mode = True
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
