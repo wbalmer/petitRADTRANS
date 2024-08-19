@@ -530,7 +530,7 @@ class SpectralModel(Radtrans):
             if value is None:
                 missing.append(parameter_name)
 
-        if len(missing) >= 1:
+        if len(missing) > 0:
             joint = "', '".join(missing)
 
             base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
