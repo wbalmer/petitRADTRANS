@@ -472,7 +472,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         Tret : np.ndarray
             The temperature as a function of atmospheric pressure.
     """
-    import copy as cp
+    import copy
     from scipy.interpolate import interp1d, CubicSpline
     from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 
@@ -515,9 +515,9 @@ def temperature_profile_function_ret_model(rad_trans_params):
         # TODO: Check remains convective and convergence
         for i in range(10):
             if i == 0:
-                t_take = cp.copy(tedd)
+                t_take = copy.copy(tedd)
             else:
-                t_take = cp.copy(tfinal)  # TODO reference before assignment
+                t_take = copy.copy(tfinal)  # TODO reference before assignment
 
             ab, _, nabla_ad = (
                 pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
@@ -541,7 +541,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Add upper radiative and
             # lower conective part into one single array
-            tfinal = cp.copy(t_take)
+            tfinal = copy.copy(t_take)
             tfinal[conv_index] = tnew
 
             if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:

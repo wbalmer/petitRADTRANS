@@ -876,10 +876,10 @@ class Retrieval:
                 # Set up the pRT objects for the given dataset
                 rt_object = Radtrans(
                     pressures=p,
-                    line_species=cp.copy(species),
-                    rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                    gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                    cloud_species=cp.copy(self.configuration.cloud_species),
+                    line_species=copy.copy(species),
+                    rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                    gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                    cloud_species=copy.copy(self.configuration.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
                     wavelength_boundaries=dd.wavelength_boundaries,
                     scattering_in_emission=self.configuration.scattering_in_emission,
@@ -1603,10 +1603,10 @@ class Retrieval:
         else:
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=cp.copy(self.configuration.line_species),
-                rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                cloud_species=cp.copy(self.configuration.cloud_species),
+                line_species=copy.copy(self.configuration.line_species),
+                rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                cloud_species=copy.copy(self.configuration.cloud_species),
                 line_opacity_mode=self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
@@ -2356,10 +2356,10 @@ class Retrieval:
 
         prt_object = Radtrans(
             pressures=p,
-            line_species=cp.copy(self.configuration.line_species),
-            rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-            cloud_species=cp.copy(self.configuration.cloud_species),
+            line_species=copy.copy(self.configuration.line_species),
+            rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+            gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+            cloud_species=copy.copy(self.configuration.cloud_species),
             line_opacity_mode='c-k',
             wavelength_boundaries=np.array([0.5, 28]),
             scattering_in_emission=self.configuration.scattering_in_emission
@@ -2473,8 +2473,8 @@ class Retrieval:
             ###########################################
             # Plot best-fit spectrum
             ###########################################
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
-            parameters_read = cp.copy(parameter_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
+            parameters_read = copy.copy(parameter_dict[self.configuration.retrieval_name])
             i_p = 0
 
             # This might actually be redundant...
@@ -3076,10 +3076,10 @@ class Retrieval:
                     wmax = dd.wavelength_boundaries[1]
 
             # Set up parameter dictionary
-            atmosphere = Radtrans(line_species=cp.copy(self.configuration.line_species),
-                                  rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                                  gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                                  cloud_species=cp.copy(self.configuration.cloud_species),
+            atmosphere = Radtrans(line_species=copy.copy(self.configuration.line_species),
+                                  rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                                  gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                                  cloud_species=copy.copy(self.configuration.cloud_species),
                                   line_opacity_mode='c-k',
                                   wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                                   scattering_in_emission=self.configuration.scattering_in_emission)
@@ -3212,7 +3212,7 @@ class Retrieval:
                 self.configuration.run_mode = 'evaluate'
 
             # Choose what samples we want to use
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
 
             # This is probably obsolete
             # i_p = 0
@@ -3457,8 +3457,8 @@ class Retrieval:
 
             for name, params in parameter_dict.items():
                 # Corner plot requires sample_dict to be transposed
-                samples_use = cp.copy(sample_dict[name]).T
-                parameters_use = cp.copy(params)
+                samples_use = copy.copy(sample_dict[name]).T
+                parameters_use = copy.copy(params)
                 parameter_plot_indices = []
                 parameter_ranges = []
                 i_p = 0
@@ -3480,7 +3480,7 @@ class Retrieval:
                 p_plot_inds[name] = parameter_plot_indices
                 p_ranges[name] = parameter_ranges
                 p_use_dict[name] = parameters_use
-                sample_use_dict[name] = cp.copy(samples_use)
+                sample_use_dict[name] = copy.copy(samples_use)
 
             output_file = self.get_base_figure_name() + '_corner_plot.pdf'
             # from Plotting
