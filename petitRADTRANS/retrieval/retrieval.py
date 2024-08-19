@@ -1766,8 +1766,8 @@ class Retrieval:
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
-            cp.copy(species),
-            cp.copy(self.configuration.data[name].radtrans_object.cloud_species),
+            copy.copy(species),
+            copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
             amr=False
         )
