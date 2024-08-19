@@ -3,20 +3,72 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
-## [3.1.0] - 2024-08-14
+
+## [3.1.0a33] - 2024-08-19
 ### Added
+- Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
+- Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
+- Possibility to use vertically variable fsed per species.
+- Possibility to custom `SpectralModel` spectral modification functions at instantiation.
+- Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
+- Possibility to specify the retrieval name in `plot_result_corner`.
+- Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
+- Function to plot the above opacity contribution spectra.
+- Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
+- Function to fill all layers of an atmosphere at once with filling species.
+- Documentation for the newly added functions.
+- Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
+- Warning when only one of the two parameters necessary to include a power law opacity has been set.
+- Test module for `SpectralModel` using custom functions.
+- Test module for `SpectralModel` in `'c-k'` opacity mode.
+- Test module for `SpectralModel` in `'lbl'` opacity mode.
+- Test module for `SpectralModel` retrieval framework.
+- Performance tests.
+- Source files for JOSS papers.
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Added in a subroutine to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
+
+### Changed
+- Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. Parameter `emission_geometry` will be deprecated in version 4.0.0.
+- Clarified a bit the documentation on the `SpectralModel` retrieval framework.
+- Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
+- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
+- Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
+
+### Removed
+- Unused test functions.
+
 ### Fixed
+- Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
+- Bug in function `calculate_transit_radii()` when `return_opacities=True`.
+- Function `format2petitradtrans` applied the incorrect pRT wavelength grid to the lbl opacity conversion.
+- Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
+- Crash when unpickling `LockedDict` objects.
+- Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
+- Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
+- Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
+- Mass fractions being modified when calculating CIA opacities in some cases.
+- Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
+- Crash of `SpectralModel` when not specifying the mass fraction of a line species.
+- Crash when preparing fully masked spectra.
+- Crash when using a fresh `SpectralModel` instance's `calculate_spectrum` with `update_parameters=False` without initializing `star_flux`.
+- Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
+- Incorrect filling mass fraction calculation in some cases.
+- Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
+- Unable to automatically download a default opacity file.
+- Silent error when calculating the transit effect for a non-transiting planet.
+- Function maps of `SpectralModel` are incorrectly loaded.
+- Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
+- Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
+- Typos in some docs.
+- Typos in some comments.
 - Solved [(issue 76)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76). Updated model functions to accept 350nm scattering as an optional parameter.
 - Solved [(issue 80)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80). Bug fixes to `madhushudhan_seager_transmission` function
 - Solved [(issue 82)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82). Bug fix due to change in shape of sample arrays for pRT3.
 - Fixed bug in emission retrieval tutorial, changing names of cloud parameters.
 - Fixed bug in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
-### Changed
-- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
-- Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
 
 ## [3.0.7] - 2024-07-01
 ### Fixed
@@ -34,8 +86,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.0.4] - 2024-05-28
 ### Fixed
-- Fixed MPI parallelisation for exo-k binning.
-- Enforced integer indices for AMR in retrievals.
+- Scripts hang forever while loading `exo-k` re-binned opacities on multiple processes.
+- Indices for AMR in retrievals are not integers.
 
 ## [3.0.3] - 2024-05-15
 ### Fixed

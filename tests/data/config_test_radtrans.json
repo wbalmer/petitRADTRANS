@@ -5,7 +5,8 @@
         "start": -6,
         "stop": 2,
         "stop_thin_atmosphere": 0,
-        "num": 27
+        "num": 27,
+        "num_performance": 100
     },
     "mass_fractions_correlated_k": {
         "H2": 0.74,
@@ -13,13 +14,22 @@
         "1H2-16O__HITEMP.R1000_0.1-250mu": 0.001,
         "12C-1H4__YT34to10.R1000_0.3-50mu": 0.001,
         "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
-     },
+    },
     "mass_fractions_line_by_line": {
         "H2": 0.74,
         "He": 0.24,
         "1H2-16O__POKAZATEL.R1e6_0.3-28mu": 0.001,
         "C-O-NatAbund__HITEMP.R1e6_0.3-28mu": 0.1,
         "Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu": 0.0
+    },
+    "mass_fractions_test": [
+        1,
+        -12
+    ],
+    "filling_species": {
+        "H2": 37,
+        "He": 12,
+        "Ne": 0.06
     },
     "mean_molar_mass": 2.33,
     "chemical_parameters": {
@@ -51,13 +61,17 @@
         "reference_gravity": 281.8382931264455,
         "eddy_diffusion_coefficients": 31622776.60168379,
         "orbit_semi_major_axis": 750000000000.0,
+        "orbital_period": 86400,
+        "orbital_inclination": 88,
+        "transit_duration": 3600,
         "surface_reflectance": 0.3
     },
     "stellar_parameters": {
         "effective_temperature": 5778.0,
         "radius": 1.0,
         "mass": 1.0,
-        "incidence_angle": 30
+        "incidence_angle": 30,
+        "system_distance": 10
     },
     "spectrum_parameters": {
         "line_by_line_opacity_sampling": 4,
@@ -81,6 +95,10 @@
             0.9,
             1.2
         ],
+        "wavelength_range_correlated_k_performance": [
+            0.3,
+            28
+        ],
         "wavelength_range_line_by_line": [
             2.3,
             2.3025
@@ -96,6 +114,10 @@
                 "mass_fraction": 5e-07,
                 "radius": 5e-05,
                 "f_sed": 2.0,
+                "f_sed_variable_setup": [
+                    2.0,
+                    2.5
+                ],
                 "sigma_log_normal": 1.05,
                 "b_hansen": 0.01
             }
@@ -116,39 +138,58 @@
         ],
         "log10_species_mass_fractions_bounds": [
             -6,
-            0
+            -1
+        ],
+        "radial_velocity_semi_amplitude_bounds": [
+            10000000.0,
+            20000000.0
+        ],
+        "rest_frame_velocity_shift_bounds": [
+            -1000000.0,
+            1000000.0
+        ],
+        "mid_transit_time_bounds": [
+            -600,
+            600
         ],
         "sample_spectrum_output": false,
         "ultranest": false,
         "sampling_efficiency": 0.8,
         "n_live_points": 50,
+        "n_live_points_spectral_model": 15,
         "const_efficiency_mode": false,
         "resume": false,
         "seed": 12345
     },
     "mock_observation_parameters": {
         "resolving_power": 60,
-        "high_resolution_resolving_power": 1e5,
+        "high_resolution_resolving_power": 100000.0,
         "wavelength_range_high_resolution": [
             2.3005,
-            2.3020
+            2.302
         ],
         "orbital_phase_range": [
-            -1e-2,
-            1e-2
+            -0.01,
+            0.01
         ],
         "system_observer_radial_velocities_range": [
-            -5.0e5,
-            -4.85e5
+            -500000.0,
+            -485000.0
         ],
         "n_exposures": 20,
-        "rest_frame_velocity_shift": -1.5e5,
+        "rest_frame_velocity_shift": -150000.0,
         "relative_error": 0.01
+    },
+    "preparing_parameters": {
+        "tellurics_mask_threshold": 0.8,
+        "polynomial_fit_degree": 2
     },
     "ccf_analysis_parameters": {
         "normalize_ccf": true,
         "calculate_ccf_snr": true,
-        "ccf_sum_axes": [0],
+        "ccf_sum_axes": [
+            0
+        ],
         "pixels_per_resolution_element": 2,
         "peak_lsf_factor": 1.5,
         "velocity_interval_extension_factor": -0.3,

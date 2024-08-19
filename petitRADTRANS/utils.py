@@ -2,6 +2,7 @@
 """
 import copy
 import csv
+import sys
 import warnings
 
 import h5py
@@ -14,8 +15,8 @@ class LockedDict(dict):
     """
 
     def __init__(self):
-        super().__init__()
         self._locked = False
+        super().__init__()
 
     def __copy__(self):
         """Override the copy.copy method. Necessary to allow locked LockedDict to be copied."""
@@ -55,9 +56,17 @@ class LockedDict(dict):
 
     def __setitem__(self, key, value):
         """Prevent a key to be added if the lock is on."""
+        if not hasattr(self, '_locked'):
+            self._locked = False
+
         if key not in self and self._locked:
             raise KeyError(f"'{key}' not in locked LockedDict, unlock the LockedDict to add new keys")
         else:
+            if key in self:  # handle nested LockedDicts
+                if isinstance(self[key], LockedDict) and isinstance(value, dict):
+                    self[key].update(value)
+                    value = self[key]
+
             super().__setitem__(key, value)
 
     @classmethod
@@ -106,7 +115,7 @@ def check_all_close(a, b, **kwargs):
 
         for key, value in a.items():
             # Since there is the same number of keys, an error will be raised if a key in 'a' is not in 'b'
-            check_all_close(value, b[key], **kwargs)
+            check_all_close(value, b[str(key)], **kwargs)
     elif isinstance(a, str):
         if a != b:
             raise AssertionError(f"'{a}' != '{b}'")
@@ -209,7 +218,7 @@ def dict2hdf5(dictionary, hdf5_file, group='/'):
 
     for key in dictionary:
         if isinstance(dictionary[key], dict):  # create a new group for the dictionary
-            new_group = group + key + '/'
+            new_group = group + str(key) + '/'
             dict2hdf5(dictionary[key], hdf5_file, new_group)
         elif callable(dictionary[key]):
             print(f"Skipping callable '{key}': dtype('O') has no native HDF5 equivalent")
@@ -286,6 +295,33 @@ def hdf52dict(hdf5_file):
                           f"hdf52dict() can only handle types 'Dataset' and 'Group'")
 
     return dictionary
+
+
+def intersection_indices(array1, array2):
+    """Get the indices of the intersection between two sorted arrays in increasing order.
+
+    For example, if array1 is [0.1, ..., 0.3, ..., 3] and array2 is interval [0.3, ..., 3, ..., 28], then the output
+    indices will be the indices corresponding to [0.3, ..., 3] in both arrays.
+
+    Args:
+        array1: the first array
+        array2: the second array
+
+    Returns:
+        The indices of the intersection between both arrays, for the first and the second array.
+    """
+    tiny = 10 ** -sys.float_info.dig
+
+    indices1 = np.logical_and(
+        np.less_equal(array1, array2[0] * (1. + tiny)),
+        np.greater_equal(array1, array2[-1] * (1. - tiny))
+    )
+    indices2 = np.logical_and(
+        np.less_equal(array2, array1[0] * (1. + tiny)),
+        np.greater_equal(array2, array1[-1] * (1. - tiny))
+    )
+
+    return indices1, indices2
 
 
 def load_csv(file, **kwargs):

@@ -326,7 +326,7 @@ def temperature_profile_function_guillot_dayside(pressures, infrared_mean_opacit
         infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
-            The ratio between the visual and infrated opacity.
+            The ratio between the visual and infrared opacity.
         gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
         intrinsic_temperature (float):
@@ -358,7 +358,7 @@ def temperature_profile_function_guillot_global(pressures, infrared_mean_opacity
         infrared_mean_opacity (float):
             The infrared opacity in units of :math:`\\rm cm^2/s`.
         gamma (float):
-            The ratio between the visual and infrated opacity.
+            The ratio between the visual and infrared opacity.
         gravities (float):
             The planetary surface gravity in units of :math:`\\rm cm/s^2`.
         intrinsic_temperature (float):
@@ -402,7 +402,7 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gr
 
     Args:
         pressures: (bar) pressures of the profile
-        gamma: ratio between visual and infrated opacity
+        gamma: ratio between visual and infrared opacity
         reference_gravity: (cm.s-2) surface gravity
         intrinsic_temperature: (K) intrinsic temperature
         equilibrium_temperature: (K) equilibrium temperature
@@ -476,7 +476,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         Tret : np.ndarray
             The temperature as a function of atmospheric pressure.
     """
-    import copy as cp
+    import copy
     from scipy.interpolate import interp1d, CubicSpline
     from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 
@@ -519,9 +519,9 @@ def temperature_profile_function_ret_model(rad_trans_params):
         # TODO: Check remains convective and convergence
         for i in range(10):
             if i == 0:
-                t_take = cp.copy(tedd)
+                t_take = copy.copy(tedd)
             else:
-                t_take = cp.copy(tfinal)  # TODO reference before assignment
+                t_take = copy.copy(tfinal)  # TODO reference before assignment
 
             ab, _, nabla_ad = (
                 pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
@@ -545,7 +545,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Add upper radiative and
             # lower conective part into one single array
-            tfinal = cp.copy(t_take)
+            tfinal = copy.copy(t_take)
             tfinal[conv_index] = tnew
 
             if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:

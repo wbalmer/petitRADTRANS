@@ -10,11 +10,12 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 import scipy.ndimage
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmospheric_layer,
+from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmosphere,
                                            mass_fractions2volume_mixing_ratios, simplify_species_list)
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
@@ -31,15 +32,339 @@ from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
-from petitRADTRANS.utils import dict2hdf5, hdf52dict, fill_object, remove_mask, topological_sort
+from petitRADTRANS.utils import dict2hdf5, LockedDict, hdf52dict, fill_object, remove_mask, topological_sort
 
 
 class SpectralModel(Radtrans):
+    r"""Extension of the Radtrans object. Used to construct custom spectral models.
+
+    The parameters required for the Radtrans spectral functions are calculated from "model functions", which require
+    "model parameters". All parameters are calculated in order thanks to a topological sorting algorithm. Looping
+    dependencies are not supported by default.
+
+    Spectra can be generated with the calculate_spectrum function. Several spectral modification functions are
+    available.
+
+    A Data object can be initialised with the init_data function, which can then be used to generate a Retrieval object
+    with the Retrieval.from_data function.
+
+    Some features are detailed below.
+
+    Automatic wavelength boundaries calculation:
+        The model wavelength boundaries can be determined from the rebinned_wavelengths model parameter, taking into
+        account Doppler shift if necessary, using the following model parameters (see below for a description):
+            - relative_velocities
+            - system_observer_radial_velocities
+            - is_orbiting
+            - orbital_longitudes
+            - orbital_phases
+            - rest_frame_velocity_shift
+            - radial_velocity_semi_amplitude
+        The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
+        orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
+        velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
+
+    Custom functions and kwargs:
+        The compute_* functions can be rewritten in scripts if necessary. Functions calculate_* should not be
+        rewritten. Custom functions *must* include the **kwargs argument, even if it is not used. This is by design,
+        to allow for any model parameter to be used with an arbitrarily complex custom function.
+
+    Default model parameters:
+        Default model parameters used when calling the SpectralModel built-in functions. This list may change when
+        using custom functions.
+        Radtrans spectral parameters can also be used as model parameters (see next section).
+
+        airmass:
+            Airmass of the observations, must be an array with one element per exposure.
+            Used to calculate telluric transmittances and in ground-based high-resolution data preparation.
+        apply_telluric_lines_removal:
+            If True, apply the telluric lines removal correction of the retrieval.preparing.polyfit function.
+        apply_throughput_removal:
+            If True, apply the instrumental throughput removal correction of the retrieval.preparing.polyfit function.
+        atmospheric_mixing:
+            Scaling factor [0, 1] representing how well metals are mixed in the atmosphere.
+            Used to calculate the atmospheric metallicity when the metallicity model parameter is None.
+        carbon_pressure_quench:
+            (bar) Pressure where the carbon species are quenched, used with equilibrium chemistry.
+        co_ratio:
+            Desired carbon to oxygen ratios, obtained by increasing the amount of oxygen. Can be a scalar or an array
+            with one element per layer.
+            Used to calculate mass fractions when equilibrium chemistry is activated
+            (``use_equilibrium_chemistry=True``).
+        constance_tolerance:
+            Relative tolerance on input resolving power to apply constant or running convolutions.
+        convolve_resolving_power:
+            Resolving power of the convolved spectrum, used when the convolve argument is True.
+        correct_uncertainties:
+            If True, the uncertainties of the prepared spectrum are corrected from the preparing steps.
+        filling_species:
+            Dictionary with filling species as keys and the weights of the mass fractions as values. Unweighted
+            filling species are represented with None. Filling species are used to ensure that the MMR at each layer is
+            1. See chemistry.utils.fill_atmospheric_layer for more details.
+        guillot_temperature_profile_gamma:
+            Ratio between visual and infrared opacity.
+            Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        guillot_temperature_profile_kappa_ir_z0:
+            (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere.
+            The effective infrared opacity is obtained from this parameter times the metallicity.
+            Used with the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        imposed_mass_fractions:
+            Mass fractions imposed when calculating the mass fractions. See SpectralModel.compute_mass_fractions for
+            more details.
+        intrinsic_temperature:
+            (K) The planet's intrinsic temperature.
+            Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
+        is_around_star:
+            If True, and if the spectral emission mode is 'emission', model parameter star_flux can be calculated. It
+            is then used to calculate stellar_intensities (for emission spectra), and when scaling the spectrum
+            (``scale=True``).
+        is_observed:
+            If True, and if the spectral calculation mode is ``'emission'``, calculates the spectral flux received by
+            the observer, taking into account the distance between the target and the observer.
+        is_orbiting:
+            If True, model parameter ``radial_velocity`` is calculated from orbital parameters (see previous section).
+        metallicity:
+            Ratio between heavy elements and H2 + He compared to solar.
+            Used with equilibrium chemistry.
+        metallicity_mass_coefficient:
+            Power of the mass-metallicity relationship.
+            Used to calculate the metallicity.
+        metallicity_mass_scaling:
+            Scaling factor of the mass-metallicity relationship.
+            Used to calculate the metallicity.
+        mid_transit_time:
+            (s) Mid-transit time of the planet's primary transit.
+            Used to calculate the transit effect (``use_transit_light_loss=True``).
+        modification_parameters:
+            Dictionary with the SpectralModel modification flags as keys and their status as values.
+            The modification parameters are:
+                - scale,
+                - shift,
+                - use_transit_light_loss,
+                - convolve,
+                - rebin,
+                - prepare.
+        orbit_semi_major_axis:
+            (cm) Semi-major axis of the planet's orbit.
+            Used to calculate the radial velocities, transit effect, and stellar intensities.
+        orbital_inclination:
+            (deg) Angle between the normal of the planet orbital plane and the axis of observation,
+            i.e. 90 degree: edge view, 0 degree: top view.
+            Used to calculate the radial velocities, and transit effect.
+        orbital_longitudes:
+            (deg) Orbital longitudes of the observation's exposures.
+            Used to calculate the radial velocities, and transit effect.
+            Can also be calculated from model parameters ``times`` or ``orbital_phases``.
+        orbital_period:
+            (s) Period of the planet's orbit.
+            Used to calculate the orbital longitudes and the transit effect.
+        planet_mass:
+            (g) Mass of the planet.
+            Can be used to calculate the metallicity, the planet radius, or the reference gravity.
+        polynomial_fit_degree:
+            Degree of the polynomial fit used to prepare the spectrum, in the retrieval.preparing.polyfit function
+        radial_velocity_semi_amplitude:
+            (cm.s-1) Radial orbital velocity semi-amplitude of the planet (Kp).
+            Used to calculate the planet's relative velocities. Can be automatically calculated.
+        rebin_range_margin_power:
+            Relative wavelength margin to use for the automatic wavelength boundary calculation.
+        rebinned_wavelengths:
+            (cm) Wavelengths at which to rebin the spectrum (``rebin=True``).
+        relative_velocities:
+            (cm.s-1) Array of relative velocities between the target and the observer.
+            Can be automatically calculated.
+            Used when shifting the spectrum (``shift=True``).
+        rest_frame_velocity_shift:
+            (cm.s-1) Shift in the planet's rest frame velocity.
+            Used when shifting the spectrum (``shift=True``).
+        star_effective_temperature:
+            (K) Effective temeprature of the planet's star.
+            Used to calculate the stellar intensities.
+        star_mass:
+            (g) Mass of the star.
+            Used to calculate the relative velocities.
+        star_metallicity:
+             Metallicity of the star in solar metallicity.
+             Used to calculate the metallicity.
+        star_radius:
+            (cm) Radius of the planet's star.
+            Used to calculate the stellar intensities, the scaled spectrum, and the transit effect.
+        system_distance:
+            (cm) Distance between the target and the observer.
+            Used to calculate the emission spectrum when ``is_observed`` is True.
+        system_observer_radial_velocities:
+            (cm.s-1) Array of velocities between the system and the observer.
+        tellurics_mask_threshold:
+            Mask wavelengths where the atmospheric transmittance estimate is below this value.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        temperature:
+            (K) When ``temperature_profile_mode='isothermal'``, the value of the temperature.
+            When ``temperature_profile_mode='guillot'``, it corresponds to the equilibrium temperature.
+        temperature_profile_mode:
+            If ``'isothermal'``, the temperature profile is isothermal
+            If ``guillot``, the temperature profile follows the Guillot 2010 temperature profile.
+        times:
+            (s) Array of size n_exposures.
+            Used to calculate the orbital longitudes.
+        transit_duration:
+            (s) Duration of the planet total transit (T14)
+            Used to calculate the transit effect.
+        uncertainties:
+            Spectrum uncertainties.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        uncertainties_as_weights:
+            If True, the uncertainties are used as fit weights when preparing the spectrum.
+            Used when preparing the spectrum with retrieval.preparing.polyfit function.
+        use_equilibrium_chemistry:
+            If True, use pRT equilibrium chemistry module to calculate the mass fractions. Does not override the
+            imposed mass fractions.
+        verbose:
+            If True, displays additional information when running some SpectralModel functions.
+
+    Radtrans model parameters:
+        Model parameters used when calling the Radtrans spectral functions.
+
+        cloud_f_sed:
+            Cloud settling parameter.
+        cloud_hansen_a:
+            A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
+            layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+            If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
+            (recommended).
+        cloud_hansen_b:
+            A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
+            layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
+            the particle area (1/cloud_hansen_a^2).
+        cloud_particle_radius_distribution_std:
+            Width of the log-normal cloud particle size distribution.
+        cloud_particles_mean_radii:
+            Dictionary of mean particle radii for all cloud species.
+            Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
+        cloud_particles_radius_distribution:
+            The cloud particle size distribution to use.
+            Can be either 'lognormal' (default) or 'hansen'.
+            If hansen, the cloud_hansen_b parameters must be used.
+        cloud_photosphere_median_optical_depth:
+            Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
+            atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
+            of clouds in the photospheric region.
+        clouds_particles_porosity_factor:
+            A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
+            are calculated using the Distribution of Hollow Spheres (DHS) method.
+        eddy_diffusion_coefficients:
+            The atmospheric eddy diffusion coefficient in cgs
+            (i.e. :math:`\\rm cm^2/s`),
+            at each atmospheric layer
+            (1-d numpy array, same length as pressure array).
+        emissivities:
+            # TODO
+        frequencies_to_wavelengths:
+            If True, convert the frequencies (Hz) output to wavelengths (cm)
+        gray_opacity:
+            Gray opacity value, to be added to the opacity at all pressures and wavelengths
+            (units :math:`\\rm cm^2/g`).
+        haze_factor:
+            Scalar factor, increasing the gas Rayleigh scattering cross-section.
+        irradiation_geometry:
+            If equal to ``'dayside_ave'``: use the dayside average geometry.
+            If equal to ``'planetary_ave'``: use the planetary average geometry.
+            If equal to ``'non-isotropic'``: use the non-isotropic geometry.
+        opaque_cloud_top_pressure:
+            (bar) Pressure where an opaque cloud deck is added to the absorption opacity.
+        planet_radius:
+            (cm) Radius of the planet.
+        power_law_opacity_350nm:
+            Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
+        power_law_opacity_coefficient:
+            Has to be given if kappa_zero is defined, this is the
+            wavelength powerlaw index of the parametrized scattering
+            opacity.
+        reference_gravity:
+            (cm.s-2) Gravity at the planet's reference pressure.
+        reference_pressure:
+            (bar) Reference pressure used to set the planet's radius.
+        reflectances:
+            # TODO
+        return_cloud_contribution:
+            If True, the cloud contribution is calculated.
+        return_contribution:
+            If True the spectral contribution function is calculated.
+        return_photosphere_radius:
+            If True, the photosphere radius is calculated and returned.
+            Only for emission spectra.
+        return_radius_hydrostatic_equilibrium:
+            If True, the radius at hydrostatic equilibrium of the planet is returned.
+            Only for transmission spectra.
+        return_rosseland_optical_depths:
+            If True, the Rosseland opacities and optical depths are calculated and returned.
+            Only for emission spectra.
+        star_irradiation_angle:
+            Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
+            the non-isotropic geometry scenario.
+        stellar_intensities:
+            (W.m-2/um) The stellar intensity to use. If None, it is calculated using a PHOENIX model.
+        variable_gravity:
+            Standard is ``True``. If ``False`` the gravity will be
+            constant as a function of pressure, during the transmission
+            radius calculation.
+
+    Args:
+        pressures:
+            (bar) array containing the pressures of the model, from lowest to highest.
+        line_species:
+            list of strings, denoting which line absorber species to include; must match the opacity file names.
+        rayleigh_species:
+            list of strings, denoting which Rayleigh scattering species to include; must match the opacity file
+            names.
+        continuum_opacities:
+            list of strings, denoting which continuum absorber species to include; must match the opacity file
+            names.
+        cloud_species:
+            list of strings, denoting which cloud opacity species to include; must match the opacity file names.
+        line_opacity_mode:
+            if equal to ``'c-k'``: use low-resolution mode, at
+            :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
+            assumption. if equal to ``'lbl'``: use high-resolution mode, at
+            :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
+            treatment.
+        scattering_in_emission:
+            Will be ``False`` by default.
+            If ``True`` scattering will be included in the emission spectral
+            calculations. Note that this increases the runtime of pRT!
+        line_by_line_opacity_sampling:
+            Will be ``None`` by default. If integer positive value, and if
+            ``mode == 'lbl'`` is ``True``, then this will only consider every
+            line_by_line_opacity_sampling-nth point of the high-resolution opacities.
+            This may be desired in the case where medium-resolution spectra are
+            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+            :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+            may make sense to carry out the calculations with line_by_line_opacity_sampling = 10,
+            for example, and then re-binning to the final desired resolution:
+            this may save time! The user should verify whether this leads to
+            solutions which are identical to the re-binned results of the fiducial
+            :math:`10^6` resolution. If not, this parameter must not be used.
+        temperatures:
+            array containing the temperatures of the model, at each pressure.
+        mass_fractions:
+            dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
+        mean_molar_masses:
+            dictionary containing the mean_molar_masses of the model, at each pressure.
+        wavelength_boundaries:
+            (um) list containing the min and max wavelength of the model. Can be automatically determined from
+        wavelengths:
+            (um) wavelengths of the model.
+        transit_radii:
+            transit radii of the model.
+        fluxes:
+            (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
+        **model_parameters:
+            dictionary of parameters. The keys can match arguments of functions used to generate the model.
+    """
     # TODO add transit duration function
     def __init__(
             self,
-            pressures: np.ndarray[float] = None,
-            wavelength_boundaries: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
+            wavelength_boundaries: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -47,7 +372,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
             radial_velocity_semi_amplitude_function: callable = None,
@@ -55,88 +380,10 @@ class SpectralModel(Radtrans):
             relative_velocities_function: callable = None,
             orbital_longitudes_function: callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
-            wavelengths=None, transit_radii=None, fluxes=None, model_functions_map=None, **model_parameters
+            wavelengths=None, transit_radii=None, fluxes=None,
+            model_functions_map=None, spectral_modification_functions_map=None,
+            **model_parameters
     ):
-        """Essentially a wrapper of Radtrans.
-        Can be used to construct custom spectral models.
-
-        Initialised like a Radtrans object. Additional parameters, that are used to generate the spectrum, are stored
-        into the attribute model_parameters.
-        The spectrum is generated with the calculate_spectrum function.
-        A retrieval object can be initialised with the init_retrieval function.
-        The generated Retrieval can be run using the run_retrieval function.
-
-        The model wavelength boundaries can be determined from the rebinned_wavelengths model parameter, taking into
-        account Doppler shift if necessary, using the following model parameters:
-            - relative_velocities: (cm.s-1) array of relative velocities between the target and the observer
-            - system_observer_radial_velocities: (cm.s-1) array of velocities between the system and the observer
-            - is_orbiting: if True, radial_velocity_semi_amplitude is calculated and relative velocities depends on
-                orbital position parameters, listed below.
-            - orbital_longitudes (deg) array of orbital longitudes
-            - orbital_phases: array of orbital phases
-            - rest_frame_velocity_shift: (cm.s-1) array of offsets to the calculated relative_velocities
-            - radial_velocity_semi_amplitude: (cm.s-1) radial orbital velocity semi-amplitude of the planet (Kp)
-        The size of the arrays is used to generate multiple observations of the spectrum. For example, if n_phases
-        orbital phases are given, the generated spectrum of size n_wavelengths is shifted according to the relative
-        velocity at each orbital phase. This generates a time-dependent spectrum of shape (n_phases, n_wavelengths).
-
-        Custom functions and kwargs:
-            The compute_* functions can be rewritten in scripts if necessary. Functions calculate_* should not be
-            rewritten. Custom functions *must* include the **kwargs argument, even if it is not used. This is by design,
-            to allow for any model parameter to be used with an arbitrarily complex custom function.
-
-        Args:
-            pressures:
-                (bar) array containing the pressures of the model, from lowest to highest.
-            line_species:
-                list of strings, denoting which line absorber species to include; must match the opacity file names.
-            rayleigh_species:
-                list of strings, denoting which Rayleigh scattering species to include; must match the opacity file
-                names.
-            continuum_opacities:
-                list of strings, denoting which continuum absorber species to include; must match the opacity file
-                names.
-            cloud_species:
-                list of strings, denoting which cloud opacity species to include; must match the opacity file names.
-            line_opacity_mode:
-                if equal to ``'c-k'``: use low-resolution mode, at
-                :math:`\\lambda/\\Delta \\lambda = 1000`, with the correlated-k
-                assumption. if equal to ``'lbl'``: use high-resolution mode, at
-                :math:`\\lambda/\\Delta \\lambda = 10^6`, with a line-by-line
-                treatment.
-            scattering_in_emission:
-                Will be ``False`` by default.
-                If ``True`` scattering will be included in the emission spectral
-                calculations. Note that this increases the runtime of pRT!
-            line_by_line_opacity_sampling:
-                Will be ``None`` by default. If integer positive value, and if
-                ``mode == 'lbl'`` is ``True``, then this will only consider every
-                line_by_line_opacity_sampling-nth point of the high-resolution opacities.
-                This may be desired in the case where medium-resolution spectra are
-                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
-                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10,
-                for example, and then re-binning to the final desired resolution:
-                this may save time! The user should verify whether this leads to
-                solutions which are identical to the re-binned results of the fiducial
-                :math:`10^6` resolution. If not, this parameter must not be used.
-            temperatures:
-                array containing the temperatures of the model, at each pressure.
-            mass_fractions:
-                dictionary containing the mass mixing ratios of the model, at each pressure, for every species.
-            mean_molar_masses:
-                dictionary containing the mean_molar_masses of the model, at each pressure.
-            wavelength_boundaries:
-                (um) list containing the min and max wavelength of the model. Can be automatically determined from
-            wavelengths:
-                (um) wavelengths of the model.
-            transit_radii:
-                transit radii of the model.
-            fluxes:
-                (erg.s-1.cm-2.sr-1/cm) spectral radiosities of the spectrum.
-            **model_parameters:
-                dictionary of parameters. The keys can match arguments of functions used to generate the model.
-        """
         if radial_velocity_semi_amplitude_function is None:
             radial_velocity_semi_amplitude_function = self.compute_radial_velocity_semi_amplitude
         else:
@@ -172,8 +419,7 @@ class SpectralModel(Radtrans):
         self.fluxes = fluxes
 
         # Other model parameters
-        self.model_parameters = None
-        self.model_parameters = self.get_model_parameters(check_relevance=False)
+        self.model_parameters = {}
 
         for model_parameter, value in model_parameters.items():
             self.model_parameters[model_parameter] = value
@@ -197,10 +443,19 @@ class SpectralModel(Radtrans):
         if wavelength_boundaries is None:  # calculate the optimal wavelength boundaries
             if self.wavelengths is not None:
                 self.model_parameters['rebinned_wavelengths'] = copy.deepcopy(self.wavelengths)
-            elif 'rebinned_wavelengths' not in self.model_parameters:
-                raise TypeError("missing required argument "
-                                "'wavelength_boundaries', add this argument to manually set the boundaries or "
-                                "add keyword argument 'rebinned_wavelengths' to set the boundaries automatically")
+            elif 'rebinned_wavelengths' not in model_parameters:
+                raise TypeError(
+                    "missing required argument "
+                    "'wavelength_boundaries', add this argument to manually set the boundaries or "
+                    "add model parameter 'rebinned_wavelengths' to set the boundaries automatically"
+                )
+            elif self.model_parameters['rebinned_wavelengths'] is None:
+                raise TypeError(
+                    "missing required argument "
+                    "'wavelength_boundaries', and model parameter 'rebinned_wavelengths' was not set, "
+                    "add model parameter 'wavelength_boundaries' to manually set the boundaries or "
+                    "add model parameter 'rebinned_wavelengths' to set the boundaries automatically"
+                )
 
             wavelength_boundaries = self.calculate_optimal_wavelength_boundaries()
 
@@ -220,8 +475,17 @@ class SpectralModel(Radtrans):
             path_input_data=path_input_data
         )
 
-        self.model_functions_map = self._get_model_functions_map(update_model_parameters=False)
-        self.model_functions_map.update(model_functions_map)
+        self.spectral_modification_functions_map = self._get_spectral_modification_functions_map(
+            custom_map=spectral_modification_functions_map
+        )
+
+        self.model_functions_map = self._get_model_functions_map(
+            update_model_parameters=True,
+            extra_model_parameters=self.model_parameters,
+            custom_map=model_functions_map
+        )
+
+        self.__check_model_functions_map()
 
         self._fixed_model_parameters = set()
 
@@ -232,7 +496,11 @@ class SpectralModel(Radtrans):
         self.__check_model_parameters_relevance()
 
     def __check_model_parameters_relevance(self):
-        default_parameters = self.get_default_parameters(sort=False, spectral_model_specific=False)
+        default_parameters = self.get_default_parameters(
+            sort=False,
+            spectral_model_specific=False,
+            from_maps=True
+        )
 
         for parameter in self.model_parameters:
             if 'log10_' in parameter:
@@ -244,6 +512,16 @@ class SpectralModel(Radtrans):
                               f"To remove this warning, add a custom function using this parameter, "
                               f"or remove it from your model")
 
+    def __check_model_functions_map(self):
+        for parameter, model_function in self.model_functions_map.items():
+            if (
+                    model_function is None
+                    and parameter not in self.model_parameters
+                    and parameter not in ['pressures', 'wavelengths', 'mode']
+                    and '_function' not in parameter
+            ):
+                raise ValueError(f"'{parameter}' has no model function and is not a model parameter")
+
     @staticmethod
     def __check_none_model_parameters(explanation_message_=None, **kwargs):
         missing = []
@@ -252,7 +530,7 @@ class SpectralModel(Radtrans):
             if value is None:
                 missing.append(parameter_name)
 
-        if len(missing) >= 1:
+        if len(missing) > 0:
             joint = "', '".join(missing)
 
             base_error_message = f"missing {len(missing)} required model parameters: '{joint}'"
@@ -356,8 +634,6 @@ class SpectralModel(Radtrans):
 
                 del parameters[species]
 
-        # TODO add cloud MMR model(s)
-
         for species in parameters['imposed_mass_fractions']:
             if species in parameters and species not in line_species:
                 imposed_mass_fractions[species] = 10 ** parameters[species] * np.ones(n_layers)
@@ -368,27 +644,6 @@ class SpectralModel(Radtrans):
             parameters['imposed_mass_fractions'][key] = value
 
         return parameters, beta
-
-    @staticmethod
-    def _compute_metallicity_wrap(planet_mass=None,
-                                  star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
-                                  metallicity_mass_scaling=7.2, verbose=False, **kwargs):
-        if verbose:
-            print("metallicity set to None, calculating it using scaled metallicity...")
-
-        metallicity = SpectralModel.compute_scaled_metallicity(
-            planet_mass=planet_mass,
-            star_metallicity=star_metallicity,
-            atmospheric_mixing=atmospheric_mixing,
-            metallicity_mass_coefficient=metallicity_mass_coefficient,
-            metallicity_mass_scaling=metallicity_mass_scaling
-        )
-
-        if metallicity <= 0:
-            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
-            metallicity = sys.float_info.min
-
-        return metallicity
 
     @staticmethod
     def _compute_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
@@ -422,6 +677,12 @@ class SpectralModel(Radtrans):
 
         # Move axis to (wavelength, ..., exposure) to be able to multiply with orbital longitudes
         planet_radius_normalized_squared = np.moveaxis((1 + planet_radius_normalized) ** 2, -1, 0)
+
+        if np.any(np.greater(impact_parameter_squared, planet_radius_normalized_squared)):
+            raise ValueError(f"planet do not transit: "
+                             f"minimal distance to star center ({np.sqrt(impact_parameter_squared)}) "
+                             f"is greater than the minimum sum of the star and planet radii "
+                             f"({np.sqrt(np.min(planet_radius_normalized_squared))})")
 
         planet_star_centers_distance = np.sqrt(
             impact_parameter_squared + (planet_radius_normalized_squared - impact_parameter_squared)
@@ -461,7 +722,7 @@ class SpectralModel(Radtrans):
                 else:
                     kwargs['orbital_longitudes'] = orbital_longitudes
 
-            if 'radial_velocity_semi_amplitude' not in kwargs:  # TODO this should instead work depending on the user's request -> set every retrieved parameters to None in retrieval.init # noqa: E501
+            if 'radial_velocity_semi_amplitude' not in kwargs:
                 radial_velocity_semi_amplitude = radial_velocity_semi_amplitude_function(
                     **kwargs
                 )
@@ -706,10 +967,13 @@ class SpectralModel(Radtrans):
 
         return str(base_error_message) + explanation_message
 
-    def _get_model_functions_map(self, update_model_parameters=True):
-        def __build_dependencies_dict(_parameter, _model_functions_parameters, _map=None):
+    def _get_model_functions_map(self, update_model_parameters=True, extra_model_parameters=None, custom_map=None):
+        def __build_dependencies_dict(_parameter, _model_functions_parameters, _map=None, _parameter0=None):
             if _map is None:
-                _map = {}
+                _map: dict[str, set] = {}
+
+            if _parameter0 is None:
+                _parameter0 = _parameter
 
             if _parameter in ['self', 'cls', 'args', 'kwargs']:
                 return _map
@@ -727,56 +991,95 @@ class SpectralModel(Radtrans):
 
             if _parameter in _model_functions_parameters:
                 _model_function = _model_functions_parameters[_parameter]
-                signature = inspect.signature(getattr(self, _model_function))
+
+                if _model_function is None:
+                    _map[_parameter] = {None}
+                    return _map
+
+                if isinstance(_model_function, str):
+                    _model_function = getattr(self, _model_function)
+
+                signature = inspect.signature(_model_function)
 
                 for _model_function_parameter in signature.parameters:
                     if _model_function_parameter == 'kwargs':
                         continue
 
-                    if _model_function_parameter == _parameter:
-                        if _parameter in self.model_parameters:
-                            _map[_parameter].add(None)
-                            continue
-                        else:
-                            raise ValueError(f"parameter '{_parameter}' has a circular dependency "
-                                             f"with '{_model_function}'\n"
-                                             f"Add '{_parameter}' to model parameters, or fix '{_model_function}'")
+                    # Ignore size-0 cycles (i.e. x -> f(x) -> x...)
+                    if _parameter == _model_function_parameter:
+                        _map[_parameter].add(None)
+                        continue
+
+                    # Handle cycles (f_y(x) -> y -> f_x(y) -> x -> f_y(x)...)
+                    if _model_function_parameter == _parameter0:
+                        raise ValueError(
+                            f"parameter '{_parameter0}' has a circular dependency "
+                            f"with '{_model_function}'\n"
+                            f"Add '{_parameter0}' to model parameters, or fix '{_model_function}'"
+                        )
 
                     _map[_parameter].add(_model_function_parameter)
-                    _map = __build_dependencies_dict(_model_function_parameter, _model_functions_parameters, _map)
-            elif _parameter in self.model_parameters:
-                _map[_parameter].add(None)
+                    _map = __build_dependencies_dict(
+                        _model_function_parameter, _model_functions_parameters, _map, _parameter0
+                    )
             else:
-                raise ValueError(f"parameter '{_parameter}' is not a model parameter")
+                _map[_parameter].add(None)
 
             return _map
 
-        spectral_parameters = self._get_spectral_parameters(remove_flag=True, remove_branching=True)
-
-        if update_model_parameters:
-            self.model_parameters = self.get_model_parameters()
+        spectral_parameters = self._get_spectral_parameters(
+            remove_flag=True,
+            remove_branching=True
+        )
 
         # Check that all spectral parameters have a model parameter or a model function to generate them
         # Initialization
         parameter_dependencies = {}
 
-        # Get the spectral parameters function names
+        # Get the spectral parameters default function names
         for spectral_parameter in spectral_parameters:
             if '_function' not in spectral_parameter:  # special functions are model parameters
                 parameter_dependencies[spectral_parameter] = f'compute_{spectral_parameter}'
 
+        # Get the actual model functions
+        model_functions = self.get_model_functions(
+            from_maps=False
+        )
+
         # Get the parameter-function pairs of the model functions
         model_functions_parameters = {
-            model_function.split('compute_', 1)[1]: model_function
-            for model_function in self.get_model_functions()
+            model_function.__name__.split('compute_', 1)[1]: model_function
+            for model_function in model_functions
         }
 
-        # Perform the check
-        for spectral_parameter, model_function in parameter_dependencies.items():
-            if model_function not in list(model_functions_parameters.values()):
-                if spectral_parameter not in self.model_parameters:
+        # Also add the parameters of the spectral functions
+        model_functions_parameters['emission_spectrum'] = self.calculate_emission_spectrum
+        model_functions_parameters['transmission_spectrum'] = self.calculate_transmission_spectrum
+
+        if custom_map is not None:
+            if not isinstance(custom_map, dict):
+                raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
+
+            model_functions_parameters.update(custom_map)
+
+        model_parameters = self.get_model_parameters(
+            check_relevance=False,
+            model_functions=list(model_functions_parameters.values())
+        )
+
+        if extra_model_parameters is not None:
+            for key, value in extra_model_parameters.items():
+                model_parameters[key] = extra_model_parameters[key]
+
+        if update_model_parameters:
+            self.model_parameters = model_parameters
+
+        # Check if every spectral parameter is calculated by a function
+        for spectral_parameter, spectral_parameter_function in parameter_dependencies.items():
+            if spectral_parameter not in list(model_functions_parameters.keys()):
+                if spectral_parameter not in model_parameters and spectral_parameter != 'reference_gravity':  # TODO implement  # noqa: E501
                     warnings.warn(f"no function to calculate spectral parameter '{spectral_parameter}'\n"
-                                  f"Add function '{model_function}', "
+                                  f"Add function '{spectral_parameter_function}', "
                                   f"or add '{spectral_parameter}' as a model parameter")
                     parameter_dependencies[spectral_parameter] = None
 
@@ -793,7 +1096,7 @@ class SpectralModel(Radtrans):
             else:
                 parameter_dependencies[spectral_parameter] = {None}
 
-        for parameter in self.model_parameters:
+        for parameter in model_parameters:
             parameter_dependencies = __build_dependencies_dict(
                 parameter,
                 model_functions_parameters,
@@ -810,16 +1113,29 @@ class SpectralModel(Radtrans):
                 model_functions_map[parameter] = model_functions_parameters[parameter]
             elif parameter is None:
                 continue
-            elif (
-                    parameter in self.model_parameters
-                    or parameter in ['pressures', 'wavelengths', 'mode']
-                    or '_function' in parameter
-            ):
-                model_functions_map[parameter] = None
             else:
-                raise ValueError(f"'{parameter}' has no model function and is not a model parameter")
+                model_functions_map[parameter] = None
 
         return model_functions_map
+
+    def _get_spectral_modification_functions_map(self, custom_map=None):
+        default_map = LockedDict.build_and_lock({
+            'scale': self.scale_spectrum,
+            'shift': self.shift_wavelengths,
+            'use_transit_light_loss': self.compute_transit_fractional_light_loss,
+            'convolve': self.convolve,
+            'rebin': self.rebin_spectrum,
+            'prepare': self.preparing_pipeline,
+            'modify': self.modify_spectrum
+        })
+
+        if custom_map is not None:
+            if not isinstance(custom_map, dict):
+                raise TypeError(f"custom model function map must be a dict, but is '{type(custom_map)}'")
+
+            default_map.update(custom_map)
+
+        return default_map
 
     def _get_spectral_parameters(self, remove_flag=False, remove_branching=False):
         spectral_functions = [
@@ -891,31 +1207,62 @@ class SpectralModel(Radtrans):
 
         return wavelengths_tmp, spectrum
 
+    def calculate_contribution_spectra(self, mode=None, **kwargs):
+        if mode is None and isinstance(self.model_parameters['modification_parameters'], dict):
+            modification_parameters: dict = self.model_parameters['modification_parameters']
+
+            if modification_parameters['mode'] is not None:
+                mode = copy.deepcopy(modification_parameters['mode'])
+
+        parameters = {}
+
+        if mode == 'emission':
+            function = 'calculate_flux'
+        elif mode == 'transmission':
+            function = 'calculate_transit_radii'
+        else:
+            raise ValueError(f"mode must be 'emission' or 'transmission', not '{mode}'")
+
+        signature = inspect.signature(self.__getattr__(function))
+
+        for parameter in signature.parameters:
+            if parameter in self.model_parameters:
+                parameters[parameter] = copy.deepcopy(self.model_parameters[parameter])
+
+        return super().calculate_contribution_spectra(
+            mode=mode,
+            temperatures=self.temperatures,
+            mass_fractions=self.mass_fractions,
+            mean_molar_masses=self.mean_molar_masses,
+            **parameters
+        )
+
     def calculate_emission_spectrum(
             self,
             reference_gravity: float,
             planet_radius: float = None,
             opaque_cloud_top_pressure: float = None,
-            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None,
             cloud_particle_radius_distribution_std: float = None,
             cloud_particles_radius_distribution: str = 'lognormal',
-            cloud_hansen_a: dict[str, np.ndarray[float]] = None,
-            cloud_hansen_b: dict[str, np.ndarray[float]] = None,
+            cloud_hansen_a: dict[str, npt.NDArray[float]] = None,
+            cloud_hansen_b: dict[str, npt.NDArray[float]] = None,
             cloud_f_sed: float = None,
-            eddy_diffusion_coefficients: np.ndarray[float] = None,
+            eddy_diffusion_coefficients: npt.NDArray[float] = None,
             haze_factor: float = 1.0,
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            emission_geometry: str = 'dayside_ave',
-            stellar_intensities: np.ndarray[float] = None,
+            irradiation_geometry: str = 'dayside_ave',
+            emission_geometry: str = None,
+            stellar_intensities: npt.NDArray[float] = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
             orbit_semi_major_axis: float = None,
             star_irradiation_angle: float = 0.0,
-            reflectances: np.ndarray[float] = None,
-            emissivities: np.ndarray[float] = None,
+            reflectances: npt.NDArray[float] = None,
+            emissivities: npt.NDArray[float] = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
@@ -924,7 +1271,11 @@ class SpectralModel(Radtrans):
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
             **kwargs
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
+        if emission_geometry is not None:
+            # Deprecation warning is handled in Radtrans
+            irradiation_geometry = emission_geometry  # TODO remove when emission_geometry is removed
+
         self.wavelengths, self.fluxes, additional_outputs = self.calculate_flux(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -944,7 +1295,8 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient=power_law_opacity_coefficient,
             gray_opacity=gray_opacity,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
-            emission_geometry=emission_geometry,
+            irradiation_geometry=irradiation_geometry,
+            emission_geometry=emission_geometry,  # TODO remove when emission_geometry is removed
             stellar_intensities=stellar_intensities,
             star_effective_temperature=star_effective_temperature,
             star_radius=star_radius,
@@ -1035,7 +1387,7 @@ class SpectralModel(Radtrans):
             wavelengths = self.wavelengths  # coming from Radtrans
 
         functions_dict = {
-            parameter: getattr(self, function)
+            parameter: function
             for parameter, function in self.model_functions_map.items()
             if function is not None and parameter not in self._fixed_model_parameters
         }
@@ -1059,7 +1411,10 @@ class SpectralModel(Radtrans):
                     kwargs[parameter] = value.default
 
         # Include spectral parameters
-        spectral_parameters = self._get_spectral_parameters(remove_flag=False, remove_branching=False)
+        spectral_parameters = self._get_spectral_parameters(
+            remove_flag=False,
+            remove_branching=False
+        )
 
         for spectral_parameter, value in spectral_parameters.items():
             if spectral_parameter not in kwargs:
@@ -1087,7 +1442,7 @@ class SpectralModel(Radtrans):
 
         return temperatures, mass_fractions, mean_molar_mass, _model_parameters
 
-    def calculate_spectrum(self, mode='emission', parameters=None, update_parameters=False,
+    def calculate_spectrum(self, mode='emission', parameters=None, update_parameters=True,
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
@@ -1138,11 +1493,11 @@ class SpectralModel(Radtrans):
         wavelengths, spectrum, star_observed_spectrum = self.modify_spectrum(
             wavelengths=copy.copy(self.wavelengths),
             spectrum=spectrum,
-            scale_function=self.scale_spectrum,
-            shift_wavelengths_function=self.shift_wavelengths,
-            transit_fractional_light_loss_function=self.compute_transit_fractional_light_loss,
-            convolve_function=self.convolve,
-            rebin_spectrum_function=self.rebin_spectrum,
+            scale_function=self.spectral_modification_functions_map['scale'],
+            shift_wavelengths_function=self.spectral_modification_functions_map['shift'],
+            transit_fractional_light_loss_function=self.spectral_modification_functions_map['use_transit_light_loss'],
+            convolve_function=self.spectral_modification_functions_map['convolve'],
+            rebin_spectrum_function=self.spectral_modification_functions_map['rebin'],
             **parameters['modification_parameters'],
             **parameters
         )
@@ -1155,7 +1510,7 @@ class SpectralModel(Radtrans):
         # Prepare the spectrum
         if prepare:
             spectrum, parameters['preparation_matrix'], parameters['prepared_uncertainties'] = \
-                self.prepare_spectrum(
+                self.spectral_modification_functions_map['prepare'](
                     spectrum=spectrum,
                     wavelengths=wavelengths,
                     **parameters
@@ -1178,7 +1533,7 @@ class SpectralModel(Radtrans):
             planet_radius: float,
             variable_gravity: bool = True,
             opaque_cloud_top_pressure: float = None,
-            cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None,
+            cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None,
             cloud_particle_radius_distribution_std: float = None,
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
@@ -1196,7 +1551,7 @@ class SpectralModel(Radtrans):
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
             **kwargs
-    ) -> tuple[np.ndarray[float], np.ndarray[float], dict[str, any]]:
+    ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         self.wavelengths, self.transit_radii, additional_outputs = self.calculate_transit_radii(
             temperatures=self.temperatures,
             mass_fractions=self.mass_fractions,
@@ -1264,7 +1619,7 @@ class SpectralModel(Radtrans):
         return cloud_f_sed
 
     @staticmethod
-    def compute_cloud_particles_mean_radii(cloud_particles_mean_radii: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_particles_mean_radii(cloud_particles_mean_radii: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_particles_mean_radii
 
     @staticmethod
@@ -1276,11 +1631,11 @@ class SpectralModel(Radtrans):
         return clouds_particles_porosity_factor
 
     @staticmethod
-    def compute_cloud_hansen_a(cloud_hansen_a: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_hansen_a(cloud_hansen_a: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_hansen_a
 
     @staticmethod
-    def compute_cloud_hansen_b(cloud_hansen_b: dict[str, np.ndarray[float]] = None, **kwargs):
+    def compute_cloud_hansen_b(cloud_hansen_b: dict[str, npt.NDArray[float]] = None, **kwargs):
         return cloud_hansen_b
 
     @staticmethod
@@ -1288,11 +1643,11 @@ class SpectralModel(Radtrans):
         return cloud_photosphere_median_optical_depth
 
     @staticmethod
-    def compute_emissivities(emissivities: np.ndarray[float] = None, **kwargs):
+    def compute_emissivities(emissivities: npt.NDArray[float] = None, **kwargs):
         return emissivities
 
     @staticmethod
-    def compute_eddy_diffusion_coefficients(eddy_diffusion_coefficients: np.ndarray[float] = None, **kwargs):
+    def compute_eddy_diffusion_coefficients(eddy_diffusion_coefficients: npt.NDArray[float] = None, **kwargs):
         return eddy_diffusion_coefficients
 
     @staticmethod
@@ -1365,8 +1720,9 @@ class SpectralModel(Radtrans):
                 chemistry
             imposed_mass_fractions: imposed mass mixing ratios
             use_equilibrium_chemistry: if True, use pRT equilibrium chemistry module
-            filling_species: if True, the atmosphere will be filled with H2 and He (using h2h2_ratio)
-                if the sum of MMR is < 1 TODO use None and a dict of species instead of a flag
+            filling_species:
+                Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
+                filling species are represented with None.
             verbose: if True, print additional information
 
         Returns:
@@ -1450,12 +1806,21 @@ class SpectralModel(Radtrans):
         mass_fractions_equilibrium = None
 
         if use_equilibrium_chemistry:
-            # Calculate metallicity
+            missing = {}
+
             if metallicity is None:
-                metallicity = SpectralModel._compute_metallicity_wrap(
-                    metallicity=metallicity,
-                    **kwargs
-                )
+                missing['metallicity'] = metallicity
+
+            if co_ratio is None:
+                missing['co_ratio'] = co_ratio
+
+            if len(missing) > 0:
+                names = ', '.join(list(missing.keys()))
+                values = list(missing.values())
+
+                raise ValueError(f"equilibrium chemistry function missing {names} values (were {values})\n"
+                                 f"Add 'metallicity' as a model parameter, check your metallicity model function, "
+                                 f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
 
             # Interpolate chemical equilibrium
             mass_fractions_equilibrium = SpectralModel.compute_equilibrium_mass_fractions(
@@ -1502,7 +1867,7 @@ class SpectralModel(Radtrans):
                     f"or add '{species}' and the desired mass mixing ratio to imposed_mass_fractions"
                 )
 
-                mass_fractions[species] = sys.float_info.min
+                mass_fractions[species] = sys.float_info.min * np.ones(pressures.size)
 
         # Ensure that filling species are initialized as an array
         for species in filling_species:
@@ -1515,30 +1880,10 @@ class SpectralModel(Radtrans):
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
                 if len(filling_species) > 0:  # fill the atmosphere using the filling species
-                    # Take mass fractions from the current layer
-                    mass_fractions_i = {
-                        species: mass_fraction[i] for species, mass_fraction in mass_fractions.items()
-                    }
-
-                    # Handle filling species special cases
-                    filling_species_i = {}
-
-                    for species, weights in filling_species.items():
-                        if weights is None or isinstance(weights, str):
-                            filling_species_i[species] = weights
-                        elif hasattr(weights, '__iter__'):
-                            filling_species_i[species] = weights[i]
-                        else:
-                            filling_species_i[species] = weights
-
-                    # Fill the layer and update mass fractions
-                    mass_fractions_i = fill_atmospheric_layer(
-                        filling_species=filling_species_i,
-                        mass_fractions=mass_fractions_i
+                    mass_fractions = fill_atmosphere(
+                        mass_fractions=mass_fractions,
+                        filling_species=filling_species
                     )
-
-                    for species in mass_fractions_i:
-                        mass_fractions[species][i] = mass_fractions_i[species]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
                                   f"Set filling_species to automatically fill the atmosphere "
@@ -1578,13 +1923,40 @@ class SpectralModel(Radtrans):
         return compute_mean_molar_masses(mass_fractions)
 
     @staticmethod
+    def compute_metallicity(planet_mass=None,
+                            star_metallicity=1.0, atmospheric_mixing=1.0, metallicity_mass_coefficient=-0.68,
+                            metallicity_mass_scaling=7.2, verbose=False, metallicity=None, **kwargs):
+        if metallicity is not None:
+            return metallicity
+
+        if planet_mass is None:
+            return None
+
+        if verbose:
+            print("metallicity set to None, calculating it using scaled metallicity...")
+
+        metallicity = SpectralModel.compute_scaled_metallicity(
+            planet_mass=planet_mass,
+            star_metallicity=star_metallicity,
+            atmospheric_mixing=atmospheric_mixing,
+            metallicity_mass_coefficient=metallicity_mass_coefficient,
+            metallicity_mass_scaling=metallicity_mass_scaling
+        )
+
+        if metallicity <= 0:
+            warnings.warn(f"non-physical metallicity ({metallicity}), setting its value to near 0")
+            metallicity = sys.float_info.min
+
+        return metallicity
+
+    @staticmethod
     def compute_opaque_cloud_top_pressure(opaque_cloud_top_pressure: float = None, **kwargs):
         return opaque_cloud_top_pressure
 
     @staticmethod
     def compute_optimal_wavelength_boundaries(rebinned_wavelengths, shift_wavelengths_function=None,
                                               relative_velocities=None, rebin_range_margin_power=15, **kwargs
-                                              ) -> np.ndarray[float]:
+                                              ) -> npt.NDArray[float]:
         # Re-bin requirement is an interval half a bin larger than re-binning interval
         if hasattr(rebinned_wavelengths, 'dtype'):
             if rebinned_wavelengths.dtype != 'O':
@@ -1647,7 +2019,7 @@ class SpectralModel(Radtrans):
         return orbit_semi_major_axis
 
     @staticmethod
-    def compute_orbital_longitudes(times: np.ndarray[float] = None, mid_transit_time: float = None,
+    def compute_orbital_longitudes(times: npt.NDArray[float] = None, mid_transit_time: float = None,
                                    orbital_period: float = None, **kwargs):
         if times is None and mid_transit_time is None and orbital_period is None:
             return None
@@ -1724,7 +2096,7 @@ class SpectralModel(Radtrans):
         return reference_pressure
 
     @staticmethod
-    def compute_reflectances(reflectances: np.ndarray[float] = None, **kwargs):
+    def compute_reflectances(reflectances: npt.NDArray[float] = None, **kwargs):
         return reflectances
 
     @staticmethod
@@ -1742,7 +2114,7 @@ class SpectralModel(Radtrans):
 
         Args:
             planet_mass: (g) mass of the planet
-            star_metallicity: metallicity of the planet in solar metallicity
+            star_metallicity: metallicity of the star in solar metallicity
             atmospheric_mixing: scaling factor [0, 1] representing how well metals are mixed in the atmosphere
             metallicity_mass_coefficient: power of the relation
             metallicity_mass_scaling: scaling factor of the relation
@@ -1755,15 +2127,6 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_spectral_parameters(model_functions_map, **kwargs):
-        # TODO reimplement metallicity
-        # if kwargs['planet_mass'] is None:
-        #     kwargs['planet_mass'] = reference_gravity2mass_function(**kwargs)
-        # elif kwargs['reference_gravity'] is None:
-        #     kwargs['reference_gravity'] = mass2reference_gravity_function(**kwargs)
-        #
-        # if kwargs['metallicity'] is None:
-        #     kwargs['metallicity'] = metallicity_function(**kwargs)
-
         for model_parameter, function in model_functions_map.items():
             kwargs[model_parameter] = function(**kwargs)
 
@@ -1863,7 +2226,20 @@ class SpectralModel(Radtrans):
         Spectrum must be scaled.
 
         Args:
-            spectrum: the scaled spectrum
+            spectrum:
+                The scaled spectrum.
+            orbit_semi_major_axis:
+                (cm) Semi-major axis of the planet's orbit.
+            orbital_inclination:
+                (deg) Orbital inclination of the planet's orbit.
+            star_radius:
+                (cm) Radius of the planet's star.
+            orbital_longitudes:
+                Orbital longitudes of the observed planet's transit.
+            transit_duration:
+                (s) Duration of the planet's transit.
+            orbital_period:
+                (s) Period of the planet's orbit.
 
         Returns:
             The scaled spectrum, taking into account the transit light loss.
@@ -1999,8 +2375,8 @@ class SpectralModel(Radtrans):
             sample_extraction_method_parameters: dict[str] = None,
             model_file: str = None,
             retrieval_name: str = None,
-            pressures: np.ndarray[float] = None,
-            wavelength_boundaries: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
+            wavelength_boundaries: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -2008,7 +2384,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
             radial_velocity_semi_amplitude_function: callable = None,
@@ -2104,9 +2480,9 @@ class SpectralModel(Radtrans):
 
         return new_spectral_model
 
-    def get_default_parameters(self, sort=True, spectral_model_specific=True):
+    def get_default_parameters(self, sort=True, spectral_model_specific=True, from_maps=True):
         """Get all the default SpectralModel parameters."""
-        def __list_arguments(_object, exclude_functions=None, include_functions=None):
+        def __list_arguments(_object, exclude_functions=None, include_functions=None, _from_maps=False):
             if exclude_functions is None:
                 exclude_functions = []
 
@@ -2115,16 +2491,36 @@ class SpectralModel(Radtrans):
 
             _arguments = set()
 
-            for function in dir(_object):
-                if (
-                        callable(getattr(_object, function))
-                        and (function[0] != '_' or getattr(_object, function) in include_functions)
-                        and getattr(_object, function) not in exclude_functions
-                ):
-                    signature = inspect.signature(getattr(_object, function))
+            if _from_maps:
+                functions = (
+                    list(_object.model_functions_map.values())
+                    + list(_object.spectral_modification_functions_map.values())
+                    + include_functions
+                )
 
-                    for parameter in signature.parameters:
-                        _arguments.add(parameter)
+                for function in functions:
+                    if isinstance(function, str):
+                        function = getattr(_object, function)
+
+                    if (
+                            callable(function)
+                            and function not in exclude_functions
+                    ):
+                        signature = inspect.signature(function)
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
+            else:
+                for function in dir(_object):
+                    if (
+                            callable(getattr(_object, function))
+                            and (function[0] != '_' or getattr(_object, function) in include_functions)
+                            and getattr(_object, function) not in exclude_functions
+                    ):
+                        signature = inspect.signature(getattr(_object, function))
+
+                        for parameter in signature.parameters:
+                            _arguments.add(parameter)
 
             return _arguments
 
@@ -2144,8 +2540,14 @@ class SpectralModel(Radtrans):
                 self.save_parameters
             ],
             include_functions=[
-                self.__init_velocities
-            ]
+                self.__init_velocities,
+                self.compute_optimal_wavelength_boundaries,
+                self.compute_scaled_metallicity,
+                self.calculate_emission_spectrum,
+                self.calculate_transmission_spectrum,
+                self.with_velocity_range
+            ],
+            _from_maps=from_maps
         )
 
         default_parameters.add('modification_parameters')
@@ -2168,33 +2570,84 @@ class SpectralModel(Radtrans):
 
         return default_parameters
 
-    def get_model_functions(self):
+    def get_model_functions(self, include_functions=None, exclude_functions=None,
+                            from_maps=True, model_functions_map=None, spectral_modification_functions_map=None):
+        if include_functions is None:
+            include_functions = []
+
+        if exclude_functions is None:
+            exclude_functions = []
+
         radtrans_functions = set()
 
         for function in dir(Radtrans):
             if callable(getattr(Radtrans, function)):
                 radtrans_functions.add(function)
 
+        _model_functions = set()
+
+        for function in include_functions:
+            if function in exclude_functions:
+                raise ValueError(f"function '{function}' is both included and excluded")
+
+            _model_functions.add(function)
+
+        if from_maps:
+            if model_functions_map is None:
+                model_functions_map = self.model_functions_map
+
+            if spectral_modification_functions_map is None:
+                spectral_modification_functions_map = self.spectral_modification_functions_map
+
+            for function in model_functions_map.values():
+                if function is None or function in exclude_functions:
+                    continue
+
+                _model_functions.add(function)
+
+            for function in spectral_modification_functions_map.values():
+                if function is None or function in exclude_functions:
+                    continue
+
+                _model_functions.add(function)
+        else:
+            for function in SpectralModel.__dict__:
+                if (callable(getattr(self, function))
+                        and 'compute_' in function
+                        and function not in exclude_functions
+                        and function[0] != '_'
+                        and function not in radtrans_functions):
+                    _model_functions.add(function)
+
+            for function in self.__dict__:
+                if (callable(getattr(self, function))
+                        and 'compute_' in function
+                        and function not in exclude_functions
+                        and function[0] != '_'
+                        and function not in radtrans_functions):
+                    _model_functions.add(function)
+
         model_functions = set()
 
-        for function in SpectralModel.__dict__:
-            if (callable(getattr(self, function))
-                    and 'compute_' in function
-                    and function[0] != '_'
-                    and function not in radtrans_functions):
-                model_functions.add(function)
+        for function in _model_functions:
+            if isinstance(function, str):
+                _function = getattr(self, function)
+                _function.__name__ = function
 
-        for function in self.__dict__:
-            if (callable(getattr(self, function))
-                    and 'compute_' in function
-                    and function[0] != '_'
-                    and function not in radtrans_functions):
+                model_functions.add(_function)
+            else:
                 model_functions.add(function)
 
         return model_functions
 
-    def get_model_parameters(self, check_relevance=True):
-        model_functions = self.get_model_functions()
+    def get_model_parameters(self, check_relevance=True, from_function_maps=True,
+                             model_functions_map=None, spectral_modification_functions_map=None, model_functions=None):
+        if model_functions is None:
+            model_functions = self.get_model_functions(
+                from_maps=from_function_maps,
+                model_functions_map=model_functions_map,
+                spectral_modification_functions_map=spectral_modification_functions_map
+            )
 
         model_parameters = {}
 
@@ -2202,7 +2655,13 @@ class SpectralModel(Radtrans):
         spectral_model_attributes = list(SpectralModel.__dict__.keys())
 
         for function in model_functions:
-            signature = inspect.signature(getattr(self, function))
+            if function is None:
+                continue
+
+            if isinstance(function, str):
+                function = getattr(self, function)
+
+            signature = inspect.signature(function)
 
             for parameter, value in signature.parameters.items():
                 if (parameter not in spectral_model_attributes
@@ -2214,10 +2673,12 @@ class SpectralModel(Radtrans):
                     else:
                         model_parameters[parameter] = None
 
+        # Include or update instantiated model parameters
         if self.model_parameters is not None:
             for parameter in self.model_parameters:
                 model_parameters[parameter] = self.model_parameters[parameter]
 
+        # Initialize the modification parameters dict
         model_parameters['modification_parameters'] = {}
 
         # Check relevance of model parameters
@@ -2283,15 +2744,15 @@ class SpectralModel(Radtrans):
             mean_molar_masses=self.mean_molar_masses
         )
 
-    def init_data(self, data_spectrum: np.ndarray[float],
-                  data_wavelengths: np.ndarray[float],
-                  data_uncertainties: np.ndarray[float],
+    def init_data(self, data_spectrum: npt.NDArray[float],
+                  data_wavelengths: npt.NDArray[float],
+                  data_uncertainties: npt.NDArray[float],
                   data_name: str = 'data',
-                  retrieved_parameters: dict[str, dict[str]] = None, model_parameters: dict[str] = None,
+                  retrieved_parameters: dict[str, dict] = None, model_parameters: dict[str] = None,
                   mode: str = 'emission', update_parameters: bool = False,
-                  telluric_transmittances: np.ndarray[float] = None,
-                  instrumental_deformations: np.ndarray[float] = None,
-                  noise_matrix: np.ndarray[float] = None,
+                  telluric_transmittances: npt.NDArray[float] = None,
+                  instrumental_deformations: npt.NDArray[float] = None,
+                  noise_matrix: npt.NDArray[float] = None,
                   scale: bool = False, shift: bool = False, use_transit_light_loss: bool = False,
                   convolve: bool = False, rebin: bool = False, prepare: bool = False) -> Data:
         """Initialize a Data object using a SpectralModel object.
@@ -2543,11 +3004,20 @@ class SpectralModel(Radtrans):
                     del parameters[parameter]
                 elif parameter == '_fixed_model_parameters':
                     fixed_model_parameters = set(parameters.pop(parameter))
-            elif parameter == 'model_parameters':
-                for key, value in parameters[parameter].items():
-                    parameters[key] = value
 
-                del parameters[parameter]
+        # Convert model parameters to instantiation arguments
+        for key, value in parameters['model_parameters'].items():
+            if key not in parameters:  # prevent Radtrans parameters overwrite
+                parameters[key] = value
+
+        del parameters['model_parameters']
+
+        # Remove custom maps
+        if 'model_functions_map' in parameters:
+            del parameters['model_functions_map']
+
+        if 'spectral_modification_functions_map' in parameters:
+            del parameters['spectral_modification_functions_map']
 
         # Generate an empty SpectralModel
         new_spectrum_model = cls(
@@ -2625,7 +3095,6 @@ class SpectralModel(Radtrans):
                         transit_fractional_light_loss_function=None, convolve_function=None,
                         rebin_spectrum_function=None,
                         **kwargs):
-        # TODO check emission spectrum
         # TODO star observed spectrum will always be re-calculated in this configuration
         # Initialization
         if scale_function is None:
@@ -2646,6 +3115,9 @@ class SpectralModel(Radtrans):
         if rebinned_wavelengths is not None:
             if np.ndim(rebinned_wavelengths) <= 1:
                 rebinned_wavelengths = np.array([rebinned_wavelengths])
+
+        if star_flux is None:
+            star_flux = (None, None)
 
         star_spectrum_wavelengths = star_flux[0]
         star_spectrum = star_flux[1]
@@ -2674,17 +3146,19 @@ class SpectralModel(Radtrans):
                 **kwargs
             )
 
-            star_spectrum = np.zeros(wavelengths_shift_system.shape)
+            _star_spectrum = np.zeros(wavelengths_shift_system.shape)
 
             # Get a star spectrum for each exposure
             for i, wavelength_shift in enumerate(wavelengths_shift_system):
-                _, star_spectrum[i] = SpectralModel._rebin_wrap(
+                _, _star_spectrum[i] = SpectralModel._rebin_wrap(
                     wavelengths=star_spectrum_wavelengths,
                     spectrum=star_spectrum,
                     rebinned_wavelengths=wavelength_shift,
                     rebin_spectrum_function=rebin_spectrum_function,
                     **kwargs
                 )
+
+            star_spectrum = _star_spectrum
 
         # Calculate flux received by the observer
         if is_observed and mode == 'emission':
@@ -2737,7 +3211,7 @@ class SpectralModel(Radtrans):
                 spectrum = np.array([spectrum])
 
         if use_transit_light_loss:
-            if scale:
+            if scale and shift:
                 # TODO fix _calculate_transit_fractional_light_loss_uniform not working when shift is False
                 spectrum = transit_fractional_light_loss_function(
                     spectrum=spectrum,
@@ -2745,7 +3219,7 @@ class SpectralModel(Radtrans):
                     **kwargs
                 )
             else:
-                warnings.warn("'scale' must be True to calculate transit light loss, skipping step...")
+                warnings.warn("'scale' and 'shift' must be True to calculate transit light loss, skipping step...")
 
         # Add telluric transmittance
         if telluric_transmittances is not None:
@@ -2886,9 +3360,6 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-    def prepare_spectrum(self, spectrum, **kwargs):
-        return self.preparing_pipeline(spectrum, **kwargs)
-
     @staticmethod
     def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
         if np.ndim(rebinned_wavelengths) <= 1 and isinstance(rebinned_wavelengths, np.ndarray):
@@ -3014,13 +3485,35 @@ class SpectralModel(Radtrans):
 
     def save(self, file, save_opacities=False):
         if save_opacities:
-            attribute_dictionary = self.__dict__
+            attribute_dictionary = copy.deepcopy(self.__dict__)
         else:
             attribute_dictionary = {
-                key: value
+                copy.deepcopy(key): copy.deepcopy(value)
                 for key, value in self.__dict__.items()
                 if '_loaded_opacities' not in key
             }
+
+        def __check_map(_map_name, _functions_label):
+            for parameter, function in attribute_dictionary[_map_name].items():
+                if not isinstance(function, str) and function is not None:
+                    attribute_dictionary[_map_name][parameter] = function.__name__
+
+                    if not hasattr(self, attribute_dictionary[_map_name][parameter]):
+                        function_name = attribute_dictionary[_map_name][parameter]
+                        warnings.warn(
+                            f"{_functions_label} '{function_name}' is not a default SpectralModel function\n"
+                            f"Only the function's name will be saved"
+                        )
+
+        if 'model_functions_map' in attribute_dictionary:
+            __check_map('model_functions_map', 'model function')
+        else:
+            warnings.warn("saved SpectralModel object have no model functions map")
+
+        if 'spectral_modification_functions_map' in attribute_dictionary:
+            __check_map('spectral_modification_functions_map', 'spectral modification function')
+        else:
+            warnings.warn("saved SpectralModel object have no spectral modification functions map")
 
         self.save_parameters(
             file=file,
@@ -3139,21 +3632,21 @@ class SpectralModel(Radtrans):
     @classmethod
     def with_velocity_range(
             cls,
-            radial_velocity_semi_amplitude_range: np.ndarray[float] = None,
-            rest_frame_velocity_shift_range: np.ndarray[float] = None,
-            mid_transit_times_range: np.ndarray[float] = None,
-            times: np.ndarray[float] = None,
-            system_observer_radial_velocities: np.ndarray[float] = None,
+            radial_velocity_semi_amplitude_range: npt.NDArray[float] = None,
+            rest_frame_velocity_shift_range: npt.NDArray[float] = None,
+            mid_transit_times_range: npt.NDArray[float] = None,
+            times: npt.NDArray[float] = None,
+            system_observer_radial_velocities: npt.NDArray[float] = None,
             orbital_period: float = None,
             star_mass: float = None,
             orbit_semi_major_axis: float = None,
-            rebinned_wavelengths: np.ndarray[float] = None,
+            rebinned_wavelengths: npt.NDArray[float] = None,
             orbital_inclination: float = 90.0,
             mid_transit_time: float = None,
             radial_velocity_semi_amplitude: float = None,
             rest_frame_velocity_shift: float = None,
             shift_wavelengths_function: callable = None,
-            pressures: np.ndarray[float] = None,
+            pressures: npt.NDArray[float] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
             rayleigh_species: list[str] = None,
@@ -3161,7 +3654,7 @@ class SpectralModel(Radtrans):
             line_opacity_mode: str = 'c-k',
             line_by_line_opacity_sampling: int = 1,
             scattering_in_emission: bool = False,
-            emission_angle_grid: np.ndarray[float] = None,
+            emission_angle_grid: npt.NDArray[float] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
             radial_velocity_semi_amplitude_function: callable = None,

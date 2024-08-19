@@ -20,8 +20,11 @@ def __init_pipeline(spectrum, uncertainties):
         reduced_data.mask = copy.deepcopy(spectrum.mask)
 
         if uncertainties is not None:
+            if isinstance(uncertainties, np.ma.core.MaskedArray):
+                reduced_data.mask = np.logical_or(reduced_data.mask, uncertainties.mask)
+
             reduced_data_uncertainties = np.ma.masked_array(copy.deepcopy(uncertainties))
-            reduced_data_uncertainties.mask = copy.deepcopy(spectrum.mask)
+            reduced_data_uncertainties.mask = copy.deepcopy(reduced_data.mask)
         else:
             reduced_data_uncertainties = None
     else:
@@ -372,6 +375,7 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
     """
     # Initialization
     degrees_of_freedom = polynomial_fit_degree + 1
+    n_fully_masked = 0
 
     if spectrum.shape[2] <= degrees_of_freedom:
         warnings.warn(f"not enough points in wavelengths axis ({spectrum.shape[2]}) "
@@ -416,6 +420,13 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
 
         # Fit each order
         for j, exposure in enumerate(order):
+            if np.all(exposure.mask):
+                # Handle numpy.linalg.LinAlgError "DLASCLS parameter number 4 had an illegal value"
+                n_fully_masked += 1
+                throughput_fits[i, j, :] = 1
+
+                continue
+
             # The "preferred" numpy polyfit method is actually much slower than the "old" one
             # fit_parameters = np.polynomial.Polynomial.fit(
             #     x=wvl, y=exposure, deg=polynomial_fit_degree, w=weights[i, j, :]
@@ -443,6 +454,9 @@ def remove_throughput_fit(spectrum, reduction_matrix, wavelengths, uncertainties
         spectral_data_corrected[i, :, :] = order
         spectral_data_corrected[i, :, :] /= throughput_fits[i, :, :]
         reduction_matrix[i, :, :] /= throughput_fits[i, :, :]
+
+    if n_fully_masked > 0:
+        warnings.warn(f"there were {n_fully_masked} fully masked exposures")
 
     # Propagation of uncertainties
     if uncertainties is not None:

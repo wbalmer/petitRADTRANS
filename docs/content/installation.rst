@@ -143,7 +143,7 @@ Compiling pRT from source
 
     .. code-block:: bash
 
-        pip install .[retrievals] --no-build-isolation
+        pip install .[retrieval] --no-build-isolation
 
 Setting up the input_data directory
 ===================================

@@ -316,6 +316,9 @@ In order to create a test, you can use the petitRADTRANS tools and follow these 
 
     - You can execute your test function in a Python console to help you debug it faster.
     - If you used the recommended ``Benchmark`` workflow, you can also use the generated error files to help you.
+    - Error files and reference files have their own class that can be accessed with ``from tests.benchmark import *`` (see points below).
+    - You can load ``Benchmark`` error files with ``error_file = TestFile.load('path/to/error_file.h5')``.
+    - You can load ``Benchmark`` reference files with ``reference_file = ReferenceFile.load('path/to/reference_file.h5')``.
 
 Resetting all reference files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

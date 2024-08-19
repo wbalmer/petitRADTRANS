@@ -1,5 +1,4 @@
 import copy
-import copy as cp
 import json
 import logging
 import os
@@ -24,19 +23,70 @@ from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.utils import flatten_object
 
-# MPI Multiprocessing
-try:
-    from mpi4py import MPI
+prt_emcee_mode = os.environ.get("pRT_emcee_mode")
+load_mpi = True
+if prt_emcee_mode == 'True':
+    load_mpi = False
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    rank = 0
-    comm = None
+MPI = None
+rank = 0
+comm = None
+
+if load_mpi:
+    # MPI Multiprocessing
+    try:
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    except ImportError:
+        MPI = None
+        pass
 
 
 class Retrieval:
+    """Implement the retrieval method using petitRADTRANS and pymultinest.
+
+    A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
+    and priors. The run() method then uses pymultinest to sample the parameter space, producing
+    posterior distributions for parameters and bayesian evidence for models.
+    Various useful plotting functions have also been included, and can be run once the retrieval is
+    complete.
+
+    Args:
+        configuration : RetrievalConfig
+            A RetrievalConfig object that describes the retrieval to be run. This is the user
+            facing class that must be setup for every retrieval.
+        output_directory : Str
+            The directory in which the output folders should be written
+        evaluate_sample_spectra : Bool
+            Produce plots and data files for random samples drawn from the outputs of pymultinest.
+        ultranest : bool
+            If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
+            but is significantly slower.
+        corner_plot_names : List(Str)
+            List of additional retrieval names that should be included in the corner plotlib.
+        use_prt_plot_style : Bool
+            Use the petitRADTRANS plotting style as described in style.py. Recommended to
+            turn this parameter to false if you want to use interactive plotting, or if the
+            test_plotting parameter is True.
+        test_plotting : Bool
+            Only use when running locally. A boolean flag that will produce plots
+            for each sample when pymultinest is run.
+        uncertainties_mode : Str
+            Uncertainties handling method during the retrieval.
+                - "default": the uncertainties are fixed.
+                - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
+                  (https://doi.org/10.1093/mnras/staa228).
+                - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
+                - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
+        print_log_likelihood_for_debugging : bool
+            If True, the current log likelihood of a forward model run will be printed to the console.
+        generate_mock_data : bool
+            If True, the retrieval will generate a mock data set by sampling the prior distributions and bring
+            it into the exact same shape as the input data. This is useful for testing the retrieval setup in input
+            = output tests. The mock data will be saved in the mock_data folder in the run directory, with the
+            following file names: data.name + '_mock_data.dat'.
+    """
     def __init__(
             self,
             configuration: RetrievalConfig,
@@ -52,46 +102,9 @@ class Retrieval:
             use_prt_plot_style: bool = True,
             test_plotting: bool = False,
             uncertainties_mode: str = "default",
-            print_log_likelihood_for_debugging=False
+            print_log_likelihood_for_debugging=False,
+            generate_mock_data=False
     ):
-        """
-        This class implements the retrieval method using petitRADTRANS and pymultinest.
-        A RetrievalConfig object is passed to this class to describe the retrieval data, parameters
-        and priors. The run() method then uses pymultinest to sample the parameter space, producing
-        posterior distributions for parameters and bayesian evidence for models.
-        Various useful plotting functions have also been included, and can be run once the retrieval is
-        complete.
-
-        Args:
-            configuration : RetrievalConfig
-                A RetrievalConfig object that describes the retrieval to be run. This is the user
-                facing class that must be setup for every retrieval.
-            output_directory : Str
-                The directory in which the output folders should be written
-            evaluate_sample_spectra : Bool
-                Produce plots and data files for random samples drawn from the outputs of pymultinest.
-            ultranest : bool
-                If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
-                but is significantly slower.
-            corner_plot_names : List(Str)
-                List of additional retrieval names that should be included in the corner plotlib.
-            use_prt_plot_style : Bool
-                Use the petitRADTRANS plotting style as described in style.py. Recommended to
-                turn this parameter to false if you want to use interactive plotting, or if the
-                test_plotting parameter is True.
-            test_plotting : Bool
-                Only use when running locally. A boolean flag that will produce plots
-                for each sample when pymultinest is run.
-            uncertainties_mode : Str
-                Uncertainties handling method during the retrieval.
-                    - "default": the uncertainties are fixed.
-                    - "optimize": automatically optimize for uncertainties, following Gibson et al. 2020
-                      (https://doi.org/10.1093/mnras/staa228).
-                    - "retrieve": uncertainties are scaled with a coefficient, which is retrieved.
-                    - "retrieve_add": a fixed scalar is added to the uncertainties, and is retrieved.
-            print_log_likelihood_for_debugging : bool
-                If True, the current log likelihood of a forward model run will be printed to the console.
-        """
         self.configuration = configuration
 
         if len(self.configuration.line_species) < 1:
@@ -112,6 +125,8 @@ class Retrieval:
         self.uncertainties_mode = uncertainties_mode
 
         self.print_log_likelihood_for_debugging = print_log_likelihood_for_debugging
+
+        self.generate_mock_data = generate_mock_data
 
         self.output_directory = output_directory
 
@@ -452,8 +467,8 @@ class Retrieval:
             import ultranest as un
             from ultranest.mlfriends import RobustEllipsoidRegion
         except ImportError:
-            logging.error("Could not import ultranest. Exiting.")
-            sys.exit(1)
+            raise ImportError("could not import ultranest, check the documentation for installation instructions")
+
         if self.configuration.run_mode == 'retrieval':
             print("Starting retrieval: " + self.configuration.retrieval_name + '\n')
             # How many free parameters?
@@ -518,7 +533,7 @@ class Retrieval:
                 comm.barrier()
 
     @classmethod
-    def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict[str]],
+    def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict],
                   retrieval_name: str = "retrieval_name",
                   run_mode="retrieval", amr=False, output_directory: str = "", use_mpi: bool = False,
                   evaluate_sample_spectra: bool = False, ultranest: bool = False,
@@ -594,7 +609,7 @@ class Retrieval:
             pressures=pressures  # pressures is not necessary when using SpectralModels
         )
 
-        # Convert retrieved parameters ot RetrievalParameters
+        # Convert retrieved parameters to RetrievalParameters
         if isinstance(retrieved_parameters, dict):
             retrieved_parameters = RetrievalParameter.from_dict(retrieved_parameters)
 
@@ -860,10 +875,10 @@ class Retrieval:
                 # Set up the pRT objects for the given dataset
                 rt_object = Radtrans(
                     pressures=p,
-                    line_species=cp.copy(species),
-                    rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                    gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                    cloud_species=cp.copy(self.configuration.cloud_species),
+                    line_species=copy.copy(species),
+                    rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                    gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                    cloud_species=copy.copy(self.configuration.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
                     wavelength_boundaries=dd.wavelength_boundaries,
                     scattering_in_emission=self.configuration.scattering_in_emission,
@@ -953,6 +968,8 @@ class Retrieval:
             if self.configuration.parameters[pp].is_free_parameter:
                 cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
                 i_p += 1
+
+        return cube
 
     def prior_ultranest(self, cube):
         """
@@ -1196,7 +1213,8 @@ class Retrieval:
                             self.test_plotting,
                             self.configuration.parameters,
                             per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
                     elif np.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -1251,7 +1269,8 @@ class Retrieval:
                             self.test_plotting,
                             self.configuration.parameters,
                             per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
 
             # Save sampled outputs if necessary.
@@ -1269,6 +1288,9 @@ class Retrieval:
                     )
 
                     self.best_fit_spectra[data_name] = [wavelengths_model, spectrum_model]
+
+        if self.generate_mock_data:
+            sys.exit(1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
 
         if per_datapoint:
             return log_l_per_datapoint_dict
@@ -1542,7 +1564,7 @@ class Retrieval:
                              model_generating_function=None,
                              contribution=False,
                              prt_object=None,
-                             prt_reference=None):
+                             prt_reference=None) -> tuple:
         """
         Retrieve a full wavelength range model based on the given parameters.
 
@@ -1589,10 +1611,10 @@ class Retrieval:
         else:
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=cp.copy(self.configuration.line_species),
-                rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                cloud_species=cp.copy(self.configuration.cloud_species),
+                line_species=copy.copy(self.configuration.line_species),
+                rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                cloud_species=copy.copy(self.configuration.cloud_species),
                 line_opacity_mode=self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
@@ -1752,8 +1774,8 @@ class Retrieval:
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
-            cp.copy(species),
-            cp.copy(self.configuration.data[name].radtrans_object.cloud_species),
+            copy.copy(species),
+            copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
             amr=False
         )
@@ -1887,7 +1909,7 @@ class Retrieval:
             parameters_read = parameter_dict[ret]
 
             for sample in samples_use:
-                m_frac, _ = self.get_mass_fraction(sample[:-1], parameters_read)
+                m_frac, _ = self.get_mass_fractions(sample[:-1], parameters_read)
                 mass_fractions.append(np.array(list(m_frac.values())))
 
             mass_fractions = np.array(mass_fractions)
@@ -2343,10 +2365,10 @@ class Retrieval:
 
         prt_object = Radtrans(
             pressures=p,
-            line_species=cp.copy(species),
-            rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-            cloud_species=cp.copy(self.configuration.cloud_species),
+            line_species=copy.copy(species),
+            rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+            gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+            cloud_species=copy.copy(self.configuration.cloud_species),
             line_opacity_mode='c-k',
             wavelength_boundaries=np.array([0.4, 100]),
             scattering_in_emission=self.configuration.scattering_in_emission
@@ -2460,8 +2482,8 @@ class Retrieval:
             ###########################################
             # Plot best-fit spectrum
             ###########################################
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
-            parameters_read = cp.copy(parameter_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
+            parameters_read = copy.copy(parameter_dict[self.configuration.retrieval_name])
             i_p = 0
 
             # This might actually be redundant...
@@ -2587,7 +2609,7 @@ class Retrieval:
         from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
 
         if marker_cmap is None:
-            marker_cmap = plt.cm.bwr
+            marker_cmap = plt.colormaps['bwr']
 
         if not self.use_mpi or rank == 0:
             # Avoiding saving the model spectrum to the sampled spectrum dictionary.
@@ -2599,6 +2621,7 @@ class Retrieval:
             if not self.configuration.run_mode == 'evaluate':
                 logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
+
             print("\nPlotting Best-fit spectrum")
 
             fig, axes = plt.subplots(
@@ -2639,18 +2662,19 @@ class Retrieval:
                 verbose=True,
                 show_chi2=True
             )
+
             if not only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
 
             markersize = None
-            if marker_color_type is not None:
+            markerfacecolors = {}
 
+            if marker_color_type is not None:
                 markersize = 10
 
                 l, b, w, h = ax.get_position().bounds
                 cax = fig.add_axes([l + w + 0.015 * w, b, 0.025 * w, h])
 
-                markerfacecolors = {}
                 vmin, vmax = np.inf, -np.inf
                 for name, dd in self.configuration.data.items():
                     assert hasattr(dd, marker_color_type)
@@ -2691,10 +2715,13 @@ class Retrieval:
                         flux, edges, _ = binned_statistic(
                             dd.wavelengths, dd.spectrum, 'mean', dd.wavelengths.shape[0] / ratio
                         )
-                        error, _, _ = binned_statistic(
-                            dd.wavelengths, dd.uncertainties,
-                            'mean', dd.wavelengths.shape[0] / ratio
-                        ) / np.sqrt(ratio)
+                        error, _, _ = (
+                            binned_statistic(
+                                dd.wavelengths, dd.uncertainties,
+                                'mean', dd.wavelengths.shape[0] / ratio
+                            )
+                            / np.sqrt(ratio)
+                        )
 
                         wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
                         wlen_bins = np.zeros_like(wlen)
@@ -2728,8 +2755,7 @@ class Retrieval:
                 flux = (flux * scale) - offset
                 if f"{dd.name}_b" in self.configuration.parameters.keys():
                     # TODO best_fit_parameters is not an attribute of Retrieval
-                    # raise ValueError("undefined attribute 'Retrieval.best_fit_parameters'")
-                    error = np.sqrt(error**2 + 10 ** (self.best_fit_parameters[f"{dd.name}_b"].value))
+                    error = np.sqrt(error**2 + 10 ** self.best_fit_parameters[f"{dd.name}_b"].value)
 
                 if not dd.photometry:
                     if dd.external_radtrans_reference is None:
@@ -2760,6 +2786,8 @@ class Retrieval:
                             spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
                                                          self.best_fit_spectra[dd.external_radtrans_reference][1],
                                                          dd.data_resolution)
+                        elif dd.radtrans_grid:
+                            spectrum_model = self.best_fit_spectra[dd.external_radtrans_reference][1]
                         else:
                             spectrum_model = None  # TODO prevent reference before assignment
 
@@ -2791,13 +2819,17 @@ class Retrieval:
                             pass
                 # Plot the data
                 marker = 'o'
+
                 if dd.photometry:
                     marker = 's'
+
                 if not dd.photometry:
                     label = dd.name
+
                     for i in range(len(flux)):
                         color_i = 'C0'
                         ecolor = 'C0'
+
                         if marker_color_type is not None:
                             color_i = markerfacecolors[name][i]
                             ecolor = 'k'
@@ -2835,7 +2867,6 @@ class Retrieval:
                         label = None
                 else:
                     # Don't label photometry?
-
                     for i in range(len(flux)):
                         color_i = 'grey'
                         ecolor = 'grey'
@@ -3065,10 +3096,10 @@ class Retrieval:
                     wmax = dd.wavelength_boundaries[1]
 
             # Set up parameter dictionary
-            atmosphere = Radtrans(line_species=cp.copy(self.configuration.line_species),
-                                  rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                                  gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                                  cloud_species=cp.copy(self.configuration.cloud_species),
+            atmosphere = Radtrans(line_species=copy.copy(self.configuration.line_species),
+                                  rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                                  gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                                  cloud_species=copy.copy(self.configuration.cloud_species),
                                   line_opacity_mode='c-k',
                                   wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                                   scattering_in_emission=self.configuration.scattering_in_emission)
@@ -3201,7 +3232,7 @@ class Retrieval:
                 self.configuration.run_mode = 'evaluate'
 
             # Choose what samples we want to use
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
 
             # This is probably obsolete
             # i_p = 0
@@ -3446,8 +3477,8 @@ class Retrieval:
 
             for name, params in parameter_dict.items():
                 # Corner plot requires sample_dict to be transposed
-                samples_use = cp.copy(sample_dict[name]).T
-                parameters_use = cp.copy(params)
+                samples_use = copy.copy(sample_dict[name]).T
+                parameters_use = copy.copy(params)
                 parameter_plot_indices = []
                 parameter_ranges = []
                 i_p = 0
@@ -3469,7 +3500,7 @@ class Retrieval:
                 p_plot_inds[name] = parameter_plot_indices
                 p_ranges[name] = parameter_ranges
                 p_use_dict[name] = parameters_use
-                sample_use_dict[name] = cp.copy(samples_use)
+                sample_use_dict[name] = copy.copy(samples_use)
 
             output_file = self.get_base_figure_name() + '_corner_plot.pdf'
             # from Plotting
@@ -3508,10 +3539,10 @@ class Retrieval:
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
-                errscale = 1.0
                 offset = 0.0
                 spectrum = dd.spectrum
                 error = dd.uncertainties
+
                 if self.configuration.run_mode == 'evaluate':
                     if dd.scale:
                         scale = self.best_fit_parameters[f"{name}_scale_factor"].value
@@ -3582,9 +3613,6 @@ class Retrieval:
                 self.configuration.run_mode = 'evaluate'
             print("\nPlotting Best-fit contribution function")
 
-            # Get best-fit index
-            log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-
             # Let's set up a standardized pressure array, regardless of AMR stuff.
             amr = self.configuration.amr
             self.configuration.amr = False
@@ -3592,11 +3620,7 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            # if amr:
-            #     pressures = self.configuration._setup_pres()
-            # Calculate the temperature structure
-            self.pt_plot_mode = True
-            # pressures, t = self.log_likelihood(samples_use[:-1, best_fit_index], 0, 0)
+            #self.pt_plot_mode = True
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution
@@ -3662,9 +3686,6 @@ class Retrieval:
             # *1e6 for units (cgs from bar)
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            # if amr:
-            #    for name, dd in self.configuration.data.items():
-            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None
@@ -3729,13 +3750,9 @@ class Retrieval:
 
         if not self.use_mpi or rank == 0:
             print("\nPlotting Abundances profiles")
-            # if self.prt_plot_style:
-            #     import petitRADTRANS.retrieval.plot_style as ps  # TODO never used
 
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
-            # if amr:
-            #     pressures = self.configuration._setup_pres()
 
             self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
@@ -3945,9 +3962,6 @@ class Retrieval:
             # Restore the correct pressure arrays.
             self.configuration.pressures = p_global_keep
             self.configuration.amr = amr
-            # if amr:
-            #    for name, dd in self.configuration.data.items():
-            #        dd.radtrans_object.setup_opa_structure(self.configuration.amr_pressure * 1e6)
         else:
             fig = None
             ax = None

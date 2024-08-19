@@ -29,15 +29,24 @@ import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import LockedDict
 
 # MPI Multiprocessing
-try:
-    from mpi4py import MPI
+prt_emcee_mode = os.environ.get("pRT_emcee_mode")
+load_mpi = True
+if prt_emcee_mode == 'True':
+    load_mpi = False
 
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-except ImportError:
-    MPI = None
-    rank = 0
-    comm = None
+MPI = None
+rank = 0
+comm = None
+
+if load_mpi:
+    # MPI Multiprocessing
+    try:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    except ImportError:
+        pass
 
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
@@ -1708,7 +1717,7 @@ def _get_prt2_line_by_line_names():
 
 
 def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                                   rewrite=False, old_paths=False, clean=False):
+                                   memory_map_mode=False, rewrite=False, old_paths=False, clean=False):
     """Using ExoMol units for HDF5 files."""
 
     # Initialize infos
@@ -2132,6 +2141,7 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
             opacities_pressures=opacities_pressures,
             opacities_temperatures=opacities_temperatures,
             line_paths=line_paths,
+            memory_map_mode=memory_map_mode,
             rewrite=rewrite,
             clean=clean
         )
@@ -2803,7 +2813,6 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
                                                        doi=None,
                                                        description=None,
                                                        wavelength_limit=None):
-
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     n_cloud_wavelength_bins = len(np.genfromtxt(os.path.join(path_to_species_opacity_folder, 'opa_0001.dat'))[:, 0])
@@ -2813,10 +2822,10 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         path_to_species_opacity_folder,
         1,
         n_cloud_wavelength_bins
-     )
+    )
 
     if wavelength_limit is not None:
-        index_bad = (cloud_wavelengths < wavelength_limit[0]*1e-4) | (cloud_wavelengths > wavelength_limit[1]*1e-4)
+        index_bad = (cloud_wavelengths < wavelength_limit[0] * 1e-4) | (cloud_wavelengths > wavelength_limit[1] * 1e-4)
         cloud_absorption_opacities[:, index_bad, :] = 0
         cloud_scattering_opacities[:, index_bad, :] = 0
 
@@ -2942,7 +2951,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          save_line_by_line: bool = True, line_by_line_wavelength_boundaries: np.ndarray = None,
                          standard_line_by_line_wavelength_boundaries: np.ndarray = None, rewrite: bool = False,
                          use_legacy_correlated_k_wavenumbers_sampling: bool = False):
-    """Convert opacities loaded with the specied load function into petitRADTRANS line-by-line and correlated-k
+    """Convert opacities loaded with the specified load function into petitRADTRANS line-by-line and correlated-k
     opacities.
 
     Args:
@@ -2956,17 +2965,21 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                 - file_extension: see opacity_files_extension below
                 - molmass: molar mass of the species (automatically set)
                 - wavelength_file: see spectral_dimension_file below
-                - wavenumbers_petitradtrans: the petitRADTRANS wavenumber grid (automatically set)
+                - wavenumbers_petitradtrans_line_by_line: the petitRADTRANS wavenumber grid for line-by-line opacities
+                  (automatically set)
                 - save_line_by_line: see save_line_by_line below
                 - rebin: see rebin below
-                - selection: indices corresponding to the wavenumbers to be exctracted
+                - selection: indices corresponding to the wavenumbers to be extracted
             Not all of the above arguments have to be used.
             The function must output the following, in that order:
-                - opacities: (cm2/molecule) the opacities
-                - opacities_line_by_line: (cm2/molecule), the opacities, interpolated to wavenumbers_petitradtrans
-                - wavenumbers: (cm-1) the wavenumbers corresponding to opacities
-                - pressure: (bar) the pressure of the opacities
-                - temperature: (K) the temperature of the opacities
+                - cross_sections: (cm2/molecule) the cross-sections
+                - cross_sections_line_by_line: (cm2/molecule), the cross-sections,
+                    interpolated to wavenumbers_petitradtrans_line_by_line
+                - wavenumbers: (cm-1) the wavenumbers corresponding to cross-sections
+                - pressure: (bar) the pressure of the cross-sections
+                - temperature: (K) the temperature of the cross-sections
+            The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber
+            order.
         opacities_directory:
             Directory in which the opacity files are stored.
         natural_abundance:
@@ -3117,11 +3130,16 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             file_extension=opacity_files_extension,
             wavelength_file=spectral_dimension_file,
             molmass=molmass,
-            wavenumbers_petitradtrans=wavenumbers_petitradtrans,
+            wavenumbers_petitradtrans_line_by_line=wavenumbers_line_by_line,
             save_line_by_line=save_line_by_line,
             rebin=rebin,
             selection=selection
         )
+
+        # Raise error if the wavenumbers are not sorted in increasing order
+        if not np.all(np.diff(wavenumbers) > 0):
+            raise ValueError("wavenumbers (and cross-sections) returned by external opacity loading function must be "
+                             "sorted in increasing order")
 
         if i == 0:
             __wavenumbers = wavenumbers
@@ -3442,7 +3460,7 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
                                   path_input_data=petitradtrans_config_parser.get_input_data_path(),
                                   contributor=None, description=None,
                                   opacities_pressures=None, opacities_temperatures=None, line_paths=None,
-                                  rewrite=False, clean=False):
+                                  memory_map_mode=False, rewrite=False, clean=False):
     """Using ExoMol units for HDF5 files."""
     check_opacity_name(output_name)
 
@@ -3537,7 +3555,12 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
     wavelengths = finput.load_all_line_by_line_opacities(os.path.join(directory, 'wlen.dat'), n_lines)
     wavenumbers = 1 / wavelengths[::-1]  # cm to cm-1
 
-    opacities = np.zeros((line_paths_.size, wavelengths.size))
+    if not memory_map_mode:
+        memory_map_file = None
+        opacities = np.zeros((line_paths_.size, wavelengths.size))
+    else:  # thanks to Luke Finnerty for this fix
+        memory_map_file = 'temp.memmap'
+        opacities = np.memmap(memory_map_file, dtype='float32', mode='w+', shape=(line_paths_.size, wavelengths.size))
 
     for i, line_path in enumerate(line_paths_):
         if not os.path.isfile(line_path):
@@ -3571,19 +3594,24 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
         description=description
     )
 
+    del opacities
+
+    if memory_map_mode:
+        os.remove(memory_map_file)
+
     print("Done.")
 
     if clean:
         __remove_files([directory])
 
 
-def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_petitradtrans=None,
+def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_petitradtrans_line_by_line=None,
               save_line_by_line=False, rebin=True, selection=None):
     """Read a DACE opacity file."""
     import struct
 
-    if wavenumbers_petitradtrans is None:
-        raise TypeError("missing 1 required argument: 'wavenumbers_petitradtrans'")
+    if wavenumbers_petitradtrans_line_by_line is None:
+        raise TypeError("missing 1 required argument: 'wavenumbers_petitradtrans_line_by_line'")
 
     if wavelength_file is not None:
         warnings.warn("Dace opacities does not require a wavelength file\n"
@@ -3628,29 +3656,33 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     # Handle insufficient wavelength coverage
     d_wavenumbers = np.mean(np.diff(wavenumbers))
 
-    if wavenumber_start > wavenumbers_petitradtrans[selection[0]]:
-        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
-                      f"the requested wavelength lower value "
-                      f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans[selection[0]]} cm-1)"
-                      f"\nOpacities set to 0 within {wavenumbers_petitradtrans[selection[0]]}--{wavenumber_start} cm-1")
+    if wavenumber_start > wavenumbers_petitradtrans_line_by_line[selection[0]]:
+        warnings.warn(
+          f"wavenumber coverage of converted opacities does not extend to "
+          f"the requested wavelength lower value "
+          f"({wavenumber_start}  cm-1 > {wavenumbers_petitradtrans_line_by_line[selection[0]]} cm-1)"
+          f"\nOpacities set to 0 within {wavenumbers_petitradtrans_line_by_line[selection[0]]}--{wavenumber_start} cm-1"
+        )
         wavenumbers = np.insert(
-            wavenumbers, 0, [wavenumbers_petitradtrans[selection[0]], wavenumber_start - d_wavenumbers]
+            wavenumbers, 0, [wavenumbers_petitradtrans_line_by_line[selection[0]], wavenumber_start - d_wavenumbers]
         )
         opacities = np.insert(opacities, 0, [0, 0])
 
-    if wavenumber_end < wavenumbers_petitradtrans[selection[1]]:
-        warnings.warn(f"wavenumber coverage of converted opacities does not extend to "
-                      f"the requested wavelength higher value "
-                      f"({wavenumber_end} cm-1 < {wavenumbers_petitradtrans[selection[1]]} cm-1)"
-                      f"\nOpacities set to 0 within {wavenumber_end}--{wavenumbers_petitradtrans[selection[1]]} cm-1")
+    if wavenumber_end < wavenumbers_petitradtrans_line_by_line[selection[1]]:
+        warnings.warn(
+            f"wavenumber coverage of converted opacities does not extend to "
+            f"the requested wavelength higher value "
+            f"({wavenumber_end} cm-1 < {wavenumbers_petitradtrans_line_by_line[selection[1]]} cm-1)"
+            f"\nOpacities set to 0 within {wavenumber_end}--{wavenumbers_petitradtrans_line_by_line[selection[1]]} cm-1"
+        )
         wavenumbers = np.concatenate(
-            [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans[selection[1]]]]
+            [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans_line_by_line[selection[1]]]]
         )
         opacities = np.concatenate([opacities, [0, 0]])
 
     # Interpolate the Dace calculation to that grid
     sig_interp = interp1d(wavenumbers, opacities)
-    sigmas_prt = sig_interp(wavenumbers_petitradtrans[selection[0]:selection[1]])
+    sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
 
     # Check if interp values are below 0 or NaN
     if np.any(np.less(sigmas_prt, 0)):
@@ -3672,13 +3704,13 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
 
 
-def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wavenumbers_petitradtrans=None,
+def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wavenumbers_petitradtrans_line_by_line=None,
                   save_line_by_line=False, rebin=True, selection=None):
     if wavelength_file is None:
         raise TypeError("missing required argument 'wavelength_file'")
 
-    if wavenumbers_petitradtrans is None:
-        raise TypeError("missing required argument 'wavenumbers_petitradtrans'")
+    if wavenumbers_petitradtrans_line_by_line is None:
+        raise TypeError("missing required argument 'wavenumbers_petitradtrans_line_by_line'")
 
     if molmass is not None:
         pass  # silent warning
@@ -3719,7 +3751,7 @@ def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wave
         # Interpolate the ExoCross calculation to that grid
         print(" Interpolating...")
         sig_interp = interp1d(wavenumbers, opacities)
-        sigmas_prt = sig_interp(wavenumbers_petitradtrans)
+        sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line)
     else:
         n_lines = finput.count_file_line_number_sequential(file)
         sigma = finput.load_all_line_by_line_opacities_sequential(file, n_lines)
@@ -4051,7 +4083,7 @@ def write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
 
 
 def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(),
-                rewrite=False, old_paths=False, clean=False):
+                memory_map_mode=False, rewrite=False, old_paths=False, clean=False):
     path_input_data = os.path.abspath(path_input_data)
 
     if not old_paths:
@@ -4078,7 +4110,10 @@ def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(
     _correlated_k_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Line-by-line opacities...")
-    _line_by_line_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
+    _line_by_line_opacities_dat2h5(
+        path_input_data=path_input_data,
+        memory_map_mode=memory_map_mode, rewrite=rewrite, old_paths=old_paths, clean=clean
+    )
 
     print("Successfully converted all .dat files into HDF5")
 

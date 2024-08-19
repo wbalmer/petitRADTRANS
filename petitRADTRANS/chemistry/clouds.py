@@ -1,7 +1,7 @@
 """This file allows the calculation of equilibrium cloud abundances and base pressures"""
 # TODO make a better cloud module
 # TODO add/replace with Exo-REM condensation curves
-import copy as cp
+import copy
 import warnings
 
 import numpy as np
@@ -254,7 +254,7 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
 
 
 def return_x_fe(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 
@@ -274,7 +274,7 @@ def return_x_fe(metallicity, co_ratio):
 
 
 def return_x_mgsio3(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 
@@ -301,7 +301,7 @@ def return_x_mgsio3(metallicity, co_ratio):
 
 
 def return_x_mg2sio4(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 
@@ -332,7 +332,7 @@ def return_x_mg2sio4(metallicity, co_ratio):
 
 
 def return_x_mgfesio4(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 
@@ -365,7 +365,7 @@ def return_x_mgfesio4(metallicity, co_ratio):
 
 
 def return_x_na2s(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 
@@ -390,7 +390,7 @@ def return_x_na2s(metallicity, co_ratio):
 
 
 def return_x_kcl(metallicity, co_ratio):
-    nfracs_use = cp.copy(__elemental_abundances)
+    nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
 

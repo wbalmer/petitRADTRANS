@@ -3,6 +3,8 @@ from .plotlib import (
     plot_cloud_condensation_curves,
     plot_data,
     plot_multiple_posteriors,
+    plot_opacity_contributions,
+    plot_planet_context,
     plot_posterior,
     plot_radtrans_opacities,
     plot_result_corner
@@ -23,6 +25,8 @@ __all__ = [
     'plot_cloud_condensation_curves',
     'plot_data',
     'plot_multiple_posteriors',
+    'plot_opacity_contributions',
+    'plot_planet_context',
     'plot_posterior',
     'plot_radtrans_opacities',
     'plot_result_corner',

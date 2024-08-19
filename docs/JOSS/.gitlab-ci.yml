@@ -1,0 +1,19 @@
+variables:
+  DOCUMENT: docs/JOSS/paper.md
+
+stages:
+  - convert
+
+md-to-pdf:
+  stage: convert
+  tags:
+    - inara
+  image:
+    name: openjournals/inara
+    entrypoint: [""]
+  script:
+    - make pdf ARTICLE=docs/JOSS/paper.md TARGET_FOLDER=docs/JOSS/
+  artifacts:
+    paths:
+      - ${DOCUMENT%.md}.pdf
+

@@ -1,7 +1,7 @@
 import copy
 import logging
 import os
-import sys
+import warnings
 
 import numpy as np
 from astropy.io import fits
@@ -158,12 +158,14 @@ class Data:
         self.line_opacity_mode = line_opacity_mode
 
         if line_opacity_mode not in ['c-k', 'lbl']:
-            logging.error("line_opacity_mode must be either 'c-k' or 'lbl'!")
-            sys.exit(10)
+            raise ValueError(f"line_opacity_mode must be either 'c-k' or 'lbl', but was '{line_opacity_mode}'")
+
         # Sanity check model function
-        if not model_generating_function and not external_radtrans_reference:
-            logging.error("Please provide a model generating function or external reference for " + name + "!")
-            sys.exit(8)
+        if model_generating_function is None and external_radtrans_reference is None:
+            raise ValueError(
+                f"data '{name}': either model_generating_function or external_radtrans_reference must be set, "
+                f"but both were None"
+            )
 
         if model_resolution is not None:
             if line_opacity_mode == 'c_k' and model_resolution > 1000:
@@ -190,14 +192,18 @@ class Data:
         self.photometric_transformation_function = \
             photometric_transformation_function
 
-        if photometry:  # TODO sys.exit should be avoided, using raise should be preferred
+        if photometry:
+            missing = []
+
             if photometric_transformation_function is None:
-                logging.error("Please provide a photometry transformation function for " + name + "!")
-                sys.exit(9)
+                missing.append("'photometric_transformation_function'")
 
             if photometric_bin_edges is None:
-                logging.error("You must include the photometric bin size if photometry is True!")
-                sys.exit(9)
+                missing.append("'photometric_bin_edges'")
+
+            if len(missing) > 0:
+                ', '.join(missing)
+                raise ValueError(f"missing photometric arguments for photometric data '{name}': {missing}")
 
         self.photometry_range = wavelength_boundaries
         self.photometric_bin_edges = photometric_bin_edges
@@ -212,8 +218,7 @@ class Data:
         if path_to_observations is not None:
             # Check if data exists
             if not os.path.exists(path_to_observations):
-                logging.error(path_to_observations + " Does not exist!")
-                sys.exit(7)
+                raise FileNotFoundError(f"data file '{path_to_observations}' does not exist")
 
             if not photometry:
                 if path_to_observations.endswith("_x1d.fits"):
@@ -285,14 +290,17 @@ class Data:
 
         # Warnings and errors
         if obs.shape[1] < 3:
-            logging.error("Failed to properly load data in " + path + "!!!")
-            sys.exit(6)
+            raise ValueError(f"data file '{path}' must contain at least 3 columns (wavelength, flux, flux error), "
+                             f"but has {obs.shape[1]}")
         elif obs.shape[1] > 4:
-            logging.warning(
-                f" File {path} has more than four columns. Retrieval package assumes that "
-                f"the first three have this meaning: wavelength, [opt, wavelength bins], flux, flux error")
+            warnings.warn(f"data file '{path}' should contain at most 4 columns "
+                          f"(wavelength, [opt, wavelength bins], flux, flux error), "
+                          f"but has {obs.shape[1]}\n"
+                          f"Additional columns will be ignored")
+
         if np.isnan(obs).any():
-            logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
+            warnings.warn(f"NANs present in data file '{path}'")
+
         self.wavelengths = obs[:, 0]
         self.spectrum = obs[:, 1]
         self.uncertainties = obs[:, 2]
@@ -406,8 +414,8 @@ class Data:
                   plotting,
                   parameters=None,
                   per_datapoint=False,
-                  atmospheric_model_column_fluxes=None
-                  ):
+                  atmospheric_model_column_fluxes=None,
+                  generate_mock_data=False):
         """
         Calculate the chi square between the model and the data.
 
@@ -423,6 +431,9 @@ class Data:
             atmospheric_model_column_fluxes : numpy.ndarray
                 The fluxes of individual atmospheric columns in case the retrieval is run in the associated
                 column_flux_return mode.
+            generate_mock_data : bool
+                Generate mock data for input = output tests. This is done in get_chisq because here the actual data
+                and the forward models are brought to the same shape (resolution convolved, rebinned, column mixed).
         Returns:
             logL : float
                 The log likelihood of the model given the data.
@@ -569,12 +580,22 @@ class Data:
 
             if not self.photometry:
                 plt.clf()
+                plt.title(self.name)
                 plt.plot(self.wavelengths, flux_rebinned)
                 plt.errorbar(self.wavelengths,
                              self.spectrum * self.scale_factor,
                              yerr=f_err,
                              fmt='+')
                 plt.show()
+
+        if generate_mock_data:
+
+            # Check if the mock data folder exists, if not create it:
+            if not os.path.exists("mock_data"):
+                os.makedirs("mock_data")
+
+            np.savetxt("mock_data/" + self.name + "_mock_data.dat",
+                       np.column_stack((self.wavelengths, flux_rebinned, self.uncertainties)))
 
         if per_datapoint:
             return log_l_per_datapoint

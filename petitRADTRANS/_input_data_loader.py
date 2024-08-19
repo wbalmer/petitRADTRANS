@@ -66,6 +66,75 @@ def __default_file_selection(files, full_path, sub_path):
     return new_default_file
 
 
+def __get_from_tuple(string, _tuple, _tuple_description):
+    """Base for the naming convention functions."""
+    if string == 'all':
+        return _tuple
+    elif string in _tuple:
+        return string
+    else:
+        implemented = "'" + "'|'".join(_tuple) + "'"
+
+        raise ValueError(
+            f"'{string}' is not an implemented {_tuple_description} (must be {implemented})"
+        )
+
+
+def __get_condensed_matter_state(string, regex_mode=False):
+    """Naming convention for condensed matter state. Access names here, change this to change the convention."""
+    solid_structures = (
+        '(l)',
+        '(s)'
+    )
+
+    condensed_matter_state = __get_from_tuple(
+        string=string,
+        _tuple=solid_structures,
+        _tuple_description='condensed matter state'
+    )
+
+    if regex_mode:
+        condensed_matter_state = condensed_matter_state.replace('(', r'\(')
+        condensed_matter_state = condensed_matter_state.replace(')', r'\)')
+
+    return condensed_matter_state
+
+
+def __get_natural_abundance_string(separator=''):
+    """Naming convention for natural abundance. Access names here, change this to change the convention."""
+    return f'{separator}NatAbund'
+
+
+def __get_spectral_sampling_type(string):
+    """Naming convention for spectral sampling type. Access names here, change this to change the convention."""
+    resolution_types = (
+        'DeltaWavelength',
+        'DeltaWavenumber',
+        'R'
+    )
+
+    return __get_from_tuple(
+        string=string,
+        _tuple=resolution_types,
+        _tuple_description='spectral resolution type'
+    )
+
+
+def __get_solid_structure(string):
+    """Naming convention for solid structure. Access names here, change this to change the convention."""
+    solid_structures = (
+        'amorphous',
+        'crystalline',
+        'structureUnclear'
+    )
+
+    return __get_from_tuple(
+        string=string,
+        _tuple=solid_structures,
+        _tuple_description='solid structure'
+    )
+
+
 def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
     if index_merge is None:
         index_merge = i - 1
@@ -247,7 +316,8 @@ def _get_base_line_by_line_names():
     })
 
 
-def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect_spectral_information=False,
+def _get_input_file(path_input_data, sub_path, files=None, filename=None,
+                    expect_spectral_information=False, expect_default_file_exists=True,
                     find_all=False, display_other_files=False):
     full_path = os.path.join(path_input_data, sub_path)
 
@@ -261,23 +331,30 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
             matching_files = []
             resolution_filename = ''
             _filename = filename.split('.', 1)[0]
+            _filename_source = _split_species_source(_filename)[1]
 
             if expect_spectral_information:
                 resolution_filename, range_filename = _get_spectral_information(filename)
 
                 # First pass, try to use default resolution
                 for file in files:
-                    _file, spectral_info = file.split('.', 1)
+                    _file, spectral_info = _split_species_spectral_info(file)
 
                     resolution_file, range_file = _get_spectral_information(spectral_info)
+                    _file_source = _split_species_source(_file)[1]
+
+                    if _file_source == '':
+                        warnings.warn(f"file '{file}' lacks a source")
 
                     if resolution_file == '' or range_file == '':
-                        warnings.warn(f"file '{file}' lack spectral information "
+                        warnings.warn(f"file '{file}' lacks spectral information "
                                       f"(resolution: {resolution_file}, range: {range_file})")
 
-                    _file = file.split('.', 1)[0]
-
                     if _filename in _file:
+                        if _filename_source != '':
+                            if _filename_source != _file_source:
+                                continue
+
                         if resolution_filename != '':
                             range_match = False
 
@@ -300,9 +377,14 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
             # Second pass, take any matching file regardless of resolution
             if len(matching_files) == 0 and resolution_filename == '':
                 for file in files:
-                    _file = file.split('.', 1)[0]
+                    _file = _split_species_spectral_info(file)[0]
+                    _file_source = _split_species_source(_file)[1]
 
                     if _filename in _file:
+                        if _filename_source != '':
+                            if _filename_source != _file_source:
+                                continue
+
                         matching_files.append(file)
 
             if len(matching_files) == 0:
@@ -330,8 +412,60 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None, expect
                 petitradtrans_config_parser['Default files'][sub_path]
             )
 
+            # Check if spectral info of default file is consistent with requested default file
+            if filename is not None:
+                # Get spectral info
+                resolution_filename, range_filename = _get_spectral_information(filename)
+                resolution_default_file, range_default_file = _get_spectral_information(
+                    petitradtrans_config_parser['Default files'][sub_path]
+                )
+
+                # Check spectral info consistency
+                inconsistent_spectral_info = False
+
+                if resolution_filename != '' and resolution_filename != resolution_default_file:
+                    inconsistent_spectral_info = True
+
+                if range_filename != '' and range_filename != range_default_file:
+                    inconsistent_spectral_info = True
+
+                # Raise error if there is an inconsistency
+                if inconsistent_spectral_info:
+                    # Get all info
+                    name, natural_abundance, charge, cloud_info, _, spectral_info = split_species_all_info(
+                        species=filename
+                    )
+                    _, _, _, _, source, spectral_info_default_file = split_species_all_info(
+                        species=petitradtrans_config_parser['Default files'][sub_path]
+                    )
+
+                    # Remove default file extension to get a clean default file spectral info to display
+                    spectral_info_default_file = spectral_info_default_file.rsplit('.', 3)[0]
+
+                    # Make an example species with added source for the error message
+                    example_species = join_species_all_info(
+                        name=name,
+                        natural_abundance=natural_abundance,
+                        charge=charge,
+                        cloud_info=cloud_info,
+                        source=source,
+                        spectral_info=spectral_info
+                    )
+
+                    raise FileExistsError(
+                        f"More than one file detected in '{full_path}' "
+                        f"with spectral information '{spectral_info}'\n"
+                        f"A default file is already set for species '{name}' "
+                        f"('{petitradtrans_config_parser['Default files'][sub_path]}'), "
+                        f"but with different spectral info ('{spectral_info_default_file}')\n"
+                        f"Add a source to your species name (e.g. '{example_species}'), or update your default file"
+                    )
+
+            # Check if the default file exists
             if os.path.isfile(default_file):
                 return default_file
+            elif not expect_default_file_exists:
+                return os.path.split(default_file)[-1]
             else:
                 raise FileNotFoundError(
                     f"no such file: '{default_file}'\n"
@@ -383,6 +517,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
         files=list(url_paths.keys()),
         filename=filename,
         expect_spectral_information=expect_spectral_information,
+        expect_default_file_exists=False,
         find_all=find_all,
         display_other_files=True
     )
@@ -394,6 +529,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
             files=None,
             filename=filename,
             expect_spectral_information=expect_spectral_information,
+            expect_default_file_exists=True,
             find_all=find_all,
             display_other_files=True
         )
@@ -496,7 +632,7 @@ def _has_isotope(string):
 
 
 def _merge_contiguous_isotopes(species, isotope_separator):
-    isotope_groups = re.findall(r'([A-Z][a-z]?)(\d{1,3})?', species)
+    isotope_groups = re.findall(r'([A-Z][a-z]?|e)(\d{1,3})?', species)
     isotope_groups = [list(isotope_group) for isotope_group in isotope_groups]
 
     # Merge the isotopes, numbers of contiguous isotopes are converted to int, merged groups numbers are set to 0
@@ -535,17 +671,18 @@ def _rebuild_isotope_numbers(species, mode='add'):
     # Set isotope explicit separator
     if mode == 'add':
         isotope_separator = '-'
-    elif mode == 'remove':
+    elif mode == 'remove' or mode == 'scientific':
         isotope_separator = ''  # no separator in remove mode
     else:
-        raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
+        raise ValueError(f"iter isotopes mode must be 'add'|'remove'|'scientific', but was '{mode}'")
 
     species_pattern = r'(\d{1,3})?([A-Z][a-z]?|e)(\d{1,3})?'  # isotope number, element symbol, stoichiometric number
+    natural_abundance_str = __get_natural_abundance_string(separator='-')
 
     # Handle natural abundance case
-    if '-NatAbund' in species:
+    if natural_abundance_str in species:
         if mode == 'add':
-            species = species.rsplit('-NatAbund', 1)[0]
+            species = species.rsplit(natural_abundance_str, 1)[0]
             _species = species.split('--')  # CIA case
 
             for i, __species in enumerate(_species):  # for each colliding species
@@ -556,9 +693,9 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
             species = '--'.join(_species)
 
-            return species + '-NatAbund'
-        elif mode == 'remove':
-            return species.replace('-NatAbund', '')
+            return species + natural_abundance_str
+        elif mode == 'remove' or mode == 'scientific':
+            return species.replace(natural_abundance_str, '')
         else:
             raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
@@ -581,13 +718,12 @@ def _rebuild_isotope_numbers(species, mode='add'):
             for k, groups in enumerate(matches):  # for each non-separated isotope in the "separated isotope"
                 groups = list(groups)  # contains isotope number, element symbol and element count (e.g. 13, C, 2)
 
-                # Handle deuterium
-                if groups[1] == 'D':
+                if groups[1] == 'D':  # handle deuterium
                     if groups[0] == '':
                         groups[0] = '2'
 
                     groups[1] = 'H'
-                elif groups[1] == 'T':
+                elif groups[1] == 'T':  # handle tritium
                     if groups[0] == '':
                         groups[0] = '3'
 
@@ -595,11 +731,17 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
                 # Update isotope number
                 if mode == 'add':
-                    if groups[0] == '':
+                    if groups[0] == '' and groups[1] != 'e':
                         groups[0] = f"{Formula(groups[1]).isotope.massnumber}"
                 elif mode == 'remove':
                     if groups[0] != '':
                         groups[0] = ''  # remove isotope number
+                elif mode == 'scientific':
+                    if groups[0] != '':  # isotope number
+                        groups[0] = '$^{' + groups[0] + '}$'
+
+                    if groups[2] != '':  # stoichiometric number
+                        groups[2] = '$_{' + groups[2] + '}$'
                 else:
                     raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
@@ -618,9 +760,39 @@ def _rebuild_isotope_numbers(species, mode='add'):
 
         _species[i] = _species_tmp
 
-    __species = '--'.join(_species)  # join species to rebuild collision
+    if mode == 'scientific':
+        cia_separator = '$-$'
+    else:
+        cia_separator = '--'
+
+    __species = cia_separator.join(_species)  # join species to rebuild collision
 
     return __species
+
+
+def _split_cloud_info(cloud_info):
+    matter_state = ''
+    structure = ''
+    space_group = ''
+
+    split_list = cloud_info.split('_', 2)
+
+    if split_list[0] in __get_condensed_matter_state('all'):
+        matter_state = split_list[0]
+
+    solid_state = __get_condensed_matter_state('(s)')
+
+    if matter_state == solid_state:
+        if len(split_list) == 1:
+            return matter_state, structure, space_group
+
+        if split_list[1] in __get_solid_structure('all'):
+            structure = split_list[1]
+
+        if len(split_list) == 3:
+            space_group = split_list[2]
+
+    return matter_state, structure, space_group
 
 
 def _split_species_cloud_info(species):
@@ -647,6 +819,9 @@ def _split_species_charge(species, final_charge_format='+-'):
     len_charge = 0
     charge = ''
     name = copy.deepcopy(species)
+
+    if species[-2:] in ['Tm', 'Am', 'Cm', 'Fm']:  # prevent matches with atomic Thulium, Americium, Curium and Fermium
+        return name, ''
 
     if len(charge_pattern_match) == 1:
         charge = charge_pattern_match[0][0]
@@ -759,21 +934,55 @@ def check_opacity_name(opacity_name: str):
                          f"CIA separator '--' must be used at most once, "
                          f"but has been used {len(re.findall('--', opacity_name))} times")
 
+    # Get naming conventions
+    natural_abundance_string = __get_natural_abundance_string('-')
+
+    liquid_state = __get_condensed_matter_state('(l)', regex_mode=True)
+    solid_state = __get_condensed_matter_state('(s)', regex_mode=True)
+
+    crystalline = __get_solid_structure('crystalline')
+    amorphous = __get_solid_structure('amorphous')
+    structure_unclear = __get_solid_structure('structureUnclear')
+
+    resolving_power = __get_spectral_sampling_type('R')
+    delta_wavenumber = __get_spectral_sampling_type('DeltaWavenumber')
+    delta_wavelength = __get_spectral_sampling_type('DeltaWavelength')
+
+    # Check if name respect the convention
     if len(re.findall(
             r'^'
             r'(\d{0,3}[A-Z])'  # must start with up to 3 digits or an uppercase character
             r'(\d|[A-Z]|[a-z]|--(?!-)|-(?!-)|\[|])*'  # list of isotopes and their number, can be separated by "-"
-            r'(-NatAbund)?'  # indicate if a mix of isotopologues has been used to make the opacities
+            r'('
+            + natural_abundance_string +  # indicate if a mix of isotopologues has been used to make the opacities
+            r')?'
             r'(_?(\d{1,3})?[+\-pm])?'  # charge (+ or p, - or m), can be separated from the isotopes with a "_"
             r'('  # begin clouds formatting
-            r'(\(l\))'  # liquid state, no additional information required
-            r'|(\(s\))_'  # solid state, it must be specified if the solid is crystalline or amorphous
-            r'(crystalline(_\d{3})?'  # crystalline form, can be followed by the space group number (from 001 to 230)
-            r'|amorphous(_[A-Z]{1,5})?'  # amorphous form, can be followed by the amorphous phase name
-            r'|structureUnclear)'  # exceptionally used when the form is not specified by the opacity provider
+            r'('
+            + liquid_state +  # liquid state, no additional information required
+            r')'
+            r'|('
+            + solid_state +  # solid state, it must be specified if the solid is crystalline or amorphous
+            r')_'
+            r'('
+            + crystalline +  # crystalline form ...
+            r'(_\d{3})?'  # ... can be followed by the space group number (from 001 to 230)
+            r'|'
+            + amorphous +  # amorphous form ...
+            r'(_[A-Z]{1,5})?'  # ... can be followed by the amorphous phase name
+            r'|'
+            + structure_unclear +  # exceptionally used when the form is not specified by the opacity provider
+            r')'  # end solid state extra info
             r')?'  # end clouds formatting
             r'(__(\d|[A-Z]|[a-z]|-)+)?'  # source or method
-            r'(\.(R|DeltaWavenumber|DeltaWavelength)\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling mode and value
+            r'(\.('  # begin spectral sampling type
+            + resolving_power +
+            r'|'
+            + delta_wavenumber +
+            r'|'
+            + delta_wavelength +
+            r')'  # end spectral sampling tyoe
+            r'\d{1,9}(e([+|-])?\d{1,3})?)?'  # spectral sampling value
             r'(_\d+(\.\d+)?-\d+(\.\d+)?mu)?'  # spectral range (min-max) in um
             r'$',
             opacity_name
@@ -784,7 +993,7 @@ def check_opacity_name(opacity_name: str):
             f"\t- must begin with a number (up to 3 digits) or an uppercase letter\n"
             f"\t- must contains a valid chemical formula\n"
             f"\t- can have isotopes, that should be separated with '-'\n"
-            f"\t- can contain '-NatAbund' to signal a mix of isotopes "
+            f"\t- can contain '{natural_abundance_string}' to signal a mix of isotopes "
             f"(incompatible with providing isotopic information)\n"
             f"\t- can contain '+', '-', 'p' or 'm', (optionally starting with '_' and a up to 3 digits number) to "
             f"signal a ion \n"
@@ -814,10 +1023,10 @@ def check_opacity_name(opacity_name: str):
             f"\t- '24Mg2-28Si-16O4(s)_crystalline_068__DHS.R39_0.1-250mu'\n"
         )
 
-    if '-NatAbund' in opacity_name and _has_isotope(opacity_name):
+    if natural_abundance_string in opacity_name and _has_isotope(opacity_name):
         raise ValueError(f"invalid opacity name '{opacity_name}'\n"
                          f"Opacity cannot have one of the species isotopologue (e.g. '1H2-16O') "
-                         f"and all of the species isotopologues ('-NatAbund') at the same time")
+                         f"and all of the species isotopologues ('{natural_abundance_string}') at the same time")
 
 
 def get_cia_aliases(name: str) -> str:
@@ -853,64 +1062,102 @@ def get_cia_aliases(name: str) -> str:
 
 
 def get_cloud_aliases(name: str) -> str:
-    cloud_directories = _get_base_cloud_names()
+    cloud_opacities_path = os.path.join(
+        petitradtrans_config_parser.get_input_data_path(),
+        get_input_data_subpaths()['clouds_opacities']
+    )
 
-    if '.' in name:
-        name, spectral_info = name.split('.', 1)
+    cloud_directories = [
+        f.path.rsplit(os.path.sep, 1)[1] for f in os.scandir(cloud_opacities_path) if f.is_dir()
+    ]
+
+    _name, spectral_info = _split_species_spectral_info(name)
+    _name, method = _split_species_source(_name)
+    _name, cloud_info = _split_species_cloud_info(_name)
+
+    matter_state, structure, space_group = _split_cloud_info(cloud_info)
+
+    if matter_state == __get_condensed_matter_state('(s)') and structure == __get_solid_structure('crystalline'):
+        # No space group in name, try to find relevant one in the cloud opacities directory
+        if space_group == '' and structure != '':
+            matches = []
+
+            for cloud_directory in cloud_directories:
+                cloud_directory_name, cloud_directory_info = _split_species_cloud_info(cloud_directory)
+
+                if cloud_directory_name == _name and cloud_info in cloud_directory_info:
+                    matches.append(cloud_directory)
+
+            # Try to look into the Keeper library if nothing was found locally
+            if len(matches) == 0:
+                keeper_directory_string = '&mode=list'  # directories elements on Keeper end with this string
+
+                keeper_cloud_directories = get_keeper_files_url_paths(
+                    path=cloud_opacities_path,
+                    ext=keeper_directory_string
+                )
+
+                # Remove the Keeper directory string
+                keeper_cloud_directories = {
+                    key.rsplit(keeper_directory_string, 1)[0]
+                    for key in keeper_cloud_directories
+                }
+
+                matches = [
+                    cloud_directory
+                    for cloud_directory in keeper_cloud_directories
+                    if _name + cloud_info in cloud_directory
+                ]
+
+            if len(matches) == 1:
+                _, _cloud_info = _split_species_cloud_info(matches[0])
+                _, _, space_group = _split_cloud_info(_cloud_info)
+                cloud_info += '_' + space_group
+            elif len(matches) > 1:
+                available = "'" + "','".join([match.rsplit('_', 1)[1] for match in matches]) + "'"
+                space_group = matches[0].rsplit('_', 1)[1]
+                cloud_info += '_' + space_group
+
+                if spectral_info != '':
+                    spectral_info = '.' + spectral_info
+
+                if method != '':
+                    method = '__' + method
+
+                _name = _name + cloud_info + method + spectral_info
+
+                raise FileExistsError(
+                    f"more than one solid condensate cloud with name '{name}'\n"
+                    f"Add a space group to your cloud name (e.g., '{_name}')\n"
+                    f"Available space groups with this name: {available}"
+                )
+
+    if spectral_info != '':
+        spectral_info = '.' + spectral_info
+
+    if method != '':
+        method = '__' + method
+
+    natural_abundance_string = __get_natural_abundance_string()
+    condensed_matter_states = __get_condensed_matter_state('all')
+
+    # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
+    if natural_abundance_string not in name and not _has_isotope(name):
+        if not any([condensed_matter_state in name for condensed_matter_state in condensed_matter_states]):
+            raise ValueError(f"cloud species name '{name}' lacks condensed matter state information\n"
+                             f"For liquid particles, cloud species names must include '(l)' (e.g. 'H2O(l)').\n"
+                             f"For solid particles, the cloud species must include '(s)_crystalline' for crystals "
+                             f"or '(s)_amorphous' for amorphous solids (e.g. 'MgSiO3(s)_crystalline').")
+
+        _name = _rebuild_isotope_numbers(
+            species=_name + '-' + natural_abundance_string,
+            mode='add'
+        )
+        name = _name + cloud_info + method + spectral_info
     else:
-        spectral_info = None
+        name = _name + cloud_info + method + spectral_info
 
-    if '__' in name:
-        name, method = name.split('__', 1)
-    else:
-        method = None
-
-    if name in cloud_directories:
-        filename = cloud_directories[name]
-    else:
-        if spectral_info is None:
-            spectral_info = ''
-        else:
-            spectral_info = '.' + spectral_info
-
-        if method is None:
-            method = ''
-        else:
-            method = '__' + method
-
-        # Return NatAbund if no isotope information has been provided (override def. case returning main isotopologue)
-        if 'NatAbund' not in name and not _has_isotope(name):
-            if '(s)' not in name and '(l)' not in name:
-                raise ValueError(f"cloud species name '{name}' lacks condensed matter state information\n"
-                                 f"For liquid particles, cloud species names must include '(l)' (e.g. 'H2O(l)').\n"
-                                 f"For solid particles, the cloud species must include '(s)_crystalline' for crystals "
-                                 f"or '(s)_amorphous' for amorphous solids (e.g. 'MgSiO3(s)_crystalline').")
-
-            species, info = name.split('(', 1)
-
-            name = species + '-NatAbund(' + info + method + spectral_info
-        else:
-            name = name + method + spectral_info
-
-        return name
-
-    _filename, _spectral_info = filename.split('.', 1)
-
-    # Default method
-    if '(s)' in _filename:
-        _method = 'DHS'
-    elif '(l)' in _filename:
-        _method = 'Mie'
-    else:
-        raise ValueError(f"invalid cloud file name: '{filename}'")
-
-    if method is None:
-        method = _method
-
-    if spectral_info is None:
-        spectral_info = _spectral_info
-
-    return _filename + '__' + method + '.' + spectral_info
+    return name
 
 
 def get_default_cloud_resolution() -> str:
@@ -966,6 +1213,7 @@ def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect
             sub_path=sub_path,
             filename=file,
             expect_spectral_information=expect_spectral_information,
+            expect_default_file_exists=True,
             find_all=find_all
         )
 
@@ -1118,6 +1366,13 @@ def get_species_isotopologue_name(species: str, join: bool = False) -> str:
         return name
 
 
+def get_species_scientific_name(species: str) -> str:
+    name, natural_abundance, charge, cloud_info, _, _ = split_species_all_info(species, final_charge_format='+-')
+
+    # Remove isotopic numbers
+    return rf"{_rebuild_isotope_numbers(name, mode='scientific')}"
+
+
 def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):
     if natural_abundance != '':
         name += '-' + natural_abundance
@@ -1151,9 +1406,11 @@ def split_species_all_info(species, final_charge_format='+-'):
     # Remove cloud info
     name, cloud_info = _split_species_cloud_info(name)
 
-    if '-NatAbund' in name:
-        name = name.replace('-NatAbund', '')
-        natural_abundance = 'NatAbund'
+    natural_abundance_string = __get_natural_abundance_string()
+
+    if f"-{natural_abundance_string}" in name:
+        name = name.replace(f'-{natural_abundance_string}', '')
+        natural_abundance = natural_abundance_string
     else:
         natural_abundance = ''
 
