@@ -1,5 +1,4 @@
 import copy
-import copy as cp
 import json
 import logging
 import os
@@ -468,8 +467,8 @@ class Retrieval:
             import ultranest as un
             from ultranest.mlfriends import RobustEllipsoidRegion
         except ImportError:
-            logging.error("Could not import ultranest. Exiting.")
-            sys.exit(1)
+            raise ImportError("could not import ultranest, check the documentation for installation instructions")
+
         if self.configuration.run_mode == 'retrieval':
             print("Starting retrieval: " + self.configuration.retrieval_name + '\n')
             # How many free parameters?
@@ -1287,7 +1286,7 @@ class Retrieval:
                     self.best_fit_spectra[data_name] = [wavelengths_model, spectrum_model]
 
         if self.generate_mock_data:
-            sys.exit(1)
+            sys.exit(1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
 
         if per_datapoint:
             return log_l_per_datapoint_dict
