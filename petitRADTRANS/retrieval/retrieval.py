@@ -9,13 +9,13 @@ import warnings
 import numpy as np
 from scipy.stats import binned_statistic
 
-from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
+from petitRADTRANS.physics import wavelength2frequency
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
@@ -3323,7 +3323,7 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                nu = cst.c / bf_wlen
+                nu = wavelength2frequency(bf_wlen)
 
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
@@ -3333,7 +3333,7 @@ class Retrieval:
 
                 if self.test_plotting:
                     plt.clf()
-                    plt.plot(bf_wlen / 1e-4, spectral_weights)
+                    plt.plot(bf_wlen * 1e4, spectral_weights)
                     plt.show()
                     print(np.shape(bf_contribution))
 
@@ -3846,7 +3846,7 @@ class Retrieval:
                     prt_reference=prt_reference, refresh=refresh,
                     contribution=True
                 )
-                nu = cst.c / bf_wlen
+                nu = wavelength2frequency(bf_wlen)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
                 diff_nu[:-1] = mean_diff_nu
@@ -3855,7 +3855,7 @@ class Retrieval:
 
                 if self.test_plotting:
                     plt.clf()
-                    plt.plot(bf_wlen / 1e-4, spectral_weights)
+                    plt.plot(bf_wlen * 1e4, spectral_weights)
                     plt.show()
                     print(np.shape(bf_contribution))
 

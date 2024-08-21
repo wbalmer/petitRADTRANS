@@ -21,7 +21,7 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
-    rebin_spectrum
+    rebin_spectrum, um2hz
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
@@ -3125,7 +3125,7 @@ class SpectralModel(Radtrans):
         if star_spectrum_wavelengths is not None and star_flux[1] is not None:
             star_spectrum = flux_hz2flux_cm(
                 star_spectrum,
-                cst.c / star_spectrum_wavelengths * 1e4  # um to cm
+                um2hz(star_spectrum_wavelengths)
             ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
         if star_observed_spectrum is not None:

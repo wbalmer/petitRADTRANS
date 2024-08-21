@@ -20,6 +20,7 @@ from petitRADTRANS.chemistry.clouds import (
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
+from petitRADTRANS.physics import frequency2wavelength
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.spectral_model import SpectralModel
@@ -1513,7 +1514,7 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         for i, _species in enumerate(radtrans.line_species):
             _opacities_dict[_species] = np.sum(_opacities[:, :, i, :] * weights_gauss, axis=0)
 
-        return cst.c / radtrans.frequencies, _opacities_dict
+        return frequency2wavelength(radtrans.frequencies), _opacities_dict
 
     temperatures = np.array(temperature)
     pressure_bar = np.array(pressure_bar)
