@@ -3647,6 +3647,11 @@ class Radtrans:
 
         return stellar_intensity
 
+    def get_wavelengths(self):
+        """Convert the frequency grid into wavelengths in centimeter."""
+        # Not a property because the child SpectralModel already have a 'wavelengths' attribute that behaves differently
+        return frequency2wavelength(self._frequencies)
+
     def load_all_opacities(self):
         print("Loading Radtrans opacities...")
 
