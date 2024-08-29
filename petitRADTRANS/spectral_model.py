@@ -1857,7 +1857,7 @@ class SpectralModel(Radtrans):
 
             # Get the sum of mass fractions of non-imposed species
             for species in mass_fractions_equilibrium:
-                if species not in imposed_mass_fractions:
+                if species not in imposed_mass_fractions and species not in filling_species:
                     mass_fractions[species] = mass_fractions_equilibrium[species]
                     m_sum_species += mass_fractions_equilibrium[species]
 
@@ -1883,15 +1883,19 @@ class SpectralModel(Radtrans):
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
                 if len(filling_species) > 0:  # fill the atmosphere using the filling species
-                    mass_fractions = fill_atmosphere(
+                    mass_fractions_i = fill_atmosphere(
                         mass_fractions=mass_fractions,
-                        filling_species=filling_species
+                        filling_species=filling_species,
+                        fill_layer=i
                     )
+
+                    for species in mass_fractions:
+                        mass_fractions[species][i] = mass_fractions_i[species][0]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
                                   f"Set filling_species to automatically fill the atmosphere "
                                   f"or manually adjust the imposed mass fractions")
-            elif m_sum > 1:  # scale down the mass fractions
+            elif m_sum > 1:  # scale down the mass fractions, no filling species needed
                 if verbose:
                     warnings.warn(f"sum of species mass fraction ({m_sum_species[i]} + {m_sum_imposed_species[i]}) "
                                   f"is > 1, correcting...")

@@ -171,7 +171,7 @@ def compute_mean_molar_masses(abundances):
     return 1.0 / mean_molar_masses
 
 
-def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict
+def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict, fill_layer: int = 'all',
                     ) -> dict[str, npt.NDArray[float]]:
     """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
 
@@ -183,21 +183,29 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
         filling_species:
             Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
             filling species are represented with None.
+        fill_layer:
+            If 'all', fill all layers and return the filled mass fractions at every layer.
+            If it is an integer, fill only the corresponding layer and return the mass fractions at that layer only.
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
-    n_layers = list(mass_fractions.values())[0].size
     all_species = set(list(mass_fractions.keys()) + list(filling_species.keys()))
 
+    if fill_layer == 'all':
+        n_layers = list(mass_fractions.values())[0].size
+        layers = range(n_layers)
+    else:
+        layers = np.array([fill_layer])
+
     filled_mass_fractions = {
-        species: np.zeros(n_layers)
+        species: np.zeros(layers.size)
         for species in all_species
     }
 
-    for i in range(n_layers):
+    for i, layer_id in enumerate(layers):
         # Take mass fractions from the current layer
         mass_fractions_i = {
-            species: float(mass_fraction[i])
+            species: float(mass_fraction[layer_id])
             for species, mass_fraction in mass_fractions.items()
         }
 
@@ -208,7 +216,7 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
             if weights is None or isinstance(weights, str):
                 filling_species_i[species] = weights
             elif hasattr(weights, '__iter__'):
-                filling_species_i[species] = weights[i]
+                filling_species_i[species] = weights[layer_id]
             else:
                 filling_species_i[species] = weights
 
