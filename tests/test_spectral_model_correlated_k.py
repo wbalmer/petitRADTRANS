@@ -46,7 +46,7 @@ def init_spectral_model_correlated_k():
         temperature=test_parameters['temperature_guillot_2010_parameters']['equilibrium_temperature'],
         intrinsic_temperature=test_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
         guillot_temperature_profile_gamma=test_parameters['temperature_guillot_2010_parameters']['gamma'],
-        guillot_temperature_profile_kappa_ir_z0=test_parameters['temperature_guillot_2010_parameters'][
+        guillot_temperature_profile_infrared_mean_opacity_solar_metallicity=test_parameters['temperature_guillot_2010_parameters'][
                 'infrared_mean_opacity'],
         # Mass fractions
         use_equilibrium_chemistry=True,
