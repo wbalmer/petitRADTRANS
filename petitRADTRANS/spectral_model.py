@@ -2744,7 +2744,7 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-    def get_true_parameters(self, retrieved_parameters):
+    def get_true_parameters(self, retrieved_parameters: dict) -> dict[str, float]:
         """Get the true value of retrieved parameters.
         Intended to be used with plot_result_corner, for retrieval on simulated data.
 
