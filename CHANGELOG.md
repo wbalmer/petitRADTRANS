@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a31] - 2024-08-05
+## [3.1.0a35] - 2024-08-29
 ### Added
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to plot the above opacity contribution spectra.
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
 - Function to fill all layers of an atmosphere at once with filling species.
+- Functions to convert frequencies into wavelengths (in cm or in um), and vice-versa.
+- Function `Radtrans.get_wavelengths` to obtain the equivalent in cm of a `Radtrans` object's frequency grid.
 - Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Warning when only one of the two parameters necessary to include a power law opacity has been set.
@@ -30,17 +32,16 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Changed
 - Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. Parameter `emission_geometry` will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
-- Requested input and output parameter names for externally provided function to load opacities for format2petitradtrans: since cm^2 should be returned it should be called cross-sections, not opacities.
+- Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
 
 ### Removed
 - Unused test functions.
 
 ### Fixed
-- Fixed bug in retrieval.plot_spectra() that ocurred when plotting the best-fit spectrum together with radtrans_grid = True.
-- Fixed return_opacities=True bug in calculate_transit_radii().
-- Function format2petitradtrans applied the incorrect pRT wavelength grid to the lbl opacity conversion.
+- Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
+- Bug in function `calculate_transit_radii()` when `return_opacities=True`.
+- Function `format2petitradtrans` applied the incorrect pRT wavelength grid to the lbl opacity conversion.
 - Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
-- Function `format2petitradtrans` incorrectly applying pRT wavelength grid if custom cross-section wavenumbers are not in increasing order.
 - Crash when unpickling `LockedDict` objects.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.

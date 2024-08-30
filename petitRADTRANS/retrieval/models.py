@@ -25,8 +25,6 @@ All models must take the same set of inputs:
         For example, using the fixed_length_amr function defined below.
 """
 # TODO replace by SpectralModel function
-import sys
-
 import numpy as np
 
 from petitRADTRANS.chemistry.core import get_abundances
@@ -2062,8 +2060,9 @@ def set_pglobal(press, parameters):
                       parameters['pressure_simple'].value,
                       parameters['pressure_scaling'].value)
     except KeyError():
-        print("You must include the pressure_simple and pressure_scaling parameters when using amr!")
-        sys.exit(1)
+        raise KeyError(
+            "missing parameters 'pressure_simple' and 'pressure_scaling parameters', required when using AMR"
+        )
 
 
 def pglobal_check(press, shape, scaling):

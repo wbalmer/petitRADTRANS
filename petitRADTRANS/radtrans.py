@@ -18,7 +18,9 @@ from petitRADTRANS._input_data_loader import (
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
-from petitRADTRANS.physics import flux_hz2flux_cm, rebin_spectrum
+from petitRADTRANS.physics import (
+    flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
+)
 from petitRADTRANS.utils import intersection_indices, LockedDict
 
 
@@ -995,7 +997,7 @@ class Radtrans:
                     )
             else:
                 cloud_abs = additional_absorption_opacities_function(
-                    cst.c / self._frequencies / 1e-4,
+                    hz2um(self._frequencies),
                     self._pressures * 1e-6
                 )
                 continuum_opacities += cloud_abs
@@ -1013,7 +1015,7 @@ class Radtrans:
                     )
             else:
                 cloud_scattering_opacities = additional_scattering_opacities_function(
-                    cst.c / self._frequencies / 1e-4,
+                    hz2um(self._frequencies),
                     self._pressures * 1e-6
                 )
                 continuum_opacities_scattering += cloud_scattering_opacities
@@ -1464,7 +1466,7 @@ class Radtrans:
                     f"Set the missing arguments, "
                     f"or directly set cloud particle radii "
                     f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
-                    f"and argument 'cloud_particles_distribution_std'.\n"
+                    f"and argument 'cloud_particle_radius_distribution_std'.\n"
                     f"The cloud particle radii are necessary to calculate the cloud opacities."
                 )
 
@@ -1712,8 +1714,8 @@ class Radtrans:
     def _compute_h_minus_opacities(mass_fractions, pressures, temperatures, frequencies, frequency_bins_edges,
                                    mean_molar_masses, **kwargs):
         """Calculate the H- opacity."""
-        wavelengths = cst.c / frequencies * 1e8  # Hz to Angstroem
-        wavelengths_bin_edges = cst.c / frequency_bins_edges * 1e8  # Hz to Angstroem
+        wavelengths = frequency2wavelength(frequencies) * 1e8  # cm to Angstroem
+        wavelengths_bin_edges = frequency2wavelength(frequency_bins_edges) * 1e8  # cm to Angstroem
 
         ret_val = np.array(np.zeros(len(wavelengths) * len(pressures)).reshape(
             len(wavelengths),
@@ -1921,8 +1923,11 @@ class Radtrans:
         else:
             # Use a smaller wavelength range for the median optical depth
             # The units of cloud_wavelengths are converted from micron to cm
-            wavelengths_select = (cst.c / frequencies >= 1e-4 * cloud_wavelengths[0]) & \
-                                 (cst.c / frequencies <= 1e-4 * cloud_wavelengths[1])
+            # Unit conversion is done multiple times to preserve memory
+            wavelengths_select = (np.logical_and(
+                np.greater_equal(frequency2wavelength(frequencies), cloud_wavelengths[0] * 1e-4),
+                np.less_equal(frequency2wavelength(frequencies), cloud_wavelengths[1] * 1e-4)
+            ))
 
         # Calculate the cloud-free optical depth per wavelength
         w_gauss_photosphere = weights_gauss[..., np.newaxis, np.newaxis]
@@ -2002,7 +2007,7 @@ class Radtrans:
     @staticmethod
     def _compute_power_law_opacities(power_law_opacity_350nm, power_law_opacity_coefficient,
                                      frequencies, n_layers):
-        wavelengths = cst.c / frequencies / 1e-4  # Hz to um
+        wavelengths = hz2um(frequencies)
         power_law_opacities = power_law_opacity_350nm * (wavelengths / 0.35) ** power_law_opacity_coefficient
 
         return np.tile(power_law_opacities, (n_layers, 1)).T  # (p, wavelengths)
@@ -2034,7 +2039,7 @@ class Radtrans:
             temperatures: temperatures in each atmospheric layer
             mass_fractions: dictionary of the Rayleigh scattering species mass fractions
         """
-        wavelengths_angstroem = np.array(cst.c / frequencies * 1e8, dtype='d', order='F')
+        wavelengths_angstroem = np.array(frequency2wavelength(frequencies) * 1e8, dtype='d', order='F')
         rayleigh_scattering_opacities = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
 
         base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
@@ -2308,10 +2313,10 @@ class Radtrans:
             )
         else:
             warnings.warn("no opacity source given (lines, CIA, or clouds), "
-                          "setting frequency grid using the mean of wavelength boundaries (1 element)")
+                          "setting frequency grid using the mean of the frequency boundaries (1 element)")
             frequency_bins_edges = np.zeros(2)
-            frequency_bins_edges[0] = cst.c / self._wavelength_boundaries[1] * 1e4  # um to cm
-            frequency_bins_edges[1] = cst.c / self._wavelength_boundaries[0] * 1e4  # um to cm
+            frequency_bins_edges[0] = wavelength2frequency(self._wavelength_boundaries[1] * 1e-4)  # um to cm
+            frequency_bins_edges[1] = wavelength2frequency(self._wavelength_boundaries[0] * 1e-4)  # um to cm
             frequencies = np.mean(frequency_bins_edges)
 
         return frequencies, frequency_bins_edges
@@ -2319,8 +2324,8 @@ class Radtrans:
     @staticmethod
     def _init_frequency_grid_from_frequency_grid(frequency_grid, wavelength_boundaries, sampling=1):
         # Get frequency boundaries
-        frequency_min = cst.c / wavelength_boundaries[1] * 1e4  # um to cm
-        frequency_max = cst.c / wavelength_boundaries[0] * 1e4  # um to cm
+        frequency_min = um2hz(wavelength_boundaries[1])
+        frequency_max = um2hz(wavelength_boundaries[0])
 
         # Check if the requested wavelengths boundaries are within the file boundaries
         bad_boundaries = False
@@ -2335,7 +2340,7 @@ class Radtrans:
             raise ValueError(f"Requested wavelength interval "
                              f"({wavelength_boundaries[0]}--{wavelength_boundaries[1]}) "
                              f"is out of opacities table wavelength grid "
-                             f"({1e4 * cst.c / frequency_grid[-1]}--{1e4 * cst.c / frequency_grid[0]})")
+                             f"({hz2um(frequency_grid[-1])}--{hz2um(frequency_grid[0])})")
 
         # Get the freq. corresponding to the requested boundaries, with the request fully within the selection
         selection = np.nonzero(np.logical_and(
@@ -2361,7 +2366,9 @@ class Radtrans:
         if sampling > 1:
             frequencies = frequencies[::sampling]
 
-        frequency_bins_edges = np.array(cst.c / Radtrans.compute_bins_edges(cst.c / frequencies), dtype='d', order='F')
+        frequency_bins_edges = np.array(
+            wavelength2frequency(Radtrans.compute_bins_edges(frequency2wavelength(frequencies))), dtype='d', order='F'
+        )
 
         return frequencies, frequency_bins_edges
 
@@ -2378,7 +2385,7 @@ class Radtrans:
             with h5py.File(opacities_file, 'r') as f:
                 frequency_bins_edges = cst.c * f['bin_edges'][:][::-1]
 
-            wavelengths = cst.c / frequency_bins_edges * 1e4  # Hz to um
+            wavelengths = hz2um(frequency_bins_edges)
         elif self._line_opacity_mode == 'lbl':  # line-by-line
             # Load the wavelength grid
             opacities_file = get_opacity_input_file(
@@ -2393,7 +2400,7 @@ class Radtrans:
             if frequency_grid[0] == frequency_grid[1]:  # handle duplicated last wavenumber
                 frequency_grid = frequency_grid[1:]
 
-            wavelengths = cst.c / frequency_grid[::-1] * 1e4  # Hz to um
+            wavelengths = hz2um(frequency_grid[::-1])
         else:
             raise ValueError(f"line opacity mode must be 'c-k' or 'lbl', but was '{self._line_opacity_mode}'")
 
@@ -2423,13 +2430,13 @@ class Radtrans:
 
         # Get back to frequencies
         if self._line_opacity_mode == 'c-k':
-            frequency_bins_edges = cst.c / (wavelengths * 1e-4)  # um to Hz
+            frequency_bins_edges = um2hz(wavelengths)
             frequencies = (frequency_bins_edges[1:] + frequency_bins_edges[:-1]) * 0.5
 
             # Cut the wavelength range if user requests smaller range than what first line opa species contains
             indices_within_boundaries = np.nonzero(np.logical_and(
-                np.greater(cst.c / frequencies, self._wavelength_boundaries[0] * 1e-4),
-                np.less(cst.c / frequencies, self._wavelength_boundaries[1] * 1e-4)
+                np.greater(frequency2wavelength(frequencies), self._wavelength_boundaries[0] * 1e-4),  # um to cm
+                np.less(frequency2wavelength(frequencies), self._wavelength_boundaries[1] * 1e-4)  # um to cm
             ))[0]
 
             frequencies = np.array(frequencies[indices_within_boundaries], dtype='d', order='F')
@@ -2441,7 +2448,7 @@ class Radtrans:
                 order='F'
             )
         elif self._line_opacity_mode == 'lbl':
-            frequency_grid = cst.c / (wavelengths[::-1] * 1e-4)  # um to Hz
+            frequency_grid = um2hz(wavelengths[::-1])
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_frequency_grid(
                 frequency_grid=frequency_grid,
                 wavelength_boundaries=self._wavelength_boundaries,
@@ -2496,7 +2503,7 @@ class Radtrans:
                 axis=0
             )
 
-            cia_opacities = interpolating_function(cst.c / frequencies)
+            cia_opacities = interpolating_function(frequency2wavelength(frequencies))
             cia_opacities[cia_opacities < sys.float_info.min] = 0
 
             return cia_opacities * factor
@@ -2638,9 +2645,13 @@ class Radtrans:
 
                     # Init a temporary radtrans object with only the relevant opacity source
                     for species in species_list:
+                        _user_cloud_species = None
+
+                        # Use full names for CIA and clouds to have a clean legend when plotting the opacities
                         if opacity == 'gas_continuum_contributors':
                             species = get_cia_aliases(species)
                         elif opacity == 'cloud_species':
+                            _user_cloud_species = copy.deepcopy(species)
                             species = get_cloud_aliases(species)
 
                         fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
@@ -2698,6 +2709,14 @@ class Radtrans:
                                     spectral_parameters[_key].update(_default_mass_fractions)
                             else:  # non-opacity spectral parameters
                                 spectral_parameters[_key] = copy.deepcopy(_value)
+
+                        # Update the user's cloud name to the full one everywhere it is needed to prevent crashes
+                        if opacity == 'cloud_species':
+                            for _key, _value in spectral_parameters.items():
+                                if isinstance(_value, dict):
+                                    if _user_cloud_species in _value:
+                                        _value[species] = copy.deepcopy(_value[_user_cloud_species])
+                                        del _value[_user_cloud_species]
 
                         opacity_contributions[opacity][species] = _radtrans.__getattr__(spectral_function)(
                             **spectral_parameters
@@ -3085,7 +3104,7 @@ class Radtrans:
 
         if frequencies_to_wavelengths:
             return (
-                cst.c / self._frequencies,
+                frequency2wavelength(self._frequencies),
                 flux_hz2flux_cm(
                     flux_hz=flux,
                     frequency=self._frequencies
@@ -3541,7 +3560,7 @@ class Radtrans:
 
         if frequencies_to_wavelengths:
             return (
-                cst.c / self._frequencies,
+                frequency2wavelength(self._frequencies),
                 transit_radii,
                 additional_outputs
             )
@@ -3621,12 +3640,17 @@ class Radtrans:
         stellar_intensity = Radtrans.rebin_star_spectrum(
             star_spectrum=star_spectrum[:, 1],
             star_wavelengths=star_spectrum[:, 0],
-            wavelengths=cst.c / frequencies
+            wavelengths=frequency2wavelength(frequencies)
         )
 
         stellar_intensity = stellar_intensity / np.pi * (star_radius / orbit_semi_major_axis) ** 2
 
         return stellar_intensity
+
+    def get_wavelengths(self):
+        """Convert the frequency grid into wavelengths in centimeter."""
+        # Not a property because the child SpectralModel already have a 'wavelengths' attribute that behaves differently
+        return frequency2wavelength(self._frequencies)
 
     def load_all_opacities(self):
         print("Loading Radtrans opacities...")
