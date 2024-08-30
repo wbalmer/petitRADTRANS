@@ -233,8 +233,8 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
     return filled_mass_fractions
 
 
-def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict
-                           ) -> dict[str, float]:
+def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: dict,
+                           sanity_check: bool = False) -> dict[str, float]:
     """Fill an atmospheric layer with filling species, so that the sum of the mass fractions is 1.
     The filling species values are weights that are used to fill the atmospheric layer following:
         X_i = w_i / sum(w) * X_f,
@@ -257,14 +257,16 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
         filling_species:
             Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
             filling species are represented with None.
+        sanity_check:
+            If True, make a sanity check to ensure that the filling was consistently done.
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
     for species, mass_fraction in mass_fractions.items():
-        if np.size(mass_fraction) > 1:
+        if hasattr(mass_fraction, '__iter__'):
             raise ValueError(
                 f"mass fractions values in one layer must be scalars, "
-                f"but mass fraction for species '{species}' was of size {np.size(mass_fraction)}"
+                f"but mass fraction for species '{species}' was an iterable of size {np.size(mass_fraction)}"
             )
 
     # Change nothing if no filling species given
@@ -317,20 +319,23 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
             if species != last_species:
                 mass_fractions[species] = weight / sum_weights * mass_fraction_to_fill
             else:  # ensure that the sum is exactly 1 in spite of numerical errors
-                mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
                 mass_fractions[species] = 0.0
                 mass_fraction_from_subtraction = 1 - np.sum(np.array(list(mass_fractions.values())))
 
-                # Sanity check
-                if np.isclose(mass_fraction_from_weights, mass_fraction_from_subtraction, atol=1e-15, rtol=1e-12):
-                    mass_fractions[species] = mass_fraction_from_subtraction
-                else:
-                    raise ValueError(f"unexpected results when filling atmosphere\n"
-                                     f"A mass fraction of {mass_fraction_from_subtraction} is required to fill the "
-                                     f"atmosphere with species {last_species}, "
-                                     f"but from the parameters given, "
-                                     f"the calculated mass fraction is {mass_fraction_from_weights}.\n"
-                                     f"This is likely a coding error and not a user error.")
+                mass_fractions[species] = mass_fraction_from_subtraction
+
+                if sanity_check:
+                    mass_fraction_from_weights = weight / sum_weights * mass_fraction_to_fill
+
+                    if not np.isclose(
+                            mass_fraction_from_weights, mass_fraction_from_subtraction, atol=1e-15, rtol=1e-12
+                    ):
+                        raise ValueError(f"unexpected results when filling atmosphere\n"
+                                         f"A mass fraction of {mass_fraction_from_subtraction} is required to fill the "
+                                         f"atmosphere with species {last_species}, "
+                                         f"but from the parameters given, "
+                                         f"the calculated mass fraction is {mass_fraction_from_weights}.\n"
+                                         f"This is likely a coding error and not a user error.")
 
     return mass_fractions
 
