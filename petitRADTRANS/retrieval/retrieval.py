@@ -1253,6 +1253,9 @@ class Retrieval:
                     if data_2.scale:
                         data_2.scale_factor = self.configuration.parameters[data_name_2 + "_scale_factor"].value
 
+                    if data_2.offset_bool:
+                        data_2.offset = self.configuration.parameters[data_name_2 + "_offset"].value
+
                     if data_2.external_radtrans_reference == data_name:
                         if spectrum_model is None:
                             return invalid_value
