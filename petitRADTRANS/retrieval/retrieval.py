@@ -1,5 +1,4 @@
 import copy
-import copy as cp
 import json
 import logging
 import os
@@ -10,13 +9,13 @@ import warnings
 import numpy as np
 from scipy.stats import binned_statistic
 
-from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
+from petitRADTRANS.physics import wavelength2frequency
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
@@ -468,8 +467,8 @@ class Retrieval:
             import ultranest as un
             from ultranest.mlfriends import RobustEllipsoidRegion
         except ImportError:
-            logging.error("Could not import ultranest. Exiting.")
-            sys.exit(1)
+            raise ImportError("could not import ultranest, check the documentation for installation instructions")
+
         if self.configuration.run_mode == 'retrieval':
             print("Starting retrieval: " + self.configuration.retrieval_name + '\n')
             # How many free parameters?
@@ -876,10 +875,10 @@ class Retrieval:
                 # Set up the pRT objects for the given dataset
                 rt_object = Radtrans(
                     pressures=p,
-                    line_species=cp.copy(species),
-                    rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                    gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                    cloud_species=cp.copy(self.configuration.cloud_species),
+                    line_species=copy.copy(species),
+                    rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                    gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                    cloud_species=copy.copy(self.configuration.cloud_species),
                     line_opacity_mode=dd.line_opacity_mode,
                     wavelength_boundaries=dd.wavelength_boundaries,
                     scattering_in_emission=self.configuration.scattering_in_emission,
@@ -1253,6 +1252,9 @@ class Retrieval:
                     if data_2.scale:
                         data_2.scale_factor = self.configuration.parameters[data_name_2 + "_scale_factor"].value
 
+                    if data_2.offset_bool:
+                        data_2.offset = self.configuration.parameters[data_name_2 + "_offset"].value
+
                     if data_2.external_radtrans_reference == data_name:
                         if spectrum_model is None:
                             return invalid_value
@@ -1287,7 +1289,7 @@ class Retrieval:
                     self.best_fit_spectra[data_name] = [wavelengths_model, spectrum_model]
 
         if self.generate_mock_data:
-            sys.exit(1)
+            sys.exit(1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
 
         if per_datapoint:
             return log_l_per_datapoint_dict
@@ -1603,10 +1605,10 @@ class Retrieval:
         else:
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=cp.copy(self.configuration.line_species),
-                rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                cloud_species=cp.copy(self.configuration.cloud_species),
+                line_species=copy.copy(self.configuration.line_species),
+                rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                cloud_species=copy.copy(self.configuration.cloud_species),
                 line_opacity_mode=self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
@@ -1766,8 +1768,8 @@ class Retrieval:
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
-            cp.copy(species),
-            cp.copy(self.configuration.data[name].radtrans_object.cloud_species),
+            copy.copy(species),
+            copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
             amr=False
         )
@@ -2356,10 +2358,10 @@ class Retrieval:
 
         prt_object = Radtrans(
             pressures=p,
-            line_species=cp.copy(self.configuration.line_species),
-            rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-            gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-            cloud_species=cp.copy(self.configuration.cloud_species),
+            line_species=copy.copy(self.configuration.line_species),
+            rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+            gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+            cloud_species=copy.copy(self.configuration.cloud_species),
             line_opacity_mode='c-k',
             wavelength_boundaries=np.array([0.5, 28]),
             scattering_in_emission=self.configuration.scattering_in_emission
@@ -2473,8 +2475,8 @@ class Retrieval:
             ###########################################
             # Plot best-fit spectrum
             ###########################################
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
-            parameters_read = cp.copy(parameter_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
+            parameters_read = copy.copy(parameter_dict[self.configuration.retrieval_name])
             i_p = 0
 
             # This might actually be redundant...
@@ -3076,10 +3078,10 @@ class Retrieval:
                     wmax = dd.wavelength_boundaries[1]
 
             # Set up parameter dictionary
-            atmosphere = Radtrans(line_species=cp.copy(self.configuration.line_species),
-                                  rayleigh_species=cp.copy(self.configuration.rayleigh_species),
-                                  gas_continuum_contributors=cp.copy(self.configuration.continuum_opacities),
-                                  cloud_species=cp.copy(self.configuration.cloud_species),
+            atmosphere = Radtrans(line_species=copy.copy(self.configuration.line_species),
+                                  rayleigh_species=copy.copy(self.configuration.rayleigh_species),
+                                  gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
+                                  cloud_species=copy.copy(self.configuration.cloud_species),
                                   line_opacity_mode='c-k',
                                   wavelength_boundaries=np.array([wmin * 0.98, wmax * 1.02]),
                                   scattering_in_emission=self.configuration.scattering_in_emission)
@@ -3212,7 +3214,7 @@ class Retrieval:
                 self.configuration.run_mode = 'evaluate'
 
             # Choose what samples we want to use
-            samples_use = cp.copy(sample_dict[self.configuration.retrieval_name])
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
 
             # This is probably obsolete
             # i_p = 0
@@ -3324,7 +3326,7 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                nu = cst.c / bf_wlen
+                nu = wavelength2frequency(bf_wlen)
 
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
@@ -3334,7 +3336,7 @@ class Retrieval:
 
                 if self.test_plotting:
                     plt.clf()
-                    plt.plot(bf_wlen / 1e-4, spectral_weights)
+                    plt.plot(bf_wlen * 1e4, spectral_weights)
                     plt.show()
                     print(np.shape(bf_contribution))
 
@@ -3457,8 +3459,8 @@ class Retrieval:
 
             for name, params in parameter_dict.items():
                 # Corner plot requires sample_dict to be transposed
-                samples_use = cp.copy(sample_dict[name]).T
-                parameters_use = cp.copy(params)
+                samples_use = copy.copy(sample_dict[name]).T
+                parameters_use = copy.copy(params)
                 parameter_plot_indices = []
                 parameter_ranges = []
                 i_p = 0
@@ -3480,7 +3482,7 @@ class Retrieval:
                 p_plot_inds[name] = parameter_plot_indices
                 p_ranges[name] = parameter_ranges
                 p_use_dict[name] = parameters_use
-                sample_use_dict[name] = cp.copy(samples_use)
+                sample_use_dict[name] = copy.copy(samples_use)
 
             output_file = self.get_base_figure_name() + '_corner_plot.pdf'
             # from Plotting
@@ -3847,7 +3849,7 @@ class Retrieval:
                     prt_reference=prt_reference, refresh=refresh,
                     contribution=True
                 )
-                nu = cst.c / bf_wlen
+                nu = wavelength2frequency(bf_wlen)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
                 diff_nu[:-1] = mean_diff_nu
@@ -3856,7 +3858,7 @@ class Retrieval:
 
                 if self.test_plotting:
                     plt.clf()
-                    plt.plot(bf_wlen / 1e-4, spectral_weights)
+                    plt.plot(bf_wlen * 1e4, spectral_weights)
                     plt.show()
                     print(np.shape(bf_contribution))
 

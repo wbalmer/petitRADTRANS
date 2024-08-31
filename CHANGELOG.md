@@ -4,8 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a32] - 2024-08-06
+## [3.1.0a37] - 2024-08-30
 ### Added
+- Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
+- Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
@@ -17,6 +19,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function to plot the above opacity contribution spectra.
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
 - Function to fill all layers of an atmosphere at once with filling species.
+- Functions to convert frequencies into wavelengths (in cm or in um), and vice-versa.
+- Function `Radtrans.get_wavelengths` to obtain the equivalent in cm of a `Radtrans` object's frequency grid.
 - Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Warning when only one of the two parameters necessary to include a power law opacity has been set.
@@ -28,7 +32,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Source files for JOSS papers.
 
 ### Changed
-- Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. Parameter `emission_geometry` will be deprecated in version 4.0.0.
+- Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. The old parameter will be deprecated in version 4.0.0.
+- Future: key `'modification_parameters'` of `SpectralModel.model_parameters` is canonically renamed `'modification_arguments'`. The old key will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
 
@@ -36,6 +41,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Unused test functions.
 
 ### Fixed
+- Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
 - Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
 - Bug in function `calculate_transit_radii()` when `return_opacities=True`.
 - Function `format2petitradtrans` applied the incorrect pRT wavelength grid to the lbl opacity conversion.
@@ -59,6 +65,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
 - Typos in some docs.
 - Typos in some comments.
+
+### Pending
+- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
+- Temporarily silented the overflow warning message until a solution to trigger the message less often is found.
+- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
 
 ## [3.0.7] - 2024-07-01
 ### Fixed
@@ -133,9 +144,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Changed
 - Added column_flux_mixer treatment to petitRADTRANS/retrieval/data.py's get_chisq() in convolve-rebin mode.
-- TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
-  - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-  - temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Functions, arguments and attributes now have clearer names and respect PEP8. The complete list of change is available [here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
@@ -166,6 +174,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Cloud opacities are now read from HDF5 files.
 - CIA cross-sections are now read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`. The installation procedure is mostly unchanged.
+- Temporarily allowed < 0 solutions in function `fortran_radtrans_core.math.solve_tridiagonal_system` until it is determined if they should be allowed.
+- Temporarily silented the overflow warning message of function `fortran_radtrans_core.math.solve_tridiagonal_system` until a solution to trigger the message less often is found.
 - Various optimisations.
 - Updated package structure.
 - Code clean-up.
@@ -195,20 +205,25 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: importing the PHOENIX stellar spectra table triggers its loading.
 - Incorrect behaviour: plotting when running in "evaluate" mode of the retrieval package.
 
-## [2.9.0] - 2023-11-28
-Referred as 2.7.6
+## [2.7.7] - 2024-03-06
+Should be 2.9.0 (no code change since last version).
+### Changed
+ - Various documentation updates.
+
+## [2.7.6] - 2023-11-28
+Should be 2.9.0.
 ### Added
 - Implementation of leave-one-out cross validation retrieval from Sam de Regt.
 - Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
 - Example included in test directory.
 
-## [2.8.2] - 2023-11-08
-Referred as 2.7.5
+## [2.7.5] - 2023-11-08
+Should be 2.8.2.
 ### Changed
  - Updates to retrieval tutorials, as requested by JOSS review.
 
-## [2.8.1] - 2023-11-13
-Referred as 2.7.4
+## [2.7.4] - 2023-11-13
+Should be 2.8.1.
 ### Changed
  - Minor changes to MPI interface.
  - Removed unnecessary instructions for installation on Apple Mx chips.
@@ -217,8 +232,8 @@ Referred as 2.7.4
 ### Fixed
  - Bugs in argument naming.
 
-## [2.8.0] - 2023-11-08
-Referred as 2.7.3
+## [2.7.3] - 2023-11-08
+Should be 2.8.0.
 ### Added
 - Plotting function interface, can pass `pRT_objects` and `model_generating_functions`.
 - MPI interface for better parallelisation.

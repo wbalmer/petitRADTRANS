@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 
 import numpy as np
 
@@ -62,8 +61,8 @@ class RetrievalConfig:
         self.run_mode = run_mode
 
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
-            logging.error("run_mode must be either 'retrieval' or 'evaluate'!")
-            sys.exit(1)
+            raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
+
         self.amr = amr
 
         if pressures is not None:

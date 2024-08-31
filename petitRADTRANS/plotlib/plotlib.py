@@ -3,6 +3,7 @@ import os
 import warnings
 
 import corner
+import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
@@ -20,15 +21,47 @@ from petitRADTRANS.chemistry.clouds import (
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
+from petitRADTRANS.physics import frequency2wavelength
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.spectral_model import SpectralModel
 from petitRADTRANS.utils import LockedDict
 
 
-def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list, color_list,
-                 truths_list, contour_kwargs, hist_kwargs, quantiles=None, hist2d_levels=None, fig=None,
-                 smooth=True, show_titles=True, title_fmt=None, truth_color='r', plot_contours=True, **hist2d_kwargs):
+def _corner_wrap(
+        data_list,
+        title_kwargs,
+        labels_list,
+        label_kwargs,
+        range_list,
+        color_list,
+        truths_list,
+        contour_kwargs,
+        hist_kwargs,
+        bins=20,
+        axes_scale="linear",
+        weights=None,
+        hist_bin_factor: npt.NDArray[float] = 1.0,
+        smooth=None,
+        smooth1d=None,
+        titles=None,
+        show_titles=True,
+        title_quantiles=None,
+        title_fmt=None,
+        truth_color='r',
+        scale_hist=False,
+        quantiles=None,
+        fig=None,
+        max_n_ticks=5,
+        top_ticks=False,
+        use_math_text=False,
+        reverse=False,
+        labelpad=0.0,
+        # 2-D histogram args
+        plot_contours=True,
+        hist2d_levels=None,
+        **hist2d_kwargs
+):
     if quantiles is None:
         quantiles = (0.16, 0.5, 0.84)  # using default title_quantiles, the 1-sigma quantile is actually erf(1)
 
@@ -36,22 +69,36 @@ def _corner_wrap(data_list, title_kwargs, labels_list, label_kwargs, range_list,
         hist2d_levels = (1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-4.5))  # 1, 2 and 3 sigma
     else:
         hist2d_levels = [1 - np.exp(-sigma ** 2 / 2) for sigma in hist2d_levels]
+        hist2d_levels = [sigma for sigma in hist2d_levels]
 
     fig = corner.corner(
         data=np.array(data_list).T,
+        bins=bins,
         range=range_list,
+        axes_scale=axes_scale,
+        weights=weights,
         color=color_list,
+        hist_bin_factor=hist_bin_factor,
         smooth=smooth,
+        smooth1d=smooth1d,
         labels=labels_list,
         label_kwargs=label_kwargs,
+        titles=titles,
         show_titles=show_titles,
+        title_quantiles=title_quantiles,
         title_fmt=title_fmt,
         title_kwargs=title_kwargs,
         truths=truths_list,
         truth_color=truth_color,
+        scale_hist=scale_hist,
         quantiles=quantiles,
         fig=fig,
         hist_kwargs=hist_kwargs,
+        max_n_ticks=max_n_ticks,
+        top_ticks=top_ticks,
+        use_math_text=use_math_text,
+        reverse=reverse,
+        labelpad=labelpad,
         **hist2d_kwargs,
         plot_contours=plot_contours,
         contour_kwargs=contour_kwargs,
@@ -232,7 +279,9 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
                     raise KeyError(f"key '{parameter_name}' "
                                    f"of sample '{sample}' not in sample '{parameter_names_ref}'")
 
-                parameter_plot_indices_dict[sample][j] = np.array(parameter_names_ref == parameter_name).nonzero()[0][0]
+                parameter_plot_indices_dict[sample][j] = (
+                    np.array(parameter_names_ref == parameter_name).nonzero()[0][0]
+                )
 
     # Broadcast the widest parameter ranges stored in the first sample to all the other samples
     for sample in samples[1:]:
@@ -262,20 +311,41 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
         fig_titles_dict, fig_labels_dict
 
 
-def contour_corner(sampledict,
-                   parameter_names,
-                   output_file=None,
-                   parameter_ranges=None,
-                   parameter_plot_indices=None,
-                   true_values=None,
-                   short_name=None,
-                   quantiles=None,
-                   hist2d_levels=None,
-                   legend=False,
-                   prt_plot_style=True,
-                   plot_best_fit=False,
-                   color_list=None,
-                   **kwargs):
+def contour_corner(
+        sampledict: dict,
+        parameter_names: dict[str, list[str]],
+        output_file: str = None,
+        parameter_ranges: dict[str, npt.NDArray[float]] = None,
+        parameter_plot_indices: dict[str, npt.NDArray[int]] = None,
+        true_values: dict[str, npt.NDArray[float]] = None,
+        short_name: dict[str, str] = None,
+        quantiles: list[float] = None,
+        hist2d_levels: list[float] = None,
+        legend: bool = False,
+        prt_plot_style: bool = True,
+        plot_best_fit: bool = False,
+        color_list: list[str] = None,
+        bins: int = 20,
+        axes_scale: str = "linear",
+        weights: npt.NDArray[float] = None,
+        hist_bin_factor: npt.NDArray[float] = 1.0,
+        smooth: float = None,
+        smooth1d: float = None,
+        titles: list = None,
+        show_titles: bool = True,
+        title_quantiles: list[float] = None,
+        title_fmt: str = ".2f",
+        truth_color: str = 'r',
+        scale_hist: bool = False,
+        fig: matplotlib.figure = None,
+        max_n_ticks: int = 5,
+        top_ticks: bool = False,
+        use_math_text: bool = False,
+        reverse: bool = False,
+        labelpad: float = 0.0,
+        plot_contours: bool = True,
+        **kwargs
+):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
 
@@ -288,7 +358,7 @@ def contour_corner(sampledict,
             retrieval. If multiple names are passed, they are overplotted on the same figure.
         parameter_names : dict
             A dictionary with keys for each retrieval name, as in sampledict. Each value of the
-            dictionary is the names of the parameters to beplotted, as set in the
+            dictionary is the names of the parameters to be plotted, as set in the
             run_definition file.
         output_file : str
             Output file name
@@ -325,9 +395,58 @@ def contour_corner(sampledict,
             Plot the maximum likelihood values as vertical lines for each parameter.
         color_list : list
             List of colours for plotting multiple retrievals.
+        bins : int or array_like[ndim,]
+            The number of bins to use in histograms, either as a fixed value for all dimensions, or as a list of
+            integers for each dimension.
+        axes_scale : str or iterable (ndim,)
+            Scale (``"linear"``, ``"log"``) to use for each data dimension. If only one scale is specified, use that
+            for all dimensions.
+        weights : array_like[nsamples,]
+            The weight of each sample. If `None` (default), samples are given equal weight.
+        hist_bin_factor : float or array_like[ndim,]
+            This is a factor (or list of factors, one for each dimension) that will multiply the bin specifications
+            when making the 1-D histograms.
+            This is generally used to increase the number of bins in the 1-D plots to provide more resolution.
+        smooth : float
+           The standard deviation for Gaussian kernel passed to scipy.ndimage.gaussian_filter` to smooth the 2-D
+           histogram. If `None` (default), no smoothing is applied.
+        smooth1d : float
+           The standard deviation for Gaussian kernel passed to `scipy.ndimage.gaussian_filter` to smooth the 1-D
+           histogram. If `None` (default), no smoothing is applied.
+        titles : iterable (ndim,)
+            A list of titles for the dimensions. If `None` (default), uses labels as titles.
+        show_titles : bool
+            Displays a title above each 1-D histogram showing the 0.5 quantile with the upper and lower errors supplied
+            by the quantiles argument.
+        title_quantiles : iterable
+            A list of 3 fractional quantiles to show as the the upper and lower errors. If `None` (default), inherit
+            the values from quantiles, unless quantiles is `None`, in which case it defaults to [0.16, 0.5, 0.84].
+        title_fmt : string
+            The format string for the quantiles given in titles. If you explicitly set ``show_titles=True`` and
+            ``title_fmt=None``, the labels will be shown as the titles. (default: ``.2f``).
+        truth_color : str
+            A ``matplotlib`` style color for the ``truths`` makers.
+        scale_hist : bool
+            Should the 1-D histograms be scaled in such a way that the zero line is visible?
+        fig : `~matplotlib.figure.Figure`
+            Overplot onto the provided figure object, which must either have no axes yet, or ``ndim * ndim`` axes
+            already present.  If not set, the plot will be drawn on a newly created figure.
+        max_n_ticks: int
+            Maximum number of ticks to try to use.
+        top_ticks : bool
+            If true, label the top ticks of each axis.
+        use_math_text : bool
+            If true, then axis tick labels for very large or small exponents will be displayed as powers of 10 rather
+            than using `e`.
+        reverse : bool
+            If true, plot the corner plot starting in the upper-right corner instead of the usual bottom-left corner.
+        labelpad : float
+            Padding between the axis and the x- and y-labels in units of the fraction of the axis from the lower left.
+        plot_contours : bool
+            Draw contours for dense regions of the plot.
         kwargs : dict
             Each kwarg can be one of the kwargs used in corner.corner. These can be used to adjust
-            the title_kwargs,label_kwargs,hist_kwargs, hist2d_kawargs or the contour kwargs. Each
+            the title_kwargs,label_kwargs,hist_kwargs, hist2d_kwargs or the contour kwargs. Each
             kwarg must be a dictionary with the arguments as keys and values as the values.
     """
     if parameter_ranges is None:
@@ -366,7 +485,6 @@ def contour_corner(sampledict,
 
     handles = []
     count = 0
-    fig = None
 
     for key, samples in sampledict.items():
         if prt_plot_style and count > len(color_list):
@@ -379,7 +497,7 @@ def contour_corner(sampledict,
 
         if key not in parameter_plot_indices:
             parameter_plot_indices[key] = range(len(parameter_names[key]))
-        elif parameter_plot_indices[key] is None:  # same as in the case the key doesn't exists
+        elif parameter_plot_indices[key] is None:  # same as in the case the key doesn't exist
             parameter_plot_indices[key] = range(len(parameter_names[key]))
 
         if key not in parameter_ranges:
@@ -442,14 +560,19 @@ def contour_corner(sampledict,
 
         if "label_kwargs" in kwargs.keys():
             label_kwargs = kwargs["label_kwargs"]
+
         if "title_kwargs" in kwargs.keys():
             title_kwargs = kwargs["title_kwargs"]
+
         if "hist_kwargs" in kwargs.keys():
             hist_kwargs = kwargs["hist_kwargs"]
+
         if "hist2d_kwargs" in kwargs.keys():
             hist2d_kwargs = kwargs["hist2d_kwargs"]
+
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
+
         if count == 0:
             fig = _corner_wrap(
                 data_list=data_list,
@@ -458,17 +581,31 @@ def contour_corner(sampledict,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
                 color_list=color_list[count],
-                hist_kwargs=hist_kwargs,
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
+                hist_kwargs=hist_kwargs,
+                bins=bins,
+                axes_scale=axes_scale,
+                weights=weights,
+                hist_bin_factor=hist_bin_factor,
+                smooth=smooth,  # smoothing can be useful when using a few live points
+                smooth1d=smooth1d,
+                titles=titles,
+                show_titles=show_titles,
+                title_quantiles=title_quantiles,
+                title_fmt=title_fmt,
+                truth_color=truth_color,
+                scale_hist=scale_hist,
                 quantiles=quantiles,
+                fig=fig,  # None by default, in that case a new figure is created
+                max_n_ticks=max_n_ticks,
+                top_ticks=top_ticks,
+                use_math_text=use_math_text,
+                reverse=reverse,
+                labelpad=labelpad,
+                plot_contours=plot_contours,
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
-                smooth=False,
-                show_titles=True,
-                title_fmt=".2f",
-                truth_color='r',
-                plot_contours=True
             )
             count += 1
         else:
@@ -479,18 +616,31 @@ def contour_corner(sampledict,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
                 color_list=color_list[count],
-                hist_kwargs=hist_kwargs,
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
-                quantiles=quantiles,
-                hist2d_levels=hist2d_levels,
-                fig=fig,
-                **hist2d_kwargs,
-                smooth=False,
+                hist_kwargs=hist_kwargs,
+                bins=bins,
+                axes_scale=axes_scale,
+                weights=weights,
+                hist_bin_factor=hist_bin_factor,
+                smooth=smooth,
+                smooth1d=smooth1d,
+                titles=titles,
                 show_titles=False,  # only show titles (median +1sigma -1sigma) for the first sample
+                title_quantiles=None,
                 title_fmt=None,
-                truth_color='r',
-                plot_contours=True
+                truth_color=truth_color,
+                scale_hist=scale_hist,
+                quantiles=quantiles,
+                fig=fig,  # overplot on the existing figure
+                max_n_ticks=max_n_ticks,
+                top_ticks=top_ticks,
+                use_math_text=use_math_text,
+                reverse=reverse,
+                labelpad=labelpad,
+                plot_contours=plot_contours,
+                hist2d_levels=hist2d_levels,
+                **hist2d_kwargs,
             )
             count += 1
 
@@ -740,22 +890,24 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
                 wlen = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
             else:
                 wlen = data.wavelengths
-                error = data.uncertainties
-                flux = data.spectrum
+                # flux/error: commented since it was not used
+                # error = data.uncertainties
+                # flux = data.spectrum
         except Exception:  # TODO find what is the error expected here
             wlen = data.wavelengths
-            error = data.uncertainties
-            flux = data.spectrum
+            # error = data.uncertainties
+            # flux = data.spectrum
     else:
         wlen = np.mean(data.photometric_bin_edges)
-        flux = data.spectrum
-        error = data.uncertainties
+        # flux = data.spectrum
+        # error = data.uncertainties
 
     marker = 'o'
     scale = 1.0
     errscale = 1.0
     flux = data.spectrum
     error = data.uncertainties
+
     if data.scale:
         scale = data.scale_factor
 
@@ -764,6 +916,7 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
         error = error * errscale
 
     offset = 0.0
+
     if data.offset_bool:
         offset = data.offset
 
@@ -1448,7 +1601,7 @@ def plot_posterior(data, label=None, true_value=None, cmp=None, bins=15, color='
         ts = ''
 
     if cmp is not None:
-        plt.errorbar(true_value, y_max * 0.1, xerr=[[cmp[0]], [cmp[1]]], color='C1', capsize=2, marker='o')
+        plt.errorbar(true_value, y_max * 0.1, xerr=np.array([[cmp[0]], [cmp[1]]]), color='C1', capsize=2, marker='o')
 
     fmt = "{{0:{0}}}".format(fmt).format
     title = r"${{{0}}}_{{-{1}}}^{{+{2}}}$"
@@ -1513,7 +1666,7 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         for i, _species in enumerate(radtrans.line_species):
             _opacities_dict[_species] = np.sum(_opacities[:, :, i, :] * weights_gauss, axis=0)
 
-        return cst.c / radtrans.frequencies, _opacities_dict
+        return frequency2wavelength(radtrans.frequencies), _opacities_dict
 
     temperatures = np.array(temperature)
     pressure_bar = np.array(pressure_bar)
@@ -1572,35 +1725,40 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
             )
 
 
-def plot_result_corner(retrieval_directory, retrieved_parameters, retrieval_name=None,
-                       true_values=None, spectral_model=None, figure_font_size=8,
-                       save=True, figure_directory='./', figure_name='result_corner', image_format='png', **kwargs):
+def plot_result_corner(retrieval_directory: str, retrieved_parameters: dict, retrieval_name=None,
+                       true_values: dict[str, float] = None, spectral_model: SpectralModel = None, smooth: float = 1.0,
+                       figure_font_size: float = 8, save: bool = True,
+                       figure_directory: str = './', figure_name: str = 'result_corner', image_format: str = 'png',
+                       **kwargs):
     """Plot the posteriors of one or multiple retrievals in the same corner plot.
 
     Args:
         retrieval_directory:
-            String or list of string containing the retrieval directories
+            String or list of string containing the retrieval directories.
         retrieved_parameters:
-            Dictionary containing all the retrieved parameters and their prior
+            Dictionary containing all the retrieved parameters and their prior.
             # TODO retrieved parameters should be automatically stored in retrievals
         retrieval_name:
             Name of the retrieval. If None, the name is extracted from the retrieval directory.
         true_values:
-            True values for the parameters
+            True values for the parameters.
         spectral_model:
-            SpectralModel used to make the retrievals
+            SpectralModel used to make the retrievals.
+        smooth : float
+           The standard deviation for Gaussian kernel passed to scipy.ndimage.gaussian_filter` to smooth the 2-D
+           histogram. If `None` (default), no smoothing is applied.
         figure_font_size:
-            Size of the font in the figure
+            Size of the font in the figure.
         save:
-            If True, save the figure
+            If True, save the figure.
         figure_directory:
-            Directory to save the figure
+            Directory to save the figure.
         figure_name:
-            Name of the figure
+            Name of the figure.
         image_format:
-            Format (extension) of the figure
+            Format (extension) of the figure.
         **kwargs:
-            contour_corner keyword arguments
+            contour_corner keyword arguments.
     """
     (sample_dict, parameter_names_dict, parameter_plot_indices_dict, parameter_ranges_dict, true_values_dict,
         fig_titles, fig_labels) = _prepare_multiple_retrievals_plot(
@@ -1611,10 +1769,8 @@ def plot_result_corner(retrieval_directory, retrieved_parameters, retrieval_name
         spectral_model=spectral_model
     )
 
-    if 'hist2d_kwargs' in kwargs:
-        kwargs['hist2d_kwargs']['titles'] = list(fig_titles.values())[0]
-    else:
-        kwargs['hist2d_kwargs'] = {'titles': list(fig_titles.values())[0]}
+    if 'titles' not in kwargs:
+        kwargs['titles'] = list(fig_titles.values())[0]
 
     update_figure_font_size(figure_font_size)
 
@@ -1626,6 +1782,7 @@ def plot_result_corner(retrieval_directory, retrieved_parameters, retrieval_name
         parameter_ranges=parameter_ranges_dict,
         true_values=true_values_dict,
         prt_plot_style=False,
+        smooth=smooth,
         **kwargs
     )
 

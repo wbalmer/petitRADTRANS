@@ -135,8 +135,20 @@ def flux2irradiance(flux, source_radius, target_distance):
     return flux * (source_radius / target_distance) ** 2
 
 
+def frequency2wavelength(frequency):
+    """Convert frequencies into wavelength in centimeter.
+
+    Args:
+        frequency: frequency: (Hz) the frequency to convert
+
+    Returns:
+        (cm) the corresponding wavelengths
+    """
+    return cst.c / frequency
+
+
 def hz2um(frequency):
-    """Convert frequencies into wavelengths
+    """Convert frequencies into wavelengths in micrometer.
 
     Args:
         frequency: (Hz) the frequency to convert
@@ -144,7 +156,7 @@ def hz2um(frequency):
     Returns:
         (um) the corresponding wavelengths
     """
-    return cst.c / frequency * 1e4  # cm to um
+    return frequency2wavelength(frequency) * 1e4  # cm to um
 
 
 def make_press_temp(rad_trans_params):
@@ -472,7 +484,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         Tret : np.ndarray
             The temperature as a function of atmospheric pressure.
     """
-    import copy as cp
+    import copy
     from scipy.interpolate import interp1d, CubicSpline
     from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 
@@ -515,9 +527,9 @@ def temperature_profile_function_ret_model(rad_trans_params):
         # TODO: Check remains convective and convergence
         for i in range(10):
             if i == 0:
-                t_take = cp.copy(tedd)
+                t_take = copy.copy(tedd)
             else:
-                t_take = cp.copy(tfinal)  # TODO reference before assignment
+                t_take = copy.copy(tfinal)  # TODO reference before assignment
 
             ab, _, nabla_ad = (
                 pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
@@ -541,7 +553,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Add upper radiative and
             # lower conective part into one single array
-            tfinal = cp.copy(t_take)
+            tfinal = copy.copy(t_take)
             tfinal[conv_index] = tnew
 
             if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:
@@ -851,3 +863,27 @@ def dtdp_temperature_profile(press, num_layer, layer_pt_slopes, t_bottom):
     temperatures[id_sub] = np.copy(temperatures_sub)
 
     return temperatures
+
+
+def um2hz(wavelength):
+    """Convert wavelengths in micrometer into frequencies.
+
+    Args:
+        wavelength: (um) the wavelengths to convert
+
+    Returns:
+        (Hz) the corresponding frequencies
+    """
+    return frequency2wavelength(wavelength * 1e-4)  # the operation is the same: (c / Hz) -> cm, (c / cm) -> Hz
+
+
+def wavelength2frequency(wavelength):
+    """Convert wavelengths in centimeter to frequencies.
+
+    Args:
+        wavelength: (cm) the wavelengths to convert
+
+    Returns:
+        (Hz) the converted frequencies
+    """
+    return frequency2wavelength(wavelength)  # the operation is the same: (c / Hz) -> cm, (c / cm) -> Hz
