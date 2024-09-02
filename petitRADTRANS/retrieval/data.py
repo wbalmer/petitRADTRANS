@@ -698,6 +698,10 @@ class Data:
 
             return - 0.5 * chi2 + penalty_term
 
+    @staticmethod
+    def log_likelihood2chi2(log_likelihood: float) -> float:
+        return -2 * log_likelihood
+
     # TODO: do we want to pass the whole parameter dict,
     # or just set a class variable for b in the likelihood function?
     def line_b_uncertainty_scaling(self, parameters):
