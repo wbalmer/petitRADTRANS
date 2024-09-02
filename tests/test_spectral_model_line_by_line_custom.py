@@ -29,7 +29,7 @@ def init_spectral_model_line_by_line():
             intrinsic_temperature=test_parameters['temperature_guillot_2010_parameters']['intrinsic_temperature'],
             metallicity=10 ** test_parameters['chemical_parameters']['metallicities'][1],
             guillot_temperature_profile_gamma=test_parameters['temperature_guillot_2010_parameters']['gamma'],
-            guillot_temperature_profile_kappa_ir_z0=test_parameters['temperature_guillot_2010_parameters'][
+            guillot_temperature_profile_infrared_mean_opacity_solar_metallicity=test_parameters['temperature_guillot_2010_parameters'][
                 'infrared_mean_opacity'],
             # Chemical parameters
             imposed_mass_fractions=test_parameters['mass_fractions_line_by_line'],

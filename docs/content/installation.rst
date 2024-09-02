@@ -54,7 +54,7 @@ Then, install a fortran compiler with:
 Using gfortran disk images
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. warning:: While using **homebrew should be the preferred method** for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
+.. warning:: While using **homebrew is the preferred method** for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
 
 François-Xavier Coudert's `github repository <https://github.com/fxcoudert/gfortran-for-macOS>`_ provides gfortran disk images (.dmg) with which you can install gfortran like any other program for Mac, through an installation wizard. Both Apple Silicon (M1, M2, M3) and Intel chip versions are available.
 

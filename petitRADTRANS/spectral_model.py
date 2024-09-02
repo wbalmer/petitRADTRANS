@@ -21,7 +21,7 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
-    rebin_spectrum
+    rebin_spectrum, um2hz
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
@@ -104,7 +104,7 @@ class SpectralModel(Radtrans):
         guillot_temperature_profile_gamma:
             Ratio between visual and infrared opacity.
             Used by the Guillot temperature profile (``temperature_profile_mode='guillot'``).
-        guillot_temperature_profile_kappa_ir_z0:
+        guillot_temperature_profile_infrared_mean_opacity_solar_metallicity:
             (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere.
             The effective infrared opacity is obtained from this parameter times the metallicity.
             Used with the Guillot temperature profile (``temperature_profile_mode='guillot'``).
@@ -135,7 +135,7 @@ class SpectralModel(Radtrans):
         mid_transit_time:
             (s) Mid-transit time of the planet's primary transit.
             Used to calculate the transit effect (``use_transit_light_loss=True``).
-        modification_parameters:
+        modification_arguments:
             Dictionary with the SpectralModel modification flags as keys and their status as values.
             The modification parameters are:
                 - scale,
@@ -506,7 +506,7 @@ class SpectralModel(Radtrans):
             if 'log10_' in parameter:
                 parameter = parameter.split('log10_', 1)[1]
 
-            if parameter not in default_parameters:
+            if parameter not in default_parameters and parameter != 'modification_parameters':  # TODO modification_parameters is deprecated, remove in version 4 # noqa: E501
                 warnings.warn(f"model parameter '{parameter}' is not used by any function main function of this "
                               f"SpectralModel\n"
                               f"To remove this warning, add a custom function using this parameter, "
@@ -1208,11 +1208,11 @@ class SpectralModel(Radtrans):
         return wavelengths_tmp, spectrum
 
     def calculate_contribution_spectra(self, mode=None, **kwargs):
-        if mode is None and isinstance(self.model_parameters['modification_parameters'], dict):
-            modification_parameters: dict = self.model_parameters['modification_parameters']
+        if mode is None and isinstance(self.model_parameters['modification_arguments'], dict):
+            modification_arguments: dict = self.model_parameters['modification_arguments']
 
-            if modification_parameters['mode'] is not None:
-                mode = copy.deepcopy(modification_parameters['mode'])
+            if modification_arguments['mode'] is not None:
+                mode = copy.deepcopy(modification_arguments['mode'])
 
         parameters = {}
 
@@ -1421,9 +1421,9 @@ class SpectralModel(Radtrans):
                 kwargs[spectral_parameter] = value
 
         # Temporarily put mode as a model parameter, as it is required by some functions
-        if 'modification_parameters' in kwargs:
-            if 'mode' in kwargs['modification_parameters']:
-                kwargs['mode'] = kwargs['modification_parameters']['mode']
+        if 'modification_arguments' in kwargs:
+            if 'mode' in kwargs['modification_arguments']:
+                kwargs['mode'] = kwargs['modification_arguments']['mode']
 
         temperatures, mass_fractions, mean_molar_mass, model_parameters = self.compute_spectral_parameters(
             model_functions_map=functions_dict,
@@ -1437,8 +1437,8 @@ class SpectralModel(Radtrans):
         for _model_parameter, value in model_parameters.items():
             if _model_parameter in self.model_parameters:
                 _model_parameters[_model_parameter] = value
-            elif _model_parameter in self.model_parameters['modification_parameters']:
-                _model_parameters['modification_parameters'][_model_parameter] = value
+            elif _model_parameter in self.model_parameters['modification_arguments']:
+                _model_parameters['modification_arguments'][_model_parameter] = value
 
         return temperatures, mass_fractions, mean_molar_mass, _model_parameters
 
@@ -1446,22 +1446,22 @@ class SpectralModel(Radtrans):
                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                            instrumental_deformations=None, noise_matrix=None,
                            scale=False, shift=False, use_transit_light_loss=False, convolve=False, rebin=False,
-                           prepare=False):
+                           prepare=False, return_additional_outputs=False):
         # Initialize parameters
         if parameters is None:
             parameters = self.model_parameters
 
         # Add modification parameters to model parameters
-        modification_parameters = inspect.signature(self.calculate_spectrum).parameters
+        modification_arguments = inspect.signature(self.calculate_spectrum).parameters
         local_variables = locals()
 
-        if 'modification_parameters' not in parameters:
-            parameters['modification_parameters'] = {}
+        if 'modification_arguments' not in parameters:
+            parameters['modification_arguments'] = {}
 
-        for parameter in modification_parameters:
+        for parameter in modification_arguments:
             if parameter not in ['self', 'parameters']:
-                self.model_parameters['modification_parameters'][parameter] = local_variables[parameter]
-                parameters['modification_parameters'][parameter] = local_variables[parameter]
+                self.model_parameters['modification_arguments'][parameter] = local_variables[parameter]
+                parameters['modification_arguments'][parameter] = local_variables[parameter]
 
         # Update parameters
         if update_parameters:
@@ -1498,7 +1498,7 @@ class SpectralModel(Radtrans):
             transit_fractional_light_loss_function=self.spectral_modification_functions_map['use_transit_light_loss'],
             convolve_function=self.spectral_modification_functions_map['convolve'],
             rebin_spectrum_function=self.spectral_modification_functions_map['rebin'],
-            **parameters['modification_parameters'],
+            **parameters['modification_arguments'],
             **parameters
         )
 
@@ -1523,6 +1523,9 @@ class SpectralModel(Radtrans):
                     copy.deepcopy(parameters['data_uncertainties'])
             else:
                 parameters['prepared_uncertainties'] = None
+
+        if return_additional_outputs:
+            return wavelengths, spectrum, additional_outputs
 
         return wavelengths, spectrum
 
@@ -1854,7 +1857,7 @@ class SpectralModel(Radtrans):
 
             # Get the sum of mass fractions of non-imposed species
             for species in mass_fractions_equilibrium:
-                if species not in imposed_mass_fractions:
+                if species not in imposed_mass_fractions and species not in filling_species:
                     mass_fractions[species] = mass_fractions_equilibrium[species]
                     m_sum_species += mass_fractions_equilibrium[species]
 
@@ -1880,15 +1883,19 @@ class SpectralModel(Radtrans):
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
                 if len(filling_species) > 0:  # fill the atmosphere using the filling species
-                    mass_fractions = fill_atmosphere(
+                    mass_fractions_i = fill_atmosphere(
                         mass_fractions=mass_fractions,
-                        filling_species=filling_species
+                        filling_species=filling_species,
+                        fill_layer=i
                     )
+
+                    for species in mass_fractions:
+                        mass_fractions[species][i] = mass_fractions_i[species][0]
                 else:
                     warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
                                   f"Set filling_species to automatically fill the atmosphere "
                                   f"or manually adjust the imposed mass fractions")
-            elif m_sum > 1:  # scale down the mass fractions
+            elif m_sum > 1:  # scale down the mass fractions, no filling species needed
                 if verbose:
                     warnings.warn(f"sum of species mass fraction ({m_sum_species[i]} + {m_sum_imposed_species[i]}) "
                                   f"is > 1, correcting...")
@@ -2187,7 +2194,31 @@ class SpectralModel(Radtrans):
     def compute_temperatures(pressures, temperature_profile_mode='isothermal', temperature=None,
                              intrinsic_temperature=None, reference_gravity=None, metallicity=None,
                              guillot_temperature_profile_gamma=0.4,
-                             guillot_temperature_profile_kappa_ir_z0=0.01, **kwargs):
+                             guillot_temperature_profile_infrared_mean_opacity_solar_metallicity=0.01,
+                             guillot_temperature_profile_kappa_ir_z0=None,
+                             **kwargs):
+        # TODO deprecated: remove guillot_temperature_profile_kappa_ir_z0 in version 4
+        if guillot_temperature_profile_kappa_ir_z0 is not None:
+            warnings.warn(
+                "'guillot_temperature_profile_kappa_ir_z0' is deprecated "
+                "and will be removed in a future update. "
+                "Use 'guillot_temperature_profile_infrared_mean_opacity_solar_metallicity' instead",
+                FutureWarning
+            )
+
+            if (guillot_temperature_profile_infrared_mean_opacity_solar_metallicity != 0.01
+                    and guillot_temperature_profile_kappa_ir_z0 !=
+                    guillot_temperature_profile_infrared_mean_opacity_solar_metallicity):
+                raise SyntaxError(
+                    f"different values for alias keywords: "
+                    f"guillot_temperature_profile_infrared_mean_opacity_solar_metallicity "
+                    f"({guillot_temperature_profile_infrared_mean_opacity_solar_metallicity}), "
+                    f"guillot_temperature_profile_kappa_ir_z0 ({guillot_temperature_profile_kappa_ir_z0})"
+                )
+
+            guillot_temperature_profile_infrared_mean_opacity_solar_metallicity = (
+                guillot_temperature_profile_kappa_ir_z0)
+
         SpectralModel.__check_none_model_parameters(
             explanation_message_="Required for calculating the temperature profile",
             temperature=temperature
@@ -2210,7 +2241,7 @@ class SpectralModel(Radtrans):
                 reference_gravity=reference_gravity,
                 intrinsic_temperature=intrinsic_temperature,
                 equilibrium_temperature=temperature,
-                infrared_mean_opacity_solar_matallicity=guillot_temperature_profile_kappa_ir_z0,
+                infrared_mean_opacity_solar_matallicity=guillot_temperature_profile_infrared_mean_opacity_solar_metallicity,  # noqa: E501
                 metallicity=metallicity
             )
         else:
@@ -2550,7 +2581,7 @@ class SpectralModel(Radtrans):
             _from_maps=from_maps
         )
 
-        default_parameters.add('modification_parameters')
+        default_parameters.add('modification_arguments')
         default_parameters.add('preparation_matrix')
         default_parameters.add('prepared_uncertainties')
 
@@ -2679,7 +2710,8 @@ class SpectralModel(Radtrans):
                 model_parameters[parameter] = self.model_parameters[parameter]
 
         # Initialize the modification parameters dict
-        model_parameters['modification_parameters'] = {}
+        model_parameters['modification_arguments'] = {}
+        model_parameters['modification_parameters'] = model_parameters['modification_arguments']  # TODO deprecated, remove in version 4 # noqa: E501
 
         # Check relevance of model parameters
         if check_relevance:
@@ -2712,7 +2744,7 @@ class SpectralModel(Radtrans):
             **kwargs
         )
 
-    def get_true_parameters(self, retrieved_parameters):
+    def get_true_parameters(self, retrieved_parameters: dict) -> dict[str, float]:
         """Get the true value of retrieved parameters.
         Intended to be used with plot_result_corner, for retrieval on simulated data.
 
@@ -3125,7 +3157,7 @@ class SpectralModel(Radtrans):
         if star_spectrum_wavelengths is not None and star_flux[1] is not None:
             star_spectrum = flux_hz2flux_cm(
                 star_spectrum,
-                cst.c / star_spectrum_wavelengths * 1e4  # um to cm
+                um2hz(star_spectrum_wavelengths)
             ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
 
         if star_observed_spectrum is not None:
@@ -3490,7 +3522,7 @@ class SpectralModel(Radtrans):
             attribute_dictionary = {
                 copy.deepcopy(key): copy.deepcopy(value)
                 for key, value in self.__dict__.items()
-                if '_loaded_opacities' not in key
+                if key not in ['_loaded_opacities', 'modification_parameters']
             }
 
         def __check_map(_map_name, _functions_label):
