@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a37] - 2024-08-30
+## [3.1.0a38] - 2024-09-02
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
@@ -15,12 +15,15 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
 - Function to plot the above opacity contribution spectra.
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
 - Function to fill all layers of an atmosphere at once with filling species.
 - Functions to convert frequencies into wavelengths (in cm or in um), and vice-versa.
 - Function `Radtrans.get_wavelengths` to obtain the equivalent in cm of a `Radtrans` object's frequency grid.
+- Function to directly get retrieval samples into a dict.
+- Function to convert the default log-likelihood to a chi2.
 - Documentation for the newly added functions.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Warning when only one of the two parameters necessary to include a power law opacity has been set.
