@@ -233,20 +233,20 @@ class Retrieval:
         return valid
 
     def run(self,
-            sampling_efficiency=0.8,
-            const_efficiency_mode=False,
-            n_live_points=4000,
-            log_z_convergence=0.5,
-            step_sampler=False,
-            warmstart_max_tau=0.5,
-            n_iter_before_update=50,
-            resume=False,
-            max_iters=0,
-            frac_remain=0.1,
-            l_epsilon=0.3,
-            error_checking=True,
-            force_serial_error_checking=False,
-            seed=-1):
+            sampling_efficiency: float = 0.8,
+            const_efficiency_mode: bool = False,
+            n_live_points: int = 4000,
+            log_z_convergence: float = 0.5,
+            step_sampler: bool = False,
+            warmstart_max_tau: float = 0.5,
+            n_iter_before_update: int = 50,
+            resume: bool = False,
+            max_iters: int = 0,
+            frac_remain: float = 0.1,
+            l_epsilon: float = 0.3,
+            error_checking: bool = True,
+            force_serial_error_checking: bool = False,
+            seed: int = -1):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
@@ -1459,11 +1459,13 @@ class Retrieval:
 
         return self.best_fit_spectra
 
-    def get_samples(self,
-                    ultranest=False,
-                    names=None,
-                    output_directory=os.getcwd(),
-                    ret_names=None):
+    def get_samples(
+            self,
+            ultranest=False,
+            names=None,
+            output_directory=os.getcwd(),
+            ret_names=None
+    ):
         if ret_names is None:
             ret_names = []
 
@@ -1666,6 +1668,7 @@ class Retrieval:
         """
         if ret_name is None:
             ret_name = self.configuration.retrieval_name
+
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_parameters = parameters
 
@@ -2709,10 +2712,10 @@ class Retrieval:
                             dd.wavelengths, dd.spectrum, 'mean', dd.wavelengths.shape[0] / ratio
                         )
                         error, _, _ = (
-                            binned_statistic(
+                            np.array(binned_statistic(
                                 dd.wavelengths, dd.uncertainties,
                                 'mean', dd.wavelengths.shape[0] / ratio
-                            )
+                            ))
                             / np.sqrt(ratio)
                         )
 
@@ -3479,8 +3482,8 @@ class Retrieval:
 
                     i_p += 1
 
-                p_plot_inds[name] = parameter_plot_indices
-                p_ranges[name] = parameter_ranges
+                p_plot_inds[name] = np.array(parameter_plot_indices)
+                p_ranges[name] = np.array(parameter_ranges)
                 p_use_dict[name] = parameters_use
                 sample_use_dict[name] = copy.copy(samples_use)
 
