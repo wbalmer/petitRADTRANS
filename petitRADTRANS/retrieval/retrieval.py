@@ -1515,6 +1515,26 @@ class Retrieval:
 
         return samples, param_dict
 
+    def get_samples_dict(self, return_likelihood=False):
+        samples, parameter_names = self.get_samples(
+            ultranest=self.ultranest,
+            names=None,
+            output_directory=self.output_directory,
+            ret_names=None
+        )
+
+        samples = samples[self.configuration.retrieval_name]
+        param_dict = parameter_names[self.configuration.retrieval_name]
+
+        # Add likelihood
+        if return_likelihood:
+            param_dict.append('log_likelihood')
+
+        return {
+            parameter_name: samples[i, :]
+            for i, parameter_name in enumerate(param_dict)
+        }
+
     def get_max_likelihood_params(self, best_fit_params, parameters_read):
         """
         This function converts the sample from the post_equal_weights file with the maximum
