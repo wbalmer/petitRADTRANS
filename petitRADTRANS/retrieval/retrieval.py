@@ -532,6 +532,110 @@ class Retrieval:
             if comm is not None:
                 comm.barrier()
 
+    def calculate_forward_model(self, parameters=None, data=None, pt_plot_mode=None, amr=False,
+                                copy_configuration_parameters=True, **kwargs):
+        if parameters is None:
+            parameters = {}
+        elif isinstance(parameters, str):
+            if parameters == 'best fit':
+                parameters = self.get_best_fit_parameters(return_max_likelihood=False)
+            elif parameters == 'median':
+                parameters = self.get_quantile_parameters(0.5)
+            elif parameters == 'quantile':
+                parameters = self.get_quantile_parameters(**kwargs)
+
+        if copy_configuration_parameters:
+            configuration_parameters = copy.deepcopy(self.configuration.parameters)  # copy to prevent unwanted modifs
+        else:
+            configuration_parameters = self.configuration.parameters
+
+        i_p = 0  # parameter count
+
+        if isinstance(parameters, dict):
+            cube = self.get_parameters_mid_prior_range_values()
+
+            # Check if the given parameters are all set in the configuration
+            for parameter_name in parameters:
+                if parameter_name not in configuration_parameters:
+                    available_parameters = "'" + "', '".join(configuration_parameters) + "'"
+
+                    raise KeyError(
+                        f"retrieved parameter '{parameter_name}' is not a configured parameter of this retrieval\n"
+                        f"Available parameters are: {available_parameters}"
+                    )
+
+            # Set the parameters to their requested values
+            for parameter_name in configuration_parameters:
+                if configuration_parameters[parameter_name].is_free_parameter:
+                    if parameter_name not in parameters and len(parameters) > 0:
+                        print(
+                            f"No value given to retrieved parameter '{parameter_name}', "
+                            f"assuming the mid prior range value ({cube[i_p]})"
+                        )
+                    else:
+                        if parameter_name in parameters:
+                            lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
+                            upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+
+                            if not (lower_boundary <= parameters[parameter_name] <= upper_boundary):
+                                warnings.warn(
+                                    f"value given for parameter '{parameter_name}' ({parameters[parameter_name]}) "
+                                    f"is not within its prior boundaries ({lower_boundary} to {upper_boundary})"
+                                )
+
+                            cube[i_p] = parameters[parameter_name]
+
+                    configuration_parameters[parameter_name].set_param(cube[i_p])
+                    i_p += 1
+                elif parameter_name in parameters:
+                    warnings.warn(
+                        f"parameter '{parameter_name}' is not a free parameter"
+                    )
+                    configuration_parameters[parameter_name].set_param(parameters[parameter_name])
+        else:  # assume that the 'parameters' argument is the list of parameters values in the correct order
+            for parameter_name in configuration_parameters:
+                if configuration_parameters[parameter_name].is_free_parameter:
+                    lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
+                    upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+
+                    if not (lower_boundary <= parameters[i_p] <= upper_boundary):
+                        warnings.warn(
+                            f"value given for parameter '{parameter_name}' ({parameters[i_p]}) "
+                            f"is not within its prior boundaries ({lower_boundary} to {upper_boundary})"
+                        )
+
+                    configuration_parameters[parameter_name].set_param(parameters[i_p])
+                    i_p += 1
+
+        model_returned_values = {}
+        return_dict = False
+
+        if data is None:
+            data = self.configuration.data.items()
+            return_dict = True
+        elif isinstance(data, str):
+            data = {data: self.configuration.data[data]}
+
+        for name, _data in data.items():
+            print(f"Calculating model function for data '{name}'...")
+
+            if _data.external_radtrans_reference is not None:
+                radtrans_object = self.configuration.data[_data.external_radtrans_reference].radtrans_object
+            else:
+                radtrans_object = _data.radtrans_object
+
+            model_returned_values[name] = _data.model_generating_function(
+                radtrans_object,
+                configuration_parameters,
+                pt_plot_mode=pt_plot_mode,
+                amr=amr
+            )
+
+        if return_dict or len(data) > 1:
+            return model_returned_values
+        else:
+            return model_returned_values[list(data.keys())[0]]
+
     @classmethod
     def from_data(cls, data: dict[str, Data], retrieved_parameters: dict[str, dict],
                   retrieval_name: str = "retrieval_name",
@@ -930,41 +1034,25 @@ class Retrieval:
                 dd.radtrans_object = rt_object
 
     def _error_check_model_function(self):
-        free_params = []
-
-        for key, val in self.configuration.parameters.items():
-            if val.is_free_parameter:
-                free_params.append(key)
-
-        cube = np.ones(len(free_params)) * 0.5
-        self.prior(cube)
-
-        i_p = 0  # parameter count
-        for pp in self.configuration.parameters:
-            if self.configuration.parameters[pp].is_free_parameter:
-                self.configuration.parameters[pp].set_param(cube[i_p])
-                i_p += 1
-
-        for name, data in self.configuration.data.items():
-            print(f"Testing model function for data '{name}'...")
+        for data_name in self.configuration.data:
+            print(f"Testing model function for data '{data_name}'...")
             message = None
             wlen = None
             model = None
             exc_info = None
 
+            cube = self.get_parameters_mid_prior_range_values()
+
             try:
-                use_obj = data.radtrans_object
+                model_returned_values = self.calculate_forward_model(
+                    parameters=cube,
+                    data=data_name,
+                    pt_plot_mode=False,
+                    amr=self.configuration.amr,
+                    copy_configuration_parameters=False
+                )
 
-                if data.external_radtrans_reference is not None:
-                    use_obj = self.configuration.data[data.external_radtrans_reference].radtrans_object
-
-                model_returned_values = data.model_generating_function(
-                    use_obj,
-                    self.configuration.parameters,
-                    False,
-                    amr=self.configuration.amr
-                )  # TODO the generating function should always return the same number of values
-
+                # TODO the generating function should always return the same number of values
                 if len(model_returned_values) == 3:  # handle case where beta is returned
                     wlen, model, _ = model_returned_values
                 else:
