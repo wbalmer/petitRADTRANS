@@ -645,6 +645,48 @@ class Retrieval:
             uncertainties_mode=uncertainties_mode
         )
 
+    def get_best_fit_parameters(self, return_max_likelihood: bool = False):
+        samples = self.get_samples_dict(return_likelihood=True)
+
+        max_likelihood, max_likelihood_index = self.get_best_fit_likelihood(
+            samples=np.array(list(samples.values())),
+            print_value=False
+        )
+
+        del samples['log_likelihood']
+
+        if return_max_likelihood:
+            chi2 = list(self.configuration.data.values())[0].log_likelihood2chi2(max_likelihood)
+
+            return {
+                parameter_name: value[max_likelihood_index]
+                for parameter_name, value in samples.items()
+            }, max_likelihood, chi2
+
+        return {
+            parameter_name: value[max_likelihood_index]
+            for parameter_name, value in samples.items()
+        }
+
+    def get_quantile_parameters(self, quantile):
+        samples = self.get_samples_dict(return_likelihood=False)
+
+        return {
+            parameter_name: np.quantile(value, quantile)
+            for parameter_name, value in samples.items()
+        }
+
+    def get_parameters_mid_prior_range_values(self):
+        n_free_parameters = 0
+
+        for parameter_name, parameter in self.configuration.parameters.items():
+            if parameter.is_free_parameter:
+                n_free_parameters += 1
+
+        cube = 0.5 * np.ones(n_free_parameters)
+
+        return self.prior(cube)
+
     def generate_retrieval_summary(self, stats=None):
         """
         This function produces a human-readable text file describing the retrieval.
