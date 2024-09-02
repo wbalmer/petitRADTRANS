@@ -1946,17 +1946,22 @@ class Retrieval:
         return s['global evidence'] / np.log(10), s['global evidence error'] / np.log(10)
 
     @staticmethod
-    def get_best_fit_likelihood(samples):
+    def get_best_fit_likelihood(samples, print_value=True):
         """
         Get the log likelihood of the best fit model
 
         Args:
             samples : numpy.ndarray
-                An array of samples and likelihoods taken from a post_equal_weights file
+                An array of samples and likelihoods taken from a post_equal_weights file.
+            print_value : bool
+                If True, print the best fit likelihood value.
         """
         log_l = samples[-1, :]
         best_fit_index = np.argmax(log_l)
-        print(f"Best fit likelihood = {log_l[best_fit_index]:.2f}")
+
+        if print_value:
+            print(f"Best fit likelihood = {log_l[best_fit_index]:.2f}")
+
         return log_l[best_fit_index], best_fit_index
 
     def get_best_fit_chi2(self, samples):
