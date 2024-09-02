@@ -89,15 +89,15 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     Returns:
         sigma_lnorm : float, None
-            The width of a log normal particle size distribution
+            The width of a log normal particle size distribution.
         fseds : dict, None
-            The sedimentation fraction for each cloud species in the atmosphere
+            The sedimentation fraction for each cloud species in the atmosphere.
         kzz : np.ndarray, None
-            The vertical mixing parameter
+            The vertical mixing parameter.
         b_hans : float, None
-            The width of a hansen particle size distribution
+            The width of a hansen particle size distribution.
         radii : dict, None
-            The central radius of the particle size distribution
+            The central radius of the particle size distribution.
         distribution : string
             Either "lognormal" or "hansen" - tells pRT which distribution to use.
     """
@@ -340,6 +340,7 @@ def return_x_mgfesio4(metallicity, co_ratio):
 
     return x_mgfesio4
 
+
 def return_x_sio(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
@@ -367,6 +368,7 @@ def return_x_sio(metallicity, co_ratio):
     x_sio = x_sio / add
 
     return x_sio
+
 
 def return_x_na2s(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
