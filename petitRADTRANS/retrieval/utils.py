@@ -6,6 +6,7 @@ calculations, transforms from mass to number fractions, and fits file output.
 import os
 
 import json
+import warnings
 
 import numpy as np
 from scipy.special import erfcinv, gamma
@@ -83,6 +84,14 @@ def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False,
     samples_dict = {}
 
     for i, key in enumerate(parameters_read):
+        if np.ndim(samples) == 1:
+            warnings.warn(
+                f"samples in '{output_dir}' has only one live point\n"
+                f"Ensure that the retrieval ran correctly and that it had enough live points "
+                f"(>~ the number of free parameters)."
+            )
+            samples = samples[np.newaxis, :]
+
         samples_dict[key] = samples[:, i]
 
     if add_log_likelihood:
