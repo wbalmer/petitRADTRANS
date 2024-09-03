@@ -589,19 +589,31 @@ class Radtrans:
                 search_online=True
             )
 
-            # Try to bin down the opacities
+            # Bin down the opacities if necessary
             if target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
-                state = rebin_ck_line_opacities(
-                    input_file=hdf5_file,
-                    target_resolving_power=target_resolving_power,
-                    wavenumber_grid=None,
-                    rewrite=False
+                # Try to find the binned-down file first
+                _hdf5_file = get_opacity_input_file(
+                    path_input_data=path_input_data,
+                    category=category,
+                    species=species,
+                    find_all=True,  # output an empty list if no matching file found
+                    search_online=False  # don't search online since this is not the standard resolving power
                 )
 
-                if state == -1:
-                    raise RuntimeError("unable to perform binning down, please install exo_k")
+                if len(_hdf5_file) == 0:  # no matching file found, make the file using exo_k
+                    state = rebin_ck_line_opacities(
+                        input_file=hdf5_file,
+                        target_resolving_power=target_resolving_power,
+                        wavenumber_grid=None,
+                        rewrite=False
+                    )
 
-                hdf5_file = None
+                    if state == -1:
+                        raise RuntimeError("unable to perform binning down, please install exo_k")
+
+                    hdf5_file = None
+                else:
+                    hdf5_file = _hdf5_file
 
         if hdf5_file is None:
             hdf5_file = get_opacity_input_file(
