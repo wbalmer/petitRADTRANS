@@ -56,7 +56,8 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
             _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * np.diff(_wavelengths)
         )
     unit_factor = 1.0
-    if use_si_units: unit_factor=1e-3
+    if use_si_units: 
+        unit_factor=1e-3
 
     energy = integrate_flux(wavelengths, flux)
 
@@ -843,7 +844,7 @@ def dtdp_temperature_profile(
         t_bottom : float
             The temperature at the bottom of the atmosphere.
         top_of_atmosphere_pressure : float
-            Minimum atmospheric pressure in log bar. If the pressure array extends beyond this value, the 
+            Minimum atmospheric pressure in log bar. If the pressure array extends beyond this value, the
             temperature structure at lower pressures than this value will be isothermal.
         bottom_of_atmosphere_pressure : float
             Maximum atmospheric pressure in log bar.
@@ -857,8 +858,8 @@ def dtdp_temperature_profile(
     num_sub = len(p_use_sub)
 
     # 1.3 pressures of layers
-    layer_pressures = np.logspace(top_of_atmosphere_pressure, 
-                                  bottom_of_atmosphere_pressure, 
+    layer_pressures = np.logspace(top_of_atmosphere_pressure,
+                                  bottom_of_atmosphere_pressure,
                                   int(num_layer))
     # 1.4 assemble the P-T slopes for these layers
     # for index in range(num_layer):

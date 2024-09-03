@@ -365,6 +365,7 @@ def return_x_mgfesio4(metallicity, co_ratio):
 
     return x_mgfesio4
 
+
 def return_x_sio(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
@@ -392,6 +393,7 @@ def return_x_sio(metallicity, co_ratio):
     x_sio = x_sio / add
 
     return x_sio
+
 
 def return_x_na2s(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
