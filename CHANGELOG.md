@@ -4,9 +4,12 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a38] - 2024-09-02
+## [3.1.0a39] - 2024-09-03
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
+- Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
+- Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
+- Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
 - Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
@@ -15,6 +18,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
 - Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
 - Function to plot the above opacity contribution spectra.
@@ -33,9 +37,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Test module for `SpectralModel` retrieval framework.
 - Performance tests.
 - Source files for JOSS papers.
-- Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
-- Added in a subroutine to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
-- Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
 
 ### Changed
 - Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. The old parameter will be deprecated in version 4.0.0.
@@ -43,12 +44,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
 - Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
-- Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
-- Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
-
+- Previous 'patchy' model functions are now redundant, all the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
+- The `examples` directory is relocated to the notebook directory, and renamed `retrievals`.
 
 ### Removed
 - Unused test functions.
+- Example retrieval output files.
 
 ### Fixed
 - Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
@@ -60,26 +61,31 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
+- Function `Retrieval.plot_spectra` not working when `mode='median'`.
 - Mass fractions being modified when calculating CIA opacities in some cases.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectra.
 - Crash when using a fresh `SpectralModel` instance's `calculate_spectrum` with `update_parameters=False` without initializing `star_flux`.
+- Crash when negative data are used for a retrieval.
+- Bug in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
+- Model functions lacking the required 350nm scattering parameter for hazes as an optional parameter (solves [issue 76](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76)).
+- Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)). 
+- Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)). 
+- Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Incorrect filling mass fraction calculation in some cases.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.
 - Function maps of `SpectralModel` are incorrectly loaded.
+- Bug in emission retrieval tutorial, changing names of cloud parameters.
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
+- Incorrect behaviour: mass fractions species names without spectral info are not recognized if opacities species names have spectral info (loading opacities with different spectral info is not possible anyway).
+- Incorrect behaviour: `exo_k` is imported to bin down opacities even when the binned-down opacity file already exists.
 - Typos in some docs.
 - Typos in some comments.
-- Solved [(issue 76)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76). Updated model functions to accept 350nm scattering as an optional parameter.
-- Solved [(issue 80)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80). Bug fixes to `madhushudhan_seager_transmission` function
-- Solved [(issue 82)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82). Bug fix due to change in shape of sample arrays for pRT3.
-- Fixed bug in emission retrieval tutorial, changing names of cloud parameters.
-- Fixed bug in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
