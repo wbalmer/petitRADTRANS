@@ -2562,7 +2562,7 @@ def _sort_pressure_temperature_grid(pressure_temperature_grid_file):
     return [sorted_grid[:, :-1][:, ::-1], names_sorted, n_temperatures, n_pressures]
 
 
-def bin_species_exok(species, resolution):
+def bin_species_exok(species: list[str], resolution: float):
     """
     This function uses exo-k to bin the c-k table of a
     multiple species to a desired (lower) spectral resolution.
