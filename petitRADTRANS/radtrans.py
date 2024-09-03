@@ -1032,8 +1032,13 @@ class Radtrans:
             if self._line_species[i_spec] in mass_fractions:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
             else:
-                raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
-                                 f"(listed species: {list(mass_fractions.keys())}")
+                default_species, spectral_info = _split_species_spectral_info(self._line_species[i_spec])
+
+                if default_species in mass_fractions:
+                    line_species_mass_fractions[:, i_spec] = mass_fractions[default_species]
+                else:
+                    raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
+                                     f"(listed species: {list(mass_fractions.keys())}")
 
         # Interpolate line opacities
         opacities = self._interpolate_species_opacities(
