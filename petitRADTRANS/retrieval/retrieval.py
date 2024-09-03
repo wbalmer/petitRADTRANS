@@ -507,6 +507,9 @@ class Retrieval:
                             lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
                             upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
 
+                            if lower_boundary > upper_boundary:
+                                upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
+
                             if not (lower_boundary <= parameters[parameter_name] <= upper_boundary):
                                 warnings.warn(
                                     f"value given for parameter '{parameter_name}' ({parameters[parameter_name]}) "
@@ -527,6 +530,9 @@ class Retrieval:
                 if configuration_parameters[parameter_name].is_free_parameter:
                     lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
                     upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+
+                    if lower_boundary > upper_boundary:
+                        upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
 
                     if not (lower_boundary <= parameters[i_p] <= upper_boundary):
                         warnings.warn(
@@ -959,7 +965,6 @@ class Retrieval:
                     f_err = f_err * sf
 
                 if f"{name}_b" in self.configuration.parameters.keys():
-                    print(self.best_fit_parameters.keys())
                     f_err = np.sqrt(f_err ** 2 + 10 ** self.best_fit_parameters[f"{name}_b"].value)
 
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
@@ -1614,6 +1619,9 @@ class Retrieval:
         d_o_f = 0
 
         for name, data in self.configuration.data.items():
+            if isinstance(data.data_resolution, np.ndarray):
+                data.intialise_data_resolution(wlen_model)
+
             d_o_f += np.size(data.spectrum)
             sf = 1
             log_l += data.get_chisq(
@@ -2376,7 +2384,7 @@ class Retrieval:
 
         radtrans_object = Radtrans(
             pressures=pressures,
-            line_species=copy.copy(self.configuration.line_species),
+            line_species=copy.copy(species),
             rayleigh_species=copy.copy(self.configuration.rayleigh_species),
             gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
             cloud_species=copy.copy(self.configuration.cloud_species),
@@ -2418,12 +2426,16 @@ class Retrieval:
                     wavelengths, model, __ = ret_val
 
                 temperature_fit = compute_effective_temperature(
-                    wavelengths, model, parameters["D_pl"].value, parameters["R_pl"].value
+                    wavelengths=wavelengths,
+                    flux=model,
+                    orbit_semi_major_axis=parameters["D_pl"].value,
+                    planet_radius=parameters["planet_radius"].value,
+                    use_si_units=True
                 )
                 temperature_fits.append(temperature_fit)
 
             temperature_dict[name] = np.array(temperature_fits)
-            np.save(os.path.join(self.output_directory, "evaluate_" + name, "sampled_teff"), np.array(temperature_fits))
+            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(temperature_fits))
 
         return temperature_dict
 
@@ -2482,6 +2494,12 @@ class Retrieval:
                     )
                 else:
                     wavelengths_model, spectrum_model = ret_val
+
+            if data.data_resolution_array_model is not None:
+                data.intialise_data_resolution(wavelengths_model)
+                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+            elif data.data_resolution is not None:
+                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
 
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [wavelengths_model, spectrum_model]
@@ -2770,8 +2788,11 @@ class Retrieval:
 
                 data.radtrans_object = radtrans
 
-    # TODO move plot functions outside of here in v.4.0.0
+            # Setup for non-uniform spectral resolution
+            if isinstance(data.data_resolution, np.ndarray):
+                data.intialise_data_resolution(1e4 * radtrans.get_wavelengths())
 
+    # TODO move plot functions outside of here in v.4.0.0
     def plot_abundances(
         self,
         samples_use,
@@ -4080,12 +4101,21 @@ class Retrieval:
                 if not data.photometry:
                     if data.external_radtrans_reference is None:
                         spectrum_model = self.best_fit_spectra[name][1]
-                        if data.data_resolution is not None:
+
+                        if data.data_resolution_array_model is not None:
+                            data.intialise_data_resolution(self.best_fit_spectra[name][0])
+                            spectrum_model = data.convolve(
+                                self.best_fit_spectra[name][0],
+                                self.best_fit_spectra[name][1],
+                                data.data_resolution_array_model
+                            )
+                        elif data.data_resolution is not None:
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[name][0],
                                 self.best_fit_spectra[name][1],
                                 data.data_resolution
                             )
+
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -4093,7 +4123,14 @@ class Retrieval:
                             wavelengths_bins
                         )
                     else:
-                        if data.data_resolution is not None:
+                        if data.data_resolution_array_model is not None:
+                            data.intialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
+                            spectrum_model = data.convolve(
+                                self.best_fit_spectra[data.external_radtrans_reference][0],
+                                self.best_fit_spectra[data.external_radtrans_reference][1],
+                                data.data_resolution_array_model
+                            )
+                        elif data.data_resolution is not None:
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[data.external_radtrans_reference][0],
                                 self.best_fit_spectra[data.external_radtrans_reference][1],
