@@ -1697,9 +1697,15 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
             if s in mass_fractions:
                 opacities_weights[s] = mass_fractions[s]
             else:
+                # Try to remove opacity information
                 chem_spec = s.split('.', 1)[0].split('_', 1)[0].split('-', 1)[0]
-                warnings.warn('Name of line absorber not found in chemical abundance table.'
-                              ' Weighted '+s+' with chemical mass fraction of species '+chem_spec+'.')
+
+                if chem_spec not in mass_fractions:
+                    raise KeyError(
+                        f"line species '{s}' is not a species in the chemical table\n"
+                        f"Try to remove this line species, or do not set mass_fractions to 'eq'."
+                    )
+
                 opacities_weights[s] = mass_fractions[chem_spec]
     else:
         for s in species:
