@@ -474,9 +474,11 @@ class Data:
 
                 for spectrum_model in model_spectra:
                     if self.data_resolution is not None:
-                        spectrum_model = self.convolve(wlen_model,
-                                                       spectrum_model,
-                                                       self.data_resolution)
+                        spectrum_model = self.convolve(
+                            wlen_model,
+                            spectrum_model,
+                            self.data_resolution
+                        )
 
                     # Rebin to model observation
                     if np.size(wlen_model) == np.size(self.wavelengths):

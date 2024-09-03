@@ -13,9 +13,7 @@ from scipy.special import erfcinv, gamma
 SQRT2 = np.sqrt(2)
 
 
-#################
 # Prior Functions
-#################
 # Stolen from https://github.com/JohannesBuchner/MultiNest/blob/master/src/priors.f90
 def log_prior(cube, lx1, lx2):
     return 10 ** (lx1 + cube * (lx2 - lx1))
@@ -60,9 +58,7 @@ def a_b_range(x, a, b):
         return 0.
 
 
-########################
 # File Formatting
-########################
 def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False, add_stats=False):
     if name is None:
         name = output_dir.rsplit(os.sep, 1)[1]

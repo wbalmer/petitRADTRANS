@@ -2992,7 +2992,6 @@ class Retrieval:
                 yborders = pressures
                 for i_p in range(len(yborders) - 1):
                     mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.
-                    # print(1.-contr_em_weigh_intp(mean_press))
                     ax.fill_between([1e-7, 3],
                                     yborders[i_p + 1],
                                     yborders[i_p],
@@ -3658,7 +3657,6 @@ class Retrieval:
                 yborders = pressures
                 for i_p in range(len(yborders) - 1):
                     mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.
-                    # print(1.-contr_em_weigh_intp(mean_press))
                     ax.fill_between(tlims,
                                     yborders[i_p + 1],
                                     yborders[i_p],
@@ -3975,6 +3973,7 @@ class Retrieval:
                 refresh=refresh,
                 mode=mode
             )
+
             chi2 = self.get_reduced_chi2_from_model(
                 wlen_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
