@@ -1,6 +1,5 @@
 import copy
 import json
-import logging
 import os
 import sys
 import traceback
@@ -3107,7 +3106,7 @@ class Retrieval:
                 ret_names = []
 
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
 
             if output_directory is None:
@@ -3241,7 +3240,7 @@ class Retrieval:
 
             self.evaluate_sample_spectra = False
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
             print("\nPlotting Best-fit contribution function")
 
@@ -3359,8 +3358,9 @@ class Retrieval:
         if not self.use_mpi or rank == 0:
 
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
+
             print("\nMaking corner plot")
             sample_use_dict = {}
             p_plot_inds = {}
@@ -3495,7 +3495,7 @@ class Retrieval:
 
             print("\nPlotting PT profiles")
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
 
             # Choose what samples we want to use
@@ -3752,7 +3752,7 @@ class Retrieval:
         if not self.use_mpi or rank == 0:
 
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
 
             self.configuration.plot_kwargs["nsample"] = int(self.configuration.plot_kwargs["nsample"])
@@ -3938,7 +3938,7 @@ class Retrieval:
                 self.evaluate_sample_spectra = False
 
             if not self.configuration.run_mode == 'evaluate':
-                logging.warning("Not in evaluate mode. Changing run mode to evaluate.")
+                print("Not in evaluate mode. Changing run mode to evaluate.")
                 self.configuration.run_mode = 'evaluate'
 
             print("\nPlotting Best-fit spectrum")
