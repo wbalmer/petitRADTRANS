@@ -769,7 +769,7 @@ class Retrieval:
                 parameters_read = self.param_dictionary[self.configuration.retrieval_name]
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
                 chi2_wlen = self.get_reduced_chi2(
                     sample=samples_use[:, best_fit_index],
                     subtract_n_parameters=False,
@@ -865,7 +865,7 @@ class Retrieval:
             if val.is_free_parameter:
                 params.append(key)
 
-        self.get_max_likelihood_params(samples[:-1, best_fit_index], params)
+        self.build_param_dict(samples[:-1, best_fit_index], params)
         norm = 0.0
 
         for name, dd in self.configuration.data.items():
@@ -1352,7 +1352,8 @@ class Retrieval:
         )
         return abundances, mmw
 
-    def get_max_likelihood_params(self, best_fit_params, parameters_read):
+    def get_max_likelihood_params(self, best_fit_params: npt.NDArray, parameters_read: list[str]):
+        # TODO misnamed function as this does not return the max likelihood parameters, but is instead a wrapper for build_param_dict # noqa: E501
         """
         This function converts the sample from the post_equal_weights file with the maximum
         log likelihood, and converts it into a dictionary of Parameters that can be used in
@@ -1364,7 +1365,13 @@ class Retrieval:
             parameters_read : list
                 A list of the free parameter names as read from the output files.
         """
+        warnings.warn(
+            "function 'get_max_likelihood_params' is deprecated and will be removed in a future update."
+            "Use 'build_param_dict' instead.",
+            FutureWarning
+        )
         self.best_fit_parameters = self.build_param_dict(best_fit_params, parameters_read)
+
         return self.best_fit_parameters
 
     def get_median_params(self, samples, parameters_read, return_array=False):
@@ -2645,7 +2652,7 @@ class Retrieval:
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
                 sample_use = samples_use[:-1, best_fit_index]
             elif mode.lower() == "median":
                 med_params, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
@@ -3066,7 +3073,7 @@ class Retrieval:
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
                 sample_use = samples_use[:-1, best_fit_index]
             elif mode.lower() == "median":
                 med_params, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
@@ -3400,7 +3407,7 @@ class Retrieval:
                 if mode.strip('-').strip("_").lower() == "bestfit":
                     # Get best-fit index
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
-                    self.get_max_likelihood_params(samples_use[:-1, best_fit_index], parameters_read)
+                    self.build_param_dict(samples_use[:-1, best_fit_index], parameters_read)
                     sample_use = samples_use[:-1, best_fit_index]
                 elif mode.lower() == "median":
                     med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
