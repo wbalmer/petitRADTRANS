@@ -406,7 +406,7 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
@@ -858,7 +858,7 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
             dataset = fh5.create_dataset(
                 name='Date_ID',
                 shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
             )
             dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                          'at which the table has been created, ' \
@@ -2724,7 +2724,7 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
         dataset = fh5.create_dataset(
             name='Date_ID',
             shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
         )
         dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                      'at which the table has been created, ' \
@@ -2862,7 +2862,7 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         dataset = fh5.create_dataset(
             name='Date_ID',
             shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
         )
         dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                      'at which the table has been created, ' \
@@ -3886,7 +3886,7 @@ def write_correlated_k(file, doi, wavenumbers, wavenumbers_bins_edges, cross_sec
         dataset = fh5.create_dataset(
             name='Date_ID',
             shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
         )
         dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                      'at which the table has been created, ' \
@@ -4010,7 +4010,7 @@ def write_line_by_line(file, doi, wavenumbers, opacities, mol_mass, species,
         dataset = fh5.create_dataset(
             name='Date_ID',
             shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.UTC).isoformat()}'
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
         )
         dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
                                      'at which the table has been created, ' \

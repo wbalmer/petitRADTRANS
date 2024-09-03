@@ -36,7 +36,7 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return dist
 
 
-def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, planet_radius=1.0):
+def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, planet_radius=1.0, use_si_units=False):
     """Calculates the effective temperature by integrating the model and using the stefan boltzmann law.
 
     Args:
@@ -48,15 +48,20 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
             Distance to the object. Must have same units as planet_radius
         planet_radius : Optional(float)
             Object radius. Must have same units as orbit_semi_major_axis
+        use_si_units : Optional(bool)
+            If the flux is in W/m2/micron, this should be true
     """
     def integrate_flux(_wavelengths, _flux):
         return np.sum(
             _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * np.diff(_wavelengths)
         )
+    unit_factor = 1.0
+    if use_si_units: 
+        unit_factor=1e-3
 
     energy = integrate_flux(wavelengths, flux)
 
-    return (energy / cst.sigma) ** 0.25
+    return (energy / (cst.sigma*unit_factor)) ** 0.25
 
 
 def doppler_shift(wavelength_0, velocity):
@@ -816,7 +821,14 @@ def temperature_curvature_prior(press, temps, gamma):
     return weighted_temp_prior
 
 
-def dtdp_temperature_profile(press, num_layer, layer_pt_slopes, t_bottom):
+def dtdp_temperature_profile(
+        press,
+        num_layer,
+        layer_pt_slopes,
+        t_bottom,
+        top_of_atmosphere_pressure=-3,
+        bottom_of_atmosphere_pressure=3
+        ):
     """
     This function takes the temperature gradient at a set number of spline points and interpolates a temperature
     profile as a function of pressure.
@@ -825,21 +837,30 @@ def dtdp_temperature_profile(press, num_layer, layer_pt_slopes, t_bottom):
         press : array_like
             The pressure array.
         num_layer : int
-            The number of layers.
+            The number of layers. Default for covering 10^3 to 10^-3 bar as in Zhang 2023 is 6.
+            To cover 10^3 to 10^-6 bar 10 is recommended.
         layer_pt_slopes : array_like
             The temperature gradient at the spline points.
         t_bottom : float
             The temperature at the bottom of the atmosphere.
+        top_of_atmosphere_pressure : float
+            Minimum atmospheric pressure in log bar. If the pressure array extends beyond this value, the
+            temperature structure at lower pressures than this value will be isothermal.
+        bottom_of_atmosphere_pressure : float
+            Maximum atmospheric pressure in log bar.
 
     Returns:
         temperatures : array_like
             The temperature profile.
     """
-    id_sub = np.where(press >= 1.0e-3)
+    id_sub = np.where(press >= 10**top_of_atmosphere_pressure)
     p_use_sub = press[id_sub]
     num_sub = len(p_use_sub)
+
     # 1.3 pressures of layers
-    layer_pressures = np.logspace(-3, 3, int(num_layer))
+    layer_pressures = np.logspace(top_of_atmosphere_pressure,
+                                  bottom_of_atmosphere_pressure,
+                                  int(num_layer))
     # 1.4 assemble the P-T slopes for these layers
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
@@ -852,6 +873,7 @@ def dtdp_temperature_profile(press, num_layer, layer_pt_slopes, t_bottom):
     temperatures_sub = np.ones(num_sub) * np.nan
     temperatures_sub[-1] = t_bottom
 
+    # Note: higher index is lower pressure.
     for index in range(1, num_sub):
         temperatures_sub[-1 - index] = np.exp(
             np.log(temperatures_sub[-index]) - pt_slopes_sub[-index]
