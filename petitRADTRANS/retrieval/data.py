@@ -8,17 +8,19 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
+from petitRADTRANS.fortran_rebin import fortran_convolve
 import petitRADTRANS.physical_constants as cst
 
 
 class Data:
-    r"""Store the spectral data to be retrieved from a single instrument or observation.
+    r"""
+    This class stores the spectral data to be retrieved from a single instrument or observation.
 
     Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
     The pRT instance can be overwritten, and associated with an existing pRT instance with the
     external_pRT_reference parameter.
     This setup allows for joint or independent retrievals on multiple datasets.
-
+    # TODO complete docstring
     Args:
         name : str
             Identifier for this data set.
@@ -28,9 +30,12 @@ class Data:
             containing the wavelength, spectrum and covariance matrix.
             Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
             mask attributes.
-        data_resolution : float
+        data_resolution : float or np.ndarray
             Spectral resolution of the instrument. Optional, allows convolution of model to
-            instrumental line width.
+            instrumental line width. If the data_resolution is an array, the resolution can
+            vary as as a function of wavelength. The array should have the same shape as
+            the input wavelength array, and should specify the spectral resolution at each
+            wavelength bin.
         model_resolution : float
             Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
             This will generate a new c-k table using exo-k. The default (and maximum)
@@ -161,6 +166,8 @@ class Data:
             logging.warning("Your system distance is less than 1 pc, are you sure you're using cgs units?")
 
         self.data_resolution = data_resolution
+        self.data_resolution_array_model = None
+
         self.model_resolution = model_resolution
         self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
@@ -383,6 +390,10 @@ class Data:
         self.system_distance = distance
         return self.system_distance
 
+    def intialise_data_resolution(self, wavelengths_model):
+        if isinstance(self.data_resolution, np.ndarray):
+            self.data_resolution_array_model = np.interp(wavelengths_model, self.wavelengths, self.data_resolution)
+
     def update_bins(self, wlens):
         self.wavelength_bin_widths = np.zeros_like(wlens)
         self.wavelength_bin_widths[:-1] = np.diff(wlens)
@@ -473,10 +484,18 @@ class Data:
                     model_spectra.append(spectrum_model)
 
                 for spectrum_model in model_spectra:
-                    if self.data_resolution is not None:
-                        spectrum_model = self.convolve(wlen_model,
-                                                       spectrum_model,
-                                                       self.data_resolution)
+                    if self.data_resolution_array_model is not None:
+                        spectrum_model = self.convolve(
+                            wlen_model,
+                            spectrum_model,
+                            self.data_resolution_array_model
+                        )
+                    elif self.data_resolution is not None:
+                        spectrum_model = self.convolve(
+                            wlen_model,
+                            spectrum_model,
+                            self.data_resolution
+                        )
 
                     # Rebin to model observation
                     if np.size(wlen_model) == np.size(self.wavelengths):
@@ -698,6 +717,10 @@ class Data:
 
             return - 0.5 * chi2 + penalty_term
 
+    @staticmethod
+    def log_likelihood2chi2(log_likelihood: float) -> float:
+        return -2 * log_likelihood
+
     # TODO: do we want to pass the whole parameter dict,
     # or just set a class variable for b in the likelihood function?
     def line_b_uncertainty_scaling(self, parameters):
@@ -750,7 +773,8 @@ class Data:
             flux_lsf
                 The convolved spectrum.
         """
-
+        if isinstance(instrument_res, np.ndarray):
+            return fortran_convolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
         # From talking to Ignas: delta lambda of resolution element
         # is FWHM of the LSF's standard deviation, hence:
         sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))

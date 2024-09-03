@@ -89,15 +89,15 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     Returns:
         sigma_lnorm : float, None
-            The width of a log normal particle size distribution
+            The width of a log normal particle size distribution.
         fseds : dict, None
-            The sedimentation fraction for each cloud species in the atmosphere
+            The sedimentation fraction for each cloud species in the atmosphere.
         kzz : np.ndarray, None
-            The vertical mixing parameter
+            The vertical mixing parameter.
         b_hans : float, None
-            The width of a hansen particle size distribution
+            The width of a hansen particle size distribution.
         radii : dict, None
-            The central radius of the particle size distribution
+            The central radius of the particle size distribution.
         distribution : string
             Either "lognormal" or "hansen" - tells pRT which distribution to use.
     """
@@ -127,6 +127,31 @@ def setup_clouds(pressures, parameters, cloud_species):
     if "log_kzz" in parameters.keys():
         kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
     return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+
+
+def setup_simple_clouds_hazes(parameters):
+    """
+    Setup clouds for transmission spectrum
+
+    Args:
+        parameters (dict): dictionary of atmospheric parameters
+    """
+    pcloud = None
+    power_law_opacity_coefficient = None
+    haze_factor = 1.0
+    power_law_opacity_350nm = None
+
+    if 'log_Pcloud' in parameters.keys():
+        pcloud = 10 ** parameters['log_Pcloud'].value
+    elif 'Pcloud' in parameters.keys():
+        pcloud = parameters['Pcloud'].value
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
+    if "power_law_opacity_350nm" in parameters.keys():
+        power_law_opacity_350nm = parameters["power_law_opacity_350nm"].value
+    return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
 
 
 def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
@@ -340,6 +365,7 @@ def return_x_mgfesio4(metallicity, co_ratio):
 
     return x_mgfesio4
 
+
 def return_x_sio(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
@@ -367,6 +393,7 @@ def return_x_sio(metallicity, co_ratio):
     x_sio = x_sio / add
 
     return x_sio
+
 
 def return_x_na2s(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)

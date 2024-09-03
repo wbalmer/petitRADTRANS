@@ -36,9 +36,10 @@ from petitRADTRANS.physics import (
     cubic_spline_profile,
     linear_spline_profile,
     dtdp_temperature_profile,
-    madhu_seager_2009
+    madhu_seager_2009,
+    planck_function_cm
 )
-from petitRADTRANS.chemistry import clouds as fc
+from petitRADTRANS.chemistry import clouds
 
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)
@@ -110,6 +111,10 @@ def emission_model_diseq(prt_object,
                   *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the emission contribution function
+                  *  patchiness : Cloud coverage fraction, mixes two columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr : bool
@@ -192,45 +197,35 @@ def emission_model_diseq(prt_object,
         print("Incorrect output shape!")
         return None, None
 
-    # Hansen or log normal clouds
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
 
-    # calculate the spectrum
-    results = prt_object.calculate_flux(
+    # Calculate the spectrum, wavelength grid, and contribution function
+    return calculate_emission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
+        gravity=gravity,
         mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
+        )
 
-    if not contribution:
-        wlen_model, flux, _ = results
-        additional_outputs = None
-    else:
-        wlen_model, flux, additional_outputs = results
 
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
-
-    return wlen_model, spectrum_model
+def emission_model_diseq_simple_patchy_clouds(prt_object, parameters, pt_plot_mode=False, amr=True):
+    """
+    Deprecated, to be removed in future version
+    """
+    return emission_model_diseq(prt_object, parameters, pt_plot_mode, amr)
 
 
 def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, amr=True):
@@ -241,7 +236,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
     chemistry calculations is supported, but is currently under development.
     This model includes patchy clouds, and requires a unique temperature profile for the
-    clear atmosphere regions.
+    clear atmosphere regions - ie this is a full two column model!
 
     Args:
         prt_object : object
@@ -279,7 +274,10 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
                   *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the emission contribution function
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
+                  *  patchiness : Cloud coverage fraction, mixes two  columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for the clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr : bool
@@ -376,8 +374,9 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     if pressures.shape[0] != prt_object.pressures.shape[0]:
         return None, None
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
+    sigma_lnorm, fseds, kzz, b_hans, \
+        radii, distribution = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+
     wlen_model, flux, _ = prt_object.calculate_flux(
         temperatures=temperatures,
         mass_fractions=abundances,
@@ -436,182 +435,6 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     return wlen_model, spectrum_model
 
 
-def emission_model_diseq_simple_patchy_clouds(prt_object,
-                                              parameters,
-                                              pt_plot_mode=False,
-                                              amr=True):
-    """
-    Disequilibrium Chemistry Emission Model
-
-    This model computes an emission spectrum based on the temperature-pressure profile of (Molliere 2020).
-    (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
-    chemistry calculations is supported, but is currently under development.
-    This model includes patchy clouds, but uses a constant pressure temperature profile
-    for both the clear and cloudy regions.
-
-    Args:
-        prt_object : object
-            An instance of the pRT class, with optical properties as defined in the RunDefinition.
-        parameters : dict
-            Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
-                Two of
-                  *  log_g : Log of surface gravity
-                  *  planet_radius : planet radius [cm]
-                  *  mass : planet mass [g]
-                *  T_int : Interior temperature of the planet [K]
-                *  T3 : Innermost temperature spline [K]
-                *  T2 : Middle temperature spline [K]
-                *  T1 : Outer temperature spline [K]
-                *  alpha : power law index in tau = delta * press_cgs**alpha
-                *  log_delta : proportionality factor in tau = delta * press_cgs**alpha
-                *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
-                *  Fe/H : Metallicity
-                *  C/O : Carbon to oxygen ratio
-                *  fsed : sedimentation parameter - can be unique to each cloud type
-                One of:
-                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
-                  *  b_hans : Width of cloud particle size distribution (hansen)
-                One of:
-                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
-                  *  log_kzz : Vertical mixing parameter
-                One of
-                  *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
-                  *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
-                Optional
-                  *  contribution : return the emission contribution function
-        pt_plot_mode : bool
-            Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
-            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
-
-    Returns:
-        wlen_model : np.array
-            Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
-            Computed emission spectrum [W/m2/micron]
-        contr_em : Optional, np.ndarray
-            Emission contribution function, relative contributions for each wavelength and pressure level.
-            Only returns the contribution of the clear atmosphere component.
-    """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
-    # Not sure how to deal with having 2 separate contribution function
-
-    # Priors for these parameters are implemented here, as they depend on each other
-    t3 = ((3. / 4. * parameters['T_int'].value ** 4. * (0.1 + 2. / 3.)) ** 0.25) * (1.0 - parameters['T3'].value)
-    t2 = t3 * (1.0 - parameters['T2'].value)
-    t1 = t2 * (1.0 - parameters['T1'].value)
-    delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
-    temp_arr = np.array([t1, t2, t3])
-
-    gravity, planet_radius = _compute_gravity(parameters)
-
-    temperatures = temperature_profile_function_ret_model(
-        (  # TODO weird way of calling the function
-            temp_arr,
-            delta,
-            parameters['alpha'].value,
-            parameters['T_int'].value,
-            p_use,
-            parameters['Fe/H'].value,
-            parameters['C/O'].value,
-            True  # conv
-        )
-    )
-
-    # If in evaluation mode, and PTs are supposed to be plotted
-    abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
-    )
-    if abundances is None:
-        if contribution:
-            return None, None, None
-        return None, None
-
-    if pt_plot_mode:
-        return p_use[small_index], temperatures[small_index]
-    if amr:
-        temperatures = temperatures[small_index]
-        pressures = PGLOBAL[small_index]
-        mmw = mmw[small_index]
-        prt_object.pressures = pressures * 1e6
-    else:
-        pressures = p_use
-    if pressures.shape[0] != prt_object.pressures.shape[0]:
-        if contribution:
-            return None, None, None
-        return None, None
-
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    wlen_model, flux, _ = prt_object.calculate_flux(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model_cloudy = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-
-    # Set the cloud abundances to 0 for clear case
-    for cloud in prt_object.cloud_species:
-        cname = cloud.split('_')[0]
-        abundances[cname] = np.zeros_like(temperatures)
-
-    wlen_model, f_lambda, additional_outputs = prt_object.calculate_flux(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model_clear = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-
-    # Patchiness fraction
-    patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) + \
-                     ((1 - patchiness) * spectrum_model_clear)
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
-
-    return wlen_model, spectrum_model
-
-
 def guillot_emission(prt_object,
                      parameters,
                      pt_plot_mode=False,
@@ -655,7 +478,10 @@ def guillot_emission(prt_object,
                   *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the emission contribution function
-        pt_plot_mode : bool
+                  *  patchiness : Cloud coverage fraction, mixes two columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for the clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -708,189 +534,35 @@ def guillot_emission(prt_object,
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    wlen_model, flux, additional_outputs = prt_object.calculate_flux(
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
+
+    # Calculate the spectrum, wavelength grid, and contribution function
+    return calculate_emission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
+        gravity=gravity,
         mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
-    return wlen_model, spectrum_model
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
+        )
 
 
 def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
     """
-    This model computes a emission spectrum based the Guillot temperature-pressure profile and patchy clouds.
-    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
-    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
-
-    Args:
-        prt_object : object
-            An instance of the pRT class, with optical properties as defined in the RunDefinition.
-        parameters : dict
-            Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
-                Two of
-                  *  log_g : Log of surface gravity
-                  *  planet_radius : planet radius [cm]
-                  *  mass : planet mass [g]
-                *  T_int : Interior temperature of the planet [K]
-                *  T_equ : Equilibrium temperature of the planet
-                *  gamma : Guillot gamma parameter
-                *  log_kappa_IR : The log of the ratio between the infrared and optical opacities
-
-                Either:
-                  *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
-                  *  Fe/H : Metallicity
-                  *  C/O : Carbon to oxygen ratio
-                Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
-
-                *  fsed : sedimentation parameter - can be unique to each cloud type
-                One of:
-                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
-                  *  b_hans : Width of cloud particle size distribution (hansen)
-                One of:
-                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
-                  *  log_kzz : Vertical mixing parameter
-                One of
-                  *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
-                  *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
-                Optional
-                  *  contribution : return the emission contribution function
-        pt_plot_mode : bool
-        pt_plot_mode : bool
-            Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
-            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
-
-    Returns:
-        wlen_model : np.array
-            Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
-            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
-            Only returns the contribution of the clear atmosphere component.
-
+    Deprecated, to be removed in future version
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
-    gravity, planet_radius = _compute_gravity(parameters)
-
-    temperatures = temperature_profile_function_guillot_global(
-        p_use,
-        10 ** parameters['log_kappa_IR'].value,
-        parameters['gamma'].value,
-        gravity,
-        parameters['T_int'].value,
-        parameters['T_equ'].value
-    )
-
-    # If in evaluation mode, and PTs are supposed to be plotted
-    abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
-    )
-    if abundances is None:
-        return None, None
-
-    if pt_plot_mode:
-        return p_use[small_index], temperatures[small_index]
-    if amr:
-        temperatures = temperatures[small_index]
-        pressures = PGLOBAL[small_index]
-        mmw = mmw[small_index]
-        prt_object.pressures = pressures * 1e6
-    else:
-        pressures = p_use
-
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    wlen_model, flux, _ = prt_object.calculate_flux(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model_cloudy = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-
-    # Set the cloud abundances to 0 for clear case
-    for cloud in prt_object.cloud_species:
-        cname = cloud.split('_')[0]
-        abundances[cname] = np.zeros_like(temperatures)
-
-    wlen_model, flux, additional_opacities = prt_object.calculate_flux(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model_clear = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-
-    # Patchiness fraction
-    patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) + \
-                     ((1 - patchiness) * spectrum_model_clear)
-    if contribution:
-        return wlen_model, spectrum_model, additional_opacities['emission_contribution']
-
-    return wlen_model, spectrum_model
+    return guillot_emission(prt_object, parameters, pt_plot_mode, amr)
 
 
 def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
@@ -933,6 +605,10 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
                   *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the emission contribution function
+                  *  patchiness : Cloud coverage fraction, mixes two columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for the clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -988,34 +664,28 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    wlen_model, flux, additional_outputs = prt_object.calculate_flux(
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
+
+    # Calculate the spectrum, wavelength grid, and contribution function
+    return calculate_emission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
+        gravity=gravity,
         mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
-    return wlen_model, spectrum_model
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
+        )
 
 
 def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
@@ -1058,6 +728,10 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
                   *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the emission contribution function
+                  *  patchiness : Cloud coverage fraction, mixes two columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for the clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -1112,41 +786,28 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    results = prt_object.calculate_flux(
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
+
+    # Calculate the spectrum, wavelength grid, and contribution function
+    return calculate_emission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
+        gravity=gravity,
         mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
-        cloud_particles_radius_distribution=distribution
-    )
-
-    if not contribution:
-        wlen_model, flux, _ = results
-        additional_outputs = None
-    else:
-        wlen_model, flux, additional_outputs = results
-
-    # Getting the model into correct units
-    wlen_model *= 1e4  # cm to um
-    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-    spectrum_model = flux2irradiance(
-        f_lambda,
-        planet_radius,
-        parameters['D_pl'].value
-    )
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
-
-    return wlen_model, spectrum_model
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
+        )
 
 
 def guillot_transmission(prt_object,
@@ -1181,7 +842,7 @@ def guillot_transmission(prt_object,
                   *  Fe/H : Metallicity
                   *  C/O : Carbon to oxygen ratio
                 Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
+                  * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
 
                 Either:
                   * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
@@ -1198,6 +859,9 @@ def guillot_transmission(prt_object,
                     *  log_X_cb_: cloud mass fraction abundance
                 Optional
                   *  contribution : return the transmission contribution function
+                  *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                  *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                  *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -1253,73 +917,36 @@ def guillot_transmission(prt_object,
     else:
         pressures = p_use
 
-    pcloud = None
-    power_law_opacity_coefficient = None
-    haze_factor = 1.0
-    if 'log_Pcloud' in parameters.keys():
-        pcloud = 10 ** parameters['log_Pcloud'].value
-    elif 'Pcloud' in parameters.keys():
-        pcloud = parameters['Pcloud'].value
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
-    # Calculate the spectrum
-    if len(prt_object.cloud_species) > 0:
-        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                               prt_object.cloud_species)
-        results = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            cloud_particle_radius_distribution_std=sigma_lnorm,
-            cloud_particles_mean_radii=radii,
-            cloud_f_sed=fseds,
-            eddy_diffusion_coefficients=kzz,
-            haze_factor=haze_factor,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            cloud_hansen_b=b_hans,
-            cloud_particles_radius_distribution=distribution,
-            return_contribution=contribution
-        )
-    elif pcloud is not None:
-        results = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            opaque_cloud_top_pressure=pcloud,
-            haze_factor=haze_factor,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            return_contribution=contribution
-        )
-    else:
-        results = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            return_contribution=contribution
-        )
+    # Setup transmission spectrum clouds and hazes
+    pcloud, power_law_opacity_coefficient, \
+        haze_factor, power_law_opacity_350nm = clouds.setup_simple_clouds_hazes(parameters)
+    # Setup physical clouds (with real scattering constants)
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
 
-    if not contribution:
-        wlen_model, transit_radii, _ = results
-        additional_output = None
-    else:
-        wlen_model, transit_radii, additional_output = results
-
-    wlen_model *= 1e4
-    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    if contribution:
-        return wlen_model, spectrum_model, additional_output['transmission_contribution']
-    return wlen_model, spectrum_model
+    # Calculate the spectrum.
+    return calculate_transmission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
+        temperatures=temperatures,
+        abundances=abundances,
+        gravity=gravity,
+        mean_molar_masses=mmw,
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
+        )
 
 
 def guillot_patchy_transmission(prt_object,
@@ -1327,169 +954,12 @@ def guillot_patchy_transmission(prt_object,
                                 pt_plot_mode=False,
                                 amr=False):
     """
-    Transmission Model, Guillot Profile
-
-    This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
-    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
-    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
-    Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
-
-    Args:
-        prt_object : object
-            An instance of the pRT class, with optical properties as defined in the RunDefinition.
-        parameters : dict
-            Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
-                Two of
-                  *  log_g : Log of surface gravity
-                  *  planet_radius : planet radius [cm]
-                  *  mass : planet mass [g]
-                *  T_int : Interior temperature of the planet [K]
-                *  T_equ : Equilibrium temperature of the planet
-                *  gamma : Guillot gamma parameter
-                *  log_kappa_IR : The log of the ratio between the infrared and optical opacities
-
-                Either:
-                  *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
-                  *  Fe/H : Metallicity
-                  *  C/O : Carbon to oxygen ratio
-                Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
-
-                Either:
-                  * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
-                Or:
-                  *  fsed : sedimentation parameter - can be unique to each cloud type
-                  One of:
-                    *  sigma_lnorm : Width of cloud particle size distribution (log normal)
-                    *  b_hans : Width of cloud particle size distribution (hansen)
-                  One of:
-                    *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
-                    *  log_kzz : Vertical mixing parameter
-                  One of
-                    *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
-                    *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
-                Optional
-                  *  contribution : return the transmission contribution function
-        pt_plot_mode : bool
-            Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
-            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
-
-    Returns:
-        wlen_model : np.array
-            Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
-            Optional, the transmission contribution function, relative contributions for each wavelength and pressure
-            level.
-            Only the clear atmosphere contribution is returned.
+    Deprecated
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    reference_pressure = 100.0
-    if "reference_pressure" in parameters.keys():
-        reference_pressure = parameters["reference_pressure"].value
-
-    contribution = False
-
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
-
-    # Calculate the spectrum
-    gravity, planet_radius = _compute_gravity(parameters)
-
-    temperatures = temperature_profile_function_guillot_global(
-        p_use,
-        10 ** parameters['log_kappa_IR'].value,
-        parameters['gamma'].value,
-        gravity,
-        parameters['T_int'].value,
-        parameters['T_equ'].value
-    )
-
-    abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
-    )
-
-    if abundances is None:
-        return None, None
-
-    if pt_plot_mode:
-        return p_use[small_index], temperatures[small_index]
-
-    if amr:
-        temperatures = temperatures[small_index]
-        pressures = PGLOBAL[small_index]
-        mmw = mmw[small_index]
-        prt_object.pressures = pressures * 1e6
-    else:
-        pressures = p_use
-
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    # Hazes
-    power_law_opacity_coefficient = None
-    haze_factor = 1.0
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
-
-    # Calc cloudy spectrum
-    wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_particles_mean_radii=radii,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        cloud_hansen_b=b_hans,
-        cloud_particles_radius_distribution=distribution,
-        return_contribution=contribution
-    )
-
-    wlen_model *= 1e4
-    spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
-
-    for cloud in prt_object.cloud_species:
-        cname = cloud.split('_')[0]
-        abundances[cname] = np.zeros_like(temperatures)
-
-    wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
-        return_contribution=contribution
-    )
-
-    wlen_model *= 1e4
-    spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) + \
-                     ((1 - patchiness) * spectrum_model_clear)
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
-
-    return wlen_model, spectrum_model
+    return guillot_transmission(prt_object, parameters, pt_plot_mode, amr)
 
 
-def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False, amr=False):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
@@ -1523,7 +993,7 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
                   *  Fe/H : Metallicity
                   *  C/O : Carbon to oxygen ratio
                 Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
+                  * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
 
                 Either:
                   * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
@@ -1538,9 +1008,11 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
                   One of
                     *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
                     *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
                 Optional
                   *  contribution : return the transmission contribution function
+                  *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                  *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                  *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -1607,236 +1079,46 @@ def madhu_seager_patchy_transmission(prt_object, parameters, pt_plot_mode=False,
     else:
         pressures = p_use
 
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    # Hazes
-    power_law_opacity_coefficient = None
-    haze_factor = 1.0
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
+    # Setup transmission spectrum clouds and hazes
+    pcloud, power_law_opacity_coefficient, \
+        haze_factor, power_law_opacity_350nm = clouds.setup_simple_clouds_hazes(parameters)
+    # Setup physical clouds (with real scattering constants)
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
 
-    # Calc cloudy spectrum
-    wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
+    # Calculate the spectrum.
+    return calculate_transmission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
         temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
+        abundances=abundances,
+        gravity=gravity,
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
         reference_pressure=reference_pressure,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_particles_mean_radii=radii,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
+        opaque_cloud_top_pressure=pcloud,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         haze_factor=haze_factor,
         power_law_opacity_coefficient=power_law_opacity_coefficient,
-        cloud_hansen_b=b_hans,
-        cloud_particles_radius_distribution=distribution,
-        return_contribution=contribution
-    )
-
-    wlen_model *= 1e4
-    spectrum_model_cloudy = (prt_object.transm_rad / parameters['stellar_radius'].value) ** 2.
-
-    if "patchiness" in parameters.key():
-        for cloud in prt_object.cloud_species:
-            cname = cloud.split('_')[0]
-            abundances[cname] = np.zeros_like(temperatures)
-
-        wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            return_contribution=contribution
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
         )
 
-        wlen_model *= 1e4
-        spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
-        patchiness = parameters["patchiness"].value
-        spectrum_model = (patchiness * spectrum_model_cloudy) + \
-                         ((1 - patchiness) * spectrum_model_clear)
-    else:
-        spectrum_model = spectrum_model_cloudy
-        additional_outputs = {'transmission_contribution': None}
 
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
-
-    return wlen_model, spectrum_model
-
-
-def guillot_patchy_transmission_constrained_chem(prt_object, parameters, pt_plot_mode=False, amr=False):
+def madhu_seager_patchy_transmission(prt_object,
+                                     parameters,
+                                     pt_plot_mode=False,
+                                     amr=False):
     """
-    Transmission Model, Guillot Profile
-
-    This model computes a transmission spectrum based on a Guillot temperature-pressure profile.
-    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
-    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
-    Chemical clouds can be used, or a simple gray opacity source. This model requires patchy clouds.
-
-    Args:
-        prt_object : object
-            An instance of the pRT class, with optical properties as defined in the RunDefinition.
-        parameters : dict
-            Dictionary of required parameters:
-                *  D_pl : Distance to the planet in [cm]
-                Two of
-                  *  log_g : Log of surface gravity
-                  *  planet_radius : planet radius [cm]
-                  *  mass : planet mass [g]
-                *  T_int : Interior temperature of the planet [K]
-                *  T_equ : Equilibrium temperature of the planet
-                *  gamma : Guillot gamma parameter
-                *  log_kappa_IR : The log of the ratio between the infrared and optical opacities
-
-                Either:
-                  *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
-                  *  Fe/H : Metallicity
-                  *  C/O : Carbon to oxygen ratio
-                Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
-
-                Either:
-                  * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
-                Or:
-                  *  fsed : sedimentation parameter - can be unique to each cloud type
-                  One of:
-                    *  sigma_lnorm : Width of cloud particle size distribution (log normal)
-                    *  b_hans : Width of cloud particle size distribution (hansen)
-                  One of:
-                    *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
-                    *  log_kzz : Vertical mixing parameter
-                  One of
-                    *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
-                    *  log_X_cb_: cloud mass fraction abundance
-                *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
-                Optional
-                  *  contribution : return the transmission contribution function
-        pt_plot_mode : bool
-            Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
-            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
-
-    Returns:
-        wlen_model : np.array
-            Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
-            Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
-            Optional, the transmission contribution function, relative contributions for each wavelength and pressure
-            level.
-            Only the clear atmosphere contribution is returned.
+    Deprecated
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    reference_pressure = 100.0
-    if "reference_pressure" in parameters.keys():
-        reference_pressure = parameters["reference_pressure"].value
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
-    # Calculate the spectrum
-    gravity, planet_radius = _compute_gravity(parameters)
-
-    if parameters["H2O_Exomol"].value < parameters["CO2"].value:
-        return None, None
-
-    if parameters["CO-NatAbund_HITEMP"].value < parameters["CO2"].value:
-        return None, None
-
-    temperatures = temperature_profile_function_guillot_global(
-        p_use,
-        10 ** parameters['log_kappa_IR'].value,
-        parameters['gamma'].value,
-        gravity,
-        parameters['T_int'].value,
-        parameters['T_equ'].value
-    )
-
-    abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
-    )
-
-    if abundances is None:
-        return None, None
-    if pt_plot_mode:
-        return p_use[small_index], temperatures[small_index]
-    if amr:
-        temperatures = temperatures[small_index]
-        pressures = PGLOBAL[small_index]
-        mmw = mmw[small_index]
-        prt_object.pressures = pressures * 1e6
-    else:
-        pressures = p_use
-
-    sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                           prt_object.cloud_species)
-    # Hazes
-    power_law_opacity_coefficient = None
-    haze_factor = 1.0
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
-
-    # Calc cloudy spectrum
-    wlen_model, transit_radii, _ = prt_object.calculate_transit_radii(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_particles_mean_radii=radii,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        cloud_hansen_b=b_hans,
-        cloud_particles_radius_distribution=distribution,
-        return_contribution=contribution
-    )
-
-    wlen_model *= 1e4
-    spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
-
-    for cloud in prt_object.cloud_species:
-        cname = cloud.split('_')[0]
-        abundances[cname] = np.zeros_like(temperatures)
-    results = prt_object.calculate_transit_radii(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mmw,
-        planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
-        return_contribution=contribution
-    )
-
-    if not contribution:
-        wlen_model, transit_radii, _ = results
-        additional_outputs = None
-    else:
-        wlen_model, transit_radii, additional_outputs = results
-
-    wlen_model *= 1e4
-    spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    patchiness = parameters["patchiness"].value
-    spectrum_model = (patchiness * spectrum_model_cloudy) + \
-                     ((1 - patchiness) * spectrum_model_clear)
-
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
-    return wlen_model, spectrum_model
+    return madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode, amr)
 
 
 def isothermal_transmission(prt_object,
@@ -1865,7 +1147,7 @@ def isothermal_transmission(prt_object,
                   *  Fe/H : Metallicity
                   *  C/O : Carbon to oxygen ratio
                 Or:
-                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
+                  * $SPECIESNAME[_$DATABASE][.R$RESOLUTION] : The log mass fraction abundance of the species
 
                 Either:
                   * [log_]Pcloud : The (log) pressure at which to place the gray cloud opacity.
@@ -1877,9 +1159,14 @@ def isothermal_transmission(prt_object,
                   One of:
                     *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
                     *  log_kzz : Vertical mixing parameter
+                  One of
+                    *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                    *  log_X_cb_: cloud mass fraction abundance
                 Optional
-                  *  patchiness : Fraction of cloud coverage, clear contribution is (1-patchiness)
                   *  contribution : return the transmission contribution function
+                  *  power_law_opacity_coefficient : gamma, power law slope for a rayleigh-like haze
+                  *  haze_factor : multiplicative scaling factor for the strength of the rayleigh haze
+                  *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
         amr :
@@ -1930,95 +1217,55 @@ def isothermal_transmission(prt_object,
     else:
         pressures = p_use
 
-    # Calculate the spectrum
-    pcloud = None
-    haze_factor = 1.0
-    power_law_opacity_coefficient = None
-    if 'log_Pcloud' in parameters.keys():
-        pcloud = 10 ** parameters['log_Pcloud'].value
-    elif 'Pcloud' in parameters.keys():
-        pcloud = parameters['Pcloud'].value
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
-    # Calculate the spectrum
-    if len(prt_object.cloud_species) > 0:
-        sigma_lnorm, fseds, kzz, b_hans, radii, distribution = fc.setup_clouds(pressures, parameters,
-                                                                               prt_object.cloud_species)
-        wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            cloud_particle_radius_distribution_std=sigma_lnorm,
-            cloud_particles_mean_radii=radii,
-            cloud_f_sed=fseds,
-            eddy_diffusion_coefficients=kzz,
-            haze_factor=haze_factor,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            cloud_hansen_b=b_hans,
-            cloud_particles_radius_distribution=distribution,
-            return_contribution=contribution
-        )
-    elif pcloud is not None:
-        wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            opaque_cloud_top_pressure=pcloud,
-            haze_factor=haze_factor,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            return_contribution=contribution
-        )
-    else:
-        wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            haze_factor=haze_factor,
-            power_law_opacity_coefficient=power_law_opacity_coefficient,
-            return_contribution=contribution
+    # Setup transmission spectrum clouds and hazes
+    pcloud, power_law_opacity_coefficient, \
+        haze_factor, power_law_opacity_350nm = clouds.setup_simple_clouds_hazes(parameters)
+    # Setup physical clouds (with real scattering constants)
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, distribution = cloud_properties
+
+    # Calculate the spectrum.
+    return calculate_transmission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
+        temperatures=temperatures,
+        abundances=abundances,
+        gravity=gravity,
+        mean_molar_masses=mmw,
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=pcloud,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_hansen_b=cloud_hansen_b,
+        distribution=distribution,
+        contribution=contribution
         )
 
-    wlen_model *= 1e4
-    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
 
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
+def add_blackbody_cpd_model(parameters, wavelengths):
+    """
+    Calculates the flux of a blackbody with area 4*pi*disk_radius^2 and temperature T_disk_blackbody.
+    This is in units of W/m2/micron, and can be added to a planetary spectrum to model the contribution
+    of a circumplanetary disk
 
-    if "patchiness" in parameters.keys():
-        if len(prt_object.cloud_species) > 0:
-            for cloud in prt_object.cloud_species:
-                abundances[cloud.split('_')[0]] = np.zeros_like(temperatures)
+    Args:
+        parameters (dict): dictionary of atmospheric and disk parameters
+        wavelengths (np.ndarray): Wavelength grid of atmospheric model in micron
 
-        _, spectrum_model_clear, _ = prt_object.calculate_transit_radii(
-            temperatures=temperatures,
-            mass_fractions=abundances,
-            reference_gravity=gravity,
-            mean_molar_masses=mmw,
-            planet_radius=planet_radius,
-            reference_pressure=reference_pressure,
-            opaque_cloud_top_pressure=None,
-            return_contribution=contribution
-        )
-
-        spectrum_model_clear = (spectrum_model_clear / parameters['stellar_radius'].value) ** 2.
-        patchiness = parameters["patchiness"].value
-        spectrum_model_full = (patchiness * spectrum_model) + \
-                              ((1 - patchiness) * spectrum_model_clear)
-
-        return wlen_model, spectrum_model_full
-
-    return wlen_model, spectrum_model
+    Returns:
+        blackbody_spectrum (np.ndarray): 1D Planck emission spectrum for a circular CPD.
+    """
+    if "T_disk_blackbody" in parameters.keys():
+        blackbody_spectrum = planck_function_cm(parameters["T_disk_blackbody"].value, wavelengths*1e-4)*1e-7
+        blackbody_spectrum = blackbody_spectrum * (parameters["disk_radius"].value/parameters['D_pl'].value)**2
+        return blackbody_spectrum
 
 
 def initialize_pressure(press, parameters, amr):
@@ -2063,6 +1310,243 @@ def set_pglobal(press, parameters):
         raise KeyError(
             "missing parameters 'pressure_simple' and 'pressure_scaling parameters', required when using AMR"
         )
+
+
+def calculate_emission_spectrum(prt_object,
+                                parameters,
+                                temperatures,
+                                abundances,
+                                gravity,
+                                mean_molar_masses,
+                                planet_radius,
+                                sigma_lnorm,
+                                cloud_particles_mean_radii,
+                                cloud_f_sed,
+                                eddy_diffusion_coefficients,
+                                cloud_hansen_b,
+                                distribution,
+                                contribution):
+    """
+    Calls Radtrans.calculate_flux to compute the emission spectrum of an atmosphere.
+    This function automatically checks if patchiness is included in the retrieval, and
+    mixes the clear and cloudy columns. Patchiness can be applied to all of the cloud species,
+    or individual clouds can be chosen using the remove_cloud_species parameter.
+    A circumplanetary disk model is optionally included, modelled as a blackbody with some temperature
+    T_disk_blackbody and a radius disk_radius.
+
+    Args:
+        prt_object (Radtrans): The Radtrans object used to calculate the spectrum
+        parameters (dict): Dictionary of atmospheric parameters.
+        temperatures (np.ndarray): Array of temperatures for each pressure level in the atmosphere
+        abundances (dict): Dictionary of molecular mass fraction abundances for each level in the atmosphere
+        gravity (np.ndarray): Gravitational acceleration at each pressure level
+        mean_molar_masses (np.ndarray): Mean molecular mass at each pressure level
+        planet_radius (float): Planet radius in cm
+        sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
+        cloud_particles_mean_radii (np.ndarray): Mean particle radius
+        cloud_f_sed (np.ndarray): Sedimentation fraction
+        eddy_diffusion_coefficients (np.ndarray): Vertical mixing strength (Kzz)
+        cloud_hansen_b (np.ndarray): Cloud particle distribution width, hansen distsribution
+        distribution (string): Which cloud particle size distribution to use
+        contribution (bool): Return the contribution function?
+    """
+    results = prt_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        reference_gravity=gravity,
+        mean_molar_masses=mean_molar_masses,
+        return_contribution=contribution,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particles_radius_distribution=distribution
+    )
+
+    if not contribution:
+        wlen_model, flux, _ = results
+        additional_outputs = None
+    else:
+        wlen_model, flux, additional_outputs = results
+
+    # Getting the model into correct units
+    wlen_model *= 1e4  # cm to um
+    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+
+    spectrum_model_cloudy = flux2irradiance(
+        f_lambda,
+        planet_radius,
+        parameters['D_pl'].value
+    )
+    if "patchiness" not in parameters.keys():
+        if contribution:
+            return wlen_model, spectrum_model_cloudy, additional_outputs['emission_contribution']
+        else:
+            return wlen_model, spectrum_model_cloudy
+
+    # Set the cloud abundances to 0 for clear case
+    if "remove_cloud_species" in parameters.keys():
+        for cloud in parameters["remove_cloud_species"].value:
+            abundances[cloud] = np.zeros_like(temperatures)
+    else:
+        for cloud in prt_object.cloud_species:
+            abundances[cloud] = np.zeros_like(temperatures)
+
+    wlen_model, flux, additional_opacities = prt_object.calculate_flux(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        reference_gravity=gravity,
+        mean_molar_masses=mean_molar_masses,
+        return_contribution=contribution,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particles_radius_distribution=distribution,
+        frequencies_to_wavelengths=True
+    )
+
+    # Getting the model into correct units
+    wlen_model *= 1e4  # cm to um
+    f_lambda = flux * 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
+
+    spectrum_model_clear = flux2irradiance(
+        f_lambda,
+        planet_radius,
+        parameters['D_pl'].value
+    )
+
+    # Patchiness fraction
+    patchiness = parameters["patchiness"].value
+    spectrum_model = (patchiness * spectrum_model_cloudy) + \
+                     ((1.0 - patchiness) * spectrum_model_clear)
+
+    if "T_disk_blackbody" in parameters.keys():
+        spectrum_model += add_blackbody_cpd_model(parameters, wlen_model)
+    if contribution:
+        return wlen_model, spectrum_model, additional_opacities['emission_contribution']
+    return wlen_model, spectrum_model
+
+
+def calculate_transmission_spectrum(prt_object,
+                                    parameters,
+                                    temperatures,
+                                    abundances,
+                                    gravity,
+                                    mean_molar_masses,
+                                    planet_radius,
+                                    reference_pressure,
+                                    opaque_cloud_top_pressure,
+                                    sigma_lnorm,
+                                    cloud_particles_mean_radii,
+                                    cloud_f_sed,
+                                    eddy_diffusion_coefficients,
+                                    haze_factor,
+                                    power_law_opacity_coefficient,
+                                    power_law_opacity_350nm,
+                                    cloud_hansen_b,
+                                    distribution,
+                                    contribution
+                                    ):
+    """_summary_
+
+    Args:
+        prt_object (Radtrans): _description_
+        parameters (dict): _description_
+        temperatures (np.ndarray): _description_
+        abundances (dict): _description_
+        gravity (np.ndarray): _description_
+        mean_molar_masses (np.ndarray): _description_
+        planet_radius (float): _description_
+        reference_pressure (float): _description_
+        opaque_cloud_top_pressure (float): _description_
+        sigma_lnorm (float): _description_
+        cloud_particles_mean_radii (np.ndarray): _description_
+        cloud_f_sed (np.ndarray): _description_
+        eddy_diffusion_coefficients (np.ndarray): _description_
+        haze_factor (float): _description_
+        power_law_opacity_coefficient (float): _description_
+        power_law_opacity_350nm (float): _description_
+        cloud_hansen_b (float): _description_
+        distribution (string): _description_
+        contribution (bool): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    results = prt_object.calculate_transit_radii(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        reference_gravity=gravity,
+        mean_molar_masses=mean_molar_masses,
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        haze_factor=haze_factor,
+        power_law_opacity_coefficient=power_law_opacity_coefficient,
+        power_law_opacity_350nm=power_law_opacity_350nm,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=contribution
+    )
+
+    if not contribution:
+        wlen_model, transit_radii, _ = results
+        additional_output = None
+    else:
+        wlen_model, transit_radii, additional_output = results
+
+    wlen_model *= 1e4
+    spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
+    if 'patchiness' not in parameters.keys():
+        if contribution:
+            return wlen_model, spectrum_model_cloudy, additional_output['transmission_contribution']
+        return wlen_model, spectrum_model_cloudy
+
+    # Set the cloud abundances to 0 for clear case
+    if "remove_cloud_species" in parameters.keys():
+        for cloud in parameters["remove_cloud_species"].value:
+            cname = cloud.split('_')[0]
+            abundances[cname] = np.zeros_like(temperatures)
+    else:
+        for cloud in prt_object.cloud_species:
+            cname = cloud.split('_')[0]
+            abundances[cname] = np.zeros_like(temperatures)
+
+    wlen_model, transit_radii, additional_outputs = prt_object.calculate_transit_radii(
+        temperatures=temperatures,
+        mass_fractions=abundances,
+        reference_gravity=gravity,
+        mean_molar_masses=mean_molar_masses,
+        planet_radius=planet_radius,
+        reference_pressure=reference_pressure,
+        opaque_cloud_top_pressure=None,
+        cloud_particle_radius_distribution_std=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        haze_factor=1.0,
+        power_law_opacity_coefficient=None,
+        power_law_opacity_350nm=None,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=contribution
+    )
+
+    wlen_model *= 1e4
+    spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
+    patchiness = parameters["patchiness"].value
+    spectrum_model = (patchiness * spectrum_model_cloudy) + \
+                     ((1 - patchiness) * spectrum_model_clear)
+    if contribution:
+        return wlen_model, spectrum_model, additional_outputs['transmission_contribution']
+    return wlen_model, spectrum_model
 
 
 def pglobal_check(press, shape, scaling):
