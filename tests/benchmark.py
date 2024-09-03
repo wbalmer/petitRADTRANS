@@ -71,7 +71,7 @@ class TestFile:
             force_update: if True, force the date to be updated even if it has already been set
         """
         if self.date is None or force_update:
-            self.date = datetime.datetime.now(datetime.UTC).isoformat()
+            self.date = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     @classmethod
     def load(cls, file: str):

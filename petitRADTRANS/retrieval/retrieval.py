@@ -1033,6 +1033,10 @@ class Retrieval:
 
                 dd.radtrans_object = rt_object
 
+            # Setup for non-uniform spectral resolution
+            if isinstance(dd.data_resolution, np.ndarray):
+                dd.intialise_data_resolution(1e4*cst.c/rt_object.frequencies)
+
     def _error_check_model_function(self):
         for data_name in self.configuration.data:
             print(f"Testing model function for data '{data_name}'...")
@@ -1493,6 +1497,11 @@ class Retrieval:
                                                                       dd.name)
                 else:
                     wlen_model, spectrum_model = ret_val
+            if dd.data_resolution_array_model is not None:
+                dd.intialise_data_resolution(wlen_model)
+                spectrum_model = dd.convolve(wlen_model, spectrum_model, dd.data_resolution_array_model)
+            elif dd.data_resolution is not None:
+                spectrum_model = dd.convolve(wlen_model, spectrum_model, dd.data_resolution)
 
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [wlen_model, spectrum_model]
@@ -1696,7 +1705,7 @@ class Retrieval:
             if self.configuration.parameters[pp].is_free_parameter:
                 for i_s in range(len(parameters_read)):
                     if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                        samples_use[i_p] = np.median(samples[:, i_s])
+                        samples_use[i_p] = np.median(samples[i_s, :])
                 i_p += 1
         self.best_fit_parameters = self.build_param_dict(samples_use, parameters_read)
 
@@ -2143,7 +2152,6 @@ class Retrieval:
                 if dd.scale_err:
                     f_err = f_err * sf
                 if f"{name}_b" in self.configuration.parameters.keys():
-                    print(self.best_fit_parameters.keys())
                     f_err = np.sqrt(f_err ** 2 + 10 ** self.best_fit_parameters[f"{name}_b"].value)
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
             norm = norm + add
@@ -2350,6 +2358,8 @@ class Retrieval:
         d_o_f = 0
 
         for name, dd in self.configuration.data.items():
+            if isinstance(dd.data_resolution, np.ndarray):
+                dd.intialise_data_resolution(wlen_model)
             d_o_f += np.size(dd.spectrum)
             sf = 1
             log_l += dd.get_chisq(
@@ -2516,12 +2526,12 @@ class Retrieval:
 
         prt_object = Radtrans(
             pressures=p,
-            line_species=copy.copy(self.configuration.line_species),
+            line_species=copy.copy(species),
             rayleigh_species=copy.copy(self.configuration.rayleigh_species),
             gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
             cloud_species=copy.copy(self.configuration.cloud_species),
             line_opacity_mode='c-k',
-            wavelength_boundaries=np.array([0.5, 28]),
+            wavelength_boundaries=np.array([0.4, 100]),
             scattering_in_emission=self.configuration.scattering_in_emission
         )
 
@@ -2557,10 +2567,16 @@ class Retrieval:
                 else:
                     wlen, model, __ = ret_val
 
-                tfit = compute_effective_temperature(wlen, model, params["D_pl"].value, params["R_pl"].value)
+                tfit = compute_effective_temperature(
+                    wlen,
+                    model,
+                    params["D_pl"].value,
+                    params["planet_radius"].value,
+                    use_si_units=True
+                    )
                 teffs.append(tfit)
             tdict[name] = np.array(teffs)
-            np.save(os.path.join(self.output_directory, "evaluate_" + name, "sampled_teff"), np.array(teffs))
+            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(teffs))
         return tdict
 
     def plot_all(self,
@@ -2911,10 +2927,16 @@ class Retrieval:
                 if not dd.photometry:
                     if dd.external_radtrans_reference is None:
                         spectrum_model = self.best_fit_spectra[name][1]
-                        if dd.data_resolution is not None:
+                        if dd.data_resolution_array_model is not None:
+                            dd.intialise_data_resolution(self.best_fit_spectra[name][0])
+                            spectrum_model = dd.convolve(self.best_fit_spectra[name][0],
+                                                         self.best_fit_spectra[name][1],
+                                                         dd.data_resolution_array_model)
+                        elif dd.data_resolution is not None:
                             spectrum_model = dd.convolve(self.best_fit_spectra[name][0],
                                                          self.best_fit_spectra[name][1],
                                                          dd.data_resolution)
+
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -2923,6 +2945,11 @@ class Retrieval:
                         )
                     else:
                         if dd.data_resolution is not None:
+                            dd.intialise_data_resolution(self.best_fit_spectra[dd.external_radtrans_reference][0])
+                            spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
+                                                         self.best_fit_spectra[dd.external_radtrans_reference][1],
+                                                         dd.data_resolution_array_model)
+                        elif dd.data_resolution is not None:
                             spectrum_model = dd.convolve(self.best_fit_spectra[dd.external_radtrans_reference][0],
                                                          self.best_fit_spectra[dd.external_radtrans_reference][1],
                                                          dd.data_resolution)
@@ -3760,7 +3787,7 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            self.pt_plot_mode = True
+            # self.pt_plot_mode = True
             self.pt_plot_mode = False
 
             # Calculate the best fit/median spectrum contribution

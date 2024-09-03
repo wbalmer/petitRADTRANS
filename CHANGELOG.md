@@ -33,12 +33,17 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Test module for `SpectralModel` retrieval framework.
 - Performance tests.
 - Source files for JOSS papers.
+- Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
+- Added in a subroutine to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
+- Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
 
 ### Changed
 - Future: parameter `emission_geometry` is canonically renamed `irradiation_geometry`. The old parameter will be deprecated in version 4.0.0.
 - Future: key `'modification_parameters'` of `SpectralModel.model_parameters` is canonically renamed `'modification_arguments'`. The old key will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
+- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
+- Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
 
 ### Removed
 - Unused test functions.
@@ -68,6 +73,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
 - Typos in some docs.
 - Typos in some comments.
+- Solved [(issue 76)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76). Updated model functions to accept 350nm scattering as an optional parameter.
+- Solved [(issue 80)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80). Bug fixes to `madhushudhan_seager_transmission` function
+- Solved [(issue 82)](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82). Bug fix due to change in shape of sample arrays for pRT3.
+- Fixed bug in emission retrieval tutorial, changing names of cloud parameters.
+- Fixed bug in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
