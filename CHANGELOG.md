@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
 - Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
 - Previous 'patchy' model functions are now redundant, all of the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
+- Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
+
 
 ### Removed
 - Unused test functions.
