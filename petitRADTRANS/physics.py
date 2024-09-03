@@ -55,13 +55,46 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
         return np.sum(
             _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * np.diff(_wavelengths)
         )
+
     unit_factor = 1.0
-    if use_si_units: 
-        unit_factor=1e-3
+
+    if use_si_units:
+        unit_factor = 1e-3
 
     energy = integrate_flux(wavelengths, flux)
 
     return (energy / (cst.sigma*unit_factor)) ** 0.25
+
+
+def cubic_spline_profile(press, temperature_points, gamma, nnodes=0):
+    """
+    Compute a cubic spline profile for temperature based on pressure points.
+
+    This function computes a cubic spline profile for temperature using
+    pressure and temperature data points, along with a curvature prior.
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        temperature_points (array-like): An array or list of temperature data points.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+            Defaults to 0, which means automatic determination of nodes.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated temperature values
+              based on the cubic spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+
+    cs = PchipInterpolator(np.linspace(np.log10(press[0]),
+                                       np.log10(press[-1]),
+                                       nnodes + 2),
+                           temperature_points)
+
+    interpolated_temps = cs(np.log10(press))
+    prior = temperature_curvature_prior(press, interpolated_temps, gamma)
+    return interpolated_temps, prior
 
 
 def doppler_shift(wavelength_0, velocity):
@@ -164,6 +197,35 @@ def hz2um(frequency):
     return frequency2wavelength(frequency) * 1e4  # cm to um
 
 
+def linear_spline_profile(press, temperature_points, gamma, nnodes=0):
+    """
+    Compute a linear spline profile for temperature based on pressure points.
+
+    This function computes a linear spline profile for temperature using
+    pressure and temperature data points, along with a curvature prior.
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        temperature_points (array-like): An array or list of temperature data points.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+            Defaults to 0, which means automatic determination of nodes.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated temperature values
+              based on the linear spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+    interpolated_temps = np.interp(np.log10(press),
+                                   np.linspace(np.log10(press[0]),
+                                               np.log10(press[-1]),
+                                               int(nnodes) + 2),
+                                   temperature_points)
+    prior = temperature_curvature_prior(press, interpolated_temps, gamma)
+    return interpolated_temps, prior
+
+
 def make_press_temp(rad_trans_params):
     """Function to make temp"""
     press_many = np.logspace(-8, 5, 260)
@@ -198,6 +260,95 @@ def make_press_temp_iso(rad_trans_params):
     press_new = press_many_new[index_new][::2]
 
     return press_new, temp_new
+
+
+def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
+    """
+    Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
+
+    This function computes temperatures using the Madhu and Seager (2009) parameterization
+    for a given set of pressure values, pressure breakpoints, temperature breakpoints,
+    alpha values, and beta values.
+
+    Based off of the POSEIDON implementation:
+    https://github.com/MartianColonist/POSEIDON/blob/main/POSEIDON/atmosphere.py
+
+    Parameters:
+        press : (numpy.ndarray)
+            An array of pressure values (in bar) at which to calculate temperatures.
+        pressure_points : (list)
+            A list of pressure breakpoints defining different temperature regimes.
+        t_set : (float)
+            A temperature at pressure_points[4] used to constrain the temperature profile.
+        alpha_points : (list)
+            A list of alpha values used in the parameterization for different regimes.
+        beta_points : (list)
+            A list of beta values used in the parameterization for different regimes.
+            By default b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
+
+    Returns:
+        temperatures : (numpy.ndarray)
+            An array of calculated temperatures (in K) corresponding to the input pressure values.
+
+    Note:
+    - This function assumes that pressure_points, temperature_points, alpha_points, and beta_points
+      are lists with the same length, defining different pressure-temperature regimes. The function
+      uses logarithmic relationships to calculate temperatures within these regimes.
+
+    Reference:
+    - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres.
+      The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
+    """
+    temperatures = np.zeros_like(press)
+
+    # Set up masks for the different temperature regions
+    mask_1 = press < pressure_points[1]
+    mask_2 = (press >= pressure_points[1]) & (press < pressure_points[3])
+    mask_3 = press >= pressure_points[3]
+
+    # Find index of pressure closest to the set pressure
+    i_set = np.argmin(np.abs(press - pressure_points[4]))
+    p_set_i = press[i_set]
+
+    # Store logarithm of various pressure quantities
+    log_p = np.log10(press)
+    log_p_min = pressure_points[0]
+    log_p_set_i = np.log10(p_set_i)
+
+    t0 = None
+    t2 = None
+    t3 = None
+
+    # By default (P_set = 10 bar), so T(P_set) should be in layer 3
+    if pressure_points[4] >= pressure_points[3]:
+        t3 = t_set  # T_deep is the isothermal deep temperature T3 here
+
+        # Use the temperature parameter to compute boundary temperatures
+        t2 = t3 - ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
+        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
+        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+
+    # If a different P_deep has been chosen, solve equations for layer 2...
+    elif pressure_points[4] >= pressure_points[1]:  # Temperature parameter in layer 2
+        # Use the temperature parameter to compute the boundary temperatures
+        t2 = t_set - ((1.0 / alpha_points[1]) * (log_p_set_i - pressure_points[2])) ** (1 / beta_points[1])
+        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[0])
+        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
+        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+
+    # ...or for layer 1
+    elif pressure_points[4] < pressure_points[1]:  # Temperature parameter in layer 1
+
+        # Use the temperature parameter to compute the boundary temperatures
+        t0 = t_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (1 / beta_points[0])
+        t1 = t0 + ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+        t2 = t1 - ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
+        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
+
+    temperatures[mask_1] = (log_p[mask_1] - pressure_points[0]) ** (1 / beta_points[0]) / alpha_points[0] + t0
+    temperatures[mask_2] = (log_p[mask_2] - pressure_points[2]) ** (1 / beta_points[1]) / alpha_points[1] + t2
+    temperatures[mask_3] = t3
+    return temperatures
 
 
 def planck_function_cm(temperature, wavelength):
@@ -649,155 +800,6 @@ def temperature_profile_function_ret_model(rad_trans_params):
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
-
-
-def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
-    """
-    Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
-
-    This function computes temperatures using the Madhu and Seager (2009) parameterization
-    for a given set of pressure values, pressure breakpoints, temperature breakpoints,
-    alpha values, and beta values.
-
-    Based off of the POSEIDON implementation:
-    https://github.com/MartianColonist/POSEIDON/blob/main/POSEIDON/atmosphere.py
-
-    Parameters:
-        press : (numpy.ndarray)
-            An array of pressure values (in bar) at which to calculate temperatures.
-        pressure_points : (list)
-            A list of pressure breakpoints defining different temperature regimes.
-        t_set : (float)
-            A temperature at pressure_points[4] used to constrain the temperature profile.
-        alpha_points : (list)
-            A list of alpha values used in the parameterization for different regimes.
-        beta_points : (list)
-            A list of beta values used in the parameterization for different regimes.
-            By default b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
-
-    Returns:
-        temperatures : (numpy.ndarray)
-            An array of calculated temperatures (in K) corresponding to the input pressure values.
-
-    Note:
-    - This function assumes that pressure_points, temperature_points, alpha_points, and beta_points
-      are lists with the same length, defining different pressure-temperature regimes. The function
-      uses logarithmic relationships to calculate temperatures within these regimes.
-
-    Reference:
-    - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres.
-      The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
-    """
-    temperatures = np.zeros_like(press)
-
-    # Set up masks for the different temperature regions
-    mask_1 = press < pressure_points[1]
-    mask_2 = (press >= pressure_points[1]) & (press < pressure_points[3])
-    mask_3 = press >= pressure_points[3]
-
-    # Find index of pressure closest to the set pressure
-    i_set = np.argmin(np.abs(press - pressure_points[4]))
-    p_set_i = press[i_set]
-
-    # Store logarithm of various pressure quantities
-    log_p = np.log10(press)
-    log_p_min = pressure_points[0]
-    log_p_set_i = np.log10(p_set_i)
-
-    t0 = None
-    t2 = None
-    t3 = None
-
-    # By default (P_set = 10 bar), so T(P_set) should be in layer 3
-    if pressure_points[4] >= pressure_points[3]:
-        t3 = t_set  # T_deep is the isothermal deep temperature T3 here
-
-        # Use the temperature parameter to compute boundary temperatures
-        t2 = t3 - ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
-
-    # If a different P_deep has been chosen, solve equations for layer 2...
-    elif pressure_points[4] >= pressure_points[1]:  # Temperature parameter in layer 2
-        # Use the temperature parameter to compute the boundary temperatures
-        t2 = t_set - ((1.0 / alpha_points[1]) * (log_p_set_i - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[0])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
-
-    # ...or for layer 1
-    elif pressure_points[4] < pressure_points[1]:  # Temperature parameter in layer 1
-
-        # Use the temperature parameter to compute the boundary temperatures
-        t0 = t_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (1 / beta_points[0])
-        t1 = t0 + ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
-        t2 = t1 - ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-
-    temperatures[mask_1] = (log_p[mask_1] - pressure_points[0]) ** (1 / beta_points[0]) / alpha_points[0] + t0
-    temperatures[mask_2] = (log_p[mask_2] - pressure_points[2]) ** (1 / beta_points[1]) / alpha_points[1] + t2
-    temperatures[mask_3] = t3
-    return temperatures
-
-
-def cubic_spline_profile(press, temperature_points, gamma, nnodes=0):
-    """
-    Compute a cubic spline profile for temperature based on pressure points.
-
-    This function computes a cubic spline profile for temperature using
-    pressure and temperature data points, along with a curvature prior.
-
-    Args:
-        press (array-like): An array or list of pressure data points.
-        temperature_points (array-like): An array or list of temperature data points.
-        gamma (float): A parameter controlling the curvature of the spline.
-        nnodes (int, optional): Number of nodes to use in the spline interpolation.
-            Defaults to 0, which means automatic determination of nodes.
-
-    Returns:
-        tuple: A tuple containing two elements:
-            - interpolated_temps (array-like): Interpolated temperature values
-              based on the cubic spline.
-            - prior (array-like): Curvature prior values calculated for the spline.
-    """
-
-    cs = PchipInterpolator(np.linspace(np.log10(press[0]),
-                                       np.log10(press[-1]),
-                                       nnodes + 2),
-                           temperature_points)
-
-    interpolated_temps = cs(np.log10(press))
-    prior = temperature_curvature_prior(press, interpolated_temps, gamma)
-    return interpolated_temps, prior
-
-
-def linear_spline_profile(press, temperature_points, gamma, nnodes=0):
-    """
-    Compute a linear spline profile for temperature based on pressure points.
-
-    This function computes a linear spline profile for temperature using
-    pressure and temperature data points, along with a curvature prior.
-
-    Args:
-        press (array-like): An array or list of pressure data points.
-        temperature_points (array-like): An array or list of temperature data points.
-        gamma (float): A parameter controlling the curvature of the spline.
-        nnodes (int, optional): Number of nodes to use in the spline interpolation.
-            Defaults to 0, which means automatic determination of nodes.
-
-    Returns:
-        tuple: A tuple containing two elements:
-            - interpolated_temps (array-like): Interpolated temperature values
-              based on the linear spline.
-            - prior (array-like): Curvature prior values calculated for the spline.
-    """
-    interpolated_temps = np.interp(np.log10(press),
-                                   np.linspace(np.log10(press[0]),
-                                               np.log10(press[-1]),
-                                               int(nnodes) + 2),
-                                   temperature_points)
-    prior = temperature_curvature_prior(press, interpolated_temps, gamma)
-    return interpolated_temps, prior
 
 
 def temperature_curvature_prior(press, temps, gamma):

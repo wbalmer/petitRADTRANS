@@ -1,6 +1,5 @@
 import copy
 import os
-import warnings
 
 import corner
 import matplotlib.figure
