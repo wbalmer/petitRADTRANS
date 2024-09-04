@@ -9,7 +9,6 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
 
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
