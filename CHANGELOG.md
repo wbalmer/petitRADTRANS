@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a39] - 2024-09-03
+## [3.1.0a40] - 2024-09-03
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
