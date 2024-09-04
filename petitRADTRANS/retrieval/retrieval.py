@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
 
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
@@ -1620,7 +1621,7 @@ class Retrieval:
 
         for name, data in self.configuration.data.items():
             if isinstance(data.data_resolution, np.ndarray):
-                data.intialise_data_resolution(wlen_model)
+                data.initialise_data_resolution(wlen_model)
 
             d_o_f += np.size(data.spectrum)
             sf = 1
@@ -2496,7 +2497,7 @@ class Retrieval:
                     wavelengths_model, spectrum_model = ret_val
 
             if data.data_resolution_array_model is not None:
-                data.intialise_data_resolution(wavelengths_model)
+                data.initialise_data_resolution(wavelengths_model)
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
@@ -2790,7 +2791,7 @@ class Retrieval:
 
             # Setup for non-uniform spectral resolution
             if isinstance(data.data_resolution, np.ndarray):
-                data.intialise_data_resolution(1e4 * radtrans.get_wavelengths())
+                data.initialise_data_resolution(1e4 * radtrans.get_wavelengths())
 
     # TODO move plot functions outside of here in v.4.0.0
     def plot_abundances(
@@ -4103,7 +4104,7 @@ class Retrieval:
                         spectrum_model = self.best_fit_spectra[name][1]
 
                         if data.data_resolution_array_model is not None:
-                            data.intialise_data_resolution(self.best_fit_spectra[name][0])
+                            data.initialise_data_resolution(self.best_fit_spectra[name][0])
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[name][0],
                                 self.best_fit_spectra[name][1],
@@ -4124,7 +4125,7 @@ class Retrieval:
                         )
                     else:
                         if data.data_resolution_array_model is not None:
-                            data.intialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
+                            data.initialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[data.external_radtrans_reference][0],
                                 self.best_fit_spectra[data.external_radtrans_reference][1],

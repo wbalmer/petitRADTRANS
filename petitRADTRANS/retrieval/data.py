@@ -390,7 +390,7 @@ class Data:
         self.system_distance = distance
         return self.system_distance
 
-    def intialise_data_resolution(self, wavelengths_model):
+    def initialise_data_resolution(self, wavelengths_model):
         if isinstance(self.data_resolution, np.ndarray):
             self.data_resolution_array_model = np.interp(wavelengths_model, self.wavelengths, self.data_resolution)
 
