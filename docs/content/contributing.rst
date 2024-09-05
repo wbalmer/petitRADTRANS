@@ -7,7 +7,7 @@ Suggestions and reporting issues
 ================================
 We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. In that case, please take the time to read the guidelines below.
 
-Alternatively, you can directly contact members of the development team via e-mail.
+Alternatively, you can directly contact members of the development team `via e-mail <../index.html#contact>`_.
 
 Guidelines to report an issue
 -----------------------------
@@ -39,7 +39,7 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 1. Install `Git <https://git-scm.com/>`_.
 2. Sign up to `Gitlab <https://gitlab.com/>`_.
 3. `Fork <https://docs.gitlab.com/ee/user/project/repository/forking_workflow.html>`_ petitRADTRANS from the `main repository <https://gitlab.com/mauricemolli/petitRADTRANS>`_.
-    .. note:: you may directly create a new branch (step 10) instead of a fork.
+    .. note:: You may directly create a new branch (step 10) instead of a fork.
 4. `Clone <https://docs.gitlab.com/ee/user/project/repository/#clone-a-repository>`_ your fork to work locally.
 5. Go inside the cloned directory. Add an upstream remote and fetch it with:
     .. code-block:: bash
@@ -47,7 +47,7 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
         git remote add upstream https://gitlab.com/mauricemolli/petitRADTRANS.git
         git fetch upstream
 
-6. Set your ``main`` branch to track upstream using.
+6. Set your ``main`` branch to track upstream using:
     .. code-block:: bash
 
         git branch -u upstream/master master
@@ -66,11 +66,63 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 12. Regularly commit your changes using ``git commit -m 'Concise description of the change'``.
 13. Before pushing, **always** test your changes by executing ``tox``.
 14. Push to your branch using ``git push``.
-15. Create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_ from your fork, targeting the upstream.
+
+The final step of this process is to create a `merge request <https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html>`_ from your fork, targeting the upstream. Before proceeding, be sure to do the following:
+
+1. Check that you respect the :ref:`stylistic guidelines<stylistic_guidelines>`.
+2. Check the :ref:`merge request guidelines<merge_guidelines>`.
 
 You may contact by mail members of the development team to inform them about your (future) merge request at any time in the development process. Stay available in case modifications are requested by the development team before merging your branch.
 
 .. tip:: Make atomic Git commits, accompanying comments should be short but descriptive, starting with a verb in the infinitive.
+
+.. _main_workflow:
+
+pRT dev team: main repository workflow
+--------------------------------------
+
+.. image:: images/development_flow.drawio.svg
+   :width: 600
+
+The above figure represents the workflow when working on pRT's main repository.
+
+The main repository is composed of two branches:
+
+- The ``master`` branch, which contains the stable, latest official release of pRT. It is intended for the users.
+- The ``dev`` branch, which contains the latest updates of the package. It is intended for pRT's developers.
+
+Working with the dev branch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Any new feature or minor bug fix must always be developed starting from the ``dev`` branch. It is possible to work directly on the ``dev`` branch (locally), or to create a new branch from ``dev``.
+
+When you estimate that your work is done, you can think about pushing to the ``dev`` branch. Before doing so, be sure to do the following:
+
+1. Check that you respect the :ref:`stylistic guidelines<stylistic_guidelines>`.
+2. Check the :ref:`merge request guidelines<merge_guidelines>`.
+3. Update the ``dev`` version number (see :ref:`versioning`) in the following files:
+    - ``project.toml``
+    - ``meson.build``
+    - ``CHANGELOG.md``
+    - ``docs/conf.py``
+4. In ``CHANGELOG.md``, update the date of the latest version.
+5. Summarize your changes in ``CHANGELOG.md``, respecting the convention (see :ref:`versioning`).
+6. You are ready to push!
+
+.. tip:: To ensure the smoothest possible workflow, regularly push your local changes to the remote ``dev`` branch, and regularly update/merge your local version with the remote ``dev``. This way, even major changes can be quickly taken into account, with as few conflicts as possible.
+
+Major bug fixes
+~~~~~~~~~~~~~~~
+When a major bug (crash of a major function, incorrect results) is identified, the master branch can be directly modified. The patch version of the code must be updated, as well as all development branches. A temporary ``hotfix`` branch can be created if the bug is particularly severe and necessitate a lot of work.
+
+.. tip:: Make use of :ref:`automatic tests<test_suite>` to prevent such case to happen!
+
+Backward-compatibility breaking changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When a change breaks backward-compatibility (i.e. changing the name of an attribute, removing a function's argument), the ``dev`` branch itself can be used. This ensures that any new developed feature takes the latest backward-incompatible changes into account. This however slows down or make practically impossible the implementation of new backward-compatible features until the new major version is released.
+
+.. tip:: Do not refrain from making small backward-incompatible changes: in most case you can circumvent the need for a new major version. For example, if you want to change the name of an argument, you can keep the old argument name while adding the new one. Using the old name must still work as expected, but you can make use of ``FutureWarning`` to signal to the users that it is deprecated. You can then push a backward-compatible update, and the old name will be removed in the next major version!
+
+.. _merge_guidelines:
 
 Guidelines before creating a merge request
 ------------------------------------------
@@ -333,16 +385,37 @@ To easily do this operation, execute the following:
 
 Before the reset, you will go through a checklist. Please take the time to read it. If you do not meet all the criteria, cancel the operation.
 
+.. _versioning:
+
 Versioning
 ----------
 petitRADTRANS adheres to `Semantic Versioning <http://semver.org>`_.
+
+Alpha (``X.Y.ZaW``), beta (``X.Y.ZbW``), and release candidate (``X.Y.ZrcW``) versions are used exclusively in the ``dev`` branch.
+
+- Alpha versions: new features are planned or expected to be implemented.
+- Beta versions: only bug fixes are planned. No new feature can be added.
+- Release candidate versions: only tests are planned. The goal of these versions is to ensure that no hidden bug is left. As for the beta versions, no new feature can be added.
 
 The code's version must be updated in the following files:
 
 - CHANGELOG.md
 - meson.build
 - pyproject.toml
+- docs/conf.py
 
 petitRADTRANS comes with a changelog that is regularly updated with the most notable changes from the code. The format is based on `Keep a Changelog <http://keepachangelog.com>`_.
 
+For items in the "Added" (and "Removed") section, build your sentence as if it started with "Added:" (or "Removed":):
+    - Good example: "Function ``my_cool_function`` to do this useful thing.".
+    - Bad example: "It is now possible to do this useful thing.".
+
+For items in the "Changed" section, build your sentence as if you answered the question "what has changed?".
+
+For items in the "Fixed" section, build your sentence as if they were the title of an issue (answer to the question: "what issue is fixed?"), and describe the bug that is fixed:
+    - Good example: "<A bad thing> happens when function ``definitely_not_my_function`` is called.".
+    - Bad example: "Fixes a bug with <some feature>.".
+
 In the changelog, changes are ordered by perceived importance for the user. Changes or fixes internal to an alpha or beta version are not indicated.
+
+.. tip:: Note to devs: the CHANGELOG is primarily destined to the users. They use it to stay informed about new updates and fixes. Conciseness and precision are key to a good changelog!

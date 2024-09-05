@@ -54,14 +54,12 @@ The following papers document pRT:
 
 Please cite the base paper and those relevant to your work if you make use of petitRADTRANS.
 
-.. _contact: molliere@mpia.de
-
 Active Developers
 =================
 
 - Doriann Blain (main developer, and mastermind behind Version 3)
 - Paul Mollière
-- Evert Nasedkin (mastermind behind retrieval package)
+- Evert Nasedkin (mastermind behind the retrieval package)
 
 Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
 Right now, Paul's main job is to determine the strategic directions for the code, managing its development, and adding new features here and there, from time to time...
@@ -93,3 +91,11 @@ Former contributors and developers
 .. toctree::
    :maxdepth: 2
    :caption: Code documentation
+
+Contact
+=======
+
+- pRT3 and ``SpectralModel``: `Doriann Blain <doriann.blain@gmail.com>`_
+- pRT's ``retrieval`` module: `Evert Nasedkin <nasedkinevert@gmail.com>`_
+
+For general inquiries about pRT, contributing, etc., please contact Paul Mollière.

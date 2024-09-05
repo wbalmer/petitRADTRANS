@@ -222,4 +222,4 @@ A common error with Apple silicon when trying to run retrievals is ``AttributeEr
 
 Other issues
 ------------
-You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
+You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to `open a new issue <contributing.html#suggestions-and-reporting-issues>`_.
