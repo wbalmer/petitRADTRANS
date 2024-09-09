@@ -236,6 +236,11 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
         for species in mass_fractions_i:
             filled_mass_fractions[species][i] = mass_fractions_i[species]
 
+    # Re-add cloud mass fractions
+    for species, mass_fraction in mass_fractions.items():
+        if '(s)' in species or '(l)' in species:
+            filled_mass_fractions[species] = mass_fraction
+
     return filled_mass_fractions
 
 
