@@ -11,7 +11,8 @@ import numpy as np
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
-from .utils import test_parameters, temperature_guillot_2010, temperature_isothermal
+from .utils import (check_partial_cloud_coverage_full_consistency,
+                    test_parameters, temperature_guillot_2010, temperature_isothermal)
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
 
@@ -127,6 +128,53 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
     )
 
 
+def test_correlated_k_emission_partial_cloud_calculated_radius():
+    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear =  copy.deepcopy(mass_fractions)
+    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
+        test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+
+    benchmark = Benchmark(
+        function=atmosphere_ck.calculate_flux,
+        relative_tolerance=relative_tolerance
+    )
+
+    # Test flux cloudy
+    print('Testing cloudy fluxes consistency...', end=' ')
+    _, flux_cloudy, _ = atmosphere_ck.calculate_flux(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=mass_fractions,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
+        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_coverage_fraction=None,
+        frequencies_to_wavelengths=False
+    )
+
+    check_partial_cloud_coverage_full_consistency(
+        spectrum_function=atmosphere_ck.calculate_flux,
+        benchmark=benchmark,
+        relative_tolerance=relative_tolerance,
+        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        mass_fractions=mass_fractions,
+        mass_fractions_clear=mass_fractions_clear,
+        temperatures=temperature_guillot_2010,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
+        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        frequencies_to_wavelengths=False
+    )
+
+
 def test_correlated_k_transmission_spectrum():
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_transit_radii,
@@ -180,6 +228,30 @@ def test_correlated_k_transmission_spectrum_gray_cloud():
                       * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         opaque_cloud_top_pressure=test_parameters['cloud_parameters']['cloud_pressure'],
+        frequencies_to_wavelengths=False
+    )
+
+
+def test_correlated_k_transmission_spectrum_partial_gray_cloud():
+    benchmark = Benchmark(
+        function=atmosphere_ck.calculate_transit_radii,
+        relative_tolerance=relative_tolerance
+    )
+
+    check_partial_cloud_coverage_full_consistency(
+        spectrum_function=atmosphere_ck.calculate_transit_radii,
+        benchmark=benchmark,
+        relative_tolerance=relative_tolerance,
+        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
+        mass_fractions_clear=None,
+        opaque_cloud_top_pressure=test_parameters['cloud_parameters']['cloud_pressure'],
+        temperatures=temperature_isothermal,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        planet_radius=test_parameters['planetary_parameters']['radius']
+                      * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         frequencies_to_wavelengths=False
     )
 

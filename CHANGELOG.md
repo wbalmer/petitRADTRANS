@@ -4,9 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a41] - 2024-09-04
+## [3.1.0a42] - 2024-09-06
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
+- Full integration of partial cloud coverage in `Radtrans`.
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
@@ -63,6 +64,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
 - Function `Retrieval.plot_spectra` not working when `mode='median'`.
 - Mass fractions being modified when calculating CIA opacities in some cases.
+- Cloud mass fractions are taken into account when filling atmosphere.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectra.

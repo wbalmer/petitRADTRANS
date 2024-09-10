@@ -23,6 +23,7 @@ def init_spectral_model_line_by_line():
         line_species=test_parameters['spectrum_parameters']['line_species_line_by_line'],
         rayleigh_species=test_parameters['spectrum_parameters']['rayleigh_species'],
         gas_continuum_contributors=test_parameters['spectrum_parameters']['continuum_opacities'],
+        cloud_species=list(test_parameters['cloud_parameters']['cloud_species'].keys()),
         line_opacity_mode='lbl',
         # SpectralModel parameters
         # Planet parameters
@@ -51,6 +52,12 @@ def init_spectral_model_line_by_line():
         use_equilibrium_chemistry=False,
         imposed_mass_fractions=mass_fractions,
         filling_species=test_parameters['filling_species'],
+        # Cloud parameters
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
+        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
         # Observation parameters
         is_around_star=True,
         star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],  # K
@@ -133,6 +140,81 @@ def test_line_by_line_spectral_model_transmission_full_all():
         rebin=True,
         prepare=True
     )
+
+
+def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
+    spectral_model = copy.deepcopy(spectral_model_lbl_full)
+
+    spectral_model.model_parameters['imposed_mass_fractions']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
+        test_parameters['cloud_parameters']['cloud_species'][
+            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    spectral_model.model_parameters['opaque_cloud_top_pressure'] = test_parameters['cloud_parameters']['cloud_pressure']
+
+    calculate_spectrum = partial(get_main_model_parameters, spectral_model=spectral_model)
+
+    modification_arguments = {
+        'update_parameters': True,
+        'scale': False,  # create a small difference
+        'shift': True,
+        'use_transit_light_loss': True,
+        'convolve': True,
+        'rebin': True,
+        'prepare': False  # create a small difference
+    }
+
+    benchmark = Benchmark(
+        function=calculate_spectrum,
+        relative_tolerance=relative_tolerance
+    )
+
+    # Test flux cloudy
+    spectral_model.model_parameters['cloud_coverage_fraction'] = 1
+
+    _, flux_coverage1, _, _, _ = calculate_spectrum(
+        mode='transmission',
+        **modification_arguments
+    )
+
+    # Test flux clear
+    spectral_model.model_parameters['cloud_coverage_fraction'] = 0
+
+    _, flux_coverage0, _, _, _ = calculate_spectrum(
+        mode='transmission',
+        **modification_arguments
+    )
+
+    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
+        flux_coverage0,
+        flux_coverage1,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    spectral_model.model_parameters['cloud_coverage_fraction'] = (
+        test_parameters['cloud_parameters']['cloud_coverage_fraction']
+    )
+
+    benchmark.run(
+        mode='transmission',
+        **modification_arguments
+    )
+
+    # Test flux with cloud fraction
+    print('Testing transit radii with partial cloud coverage consistency...', end=' ')
+    reference_file = benchmark._load_reference_file()
+    np.save('./flux_coverage_0.67.npy',reference_file.outputs['1'])
+
+    assert np.allclose(
+        test_parameters['cloud_parameters']['cloud_coverage_fraction'] * flux_coverage1
+        + (1 - test_parameters['cloud_parameters']['cloud_coverage_fraction']) * flux_coverage0,
+        reference_file.outputs['1'],
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
 
 
 def test_line_by_line_spectral_model_transmission_full_convolved():
