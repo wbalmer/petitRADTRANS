@@ -1691,7 +1691,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_mass_fractions(pressures, temperatures=None, imposed_mass_fractions=None, line_species=None,
-                               filling_species=None, use_equilibrium_chemistry=False,
+                               cloud_species=None, filling_species=None, use_equilibrium_chemistry=False,
                                metallicity=None, co_ratio=0.55, carbon_pressure_quench=None,
                                verbose=False, **kwargs):
         """Initialize a model mass mixing ratios.
@@ -1716,6 +1716,7 @@ class SpectralModel(Radtrans):
         Args:
             pressures: (cgs) pressures of the mass mixing ratios
             line_species: list of line species, required to manage naming differences between opacities and chemistry
+            cloud_species: list of cloud species, required to not count cloud species in the gas mass fractions.
             temperatures: (K) temperatures of the mass mixing ratios, used with equilibrium chemistry
             co_ratio: carbon over oxygen ratios of the model, used with equilibrium chemistry
             metallicity: ratio between heavy elements and H2 + He compared to solar, used with equilibrium chemistry
@@ -1791,7 +1792,10 @@ class SpectralModel(Radtrans):
 
         for species, imposed_mass_fraction in imposed_mass_fractions.items():
             mass_fractions[species] = imposed_mass_fraction
-            m_sum_imposed_species += imposed_mass_fraction
+
+            # Do not count clouds
+            if species not in cloud_species:
+                m_sum_imposed_species += imposed_mass_fraction
 
         # Ensure that the sum of imposed mass fractions is <= 1
         for i in range(np.size(m_sum_imposed_species)):
@@ -1801,12 +1805,13 @@ class SpectralModel(Radtrans):
                                   f"correcting...")
 
                 for species in imposed_mass_fractions:
-                    mass_fractions[species][i] /= m_sum_imposed_species[i]
+                    if species not in cloud_species:  # Do not count clouds
+                        mass_fractions[species][i] /= m_sum_imposed_species[i]
 
         m_sum_imposed_species = np.sum(list(mass_fractions.values()), axis=0)
 
         # Initialize chemical equilibrium mass fractions
-        mass_fractions_equilibrium = None
+        mass_fractions_chemical_table = None
 
         if use_equilibrium_chemistry:
             missing = {}
@@ -1826,7 +1831,7 @@ class SpectralModel(Radtrans):
                                  f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
 
             # Interpolate chemical equilibrium
-            mass_fractions_equilibrium = SpectralModel.compute_equilibrium_mass_fractions(
+            mass_fractions_chemical_table = SpectralModel.compute_equilibrium_mass_fractions(
                 pressures=pressures,
                 temperatures=temperatures,
                 co_ratio=co_ratio,
@@ -1835,31 +1840,31 @@ class SpectralModel(Radtrans):
             )
 
         # Add non-imposed mass fractions to mass fractions
-        m_sum_species = np.zeros(pressures.shape)
+        m_sum_chemical_table_species = np.zeros(pressures.shape)
 
-        if mass_fractions_equilibrium is not None:
+        if mass_fractions_chemical_table is not None:
             # Convert chemical table species names to line species names
             line_species_simple = simplify_species_list(line_species)
 
             for i, simple_species in enumerate(line_species_simple):
-                if simple_species in mass_fractions_equilibrium and simple_species != line_species[i]:
-                    mass_fractions_equilibrium[line_species[i]] = copy.deepcopy(
-                        mass_fractions_equilibrium[simple_species]
+                if simple_species in mass_fractions_chemical_table and simple_species != line_species[i]:
+                    mass_fractions_chemical_table[line_species[i]] = copy.deepcopy(
+                        mass_fractions_chemical_table[simple_species]
                     )
-                    del mass_fractions_equilibrium[simple_species]
+                    del mass_fractions_chemical_table[simple_species]
 
             # Remove imposed mass fractions names from chemical table species names
             imposed_species_simple = simplify_species_list(list(imposed_mass_fractions.keys()))
 
             for simple_species in imposed_species_simple:
-                if simple_species in mass_fractions_equilibrium:
-                    del mass_fractions_equilibrium[simple_species]
+                if simple_species in mass_fractions_chemical_table:
+                    del mass_fractions_chemical_table[simple_species]
 
             # Get the sum of mass fractions of non-imposed species
-            for species in mass_fractions_equilibrium:
+            for species in mass_fractions_chemical_table:
                 if species not in imposed_mass_fractions and species not in filling_species:
-                    mass_fractions[species] = mass_fractions_equilibrium[species]
-                    m_sum_species += mass_fractions_equilibrium[species]
+                    mass_fractions[species] = mass_fractions_chemical_table[species]
+                    m_sum_chemical_table_species += mass_fractions_chemical_table[species]
 
         # Ensure that all line species are in mass_fractions
         for species in line_species:
@@ -1878,7 +1883,7 @@ class SpectralModel(Radtrans):
                 mass_fractions[species] = np.zeros(pressures.size)
 
         # Ensure that the sum of mass mixing ratios of all species is = 1
-        m_sum_total = m_sum_species + m_sum_imposed_species
+        m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
 
         for i, m_sum in enumerate(m_sum_total):
             if 0 < m_sum < 1:
@@ -1897,14 +1902,19 @@ class SpectralModel(Radtrans):
                                   f"or manually adjust the imposed mass fractions")
             elif m_sum > 1:  # scale down the mass fractions, no filling species needed
                 if verbose:
-                    warnings.warn(f"sum of species mass fraction ({m_sum_species[i]} + {m_sum_imposed_species[i]}) "
-                                  f"is > 1, correcting...")
+                    warnings.warn(
+                        f"sum of species mass fraction "
+                        f"({m_sum_chemical_table_species[i]} + {m_sum_imposed_species[i]}) "
+                        f"is > 1, correcting..."
+                    )
 
                 for species in mass_fractions:
                     if species not in imposed_mass_fractions:
-                        if m_sum_species[i] > 0:
-                            mass_fractions[species][i] = \
-                                mass_fractions[species][i] * (1 - m_sum_imposed_species[i]) / m_sum_species[i]
+                        if m_sum_chemical_table_species[i] > 0:
+                            mass_fractions[species][i] = (
+                                mass_fractions[species][i]
+                                * (1 - m_sum_imposed_species[i]) / m_sum_chemical_table_species[i]
+                            )
                         else:
                             mass_fractions[species][i] = mass_fractions[species][i] / m_sum
             elif m_sum <= 0:
