@@ -125,6 +125,16 @@ def check_all_close(a, b, **kwargs):
     elif a is None:
         if b is not None:
             raise AssertionError(f"a is None but b is {b}")
+    elif isinstance(b, list):
+        if isinstance(b[0], str):
+            for i, value in enumerate(a):
+                if value != b[0]:
+                    raise AssertionError(f"'{a}' != '{b}'")
+        elif not np.allclose(a, b, **kwargs):
+            raise AssertionError(f"a and b are not close enough\n"
+                                 f"{a=}\n"
+                                 f"{b=}\n"
+                                 f"{kwargs}")
     else:
         if not np.allclose(a, b, **kwargs):
             raise AssertionError(f"a and b are not close enough\n"
