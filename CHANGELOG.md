@@ -4,10 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a42] - 2024-09-10
+## [3.1.0a43] - 2024-09-11
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
-- Full integration of partial cloud coverage in `Radtrans`.
+- Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.

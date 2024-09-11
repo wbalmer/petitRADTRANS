@@ -7,11 +7,12 @@ Do not change the parameters used to generate the comparison files, including in
 """
 import copy
 
-import numpy as np
-
 from .benchmark import Benchmark
 from .context import petitRADTRANS
-from .utils import check_partial_cloud_coverage_full_consistency, test_parameters, temperature_guillot_2010, temperature_isothermal
+from .utils import (
+    check_partial_cloud_coverage_full_consistency, get_cloud_parameters, test_parameters,
+    temperature_guillot_2010, temperature_isothermal
+)
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
 
@@ -50,11 +51,10 @@ def test_line_by_line_emission_spectrum():
 
 
 def test_line_by_line_emission_partial_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_line_by_line'])
-    mass_fractions_clear =  copy.deepcopy(mass_fractions)
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_line_by_line'
+    )
+    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_line_by_line'])
 
     benchmark = Benchmark(
         function=atmosphere_lbl.calculate_flux,
@@ -65,7 +65,7 @@ def test_line_by_line_emission_partial_cloud_calculated_radius():
         spectrum_function=atmosphere_lbl.calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         opaque_cloud_top_pressure=None,
@@ -109,7 +109,7 @@ def test_line_by_line_transmission_spectrum_partial_gray_cloud():
         spectrum_function=atmosphere_lbl.calculate_transit_radii,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
         mass_fractions=test_parameters['mass_fractions_line_by_line'],
         mass_fractions_clear=None,
         opaque_cloud_top_pressure=test_parameters['cloud_parameters']['cloud_pressure'],

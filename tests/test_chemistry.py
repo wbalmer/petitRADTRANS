@@ -1,7 +1,5 @@
 """Test petitRADTRANS chemistry module.
 """
-import copy
-
 import numpy as np
 
 from .context import petitRADTRANS
@@ -101,11 +99,6 @@ def test_chemistry_metallicities():
 
 
 def test_mass_fractions2metallicities():
-    from .benchmark import ReferenceFile
-
-    original_parameters_relative_tolerance = copy.copy(ReferenceFile.parameters_relative_tolerance)
-    ReferenceFile.parameters_relative_tolerance = 1e-14  # to make test work on Paul's laptop...
-
     c_o_ratios = (
         test_parameters['chemical_parameters']['c_o_ratios'][1]
         * np.ones_like(test_parameters['pressures'])
@@ -143,5 +136,3 @@ def test_mass_fractions2metallicities():
         mass_fractions=mass_fractions,
         mean_molar_masses=mean_molar_masses
     )
-
-    ReferenceFile.parameters_relative_tolerance = original_parameters_relative_tolerance

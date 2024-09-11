@@ -11,7 +11,7 @@ import numpy as np
 
 from .context import petitRADTRANS
 from .benchmark import Benchmark
-from .utils import (check_partial_cloud_coverage_full_consistency,
+from .utils import (check_partial_cloud_coverage_full_consistency, get_cloud_parameters,
                     test_parameters, temperature_guillot_2010, temperature_isothermal)
 
 relative_tolerance = 1e-6  # relative tolerance when comparing with older results
@@ -52,9 +52,9 @@ def test_correlated_k_emission_spectrum():
 
 
 def test_correlated_k_emission_contribution_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_flux,
@@ -67,20 +67,17 @@ def test_correlated_k_emission_contribution_cloud_calculated_radius():
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         return_contribution=True,
         frequencies_to_wavelengths=False
     )
 
 
 def test_correlated_k_emission_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_flux,
@@ -93,19 +90,16 @@ def test_correlated_k_emission_cloud_calculated_radius():
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False
     )
 
 
 def test_correlated_k_emission_spectrum_cloud_hansen_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, _, cloud_hansen_b = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_flux,
@@ -118,59 +112,37 @@ def test_correlated_k_emission_spectrum_cloud_hansen_radius():
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_hansen_b=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'][
-            'b_hansen'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_hansen_b=cloud_hansen_b,
         cloud_particles_radius_distribution='hansen',
         frequencies_to_wavelengths=False
     )
 
 
 def test_correlated_k_emission_partial_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions_clear =  copy.deepcopy(mass_fractions)
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
+    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_flux,
         relative_tolerance=relative_tolerance
     )
 
-    # Test flux cloudy
-    print('Testing cloudy fluxes consistency...', end=' ')
-    _, flux_cloudy, _ = atmosphere_ck.calculate_flux(
-        temperatures=temperature_guillot_2010,
-        mass_fractions=mass_fractions,
-        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
-        mean_molar_masses=test_parameters['mean_molar_mass'],
-        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
-        cloud_coverage_fraction=None,
-        frequencies_to_wavelengths=False
-    )
-
     check_partial_cloud_coverage_full_consistency(
         spectrum_function=atmosphere_ck.calculate_flux,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
         mass_fractions=mass_fractions,
         mass_fractions_clear=mass_fractions_clear,
         temperatures=temperature_guillot_2010,
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False
     )
 
@@ -242,7 +214,7 @@ def test_correlated_k_transmission_spectrum_partial_gray_cloud():
         spectrum_function=atmosphere_ck.calculate_transit_radii,
         benchmark=benchmark,
         relative_tolerance=relative_tolerance,
-        cloud_coverage_fraction=test_parameters['cloud_parameters']['cloud_coverage_fraction'],
+        cloud_fraction=test_parameters['cloud_parameters']['cloud_fraction'],
         mass_fractions=test_parameters['mass_fractions_correlated_k'],
         mass_fractions_clear=None,
         opaque_cloud_top_pressure=test_parameters['cloud_parameters']['cloud_pressure'],
@@ -276,9 +248,9 @@ def test_correlated_k_transmission_spectrum_rayleigh():
 
 
 def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, cloud_particles_mean_radii, _, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_transit_radii,
@@ -293,20 +265,15 @@ def test_correlated_k_transmission_spectrum_cloud_fixed_radius():
         planet_radius=test_parameters['planetary_parameters']['radius']
                       * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
-        cloud_particles_mean_radii={
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': test_parameters['cloud_parameters'][
-            'cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['radius']},
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False
     )
 
 
 def test_correlated_k_transmission_contribution_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = (
-        test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
     )
 
     benchmark = Benchmark(
@@ -323,10 +290,8 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
                       * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         return_contribution=True,
         frequencies_to_wavelengths=False
     )
@@ -339,9 +304,9 @@ def test_correlated_k_transmission_contribution_cloud_calculated_radius():
 
 
 def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
-    mass_fractions = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
-    mass_fractions['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu'] = \
-        test_parameters['cloud_parameters']['cloud_species']['Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['mass_fraction']
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
 
     benchmark = Benchmark(
         function=atmosphere_ck.calculate_transit_radii,
@@ -357,9 +322,7 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
                       * petitRADTRANS.physical_constants.r_jup_mean,
         reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False
     )
