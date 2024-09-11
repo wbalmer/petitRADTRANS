@@ -126,7 +126,7 @@ class TestFile:
 
 class ReferenceFile(TestFile):
     parameters_absolute_tolerance = 0.
-    parameters_relative_tolerance = 10 ** -sys.float_info.dig
+    parameters_relative_tolerance = 10 ** (-sys.float_info.dig + 1)  # +1 to account for OS-induced errors (Paul's PC)
 
     def __init__(self, parameters: dict = None, outputs: dict = None,
                  absolute_tolerance: float = None, relative_tolerance: float = None):
