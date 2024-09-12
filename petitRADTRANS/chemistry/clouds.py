@@ -13,7 +13,7 @@ from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 __metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
 
 # solar abundances, [Fe/H] = 0, from Asplund+ 2009
-__elemental_abundances = {
+__elemental_abundances = {  # TODO replace with chemistry.utils._solar_elemental_abundances
     'H': 0.9207539305,
     'He': 0.0783688694,
     'C': 0.0002478241,
@@ -119,22 +119,28 @@ def setup_clouds(pressures, parameters, cloud_species):
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
             radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
+
     if not radii:
         radii = None
 
     # per-cloud species fseds
     fseds = get_fseds(parameters, cloud_species)
+
     if "log_kzz" in parameters.keys():
         kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
-    
+
     cloud_fraction = 1.0
     complete_coverage_clouds = None
+
     if 'patchiness' in parameters.keys():
         cloud_fraction = parameters['patchiness'].value
+
     if 'cloud_fraction' in parameters.keys():
         cloud_fraction = parameters['cloud_fraction'].value
+
     if 'complete_coverage_clouds' in parameters.keys():
         complete_coverage_clouds = parameters['complete_coverage_clouds'].value
+
     return sigma_lnorm, fseds, kzz, b_hans, radii, cloud_fraction, complete_coverage_clouds, distribution
 
 
@@ -154,12 +160,16 @@ def setup_simple_clouds_hazes(parameters):
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
-    if "power_law_opacity_coefficient" in parameters.keys():
-        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
+
     if "power_law_opacity_350nm" in parameters.keys():
         power_law_opacity_350nm = parameters["power_law_opacity_350nm"].value
+
+    if "power_law_opacity_coefficient" in parameters.keys():
+        power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+
+    if "haze_factor" in parameters.keys():
+        haze_factor = 10 ** parameters["haze_factor"].value
+
     return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
 
 
@@ -213,17 +223,17 @@ def get_bhans(parameters, cloud_species, shape=0):
 def return_cloud_mass_fraction(name, metallicity, co_ratio):
     if "Fe(s)" in name or "Fe(l)" in name:
         return return_x_fe(metallicity, co_ratio)
-    if "MgSiO3(s)" in name or "MgSiO3(l)" in name:
+    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
         return return_x_mgsio3(metallicity, co_ratio)
-    if "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
+    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
         return return_x_mg2sio4(metallicity, co_ratio)
-    if "Na2S(s)" in name or "Na2S(l)" in name:
+    elif "Na2S(s)" in name or "Na2S(l)" in name:
         return return_x_na2s(metallicity, co_ratio)
-    if "KCL(s)" in name or "KCL(l)" in name:
+    elif "KCL(s)" in name or "KCL(l)" in name:
         return return_x_kcl(metallicity, co_ratio)
-    if "MgFeSiO4(s)" in name:
+    elif "MgFeSiO4(s)" in name:
         return return_x_mgfesio4(metallicity, co_ratio)
-    if "SiO(s)" in name:
+    elif "SiO(s)" in name:
         return return_x_sio(metallicity, co_ratio)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
@@ -233,13 +243,13 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
 def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
     if "Fe(s)" in name or "Fe(l)" in name:
         return simple_cdf_fe(press, temp, metallicity, co_ratio, mmw)
-    if "MgSiO3(s)" in name or "MgSiO3(l)" in name:
+    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
         return simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw)
-    if "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
+    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
         return simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw)
-    if "Na2S(s)" in name or "Na2S(l)" in name:
+    elif "Na2S(s)" in name or "Na2S(l)" in name:
         return simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw)
-    if "KCL(s)" in name or "KCL(l)" in name:
+    elif "KCL(s)" in name or "KCL(l)" in name:
         return simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
@@ -250,13 +260,13 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
 def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
     if "Fe(s)" in name or "Fe(l)" in name:
         return simple_cdf_fe_free(press, temp, mfrac, mmw)
-    if "MgSiO3(s)" in name or "MgSiO3(l)" in name:
+    elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
         return simple_cdf_mgsio3_free(press, temp, mfrac, mmw)
-    if "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
+    elif "Mg2SiO4(s)" in name or "Mg2SiO4(l)" in name:
         return simple_cdf_mg2sio4_free(press, temp, mfrac, mmw)
-    if "Na2S(s)" in name or "Na2S(l)" in name:
+    elif "Na2S(s)" in name or "Na2S(l)" in name:
         return simple_cdf_na2s_free(press, temp, mfrac, mmw)
-    if "KCL(s)" in name or "KCL(l)" in name:
+    elif "KCL(s)" in name or "KCL(l)" in name:
         return simple_cdf_kcl_free(press, temp, mfrac, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
@@ -268,7 +278,6 @@ def return_x_fe(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -276,6 +285,7 @@ def return_x_fe(metallicity, co_ratio):
 
     x_fe = __get_species_molar_mass('Fe') * nfracs_use['Fe']
     add = 0.
+
     for spec in nfracs_use.keys():
         add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
@@ -288,7 +298,6 @@ def return_x_mgsio3(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -303,6 +312,7 @@ def return_x_mgsio3(metallicity, co_ratio):
 
     xmgsio3 = masses_mgsio3 * nfracs_mgsio3
     add = 0.
+
     for spec in nfracs_use.keys():
         add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
@@ -315,7 +325,6 @@ def return_x_mg2sio4(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -346,7 +355,6 @@ def return_x_mgfesio4(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -379,7 +387,6 @@ def return_x_sio(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -408,7 +415,6 @@ def return_x_na2s(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -421,6 +427,7 @@ def return_x_na2s(metallicity, co_ratio):
 
     xna2s = masses_na2s * nfracs_na2s
     add = 0.
+
     for spec in nfracs_use.keys():
         add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
@@ -433,7 +440,6 @@ def return_x_kcl(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
-
         if (spec != 'H') and (spec != 'He'):
             nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
 
@@ -446,6 +452,7 @@ def return_x_kcl(metallicity, co_ratio):
 
     xkcl = masses_kcl * nfracs_kcl
     add = 0.
+
     for spec in nfracs_use.keys():
         add += __get_species_molar_mass(spec) * nfracs_use[spec]
 
@@ -461,9 +468,7 @@ def return_x_kcl(metallicity, co_ratio):
 def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(15.71 - 47664. / x)
 
@@ -475,9 +480,7 @@ def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
 def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(9.86 - 37120. / x)
 
@@ -494,15 +497,14 @@ def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
     index = p1 < p2
     ret_p[index] = p1[index]
     ret_p[~index] = p2[~index]
+
     return ret_p, t2
 
 
 def return_t_cond_fe_free(x_fe, mmw=2.33):
     t = np.linspace(100., 12000., 1200)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(15.71 - 47664. / x)
 
@@ -512,9 +514,7 @@ def return_t_cond_fe_free(x_fe, mmw=2.33):
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
     t = np.linspace(100., 12000., 1200)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(9.86 - 37120. / x)
 
@@ -528,15 +528,14 @@ def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
     index = p1 < p2
     ret_p[index] = p1[index]
     ret_p[~index] = p2[~index]
+
     return ret_p, t2
 
 
 def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
@@ -551,10 +550,9 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
-    # Visscher 2010 condensation curve
 
+    # Taken from Ackerman & Marley (2001) including their erratum
+    # Visscher 2010 condensation curve
     def p_vap(x):
         return np.exp(15.92 - 1.97 * metallicity - 27027.03 / x)
 
@@ -569,8 +567,7 @@ def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
 def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
 
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
+    # Taken from Ackerman & Marley (2001) including their erratum
 
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
@@ -578,20 +575,21 @@ def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
     m_mgsio3 = __get_species_molar_mass('Mg') \
         + __get_species_molar_mass('Si') \
         + 3. * __get_species_molar_mass('O')
+
     return p_vap(t) / (x_mgsio3 * mmw / m_mgsio3), t
 
 
 def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
 
+    # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
         return np.exp(25.37 - 58663. / x)
 
     m_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
         + __get_species_molar_mass('Si') \
         + 4. * __get_species_molar_mass('O')
+
     return p_vap(t) / (x_mg2sio4 * mmw / m_mg2sio4), t
 
 
@@ -599,13 +597,8 @@ def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
     # Taken from Charnay+2018
     t = np.linspace(100., 10000., 1000)
 
-    # This is the partial pressure of Na, so
-    # Divide by factor 2 to get the partial
-    # pressure of the hypothetical Na2S gas
-    # particles, this is OK: there are
-    # more S than Na atoms at solar
-    # abundance ratios.
-
+    # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
+    # This is OK: there are more S than Na atoms at solar abundance ratios
     def p_vap(x):
         return 1e1 ** (8.55 - 13889. / x - 0.5 * metallicity) / 2.
 
@@ -621,16 +614,11 @@ def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     # Taken from Charnay+2018
     t = np.linspace(100., 10000., 1000)
 
-    # This is the partial pressure of Na, so
-    # Divide by factor 2 to get the partial
-    # pressure of the hypothetical Na2S gas
-    # particles, this is OK: there are
-    # more S than Na atoms at solar
-    # abundance ratios.
+    # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
+    # This is OK: there are more S than Na atoms at solar abundance ratios
 
     # We're also using [Na/H] as a proxy for [Fe/H]
-    # Definitely not strictly correct, but should be
-    # good enough for ~ solar compositions. [+- 1 for Fe/H]
+    # Definitely not strictly correct, but should be good enough for ~ solar compositions. [+- 1 for Fe/H]
     # Assumes constant vertical abundance
     def p_vap(x):
         return 1e1 ** (8.55 - 13889. / x - 0.5 * (np.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
@@ -674,12 +662,12 @@ def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
-    # print(Pc, press)
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -695,7 +683,7 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
 
-    try:
+    try:  # TODO replace try/except with proper conditional handling of potential error
         tcond_on_input_grid = tcond_p(press)
     except ValueError:
         print(pc)
@@ -718,7 +706,8 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_mgsio3(metallicity, co_ratio, mmw)
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
-    try:
+
+    try:  # TODO replace try/except with proper conditional handling of potential error
         tcond_p = interp1d(pc, tc)
     except ValueError:
         warnings.warn("Could not interpolate pressures and temperatures!")
@@ -729,6 +718,7 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -743,12 +733,12 @@ def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
-    # print(Pc, press)
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -763,13 +753,12 @@ def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
     index = (p_c > 1e-8) & (p_c < 1e5)
     p_c, t_c = p_c[index], t_c[index]
 
-    try:
+    try:  # TODO replace try/except with proper conditional handling of potential error
         tcond_p = interp1d(p_c, t_c)
     except ValueError:
         warnings.warn("Could not interpolate pressures and temperatures!")
         return np.min(press)
 
-    # print(Pc, press)
     t_cond_on_input_grid = tcond_p(press)
 
     t_diff = t_cond_on_input_grid - temp
@@ -790,12 +779,12 @@ def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
     index = (p_c > 1e-8) & (p_c < 1e5)
     p_c, t_c = p_c[index], t_c[index]
     tcond_p = interp1d(p_c, t_c)
-    # print(Pc, press)
     t_cond_on_input_grid = tcond_p(press)
 
     t_diff = t_cond_on_input_grid - temp
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -810,12 +799,12 @@ def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
-    # print(Pc, press)
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -836,6 +825,7 @@ def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -850,12 +840,12 @@ def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
-    # print(Pc, press)
     tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
@@ -876,6 +866,7 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
+
     if len(diff_vec[ind_cdf]) > 0:
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
