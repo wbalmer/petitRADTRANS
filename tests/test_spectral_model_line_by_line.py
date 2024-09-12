@@ -228,10 +228,10 @@ def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
 def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverage():
     spectral_model = copy.deepcopy(spectral_model_lbl_full)
     mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        mass_fraction_type='mass_fractions_correlated_k',
+        mass_fraction_type='mass_fractions_line_by_line',
         filling_species=spectral_model.model_parameters['filling_species']
     )
-    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
+    mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_line_by_line'])
 
     for complete_coverage_cloud in test_parameters['cloud_parameters']['complete_coverage_clouds']:
         mass_fractions_clear[complete_coverage_cloud] = mass_fractions[complete_coverage_cloud]
