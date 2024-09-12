@@ -487,7 +487,7 @@ def check_partial_cloud_coverage_full_consistency(spectrum_function, benchmark, 
 
     print('OK')
 
-def get_cloud_parameters(mass_fraction_type):
+def get_cloud_parameters(mass_fraction_type, filling_species=None):
     mass_fractions = copy.deepcopy(test_parameters[mass_fraction_type])
     cloud_particles_mean_radii = {}
     cloud_f_sed = {}
@@ -502,6 +502,11 @@ def get_cloud_parameters(mass_fraction_type):
 
         if cloud_particle_radius_distribution_std is None:
             cloud_particle_radius_distribution_std = parameters['sigma_log_normal']
+
+    if filling_species is not None:
+        for species in filling_species:
+            if species in mass_fractions:
+                del mass_fractions[species]
 
     return (
         mass_fractions, cloud_particles_mean_radii, cloud_f_sed, cloud_particle_radius_distribution_std, cloud_b_hansen

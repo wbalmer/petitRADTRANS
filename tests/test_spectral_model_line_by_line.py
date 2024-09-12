@@ -165,7 +165,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
         'update_parameters': True,
         'scale': False,  # create a small difference
         'shift': True,
-        'use_transit_light_loss': True,
+        'use_transit_light_loss': False,  # scale must be True
         'convolve': True,
         'rebin': True,
         'prepare': False  # create a small difference
@@ -228,7 +228,8 @@ def test_line_by_line_spectral_model_transmission_full_all_with_clouds():
 def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverage():
     spectral_model = copy.deepcopy(spectral_model_lbl_full)
     mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
-        'mass_fractions_correlated_k'
+        mass_fraction_type='mass_fractions_correlated_k',
+        filling_species=spectral_model.model_parameters['filling_species']
     )
     mass_fractions_clear = copy.deepcopy(test_parameters['mass_fractions_correlated_k'])
 
@@ -246,7 +247,7 @@ def test_line_by_line_spectral_model_transmission_full_all_with_complete_coverag
         'update_parameters': True,
         'scale': False,  # create a small difference
         'shift': True,
-        'use_transit_light_loss': True,
+        'use_transit_light_loss': False,  # scale must be True
         'convolve': True,
         'rebin': True,
         'prepare': False  # create a small difference
