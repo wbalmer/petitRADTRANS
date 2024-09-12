@@ -1254,7 +1254,7 @@ class SpectralModel(Radtrans):
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            cloud_fraction: float = None,
+            cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
             irradiation_geometry: str = 'dayside_ave',
             emission_geometry: str = None,
@@ -1269,6 +1269,7 @@ class SpectralModel(Radtrans):
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
+            return_clear_spectrum: bool = False,
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
@@ -1312,6 +1313,7 @@ class SpectralModel(Radtrans):
             additional_scattering_opacities_function=additional_scattering_opacities_function,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             return_contribution=return_contribution,
+            return_clear_spectrum=return_clear_spectrum,
             return_photosphere_radius=return_photosphere_radius,
             return_rosseland_optical_depths=return_rosseland_optical_depths,
             return_cloud_contribution=return_cloud_contribution
@@ -1551,12 +1553,13 @@ class SpectralModel(Radtrans):
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
-            cloud_fraction: float = None,
+            cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
+            return_clear_spectrum: bool = False,
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
             **kwargs
@@ -1587,6 +1590,7 @@ class SpectralModel(Radtrans):
             additional_scattering_opacities_function=additional_scattering_opacities_function,
             frequencies_to_wavelengths=frequencies_to_wavelengths,
             return_contribution=return_contribution,
+            return_clear_spectrum=return_clear_spectrum,
             return_cloud_contribution=return_cloud_contribution,
             return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium
         )

@@ -168,6 +168,7 @@ class Radtrans:
                 and len(self._rayleigh_species) == 0
                 and len(self._cloud_species) == 0
         )
+        self.__use_smart_clear_opacities = False
 
         # Initialize line parameters
         self._frequencies, self._frequency_bins_edges = self._init_frequency_grid()
@@ -488,6 +489,23 @@ class Radtrans:
             raise ValueError("pressures must be an array in increasing order")
 
     @staticmethod
+    def __check_return_clear_spectrum_relevance(return_clear_spectrum, clouds_have_effect,
+                                                opaque_cloud_top_pressure, cloud_fraction):
+        if return_clear_spectrum and not clouds_have_effect and opaque_cloud_top_pressure is None:
+            warnings.warn(
+                "requested to return a clear spectrum, but clouds have no effect with this setup\n"
+                "To remove this warning, add non-zero cloud mass fractions, set 'cloud_fraction' to a value > 0, "
+                "add an opaque cloud layer, or set 'return_clear_spectrum' to False."
+            )
+
+        if return_clear_spectrum and cloud_fraction < 1:
+            warnings.warn(
+                "both the clear and cloudy spectra will be returned, but the returned cloudy spectrum will have "
+                "a partial cloud coverage\n"
+                "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."
+            )
+
+    @staticmethod
     def __check_wavelength_boundaries(boundaries):
         if np.size(boundaries) != 2:
             raise ValueError(f"wavelengths boundaries must be an array of 2 floats, but was {boundaries}")
@@ -496,7 +514,7 @@ class Radtrans:
             raise ValueError(f"wavelengths boundaries must be an array of 2 floats in increasing order, "
                              f"but was {boundaries}")
 
-    def __clouds_have_effect(self, mass_fractions, cloud_fraction=None):
+    def __clouds_have_effect(self, mass_fractions, cloud_fraction):
         """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
 
         Args:
@@ -852,11 +870,12 @@ class Radtrans:
         return cia
 
     @staticmethod
-    def __get_base_opacities(cloud_fraction, complete_coverage_clouds, opacities, continuum_opacities_scattering,
-                             cloud_anisotropic_scattering_opacities=None, cloud_absorption_opacities=None,
+    def __get_base_opacities(use_smart_clear_opacities, complete_coverage_clouds,
+                             opacities, continuum_opacities_scattering,
+                             cloud_anisotropic_scattering_opacities=None, cloud_absorption_opacities=None
                              ):
         """Return the opacities that should be returned when not using cloud coverage fraction."""
-        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0:  # return the cloudy opacities
+        if use_smart_clear_opacities:  # return the cloudy opacities
             # Sanity checks for later clear/cloudy swaps
             if continuum_opacities_scattering.ndim != 3:
                 raise ValueError(
@@ -1041,6 +1060,53 @@ class Radtrans:
                                  f"but is {clouds_particles_porosity_factor[species]} for species '{species}'")
 
         return clouds_particles_porosity_factor
+
+    def __init_spectral_function(self, is_emission, reference_gravity, complete_coverage_clouds, return_clear_spectrum,
+                                 mass_fractions, cloud_fraction, opaque_cloud_top_pressure):
+        """Initializations and checks common to calculate_flux and calculate_transit_radii."""
+        if reference_gravity <= 0:
+            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+
+        if complete_coverage_clouds is None:
+            complete_coverage_clouds = []
+
+        spectrum_clear = None
+
+        self.__check_return_clear_spectrum_relevance(
+            return_clear_spectrum=return_clear_spectrum,
+            clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_fraction=cloud_fraction,
+        )
+
+        self.__set_sum_opacities(emission=is_emission)
+        self.__set_use_smart_clear_opacities(
+            cloud_fraction=cloud_fraction,
+            complete_coverage_clouds=complete_coverage_clouds,
+            return_clear_spectrum=return_clear_spectrum
+        )
+
+        auto_anisotropic_cloud_scattering = False
+
+        if self._anisotropic_cloud_scattering == 'auto':
+            self._anisotropic_cloud_scattering = is_emission
+            auto_anisotropic_cloud_scattering = True
+        elif not self._anisotropic_cloud_scattering and is_emission:
+            warnings.warn(f"anisotropic cloud scattering is recommended for emission spectra, "
+                          f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
+                          f"set it to True or 'auto' to disable this warning")
+        elif self._anisotropic_cloud_scattering and not is_emission:
+            warnings.warn(f"anisotropic cloud scattering is not recommended for transmission spectra, "
+                          f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
+                          f"set it to False or 'auto' to disable this warning")
+
+        return auto_anisotropic_cloud_scattering, complete_coverage_clouds, spectrum_clear
+
+    def __set_use_smart_clear_opacities(self, cloud_fraction, complete_coverage_clouds, return_clear_spectrum):
+        self.__use_smart_clear_opacities = False
+
+        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0 or return_clear_spectrum:
+            self.__use_smart_clear_opacities = True
 
     def __set_sum_opacities(self, emission):
         self.__sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
@@ -1341,7 +1407,7 @@ class Radtrans:
         _opacities_first_species = None
 
         # Add cloud opacities
-        if cloud_fraction == 1 and len(complete_coverage_clouds) == 0:
+        if cloud_fraction == 1 and not self.__use_smart_clear_opacities:
             continuum_opacities += cloud_continuum_opacities
             continuum_opacities_scattering += cloud_continuum_opacities_scattering
 
@@ -1350,7 +1416,7 @@ class Radtrans:
 
             if additional_scattering_opacities is not None:
                 continuum_opacities_scattering += additional_scattering_opacities
-        elif 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0:
+        elif self.__use_smart_clear_opacities:
             if len(complete_coverage_clouds) > 0:
                 # Treat cloud opacities with complete coverage clouds as standard continuum opacities
                 continuum_opacities += cloud_continuum_opacities[1]
@@ -1385,7 +1451,7 @@ class Radtrans:
             weights_gauss=self._lines_loaded_opacities['weights_gauss']
         )
 
-        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0:
+        if self.__use_smart_clear_opacities:
             # Store the clear opacities
             _opacities_clear = copy.deepcopy(opacities[:, :, 0])  # opacities of 1st species times MMR + clear continuum
 
@@ -3151,7 +3217,7 @@ class Radtrans:
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
             cloud_photosphere_median_optical_depth: float = None,
-            cloud_fraction: float = None,
+            cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
             irradiation_geometry: str = 'dayside_ave',
             emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
@@ -3166,6 +3232,7 @@ class Radtrans:
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
+            return_clear_spectrum: bool = False,
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
@@ -3282,6 +3349,8 @@ class Radtrans:
                     and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
                 return_contribution (Optional[bool]):
                     If True the emission contribution function is be calculated.
+                return_clear_spectrum (Optional[bool]):
+                    If True, return the clear spectrum in addition to a cloudy spectrum.
                 return_photosphere_radius (Optional[bool]):
                     if True, the photosphere radius is calculated and returned
                 return_rosseland_optical_depths (Optional[bool]):
@@ -3301,20 +3370,21 @@ class Radtrans:
                 FutureWarning
             )
 
-        if reference_gravity <= 0:
-            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+        auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear = (
+            self.__init_spectral_function(
+                is_emission=True,
+                reference_gravity=reference_gravity,
+                complete_coverage_clouds=complete_coverage_clouds,
+                return_clear_spectrum=return_clear_spectrum,
+                mass_fractions=mass_fractions,
+                cloud_fraction=cloud_fraction,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure
+            )
+        )
 
         if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
             warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
                           "is not recommended")
-
-        if cloud_fraction is None:
-            cloud_fraction = 1
-
-        if complete_coverage_clouds is None:
-            complete_coverage_clouds = []
-
-        self.__set_sum_opacities(emission=True)
 
         star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
 
@@ -3350,18 +3420,9 @@ class Radtrans:
                              f"or of the same size than frequencies ({self._frequencies.size}), "
                              f"but is of size {np.size(emissivities)}")
 
-        auto_anisotropic_cloud_scattering = False
-
-        if self._anisotropic_cloud_scattering == 'auto':
-            self._anisotropic_cloud_scattering = True
-            auto_anisotropic_cloud_scattering = True
-        elif not self._anisotropic_cloud_scattering:
-            warnings.warn(f"anisotropic cloud scattering is recommended for emission spectra, "
-                          f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
-                          f"set it to True or 'auto' to disable this warning")
-
         optical_depths_rosseland = None
         photosphere_radius = None
+        flux_clear = None
 
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
          cloud_opacities, cloud_particles_mean_radii) = (
@@ -3397,7 +3458,7 @@ class Radtrans:
 
         (_opacities, _continuum_opacities_scattering,
          _cloud_anisotropic_scattering_opacities, _cloud_absorption_opacities) = self.__get_base_opacities(
-            cloud_fraction=cloud_fraction,
+            use_smart_clear_opacities=self.__use_smart_clear_opacities,
             complete_coverage_clouds=complete_coverage_clouds,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
@@ -3425,7 +3486,7 @@ class Radtrans:
             )
         )
 
-        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0:
+        if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
             opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
 
@@ -3465,6 +3526,9 @@ class Radtrans:
                 cloud_fraction * flux
                 + (1 - cloud_fraction) * flux_clear
             )
+
+            if not return_clear_spectrum:
+                flux_clear = None
 
             if return_opacities or return_photosphere_radius:
                 # Swap clear opacities with cloudy opacities
@@ -3518,6 +3582,15 @@ class Radtrans:
 
         if return_contribution:
             additional_outputs['emission_contribution'] = emission_contribution
+
+        if return_clear_spectrum:
+            if frequencies_to_wavelengths:
+                additional_outputs['clear_spectrum'] = flux_hz2flux_cm(
+                    flux_hz=flux_clear,
+                    frequency=self._frequencies
+                )
+            else:
+                additional_outputs['clear_spectrum'] = flux_clear
 
         if return_photosphere_radius:
             additional_outputs['photosphere_radius'] = photosphere_radius
@@ -3806,12 +3879,13 @@ class Radtrans:
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
-            cloud_fraction: float = None,
+            cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
             additional_absorption_opacities_function: callable = None,
             additional_scattering_opacities_function: callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
+            return_clear_spectrum: bool = False,
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
             return_opacities: bool = False
@@ -3918,6 +3992,8 @@ class Radtrans:
                     if True, convert the frequencies (Hz) output to wavelengths (cm)
                 return_contribution (Optional[bool]):
                     If True the transmission and emission contribution function is calculated.
+                return_clear_spectrum (Optional[bool]):
+                    If True, return the clear spectrum in addition to a cloudy spectrum.
                 return_cloud_contribution (Optional[bool]):
                     if True, the cloud contribution is calculated and returned
                 return_radius_hydrostatic_equilibrium (Optional[bool]):
@@ -3925,33 +4001,23 @@ class Radtrans:
                 return_opacities (Optional[bool]):
                     if True, the absorption opacities and scattering opacities are returned
         """
-        if reference_gravity <= 0:
-            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
-
-        auto_anisotropic_cloud_scattering = False
-
-        self.__set_sum_opacities(emission=False)
-
-        if complete_coverage_clouds is None:
-            complete_coverage_clouds = []
-
+        auto_anisotropic_cloud_scattering, complete_coverage_clouds, transit_radii_clear = (
+            self.__init_spectral_function(
+                is_emission=False,
+                reference_gravity=reference_gravity,
+                complete_coverage_clouds=complete_coverage_clouds,
+                return_clear_spectrum=return_clear_spectrum,
+                mass_fractions=mass_fractions,
+                cloud_fraction=cloud_fraction,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure
+            )
+        )
         copy_opacities = False
 
         if return_contribution:
             copy_opacities = True  # opacities need to be copied only if they are used for contribution
-
-        if cloud_fraction is None:
-            cloud_fraction = 1
-        elif (0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0) and not self.__sum_opacities:
+        elif self.__use_smart_clear_opacities and not self.__sum_opacities:
             copy_opacities = True  # opacities need to be copied when using cloud coverage in c-k mode
-
-        if self._anisotropic_cloud_scattering == 'auto':
-            self._anisotropic_cloud_scattering = False
-            auto_anisotropic_cloud_scattering = True
-        elif self._anisotropic_cloud_scattering:
-            warnings.warn(f"anisotropic cloud scattering is not recommended for transmission spectra, "
-                          f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
-                          f"set it to False or 'auto' to disable this warning")
 
         # No photospheric clouds in transmission
         opacities, continuum_opacities_scattering, _, _, _, cloud_particles_mean_radii = self._calculate_opacities(
@@ -3996,7 +4062,7 @@ class Radtrans:
             self._anisotropic_cloud_scattering = 'auto'
 
         _opacities, _continuum_opacities_scattering, _, _ = self.__get_base_opacities(
-            cloud_fraction=cloud_fraction,
+            use_smart_clear_opacities=self.__use_smart_clear_opacities,
             complete_coverage_clouds=complete_coverage_clouds,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
@@ -4018,7 +4084,7 @@ class Radtrans:
             return_contributions=return_contribution
         )
 
-        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0:
+        if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
             opacities[0][:, :, 0] = opacities[1]
             opacities = opacities[0]  # get rid of the now useless cloudy case
@@ -4042,11 +4108,23 @@ class Radtrans:
                     + (1 - cloud_fraction) * transit_radii_clear
             )
 
+            if not return_clear_spectrum:
+                transit_radii_clear = None
+
         del opacities
 
         # Fill last additional parameters
         if return_contribution:
             additional_outputs['transmission_contribution'] = transmission_contribution
+
+        if return_clear_spectrum:
+            if frequencies_to_wavelengths:
+                additional_outputs['clear_spectrum'] = flux_hz2flux_cm(
+                    flux_hz=transit_radii_clear,
+                    frequency=self._frequencies
+                )
+            else:
+                additional_outputs['clear_spectrum'] = transit_radii_clear
 
         if return_radius_hydrostatic_equilibrium:
             additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium

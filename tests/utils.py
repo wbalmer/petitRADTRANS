@@ -345,7 +345,6 @@ def check_cloud_complete_coverage_consistency(spectrum_function, benchmark, rela
     _, flux_clear, _ = spectrum_function(
         mass_fractions=mass_fractions_clear,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
-        cloud_fraction=None,
         complete_coverage_clouds=None,
         **kwargs
     )
@@ -414,7 +413,6 @@ def check_partial_cloud_coverage_full_consistency(spectrum_function, benchmark, 
     _, flux_cloudy, _ = spectrum_function(
         mass_fractions=mass_fractions,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        cloud_fraction=None,
         **kwargs
     )
 
@@ -439,7 +437,6 @@ def check_partial_cloud_coverage_full_consistency(spectrum_function, benchmark, 
     _, flux_clear, _ = spectrum_function(
         mass_fractions=mass_fractions_clear,
         opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
-        cloud_fraction=None,
         **kwargs
     )
 

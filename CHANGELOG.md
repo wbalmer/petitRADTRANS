@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a44] - 2024-09-12
+## [3.1.0a45] - 2024-09-12
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Possibility to return the clear spectrum in addition to a cloudy spectrum.
 - Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
 - Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
