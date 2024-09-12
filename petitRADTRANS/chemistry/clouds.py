@@ -126,7 +126,16 @@ def setup_clouds(pressures, parameters, cloud_species):
     fseds = get_fseds(parameters, cloud_species)
     if "log_kzz" in parameters.keys():
         kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
-    return sigma_lnorm, fseds, kzz, b_hans, radii, distribution
+    
+    cloud_fraction = 1.0
+    complete_coverage_clouds = None
+    if 'patchiness' in parameters.keys():
+        cloud_fraction = parameters['patchiness'].value
+    if 'cloud_fraction' in parameters.keys():
+        cloud_fraction = parameters['cloud_fraction'].value
+    if 'complete_coverage_clouds' in parameters.keys():
+        complete_coverage_clouds = parameters['complete_coverage_clouds'].value
+    return sigma_lnorm, fseds, kzz, b_hans, radii, cloud_fraction, complete_coverage_clouds, distribution
 
 
 def setup_simple_clouds_hazes(parameters):
