@@ -41,6 +41,7 @@ extension_names = [
     'fortran_radtrans_core',
     'fortran_inputs',
     'fortran_rebin',
+    'fortran_convolve',
     'fortran_chemistry'
 ]
 
