@@ -434,6 +434,30 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     return rebinned_spectrum
 
 
+def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths):
+    """Re-bin the spectrum using the Fortran rebin_spectrum_bin function, and catch errors occurring there.
+    The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
+
+    Args:
+        input_wavelengths: wavelengths of the input spectrum
+        input_spectrum: spectrum to re-bin
+        rebinned_wavelengths: wavelengths to re-bin the spectrum to. Must be contained within input_wavelengths
+
+    Returns:
+        The re-binned spectrum on the re-binned wavelengths
+    """
+    rebinned_spectrum = frebin.rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths)
+
+    if np.all(rebinned_spectrum == -1):
+        raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
+    elif np.any(rebinned_spectrum < 0):
+        raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs "
+                         f"(min input spectrum value: {np.min(input_spectrum)}, "
+                         f"min re-binned spectrum value: {np.min(rebinned_spectrum)})")
+
+    return rebinned_spectrum
+
+
 def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma, gravities, intrinsic_temperature,
                                          equilibrium_temperature, redistribution_coefficient=0.25):
     """ Returns a temperature array, in units of K,
