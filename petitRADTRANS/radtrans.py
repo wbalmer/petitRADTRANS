@@ -993,8 +993,10 @@ class Radtrans:
                         raise RuntimeError("unable to perform binning down, please install exo_k")
 
                     hdf5_file = None
-                else:
+                elif isinstance(_hdf5_file, str):
                     hdf5_file = _hdf5_file
+                else:  # more than one file exists, use the standard way of finding the correct file
+                    hdf5_file = None
 
         if hdf5_file is None:
             hdf5_file = get_opacity_input_file(
