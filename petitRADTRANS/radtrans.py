@@ -1295,18 +1295,6 @@ class Radtrans:
                     raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
                                      f"(listed species: {list(mass_fractions.keys())}")
 
-        # Line opacities
-        opacities = self._interpolate_species_opacities(
-            pressures=self._pressures,
-            temperatures=temperatures,
-            n_g=self._lines_loaded_opacities['g_gauss'].size,
-            n_frequencies=self._frequencies.size,
-            line_opacities_grid=self._lines_loaded_opacities['opacity_grid'],
-            line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'],
-            line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size'],
-            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
-        )
-
         # Continuum opacities
         continuum_opacities = self.__compute_continuum_opacities(
             frequencies=self._frequencies,
@@ -1407,6 +1395,18 @@ class Radtrans:
         del _cloud_scattering_opacities
 
         _opacities_first_species = None
+
+        # Line opacities (calculating them just before calculating the combined opacities reduces peak memory usage)
+        opacities = self._interpolate_species_opacities(
+            pressures=self._pressures,
+            temperatures=temperatures,
+            n_g=self._lines_loaded_opacities['g_gauss'].size,
+            n_frequencies=self._frequencies.size,
+            line_opacities_grid=self._lines_loaded_opacities['opacity_grid'],
+            line_opacities_temperature_pressure_grid=self._lines_loaded_opacities['temperature_pressure_grid'],
+            line_opacities_temperature_grid_size=self._lines_loaded_opacities['temperature_grid_size'],
+            line_opacities_pressure_grid_size=self._lines_loaded_opacities['pressure_grid_size']
+        )
 
         # Add cloud opacities
         if cloud_fraction == 1 and not self.__use_smart_clear_opacities:
