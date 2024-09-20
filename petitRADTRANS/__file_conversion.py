@@ -4112,7 +4112,7 @@ def convert_all(path_input_data=petitradtrans_config_parser.get_input_data_path(
     _continuum_clouds_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite,
                                        old_paths=old_paths, clean=clean)
 
-    print("Correlated-k opacities")
+    print("Correlated-k opacities...")
     _correlated_k_opacities_dat2h5(path_input_data=path_input_data, rewrite=rewrite, old_paths=old_paths, clean=clean)
 
     print("Line-by-line opacities...")
