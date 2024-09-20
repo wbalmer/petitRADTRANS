@@ -434,7 +434,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     return rebinned_spectrum
 
 
-def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths):
+def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
     """Re-bin the spectrum using the Fortran rebin_spectrum_bin function, and catch errors occurring there.
     The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
 
@@ -442,11 +442,12 @@ def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths):
         input_wavelengths: wavelengths of the input spectrum
         input_spectrum: spectrum to re-bin
         rebinned_wavelengths: wavelengths to re-bin the spectrum to. Must be contained within input_wavelengths
+        bin_widths: bin widths of the wavelengths to re-bin the spectrum to.
 
     Returns:
         The re-binned spectrum on the re-binned wavelengths
     """
-    rebinned_spectrum = frebin.rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths)
+    rebinned_spectrum = frebin.rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
 
     if np.all(rebinned_spectrum == -1):
         raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
