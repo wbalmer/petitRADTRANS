@@ -1767,6 +1767,10 @@ class Retrieval:
             for i, parameter_name in enumerate(param_dict)
         }
 
+    @staticmethod
+    def get_special_parameters() -> set[str]:
+        return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
+
     def get_volume_mixing_ratios(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
         """
         This function returns the VMRs of each species as a function of pressure.

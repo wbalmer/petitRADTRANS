@@ -602,8 +602,30 @@ class SpectralModel(Radtrans):
         if fixed_parameters is None:
             fixed_parameters = {}
 
+        def __special_parameters_interface(_parameter):
+            if _parameter in fixed_parameters:
+                return None
+
+            __parameter = None
+
+            for k, v in parameters.items():
+                if k in fixed_parameters:
+                    continue
+
+                k = k.split(_parameter, 1)[0]
+
+                if k == '':
+                    __parameter = copy.deepcopy(v)
+                    break
+                elif k == '_log10':
+                    __parameter = copy.deepcopy(10 ** v)
+                    break
+
+            return __parameter
+
         # Build model parameters
         parameters = {}
+        special_retrieval_parameters = Retrieval.get_special_parameters()
 
         # Add fixed parameters
         for key, value in fixed_parameters.items():
@@ -611,19 +633,57 @@ class SpectralModel(Radtrans):
 
         # Add free parameters, convert from Parameter object to dictionary
         for key, value in retrieved_parameters.items():
-            parameters[key] = copy.deepcopy(value)
+            if key not in fixed_parameters:
+                parameters[key] = copy.deepcopy(value)
 
         for key, value in parameters.items():
+            if key[0] == '_':
+                is_special_parameter = False
+
+                for parameter in special_retrieval_parameters:
+                    if key.split(parameter, 1)[0] == '' or key.split(parameter, 1)[0] == '_log10':
+                        is_special_parameter = True
+                        break
+
+                if not is_special_parameter:
+                    available = "'" + "', '".join(special_retrieval_parameters) + "'"
+                    raise ValueError(
+                        f"parameter '{key}' is not a special retrieval parameter\n"
+                        f"Available special retrieval parameters are {available}."
+                    )
+
             if hasattr(value, 'value'):
                 parameters[key] = parameters[key].value
 
-        # Handle uncertainties scaling factor (beta)
-        if 'beta' in parameters:
-            beta = copy.deepcopy(parameters['beta'])
-        elif 'log10_beta' in parameters:
-            beta = copy.deepcopy(10 ** parameters['log10_beta'])
+        # Handle special parameters
+        # TODO remove beta handling in version 4.0.0
+        uncertainty_scaling_in_parameters = False
+
+        for parameter in parameters:
+            split = parameter.split('_uncertainty_scaling', 1)
+
+            if split[0] == '' or split[0] == '_log10':
+                uncertainty_scaling_in_parameters = True
+
+        if 'beta' in parameters and not uncertainty_scaling_in_parameters:
+            uncertainty_scaling = __special_parameters_interface('beta')
+            warnings.warn(  # TODO remove in version 4.0.0
+                "special retrieved parameter 'beta' is deprecated and will be removed in a future update\n"
+                "Use '_uncertainty_scaling' instead.",
+                FutureWarning
+            )
+        elif 'beta' in parameters and uncertainty_scaling_in_parameters:
+            raise ValueError(
+                "special retrieved parameter '_uncertainty_scaling' with alias 'beta' declared twice\n"
+                "Declare only '_uncertainty_scaling', and remove 'beta' from the retrieved parameters."
+            )
+        elif uncertainty_scaling_in_parameters:
+            uncertainty_scaling = __special_parameters_interface('_uncertainty_scaling')
         else:
-            beta = None
+            uncertainty_scaling = None
+
+        spectrum_scaling = __special_parameters_interface('_spectrum_scaling')
+        spectrum_offset = __special_parameters_interface('_spectrum_offset')
 
         # Put retrieved species into imposed mass fractions
         imposed_mass_fractions = {}
@@ -643,7 +703,7 @@ class SpectralModel(Radtrans):
         for key, value in imposed_mass_fractions.items():
             parameters['imposed_mass_fractions'][key] = value
 
-        return parameters, beta
+        return parameters, uncertainty_scaling, spectrum_scaling, spectrum_offset
 
     @staticmethod
     def _compute_planet_star_centers_distance(orbit_semi_major_axis, orbital_inclination,
@@ -2421,6 +2481,44 @@ class SpectralModel(Radtrans):
         return convolved_spectrum
 
     @classmethod
+    def from_radtrans(
+            cls,
+            radtrans,
+            copy_radtrans=False,
+            temperatures=None, mass_fractions=None, mean_molar_masses=None,
+            wavelengths=None, transit_radii=None, fluxes=None,
+            model_functions_map=None, spectral_modification_functions_map=None,
+            **model_parameters
+    ):
+        with warnings.catch_warnings():
+            # Expect UserWarnings caused by pressure not set and no opacity source given
+            warnings.filterwarnings("ignore", category=UserWarning)
+
+            empty_radtrans = Radtrans()
+
+            new_spectral_model = cls(
+                wavelength_boundaries=radtrans.wavelength_boundaries,
+                temperatures=temperatures,
+                mass_fractions=mass_fractions,
+                mean_molar_masses=mean_molar_masses,
+                wavelengths=wavelengths,
+                transit_radii=transit_radii,
+                fluxes=fluxes,
+                model_functions_map=model_functions_map,
+                spectral_modification_functions_map=spectral_modification_functions_map,
+                **model_parameters
+            )
+
+        for k, v in radtrans.__dict__.items():
+            if k in new_spectral_model.__dict__ and k in empty_radtrans.__dict__:
+                if copy_radtrans:
+                    new_spectral_model.__dict__[copy.deepcopy(k)] = copy.deepcopy(v)
+                else:
+                    new_spectral_model.__dict__[k] = v
+
+        return new_spectral_model
+
+    @classmethod
     def from_retrieval(
             cls,
             retrieval_directory: str,
@@ -2522,7 +2620,7 @@ class SpectralModel(Radtrans):
             if parameter not in sample_selection and 'log10_' + parameter not in sample_selection:
                 fixed_parameters[parameter] = copy.deepcopy(value)
 
-        parameters, _ = new_spectral_model.__retrieval_parameters_interface(
+        parameters, _, _, _ = new_spectral_model.__retrieval_parameters_interface(
             retrieved_parameters=sample_selection,
             fixed_parameters=fixed_parameters,
             line_species=new_spectral_model.line_species,
@@ -2803,7 +2901,8 @@ class SpectralModel(Radtrans):
                   data_uncertainties: npt.NDArray[float],
                   data_name: str = 'data',
                   retrieved_parameters: dict[str, dict] = None, model_parameters: dict[str] = None,
-                  mode: str = 'emission', update_parameters: bool = False,
+                  fixed_special_parameters: dict[str] = None,
+                  mode: str = 'emission', update_parameters: bool = True,
                   telluric_transmittances: npt.NDArray[float] = None,
                   instrumental_deformations: npt.NDArray[float] = None,
                   noise_matrix: npt.NDArray[float] = None,
@@ -2860,6 +2959,9 @@ class SpectralModel(Radtrans):
         if model_parameters is None:
             model_parameters = copy.deepcopy(self.model_parameters)
 
+        if fixed_special_parameters is None:
+            fixed_special_parameters = {}
+
         # Identify retrieved parameters
         if isinstance(retrieved_parameters, dict):
             retrieved_parameters = RetrievalParameter.from_dict(retrieved_parameters)
@@ -2872,6 +2974,36 @@ class SpectralModel(Radtrans):
         for parameter, value in model_parameters.items():
             if parameter not in retrieved_parameters_names and 'log10_' + parameter not in retrieved_parameters_names:
                 fixed_parameters[parameter] = copy.deepcopy(value)
+
+        special_parameters = Retrieval.get_special_parameters()
+
+        for parameter, value in fixed_special_parameters.items():
+            is_special_parameter = False
+
+            for special_parameter in special_parameters:
+                _parameter = parameter.split(special_parameter, 1)[0]
+
+                if _parameter == '' or _parameter == '_log10':
+                    is_special_parameter = True
+                    break
+
+            if not is_special_parameter:
+                available = "'" + "', '".join(special_parameters) + "'"
+                raise ValueError(
+                    f"parameter '{parameter}' is not a special retrieval parameter\n"
+                    f"Available special retrieval parameters are {available}."
+                )
+
+            if parameter not in retrieved_parameters_names:
+                warnings.warn(
+                    f"fixed special parameter '{parameter}' is not a retrieved parameters, so is fixed by default\n"
+                    f"To remove this warning, add '{parameter}' to the retrieved parameters, "
+                    f"or remove '{parameter}' from 'fixed_special_parameters'.\n"
+                    f"Note that 'fixed_special_parameters' is intended to be used in the case that "
+                    f"multiple Data objects are retrieved."
+                )
+
+            fixed_parameters[parameter] = value
 
         # Set the model generating function
         def model_generating_function(prt_object, parameters, pt_plot_mode=None, amr=False):
@@ -3470,22 +3602,24 @@ class SpectralModel(Radtrans):
     @staticmethod
     def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, amr=False,
                                             fixed_parameters=None,
-                                            mode='emission', update_parameters=False,
+                                            mode='emission', update_parameters=True,
                                             telluric_transmittances_wavelengths=None, telluric_transmittances=None,
                                             instrumental_deformations=None, noise_matrix=None,
                                             scale=False, shift=False, use_transit_light_loss=False,
                                             convolve=False, rebin=False, prepare=False):
-        p, beta = SpectralModel.__retrieval_parameters_interface(
-            retrieved_parameters=parameters,
-            fixed_parameters=fixed_parameters,
-            line_species=prt_object.line_species,
-            n_layers=prt_object.pressures.size
+        _parameters, uncertainty_scaling, spectrum_scaling, spectrum_offset = (
+            SpectralModel.__retrieval_parameters_interface(
+                retrieved_parameters=parameters,
+                fixed_parameters=fixed_parameters,
+                line_species=prt_object.line_species,
+                n_layers=prt_object.pressures.size
+            )
         )
 
         # Calculate the spectrum
         wavelengths, model = prt_object.calculate_spectrum(
             mode=mode,
-            parameters=p,
+            parameters=_parameters,
             update_parameters=update_parameters,
             telluric_transmittances_wavelengths=telluric_transmittances_wavelengths,
             telluric_transmittances=telluric_transmittances,
@@ -3499,7 +3633,13 @@ class SpectralModel(Radtrans):
             prepare=prepare
         )
 
-        return wavelengths, model, beta
+        if spectrum_scaling is not None:
+            model *= spectrum_scaling
+
+        if spectrum_offset is not None:
+            model += spectrum_offset
+
+        return wavelengths, model, uncertainty_scaling
 
     @staticmethod
     def run_retrieval(retrieval_configuration: RetrievalConfig, retrieval_directory, uncertainties_mode='default',
