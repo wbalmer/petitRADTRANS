@@ -21,7 +21,7 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
-    rebin_spectrum, um2hz
+    rebin_spectrum, rebin_spectrum_bin, um2hz
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
@@ -3415,13 +3415,21 @@ class SpectralModel(Radtrans):
         )
 
     @staticmethod
-    def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, **kwargs):
+    def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths=None, **kwargs):
+        arguments = {
+            'input_wavelengths': input_wavelengths,
+            'input_spectrum': input_spectrum,
+            'rebinned_wavelengths': rebinned_wavelengths,
+        }
+
+        if bin_widths is not None:
+            arguments['bin_widths'] = bin_widths
+            rebin_function = rebin_spectrum_bin
+        else:
+            rebin_function = rebin_spectrum
+
         if np.ndim(rebinned_wavelengths) <= 1 and isinstance(rebinned_wavelengths, np.ndarray):
-            rebinned_spectrum = rebin_spectrum(
-                input_wavelengths=input_wavelengths,
-                input_spectrum=input_spectrum,
-                rebinned_wavelengths=rebinned_wavelengths
-            )
+            rebinned_spectrum = rebin_function(**arguments)
 
             return rebinned_wavelengths, rebinned_spectrum
         else:
@@ -3429,12 +3437,13 @@ class SpectralModel(Radtrans):
                 spectra = []
                 lengths = []
 
-                for wavelengths in rebinned_wavelengths:
-                    rebinned_spectrum = rebin_spectrum(
-                        input_wavelengths=input_wavelengths,
-                        input_spectrum=input_spectrum,
-                        rebinned_wavelengths=wavelengths
-                    )
+                for i, wavelengths in enumerate(rebinned_wavelengths):
+                    arguments['rebinned_wavelengths'] = wavelengths
+
+                    if bin_widths is not None and np.ndim(bin_widths) == 2:
+                        arguments['bin_widths'] = bin_widths[i]
+
+                    rebinned_spectrum = rebin_function(**arguments)
 
                     spectra.append(rebinned_spectrum)
                     lengths.append(spectra[-1].size)
