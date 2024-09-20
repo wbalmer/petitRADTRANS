@@ -11,7 +11,7 @@ import warnings
 import h5py
 import numpy as np
 import numpy.typing as npt
-import scipy.ndimage
+from scipy.ndimage import gaussian_filter1d as scipy_gaussian_filter1d
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
@@ -846,7 +846,7 @@ class SpectralModel(Radtrans):
         # Conversion from FWHM to Gaussian sigma
         sigma_lsf_gauss_filter = input_resolving_power / convolve_resolving_power / (2 * np.sqrt(2 * np.log(2)))
 
-        convolved_spectrum = scipy.ndimage.gaussian_filter1d(
+        convolved_spectrum = scipy_gaussian_filter1d(
             input=input_spectrum,
             sigma=sigma_lsf_gauss_filter,
             mode='reflect'
