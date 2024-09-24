@@ -735,7 +735,8 @@ class Retrieval:
                         summary.write(f"    {key} = {value.value:.3f}\n")
                     else:
                         summary.write(f"    {key} = {value.value}\n")
-
+            summary.write(f"    line_species = {self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species}\n")
+            summary.write(f"    cloud_species = {self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.cloud_species}\n")
             summary.write('\n')
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
 
@@ -3985,7 +3986,8 @@ class Retrieval:
             if only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
                 return None, None, None
-
+            for i,s in enumerate(sample_use):
+                print(parameters_read[i],s)
             best_fit_wavelengths, best_fit_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
@@ -4115,7 +4117,6 @@ class Retrieval:
                                 self.best_fit_spectra[name][1],
                                 data.data_resolution
                             )
-
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -4123,6 +4124,7 @@ class Retrieval:
                             wavelengths_bins
                         )
                     else:
+                        spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
                         if data.data_resolution_array_model is not None:
                             data.initialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
                             spectrum_model = data.convolve(
@@ -4138,8 +4140,8 @@ class Retrieval:
                             )
                         elif data.radtrans_grid:
                             spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
-                        else:
-                            spectrum_model = None  # TODO prevent reference before assignment
+                        #else:
+                        #    spectrum_model = None  # TODO prevent reference before assignment
 
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],

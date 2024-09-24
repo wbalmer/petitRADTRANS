@@ -156,20 +156,35 @@ def setup_simple_clouds_hazes(parameters):
     haze_factor = 1.0
     power_law_opacity_350nm = None
 
+    # Grey clouds
     if 'log_Pcloud' in parameters.keys():
         pcloud = 10 ** parameters['log_Pcloud'].value
     elif 'Pcloud' in parameters.keys():
         pcloud = parameters['Pcloud'].value
+    elif 'log_opaque_cloud_top_pressure' in parameters.keys():
+        pcloud = 10**parameters['log_opaque_cloud_top_pressure'].value
+    elif 'opaque_cloud_top_pressure' in parameters.keys():
+        pcloud = parameters['log_opaque_cloud_top_pressure'].value
 
+    # Hazes and Rayleigh
     if "power_law_opacity_350nm" in parameters.keys():
         power_law_opacity_350nm = parameters["power_law_opacity_350nm"].value
-
     if "power_law_opacity_coefficient" in parameters.keys():
         power_law_opacity_coefficient = parameters["power_law_opacity_coefficient"].value
+    if "log_haze_factor" in parameters.keys():
+        # TODO Document. Should be taken care of in prior.
+        haze_factor = 10**parameters["haze_factor"].value
+    elif "haze_factor" in parameters.keys():
+        haze_factor = parameters["haze_factor"].value
 
-    if "haze_factor" in parameters.keys():
-        haze_factor = 10 ** parameters["haze_factor"].value
-
+    # Compatibility
+    if "gamma_scat" in parameters.keys():
+        # Deprecated naming
+        power_law_opacity_coefficient = parameters["gamma_scat"].value
+    if "kappa_0" in parameters.keys():
+        # Deprecated naming
+        power_law_opacity_350nm = 10**parameters["kappa_0"].value
+        
     return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
 
 
