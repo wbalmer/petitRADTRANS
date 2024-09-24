@@ -486,19 +486,12 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
-    # Taken from Ackerman & Marley (2001)
-    # including their erratum
     # Visscher 2010 condensation curve
 
     def p_vap(x):
-        return np.exp(15.92 - 1.97 * metallicity - 27027.03 / x)
+        return 10.**(15.92 - 1.97 * metallicity - 27027.03 / x)
 
-    # x_mg2sio4 = return_x_mg2sio4(metallicity, co_ratio)
-    #
-    # m_mg2sio4 = 2. * __get_species_molar_mass('Mg') \
-    #     + __get_species_molar_mass('Si') \
-    #     + 4. * __get_species_molar_mass('O')
-    return p_vap(t), t  # TODO shouldn't that be multiplied by (x_mg2sio4 * mmw / m_mg2sio4) just like above?
+    return p_vap(t), t
 
 
 def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
