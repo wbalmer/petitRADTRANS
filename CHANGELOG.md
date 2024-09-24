@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a46] - 2024-09-20
+## [3.1.0a47] - 2024-09-24
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Example retrieval output files.
 
 ### Fixed
+- Bug in `chemistry.clouds.return_t_cond_mg2sio4()`, since log in Visccher et al. (2010) means log10, not ln.
 - Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
 - Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
 - Bug in function `calculate_transit_radii()` when `return_opacities=True`.
