@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a46] - 2024-09-24
+## [3.1.0a47] - 2024-09-24
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
@@ -99,10 +99,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
 
-
 ## [3.0.8] - 2024-09-24
 ### Fixed
-- Bug in `chemistry.clouds.return_t_cond_mg2sio4()`, since log in Visccher et al. (2010) means log10, not ln.
+- Incorrect condensation calculation in `chemistry.clouds.return_t_cond_mg2sio4()`: "log" in Visccher et al. (2010) means "log10", not "ln".
 
 ## [3.0.7] - 2024-07-01
 ### Fixed
@@ -120,8 +119,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.0.4] - 2024-05-28
 ### Fixed
-- Fixed MPI parallelisation for exo-k binning.
-- Enforced integer indices for AMR in retrievals.
+- Scripts hang forever while loading `exo-k` re-binned opacities on multiple processes.
+- Indices for AMR in retrievals are not integers.
 
 ## [3.0.3] - 2024-05-15
 ### Fixed
@@ -177,9 +176,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Changed
 - Added column_flux_mixer treatment to petitRADTRANS/retrieval/data.py's get_chisq() in convolve-rebin mode.
-- TODO: `fortran_radtrans_core.math.solve_tridiagonal_system`:
-  - temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-  - temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Functions, arguments and attributes now have clearer names and respect PEP8. The complete list of change is available [here](https://docs.google.com/spreadsheets/d/1yCiyPJfUXzsd9gWTt3HdwntNM2MrHNfaZoacXkg1KLk/edit#gid=2092634402).
 - Spectral functions of `Radtrans` (`calculate_flux` and `calculate_transit_radii`) now return wavelengths, spectrum, and a dictionary containing additional outputs, instead of nothing.
 - Function `Radtrans.calculate_flux` now output by default wavelengths in cm (instead of frequencies in Hz) and flux in erg.s-1.cm-2/cm instead of erg.s-1.cm-2/Hz. Setting the argument `frequencies_to_wavelengths=False` restores the previous behaviour.
@@ -210,6 +206,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Cloud opacities are now read from HDF5 files.
 - CIA cross-sections are now read from HDF5 files.
 - petitRADTRANS is now installed through `meson` instead of the deprecated `numpy.distutils`. The installation procedure is mostly unchanged.
+- Temporarily allowed < 0 solutions in function `fortran_radtrans_core.math.solve_tridiagonal_system` until it is determined if they should be allowed.
+- Temporarily silented the overflow warning message of function `fortran_radtrans_core.math.solve_tridiagonal_system` until a solution to trigger the message less often is found.
 - Various optimisations.
 - Updated package structure.
 - Code clean-up.
@@ -239,20 +237,25 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: importing the PHOENIX stellar spectra table triggers its loading.
 - Incorrect behaviour: plotting when running in "evaluate" mode of the retrieval package.
 
-## [2.9.0] - 2023-11-28
-Referred as 2.7.6
+## [2.7.7] - 2024-03-06
+Should be 2.9.0 (no code change since last version).
+### Changed
+ - Various documentation updates.
+
+## [2.7.6] - 2023-11-28
+Should be 2.9.0.
 ### Added
 - Implementation of leave-one-out cross validation retrieval from Sam de Regt.
 - Includes new Pareto Smoothed INP and LOO module (psis.py), plus additional functions in retrieval module.
 - Example included in test directory.
 
-## [2.8.2] - 2023-11-08
-Referred as 2.7.5
+## [2.7.5] - 2023-11-08
+Should be 2.8.2.
 ### Changed
  - Updates to retrieval tutorials, as requested by JOSS review.
 
-## [2.8.1] - 2023-11-13
-Referred as 2.7.4
+## [2.7.4] - 2023-11-13
+Should be 2.8.1.
 ### Changed
  - Minor changes to MPI interface.
  - Removed unnecessary instructions for installation on Apple Mx chips.
@@ -261,8 +264,8 @@ Referred as 2.7.4
 ### Fixed
  - Bugs in argument naming.
 
-## [2.8.0] - 2023-11-08
-Referred as 2.7.3
+## [2.7.3] - 2023-11-08
+Should be 2.8.0.
 ### Added
 - Plotting function interface, can pass `pRT_objects` and `model_generating_functions`.
 - MPI interface for better parallelisation.
