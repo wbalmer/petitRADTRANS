@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a45] - 2024-09-12
+## [3.1.0a47] - 2024-09-24
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
 - Possibility to return the clear spectrum in addition to a cloudy spectrum.
+- Possibility to instantiate `SpectralModel` objects with shared opacities with the `from_radtrans` function.
+- Support of `rebin_spectrum_bin` in `SpectralModel`.
+- Support of spectral offsets in `SpectralModel`.
 - Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
 - Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
@@ -54,6 +57,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Example retrieval output files.
 
 ### Fixed
+- Bug in `chemistry.clouds.return_t_cond_mg2sio4()`, since log in Visccher et al. (2010) means log10, not ln.
 - Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
 - Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
 - Bug in function `calculate_transit_radii()` when `return_opacities=True`.
@@ -78,6 +82,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Incorrect filling mass fraction calculation in some cases.
+- Incorrect handling of `SpectralModel` spectra in retrievals when retrieving 1D data.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.

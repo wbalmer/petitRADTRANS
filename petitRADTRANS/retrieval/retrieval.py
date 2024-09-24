@@ -1768,6 +1768,10 @@ class Retrieval:
             for i, parameter_name in enumerate(param_dict)
         }
 
+    @staticmethod
+    def get_special_parameters() -> set[str]:
+        return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
+
     def get_volume_mixing_ratios(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
         """
         This function returns the VMRs of each species as a function of pressure.
@@ -1984,7 +1988,8 @@ class Retrieval:
                     if np.isnan(spectrum_model).any():
                         return invalid_value
 
-                    if isinstance(data.spectrum, float) or np.ndim(data.spectrum) == 1:
+                    if ((isinstance(data.spectrum, float) or np.ndim(data.spectrum) == 1)
+                            and np.ndim(spectrum_model) == 1):
                         # Convolution and rebin are cared of in get_chisq
                         log_likelihood += data.get_chisq(
                             wavelengths_model,
@@ -1995,6 +2000,18 @@ class Retrieval:
                             atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
                             generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
+                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 2:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
+                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 3:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
                     elif np.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength

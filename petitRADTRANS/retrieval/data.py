@@ -8,7 +8,7 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.fortran_rebin import fortran_convolve
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 import petitRADTRANS.physical_constants as cst
 
 
@@ -774,7 +774,7 @@ class Data:
                 The convolved spectrum.
         """
         if isinstance(instrument_res, np.ndarray):
-            return fortran_convolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
+            return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
         # From talking to Ignas: delta lambda of resolution element
         # is FWHM of the LSF's standard deviation, hence:
         sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
