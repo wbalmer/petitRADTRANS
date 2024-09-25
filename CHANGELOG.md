@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a47] - 2024-09-24
+## [3.1.0a48] - 2024-09-25
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
@@ -93,6 +93,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: `exo_k` is imported to bin down opacities even when the binned-down opacity file already exists.
 - Typos in some docs.
 - Typos in some comments.
+- Bug in retrieval where the plotted spectrum could be none
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.

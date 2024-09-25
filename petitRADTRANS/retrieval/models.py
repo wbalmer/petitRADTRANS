@@ -1608,39 +1608,106 @@ def calculate_transmission_spectrum(prt_object,
     Returns:
         _type_: _description_
     """
-    results = prt_object.calculate_transit_radii(
-        temperatures=temperatures,
-        mass_fractions=abundances,
-        reference_gravity=gravity,
-        mean_molar_masses=mean_molar_masses,
-        planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
-        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_particles_mean_radii=cloud_particles_mean_radii,
-        cloud_f_sed=cloud_f_sed,
-        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
-        haze_factor=haze_factor,
-        power_law_opacity_coefficient=power_law_opacity_coefficient,
-        power_law_opacity_350nm=power_law_opacity_350nm,
-        cloud_hansen_b=cloud_hansen_b,
-        cloud_fraction=cloud_fraction,
-        complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution,
-        return_contribution=contribution
-    )
+    if power_law_opacity_350nm is not None:
+        results = prt_object.calculate_transit_radii(
+            temperatures=temperatures,
+            mass_fractions=abundances,
+            reference_gravity=gravity,
+            mean_molar_masses=mean_molar_masses,
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_particle_radius_distribution_std=sigma_lnorm,
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            cloud_hansen_b=cloud_hansen_b,
+            cloud_fraction=1.0,
+            complete_coverage_clouds=complete_coverage_clouds,
+            cloud_particles_radius_distribution=distribution,
+            return_contribution=contribution
+        )
+        if not contribution:
+            wlen_model, transit_radii, _ = results
+            additional_output = None
+        else:
+            wlen_model, transit_radii, additional_output = results
 
-    if not contribution:
-        wlen_model, transit_radii, _ = results
-        additional_output = None
+        wlen_model *= 1e4
+        spectrum_model_cloudy = (transit_radii / parameters['stellar_radius'].value) ** 2.
+
+        # Need to include old patchiness method to deal with scattering slopes
+        if "patchiness" in parameters.keys():
+            for cloud in prt_object.cloud_species:
+                cname = cloud.split('_')[0]
+                abundances[cname] = np.zeros_like(temperatures)
+            results = prt_object.calculate_transit_radii(
+                temperatures=temperatures,
+                mass_fractions=abundances,
+                reference_gravity=gravity,
+                mean_molar_masses=mean_molar_masses,
+                planet_radius=planet_radius,
+                reference_pressure=reference_pressure,
+                return_contribution=contribution
+                )
+
+            if not contribution:
+                wlen_model, transit_radii, _ = results
+                additional_output = None
+            else:
+                wlen_model, transit_radii, additional_output = results
+            wlen_model *= 1e4
+            spectrum_model_clear = (transit_radii / parameters['stellar_radius'].value) ** 2.
+
+            spectrum_model = (cloud_fraction * spectrum_model_cloudy) +\
+                ((1-cloud_fraction)*spectrum_model_clear)
+            if contribution:
+                return wlen_model, spectrum_model, additional_output['transmission_contribution']
+            return wlen_model, spectrum_model
+        else:
+            wlen_model *= 1e4
+            spectrum_model = spectrum_model_cloudy
+            if contribution:
+                return wlen_model, spectrum_model, additional_output['transmission_contribution']
+            return wlen_model, spectrum_model
+
     else:
-        wlen_model, transit_radii, additional_output = results
+        # New meethod only. TODO: make patchiness work with scattering natively
+        results = prt_object.calculate_transit_radii(
+            temperatures=temperatures,
+            mass_fractions=abundances,
+            reference_gravity=gravity,
+            mean_molar_masses=mean_molar_masses,
+            planet_radius=planet_radius,
+            reference_pressure=reference_pressure,
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_particle_radius_distribution_std=sigma_lnorm,
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+            haze_factor=haze_factor,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            cloud_hansen_b=cloud_hansen_b,
+            cloud_fraction=cloud_fraction,
+            complete_coverage_clouds=complete_coverage_clouds,
+            cloud_particles_radius_distribution=distribution,
+            return_contribution=contribution
+        )
+        if not contribution:
+            wlen_model, transit_radii, _ = results
+            additional_output = None
+        else:
+            wlen_model, transit_radii, additional_output = results
 
-    wlen_model *= 1e4
-    spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    if contribution:
-        return wlen_model, spectrum_model, additional_output['transmission_contribution']
-    return wlen_model, spectrum_model
+        wlen_model *= 1e4
+        spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
+        if contribution:
+            return wlen_model, spectrum_model, additional_output['transmission_contribution']
+        return wlen_model, spectrum_model
 
 
 def pglobal_check(press, shape, scaling):

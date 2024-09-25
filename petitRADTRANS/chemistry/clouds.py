@@ -183,8 +183,7 @@ def setup_simple_clouds_hazes(parameters):
         power_law_opacity_coefficient = parameters["gamma_scat"].value
     if "kappa_0" in parameters.keys():
         # Deprecated naming
-        power_law_opacity_350nm = 10**parameters["kappa_0"].value
-        
+        power_law_opacity_350nm = 10**parameters["kappa_0"].value 
     return pcloud, power_law_opacity_coefficient, haze_factor, power_law_opacity_350nm
 
 
