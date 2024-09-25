@@ -57,7 +57,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Example retrieval output files.
 
 ### Fixed
-- Bug in `chemistry.clouds.return_t_cond_mg2sio4()`, since log in Visccher et al. (2010) means log10, not ln.
 - Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
 - Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
 - Bug in function `calculate_transit_radii()` when `return_opacities=True`.
@@ -99,6 +98,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.0.8] - 2024-09-24
+### Fixed
+- Incorrect condensation calculation in `chemistry.clouds.return_t_cond_mg2sio4()`: "log" in Visccher et al. (2010) means "log10", not "ln".
 
 ## [3.0.7] - 2024-07-01
 ### Fixed
