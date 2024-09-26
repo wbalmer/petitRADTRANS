@@ -609,7 +609,6 @@ class Data:
                 plt.show()
 
         if generate_mock_data:
-
             # Check if the mock data folder exists, if not create it:
             if not os.path.exists("mock_data"):
                 os.makedirs("mock_data")

@@ -2766,6 +2766,8 @@ class Retrieval:
             width : int
                 The number of cells in the low pressure grid to replace with the high resolution grid.
         """
+        radtrans = None
+
         for name, data in self.configuration.data.items():
             if data.radtrans_object is not None:
                 print(f"Using provided Radtrans object for data '{name}'...")
@@ -4155,6 +4157,7 @@ class Retrieval:
                         )
                     else:
                         spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
+
                         if data.data_resolution_array_model is not None:
                             data.initialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
                             spectrum_model = data.convolve(

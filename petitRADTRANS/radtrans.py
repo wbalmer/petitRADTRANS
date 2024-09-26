@@ -3325,9 +3325,9 @@ class Radtrans:
                     Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
                     the non-isotropic geometry scenario.
                 reflectances (Optional):
-                    # TODO
+                    Reflectances of the surface (layer with highest pressure).
                 emissivities (Optional):
-                    # TODO
+                    Emissivities of the surface (layer with highest pressure).
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
