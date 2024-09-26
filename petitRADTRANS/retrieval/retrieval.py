@@ -2050,9 +2050,10 @@ class Retrieval:
                 spectrum_model = None
                 additional_log_l = None
 
-            wavelengths_models.append(wavelengths_model)
-            spectrum_models.append(spectrum_model)
-            additional_log_ls.append(additional_log_l)
+            if return_model:
+                wavelengths_models.append(wavelengths_model)
+                spectrum_models.append(spectrum_model)
+                additional_log_ls.append(additional_log_l)
 
             if per_datapoint:
                 log_l_per_datapoint_dict[data_name].append(log_likelihood)
