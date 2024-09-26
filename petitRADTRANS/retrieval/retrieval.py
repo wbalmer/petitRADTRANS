@@ -1359,18 +1359,6 @@ class Retrieval:
         Returns:
             object: The generated full range model.
         """
-
-        # Find the boundaries of the wavelength range to calculate
-        wavelength_min = np.inf
-        wavelength_max = -np.inf
-
-        for name, data in self.configuration.data.items():
-            if data.wavelength_boundaries[0] < wavelength_min:
-                wavelength_min = data.wavelength_boundaries[0]
-
-            if data.wavelength_boundaries[1] > wavelength_max:
-                wavelength_max = data.wavelength_boundaries[1]
-
         # Set up parameter dictionary
         # parameters = self.build_param_dict(params,parameters_read)
         parameters["contribution"] = Parameter("contribution", False, value=contribution)
@@ -1389,6 +1377,17 @@ class Retrieval:
         elif prt_reference is not None:
             atmosphere = self.configuration.data[prt_reference].radtrans_object
         else:
+            # Find the boundaries of the wavelength range to calculate
+            wavelength_min = np.inf
+            wavelength_max = -np.inf
+
+            for name, data in self.configuration.data.items():
+                if data.wavelength_boundaries[0] < wavelength_min:
+                    wavelength_min = data.wavelength_boundaries[0]
+
+                if data.wavelength_boundaries[1] > wavelength_max:
+                    wavelength_max = data.wavelength_boundaries[1]
+
             atmosphere = Radtrans(
                 pressures=p,
                 line_species=copy.copy(self.configuration.line_species),
