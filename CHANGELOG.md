@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a50] - 2024-09-26
+## [3.1.0a51] - 2024-09-26
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
