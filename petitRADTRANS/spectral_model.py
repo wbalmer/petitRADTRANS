@@ -2280,6 +2280,11 @@ class SpectralModel(Radtrans):
         return radial_velocity_semi_amplitude
 
     @staticmethod
+    def compute_reference_gravity(reference_gravity: float = None, **kwargs):
+        """Get the reference_gravity parameter. No calculation performed."""
+        return reference_gravity
+
+    @staticmethod
     def compute_reference_pressure(reference_pressure: float = None, **kwargs):
         """Get the reference_pressure parameter. No calculation performed."""
         return reference_pressure
@@ -2434,6 +2439,11 @@ class SpectralModel(Radtrans):
             raise ValueError(f"mode must be 'isothermal' or 'guillot', but was '{temperature_profile_mode}'")
 
         return temperatures
+
+    @staticmethod
+    def compute_transit_duration(transit_duration: float = None, **kwargs):
+        """Get the transit_duration parameter. No calculation performed."""
+        return transit_duration
 
     @staticmethod
     def compute_transit_fractional_light_loss(spectrum, orbit_semi_major_axis, orbital_inclination,
