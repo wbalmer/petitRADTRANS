@@ -735,18 +735,20 @@ class Retrieval:
                         summary.write(f"    {key} = {value.value:.3f}\n")
                     else:
                         summary.write(f"    {key} = {value.value}\n")
+
+            if 'take_PTs_from' in self.configuration.plot_kwargs:
+                radtrans_object = self.configuration.data[
+                    self.configuration.plot_kwargs['take_PTs_from']
+                ].radtrans_object
+            else:
+                radtrans_object = list(self.configuration.data.values())[0].radtrans_object
+
             summary.write("    line_species = ")
-            summary.write(
-                f"""
-                {self.configuration.data[self.configuration.plot_kwargs['take_PTs_from']].radtrans_object.line_species}
-                """
-            )
+            summary.write(f"{radtrans_object.line_species}")
             summary.write("\n")
             summary.write("    cloud_species = ")
             summary.write(
-                f"""
-                {self.configuration.data[self.configuration.plot_kwargs['take_PTs_from']].radtrans_object.cloud_species}
-                """
+                f"{radtrans_object.cloud_species}"
             )
             summary.write("\n")
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
