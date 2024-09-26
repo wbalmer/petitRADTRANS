@@ -2,6 +2,7 @@
 
 Regenerate the comparison files only when changing the precision of the models.
 """
+import copy
 import json
 import os
 
@@ -9,7 +10,7 @@ import numpy as np
 
 from .context import petitRADTRANS
 
-version = "2.4.5"  # petitRADTRANS.version.version used to generate last tests
+version = "3.1.0"  # petitRADTRANS.version.version used to generate last tests
 
 tests_data_directory = os.path.join(os.path.dirname(__file__), 'data')
 tests_references_directory = os.path.join(os.path.dirname(__file__), 'references')
@@ -79,14 +80,16 @@ def make_petitradtrans_test_config_file(filename):
                     'He': 0.24,
                     '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
                     '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
+                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                 },
                 'mass_fractions_line_by_line': {
                     'H2': 0.74,
                     'He': 0.24,
                     '1H2-16O__POKAZATEL.R1e6_0.3-28mu': 0.001,
                     'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
+                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
                 },
                 'mass_fractions_test': [1, -12],  # (log_10 MMR)
                 'filling_species': {
@@ -155,6 +158,8 @@ def make_petitradtrans_test_config_file(filename):
                     'gamma_scattering': -4.0,
                     'cloud_pressure': 0.01,
                     'haze_factor': 10.0,
+                    'cloud_fraction': 0.67,
+                    'complete_coverage_clouds': 0,  # index of the cloud species that must have complete coverage
                     'cloud_species': {
                         'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
                             'mass_fraction': 5e-7,
@@ -163,6 +168,14 @@ def make_petitradtrans_test_config_file(filename):
                             'f_sed_variable_setup': [2.0, 2.5],  # linearly changes from 1 at bottom to 5 at top
                             'sigma_log_normal': 1.05,
                             'b_hansen': 0.01
+                        },
+                        'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                            'mass_fraction': 3e-7,
+                            'radius': 4e-5,  # (cm)
+                            'f_sed': 3.0,
+                            'f_sed_variable_setup': [2.0, 2.5],  # linearly changes from 1 at bottom to 5 at top
+                            'sigma_log_normal': 1.2,
+                            'b_hansen': 0.02
                         },
                     }
                 },
@@ -252,6 +265,12 @@ def init_test_parameters(recreate_parameter_file=False):
     parameters['mean_molar_mass'] *= np.ones_like(parameters['pressures'])
     parameters['planetary_parameters']['eddy_diffusion_coefficients'] *= np.ones_like(parameters['pressures'])
 
+    parameters['cloud_parameters']['complete_coverage_clouds'] = ([
+        list(parameters['cloud_parameters']['cloud_species'].keys())[
+            parameters['cloud_parameters']['complete_coverage_clouds']
+        ]
+    ])
+
     return parameters
 
 
@@ -280,6 +299,215 @@ def check_cloud_mass_fractions():
                     f"mass fraction was: {mmr}"
                 )
 
+
+def check_cloud_complete_coverage_consistency(spectrum_function, benchmark, relative_tolerance,
+                                              cloud_fraction, complete_coverage_clouds, mass_fractions,
+                                              mass_fractions_clear=None,
+                                              opaque_cloud_top_pressure=None, **kwargs):
+    """Check if results obtained with partial cloud coverage are consistent."""
+    if mass_fractions_clear is None:
+        mass_fractions_clear = mass_fractions
+
+    if opaque_cloud_top_pressure is not None:
+        opaque_cloud_top_pressure_clear = None
+    else:
+        opaque_cloud_top_pressure_clear = opaque_cloud_top_pressure
+
+    # Test flux cloudy
+    print('Testing cloudy transit radii consistency...', end=' ')
+    _, flux_cloudy, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        complete_coverage_clouds=None,
+        **kwargs
+    )
+
+    _, flux_coverage1, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_cloudy,
+        flux_coverage1,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    # Test flux clear
+    print('Testing clear transit radii consistency...', end=' ')
+    _, flux_clear, _ = spectrum_function(
+        mass_fractions=mass_fractions_clear,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
+        complete_coverage_clouds=None,
+        **kwargs
+    )
+
+    _, flux_coverage0, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=0,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_clear,
+        flux_coverage0,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
+        flux_clear,
+        flux_cloudy,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    benchmark.run(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=cloud_fraction,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    # Test flux with cloud fraction
+    print('Testing transit radii with partial cloud coverage consistency...', end=' ')
+    reference_file = benchmark._load_reference_file()
+
+    assert np.allclose(
+        test_parameters['cloud_parameters']['cloud_fraction'] * flux_cloudy
+        + (1 - test_parameters['cloud_parameters']['cloud_fraction']) * flux_clear,
+        reference_file.outputs['1'],
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+
+def check_partial_cloud_coverage_full_consistency(spectrum_function, benchmark, relative_tolerance,
+                                                  cloud_fraction, mass_fractions, mass_fractions_clear=None,
+                                                  opaque_cloud_top_pressure=None, **kwargs):
+    """Check if results obtained with partial cloud coverage are consistent."""
+    if mass_fractions_clear is None:
+        mass_fractions_clear = mass_fractions
+
+    if opaque_cloud_top_pressure is not None:
+        opaque_cloud_top_pressure_clear = None
+    else:
+        opaque_cloud_top_pressure_clear = opaque_cloud_top_pressure
+
+    # Test flux cloudy
+    print('Testing cloudy transit radii consistency...', end=' ')
+    _, flux_cloudy, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        **kwargs
+    )
+
+    _, flux_coverage1, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_cloudy,
+        flux_coverage1,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    # Test flux clear
+    print('Testing clear transit radii consistency...', end=' ')
+    _, flux_clear, _ = spectrum_function(
+        mass_fractions=mass_fractions_clear,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
+        **kwargs
+    )
+
+    _, flux_coverage0, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=0,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_clear,
+        flux_coverage0,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
+        flux_clear,
+        flux_cloudy,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    benchmark.run(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=cloud_fraction,
+        **kwargs
+    )
+
+    # Test flux with cloud fraction
+    print('Testing transit radii with partial cloud coverage consistency...', end=' ')
+    reference_file = benchmark._load_reference_file()
+
+    assert np.allclose(
+        test_parameters['cloud_parameters']['cloud_fraction'] * flux_cloudy
+        + (1 - test_parameters['cloud_parameters']['cloud_fraction']) * flux_clear,
+        reference_file.outputs['1'],
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+def get_cloud_parameters(mass_fraction_type, filling_species=None):
+    mass_fractions = copy.deepcopy(test_parameters[mass_fraction_type])
+    cloud_particles_mean_radii = {}
+    cloud_f_sed = {}
+    cloud_particle_radius_distribution_std = None
+    cloud_b_hansen = {}
+
+    for cloud, parameters in test_parameters['cloud_parameters']['cloud_species'].items():
+        mass_fractions[cloud] = parameters['mass_fraction']
+        cloud_particles_mean_radii[cloud] = parameters['radius']
+        cloud_f_sed[cloud] = parameters['f_sed']
+        cloud_b_hansen = parameters['b_hansen']
+
+        if cloud_particle_radius_distribution_std is None:
+            cloud_particle_radius_distribution_std = parameters['sigma_log_normal']
+
+    if filling_species is not None:
+        for species in filling_species:
+            if species in mass_fractions:
+                del mass_fractions[species]
+
+    return (
+        mass_fractions, cloud_particles_mean_radii, cloud_f_sed, cloud_particle_radius_distribution_std, cloud_b_hansen
+    )
 
 def get_main_model_parameters(spectral_model, **kwargs):
     """Calculate a SpectralModel spectrum and return the temperatures, mass fractions and mean molar masses in
@@ -311,6 +539,5 @@ def init_radtrans_test():
     tp_guillot_2010 = init_guillot_2010_temperature_profile()
 
     return tp_iso, tp_guillot_2010
-
 
 temperature_isothermal, temperature_guillot_2010 = init_radtrans_test()

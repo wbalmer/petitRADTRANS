@@ -13,5 +13,5 @@ If you use the pRT retrieval package, please cite `Nasedkin et al. (2024) <https
     notebooks/retrieval_multiple_data
     notebooks/retrieval_emission
     notebooks/retrieval_models
+    notebooks/retrieval_spectral_model_jwst
     notebooks/retrieval_spectral_model
-

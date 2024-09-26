@@ -8,7 +8,7 @@ from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.fortran_rebin import fortran_convolve
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 import petitRADTRANS.physical_constants as cst
 
 
@@ -390,7 +390,7 @@ class Data:
         self.system_distance = distance
         return self.system_distance
 
-    def intialise_data_resolution(self, wavelengths_model):
+    def initialise_data_resolution(self, wavelengths_model):
         if isinstance(self.data_resolution, np.ndarray):
             self.data_resolution_array_model = np.interp(wavelengths_model, self.wavelengths, self.data_resolution)
 
@@ -609,7 +609,6 @@ class Data:
                 plt.show()
 
         if generate_mock_data:
-
             # Check if the mock data folder exists, if not create it:
             if not os.path.exists("mock_data"):
                 os.makedirs("mock_data")
@@ -774,7 +773,7 @@ class Data:
                 The convolved spectrum.
         """
         if isinstance(instrument_res, np.ndarray):
-            return fortran_convolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
+            return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
         # From talking to Ignas: delta lambda of resolution element
         # is FWHM of the LSF's standard deviation, hence:
         sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))

@@ -126,7 +126,7 @@ class TestFile:
 
 class ReferenceFile(TestFile):
     parameters_absolute_tolerance = 0.
-    parameters_relative_tolerance = 10 ** -sys.float_info.dig
+    parameters_relative_tolerance = 10 ** (-sys.float_info.dig + 1)  # +1 to account for OS-induced errors (Paul's PC)
 
     def __init__(self, parameters: dict = None, outputs: dict = None,
                  absolute_tolerance: float = None, relative_tolerance: float = None):
@@ -259,11 +259,24 @@ class Benchmark:
         }
 
     def _get_reference_file(self) -> str:
-        """Automatically get the benchmark reference file from its name."""
+        """Automatically get the benchmark reference file name from the Benchmark's name."""
         return os.path.join(
             tests_references_directory,
             str(self._name) + '_ref.h5'
         )
+
+    def _load_reference_file(self, reference_file=None) -> ReferenceFile:
+        """Automatically get the benchmark reference file. Intended to be used within test functions."""
+        if reference_file is None:
+            reference_file = self._get_reference_file()
+
+        if not os.path.isfile(reference_file):
+            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
+                                    f"are you in a test function?\n"
+                                    f"If yes, generate the reference file first to run the test.\n"
+                                    f"If not, give the targeted reference file name in argument.")
+
+        return ReferenceFile.load(reference_file)
 
     def _run(self, **kwargs) -> dict:
         """Run the tested function.

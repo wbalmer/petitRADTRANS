@@ -547,7 +547,7 @@ class Retrieval:
         return_dict = False
 
         if data is None:
-            data = self.configuration.data.items()
+            data = self.configuration.data
             return_dict = True
         elif isinstance(data, str):
             data = {data: self.configuration.data[data]}
@@ -736,7 +736,21 @@ class Retrieval:
                     else:
                         summary.write(f"    {key} = {value.value}\n")
 
-            summary.write('\n')
+            if 'take_PTs_from' in self.configuration.plot_kwargs:
+                radtrans_object = self.configuration.data[
+                    self.configuration.plot_kwargs['take_PTs_from']
+                ].radtrans_object
+            else:
+                radtrans_object = list(self.configuration.data.values())[0].radtrans_object
+
+            summary.write("    line_species = ")
+            summary.write(f"{radtrans_object.line_species}")
+            summary.write("\n")
+            summary.write("    cloud_species = ")
+            summary.write(
+                f"{radtrans_object.cloud_species}"
+            )
+            summary.write("\n")
             summary.write("Free Parameters, Prior^-1(0), Prior^-1(1)\n")
 
             for key, value in self.configuration.parameters.items():
@@ -1001,7 +1015,8 @@ class Retrieval:
         prt_reference: str = None,
         model_generating_function: callable = None,
         refresh: bool = True,
-        mode: str = 'bestfit'
+        mode: str = 'bestfit',
+        save: bool = True
     ):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
@@ -1031,6 +1046,8 @@ class Retrieval:
             mode : str
                 If "best_fit", will use the maximum likelihood parameter values to calculate the best fit model
                 and contribution. If "median", uses the median parameter values.
+            save : bool
+                If True, save the best fit spectrum.
         Returns:
             best_fit_wavelengths : numpy.ndarray
                 The wavelength array of the best fit model
@@ -1098,7 +1115,9 @@ class Retrieval:
             name = prt_reference
 
         self.best_fit_spectra[name] = [best_fit_wavelengths, best_fit_spectrum]
-        np.save(full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum]))
+
+        if save:
+            np.save(full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum]))
 
         if contribution:
             return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
@@ -1345,18 +1364,6 @@ class Retrieval:
         Returns:
             object: The generated full range model.
         """
-
-        # Find the boundaries of the wavelength range to calculate
-        wavelength_min = np.inf
-        wavelength_max = -np.inf
-
-        for name, data in self.configuration.data.items():
-            if data.wavelength_boundaries[0] < wavelength_min:
-                wavelength_min = data.wavelength_boundaries[0]
-
-            if data.wavelength_boundaries[1] > wavelength_max:
-                wavelength_max = data.wavelength_boundaries[1]
-
         # Set up parameter dictionary
         # parameters = self.build_param_dict(params,parameters_read)
         parameters["contribution"] = Parameter("contribution", False, value=contribution)
@@ -1375,6 +1382,17 @@ class Retrieval:
         elif prt_reference is not None:
             atmosphere = self.configuration.data[prt_reference].radtrans_object
         else:
+            # Find the boundaries of the wavelength range to calculate
+            wavelength_min = np.inf
+            wavelength_max = -np.inf
+
+            for name, data in self.configuration.data.items():
+                if data.wavelength_boundaries[0] < wavelength_min:
+                    wavelength_min = data.wavelength_boundaries[0]
+
+                if data.wavelength_boundaries[1] > wavelength_max:
+                    wavelength_max = data.wavelength_boundaries[1]
+
             atmosphere = Radtrans(
                 pressures=p,
                 line_species=copy.copy(self.configuration.line_species),
@@ -1620,7 +1638,7 @@ class Retrieval:
 
         for name, data in self.configuration.data.items():
             if isinstance(data.data_resolution, np.ndarray):
-                data.intialise_data_resolution(wlen_model)
+                data.initialise_data_resolution(wlen_model)
 
             d_o_f += np.size(data.spectrum)
             sf = 1
@@ -1766,6 +1784,10 @@ class Retrieval:
             parameter_name: samples[i, :]
             for i, parameter_name in enumerate(param_dict)
         }
+
+    @staticmethod
+    def get_special_parameters() -> set[str]:
+        return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
 
     def get_volume_mixing_ratios(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
         """
@@ -1983,7 +2005,8 @@ class Retrieval:
                     if np.isnan(spectrum_model).any():
                         return invalid_value
 
-                    if isinstance(data.spectrum, float) or np.ndim(data.spectrum) == 1:
+                    if ((isinstance(data.spectrum, float) or np.ndim(data.spectrum) == 1)
+                            and np.ndim(spectrum_model) == 1):
                         # Convolution and rebin are cared of in get_chisq
                         log_likelihood += data.get_chisq(
                             wavelengths_model,
@@ -1994,6 +2017,18 @@ class Retrieval:
                             atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
                             generate_mock_data=self.generate_mock_data
                         ) + additional_log_l
+                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 2:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
+                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 3:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
                     elif np.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
@@ -2020,9 +2055,10 @@ class Retrieval:
                 spectrum_model = None
                 additional_log_l = None
 
-            wavelengths_models.append(wavelengths_model)
-            spectrum_models.append(spectrum_model)
-            additional_log_ls.append(additional_log_l)
+            if return_model:
+                wavelengths_models.append(wavelengths_model)
+                spectrum_models.append(spectrum_model)
+                additional_log_ls.append(additional_log_l)
 
             if per_datapoint:
                 log_l_per_datapoint_dict[data_name].append(log_likelihood)
@@ -2496,7 +2532,7 @@ class Retrieval:
                     wavelengths_model, spectrum_model = ret_val
 
             if data.data_resolution_array_model is not None:
-                data.intialise_data_resolution(wavelengths_model)
+                data.initialise_data_resolution(wavelengths_model)
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
@@ -2735,6 +2771,8 @@ class Retrieval:
             width : int
                 The number of cells in the low pressure grid to replace with the high resolution grid.
         """
+        radtrans = None
+
         for name, data in self.configuration.data.items():
             if data.radtrans_object is not None:
                 print(f"Using provided Radtrans object for data '{name}'...")
@@ -2790,7 +2828,7 @@ class Retrieval:
 
             # Setup for non-uniform spectral resolution
             if isinstance(data.data_resolution, np.ndarray):
-                data.intialise_data_resolution(1e4 * radtrans.get_wavelengths())
+                data.initialise_data_resolution(1e4 * radtrans.get_wavelengths())
 
     # TODO move plot functions outside of here in v.4.0.0
     def plot_abundances(
@@ -3985,7 +4023,8 @@ class Retrieval:
             if only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
                 return None, None, None
-
+            for i, s in enumerate(sample_use):
+                print(parameters_read[i], s)
             best_fit_wavelengths, best_fit_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
@@ -4103,7 +4142,7 @@ class Retrieval:
                         spectrum_model = self.best_fit_spectra[name][1]
 
                         if data.data_resolution_array_model is not None:
-                            data.intialise_data_resolution(self.best_fit_spectra[name][0])
+                            data.initialise_data_resolution(self.best_fit_spectra[name][0])
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[name][0],
                                 self.best_fit_spectra[name][1],
@@ -4115,7 +4154,6 @@ class Retrieval:
                                 self.best_fit_spectra[name][1],
                                 data.data_resolution
                             )
-
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -4123,8 +4161,10 @@ class Retrieval:
                             wavelengths_bins
                         )
                     else:
+                        spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
+
                         if data.data_resolution_array_model is not None:
-                            data.intialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
+                            data.initialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
                             spectrum_model = data.convolve(
                                 self.best_fit_spectra[data.external_radtrans_reference][0],
                                 self.best_fit_spectra[data.external_radtrans_reference][1],
@@ -4138,8 +4178,6 @@ class Retrieval:
                             )
                         elif data.radtrans_grid:
                             spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
-                        else:
-                            spectrum_model = None  # TODO prevent reference before assignment
 
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],

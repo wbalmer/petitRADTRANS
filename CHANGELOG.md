@@ -4,9 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a39] - 2024-09-03
+## [3.1.0a50] - 2024-09-26
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
+- Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
@@ -18,6 +19,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
 - Possibility to specify the retrieval name in `plot_result_corner`.
 - Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Possibility to return the clear spectrum in addition to a cloudy spectrum.
+- Possibility to instantiate `SpectralModel` objects with shared opacities with the `from_radtrans` function.
+- Support of `rebin_spectrum_bin` in `SpectralModel`.
+- Support of spectral offsets in `SpectralModel`.
 - Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
 - Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
@@ -63,6 +68,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
 - Function `Retrieval.plot_spectra` not working when `mode='median'`.
 - Mass fractions being modified when calculating CIA opacities in some cases.
+- Cloud mass fractions are taken into account when filling atmosphere.
 - Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectra.
@@ -75,6 +81,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Incorrect filling mass fraction calculation in some cases.
+- Incorrect handling of `SpectralModel` spectra in retrievals when retrieving 1D data.
 - Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
 - Silent error when calculating the transit effect for a non-transiting planet.
@@ -86,11 +93,16 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: `exo_k` is imported to bin down opacities even when the binned-down opacity file already exists.
 - Typos in some docs.
 - Typos in some comments.
+- Bug in retrieval where the plotted spectrum could be none
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silented the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.0.8] - 2024-09-24
+### Fixed
+- Incorrect condensation calculation in `chemistry.clouds.return_t_cond_mg2sio4()`: "log" in Visccher et al. (2010) means "log10", not "ln".
 
 ## [3.0.7] - 2024-07-01
 ### Fixed

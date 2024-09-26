@@ -1114,9 +1114,35 @@ def get_cloud_aliases(name: str) -> str:
                 _, _, space_group = _split_cloud_info(_cloud_info)
                 cloud_info += '_' + space_group
             elif len(matches) > 1:
-                available = "'" + "','".join([match.rsplit('_', 1)[1] for match in matches]) + "'"
-                space_group = matches[0].rsplit('_', 1)[1]
-                cloud_info += '_' + space_group
+                space_group_example = ''
+
+                valid_opacities = set()
+
+                for match in matches:
+                    space_group = match.rsplit('_', 1)[1]
+
+                    if 'crystalline' in match:
+                        space_group_match = re.match(r'^\d{3}$', space_group)
+
+                        if not space_group_match:
+                            warnings.warn(
+                                f"crystalline cloud opacity '{os.path.join(cloud_opacities_path, match)}' "
+                                f"does not seem to contain "
+                                f"a valid space group (should be 3 digits, was '{space_group}')\n"
+                                f"If you have legacy or custom opacities, ensure to add a space group to them "
+                                f"(see "
+                                f"https://petitradtrans.readthedocs.io/en/dev/content/available_opacities.html#id79)."
+                            )
+                        else:
+                            space_group_example = space_group
+                            valid_opacities.add(match)
+                    else:
+                        valid_opacities.add(match)
+
+                available = "'" + "', '".join([match.rsplit('_', 1)[1] for match in valid_opacities]) + "'"
+
+                if space_group_example != '':
+                    cloud_info += '_' + space_group_example
 
                 if spectral_info != '':
                     spectral_info = '.' + spectral_info
@@ -1128,6 +1154,8 @@ def get_cloud_aliases(name: str) -> str:
 
                 raise FileExistsError(
                     f"more than one solid condensate cloud with name '{name}'\n"
+                    f"Space groups are not mandatory only if a unique cloud opacity with this name exists in your "
+                    f"input_data directory.\n"
                     f"Add a space group to your cloud name (e.g., '{_name}')\n"
                     f"Available space groups with this name: {available}"
                 )

@@ -202,11 +202,17 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
         for species in all_species
     }
 
+    gas_mass_fractions = {
+        species: mass_fraction
+        for species, mass_fraction in mass_fractions.items()
+        if '(s)' not in species and '(l)' not in species  # ignore clouds
+    }
+
     for i, layer_id in enumerate(layers):
         # Take mass fractions from the current layer
         mass_fractions_i = {
             species: float(mass_fraction[layer_id])
-            for species, mass_fraction in mass_fractions.items()
+            for species, mass_fraction in gas_mass_fractions.items()
         }
 
         # Handle filling species special cases
@@ -229,6 +235,11 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
         # Update mass fractions
         for species in mass_fractions_i:
             filled_mass_fractions[species][i] = mass_fractions_i[species]
+
+    # Re-add cloud mass fractions
+    for species, mass_fraction in mass_fractions.items():
+        if '(s)' in species or '(l)' in species:
+            filled_mass_fractions[species] = mass_fraction
 
     return filled_mass_fractions
 

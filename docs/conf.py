@@ -39,7 +39,7 @@ copyright = u'2019-2024, the pRT team'
 author = u'pRT team'
 
 # The full version, including alpha/beta/rc tags
-release = '3.1.0a39'
+release = '3.1.0a50'
 
 
 # -- General configuration ---------------------------------------------------
@@ -95,7 +95,7 @@ pygments_style = None
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinx_book_theme'
 html_logo = "_static/petitlogo.png"
 
 # Theme options are theme-specific and customize the look and feel of a theme
