@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ## [3.1.0a50] - 2024-09-26
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
-- Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage.
+- Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
