@@ -547,7 +547,7 @@ class Retrieval:
         return_dict = False
 
         if data is None:
-            data = self.configuration.data.items()
+            data = self.configuration.data
             return_dict = True
         elif isinstance(data, str):
             data = {data: self.configuration.data[data]}
