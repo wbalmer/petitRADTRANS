@@ -1015,7 +1015,8 @@ class Retrieval:
         prt_reference: str = None,
         model_generating_function: callable = None,
         refresh: bool = True,
-        mode: str = 'bestfit'
+        mode: str = 'bestfit',
+        save: bool = True
     ):
         """
         This function uses the best fit parameters to generate a pRT model that spans the entire wavelength
@@ -1045,6 +1046,8 @@ class Retrieval:
             mode : str
                 If "best_fit", will use the maximum likelihood parameter values to calculate the best fit model
                 and contribution. If "median", uses the median parameter values.
+            save : bool
+                If True, save the best fit spectrum.
         Returns:
             best_fit_wavelengths : numpy.ndarray
                 The wavelength array of the best fit model
@@ -1112,7 +1115,9 @@ class Retrieval:
             name = prt_reference
 
         self.best_fit_spectra[name] = [best_fit_wavelengths, best_fit_spectrum]
-        np.save(full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum]))
+
+        if save:
+            np.save(full_file, np.column_stack([best_fit_wavelengths, best_fit_spectrum]))
 
         if contribution:
             return best_fit_wavelengths, best_fit_spectrum, best_fit_contribution
