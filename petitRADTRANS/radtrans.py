@@ -591,6 +591,8 @@ class Radtrans:
             scattering_in_transmission,
             sum_opacities,
             opaque_cloud_top_pressure,
+            power_law_opacity_350nm,
+            power_law_opacity_coefficient,
             clouds_have_effect,
             cloud_species,
             clouds_particles_porosity_factor,
@@ -619,6 +621,38 @@ class Radtrans:
         # Add opaque cloud deck opacity
         if opaque_cloud_top_pressure is not None:
             cloud_continuum_opacities[:, pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
+
+        # Add power law opacity
+        if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
+            scattering_in_transmission = True
+            cloud_continuum_opacities_scattering += (
+                Radtrans._compute_power_law_opacities(
+                    power_law_opacity_350nm=power_law_opacity_350nm,
+                    power_law_opacity_coefficient=power_law_opacity_coefficient,
+                    frequencies=frequencies,
+                    n_layers=pressures.size
+                )
+            )
+        elif not (power_law_opacity_350nm is None and power_law_opacity_coefficient is None):
+            if power_law_opacity_350nm is None:
+                none_parameter = 'power_law_opacity_350nm'
+            elif power_law_opacity_coefficient is None:
+                none_parameter = 'power_law_opacity_coefficient'
+            else:
+                raise RuntimeError(
+                    f"one of the two power law opacity parameters must be None, "
+                    f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
+                    f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
+                )
+
+            warnings.warn(
+                f"to include a power law opacity, "
+                f"both parameters 'power_law_opacity_350nm' "
+                f"and 'power_law_opacity_coefficient' "
+                f"must be not None, but '{none_parameter}' is None\n"
+                f"To remove this warning, set '{none_parameter}' with a float, or set both parameters to None\n"
+                f"Power law opacity will not be included"
+            )
 
         # Calculate cloud opacities
         if clouds_have_effect or len(complete_coverage_clouds) > 0:  # add cloud opacities only if there are clouds
@@ -760,8 +794,7 @@ class Radtrans:
     @staticmethod
     def __compute_continuum_scattering_opacities(frequencies,
                                                  pressures, temperatures, mass_fractions, mean_molar_masses,
-                                                 rayleigh_species, haze_factor,
-                                                 power_law_opacity_350nm, power_law_opacity_coefficient):
+                                                 rayleigh_species, haze_factor):
         # Reset
         continuum_opacities_scattering = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
         scattering_in_transmission = False
@@ -780,38 +813,6 @@ class Radtrans:
                     frequencies=frequencies,
                     haze_factor=haze_factor
                 )
-            )
-
-        # Add power law opacity
-        if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
-            scattering_in_transmission = True
-            continuum_opacities_scattering += (
-                Radtrans._compute_power_law_opacities(
-                    power_law_opacity_350nm=power_law_opacity_350nm,
-                    power_law_opacity_coefficient=power_law_opacity_coefficient,
-                    frequencies=frequencies,
-                    n_layers=pressures.size
-                )
-            )
-        elif not (power_law_opacity_350nm is None and power_law_opacity_coefficient is None):
-            if power_law_opacity_350nm is None:
-                none_parameter = 'power_law_opacity_350nm'
-            elif power_law_opacity_coefficient is None:
-                none_parameter = 'power_law_opacity_coefficient'
-            else:
-                raise RuntimeError(
-                    f"one of the two power law opacity parameters must be None, "
-                    f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
-                    f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
-                )
-
-            warnings.warn(
-                f"to include a power law opacity, "
-                f"both parameters 'power_law_opacity_350nm' "
-                f"and 'power_law_opacity_coefficient' "
-                f"must be not None, but '{none_parameter}' is None\n"
-                f"To remove this warning, set '{none_parameter}' with a float, or set both parameters to None\n"
-                f"Power law opacity will not be included"
             )
 
         return continuum_opacities_scattering, scattering_in_transmission
@@ -1316,9 +1317,7 @@ class Radtrans:
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
-                haze_factor=haze_factor,
-                power_law_opacity_350nm=power_law_opacity_350nm,
-                power_law_opacity_coefficient=power_law_opacity_coefficient
+                haze_factor=haze_factor
             )
         )
 
@@ -1337,6 +1336,8 @@ class Radtrans:
             scattering_in_transmission=self.__scattering_in_transmission,
             sum_opacities=self.__sum_opacities,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            power_law_opacity_350nm=power_law_opacity_350nm,
+            power_law_opacity_coefficient=power_law_opacity_coefficient,
             clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
             cloud_species=self._cloud_species,
             clouds_particles_porosity_factor=clouds_particles_porosity_factor,
