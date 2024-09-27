@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a50] - 2024-09-26
+## [3.1.0a51] - 2024-09-26
 ### Added
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Future: key `'modification_parameters'` of `SpectralModel.model_parameters` is canonically renamed `'modification_arguments'`. The old key will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
-- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds.
+- Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds/hazes.
 - Previous 'patchy' model functions are now redundant, all the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
 - The `examples` directory is relocated to the notebook directory, and renamed `retrievals`.
 
