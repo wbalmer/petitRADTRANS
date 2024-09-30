@@ -2669,9 +2669,9 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split("_R_")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
 
-            samples_use = sample_dict[ret]
+            samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
 
             for sample in samples_use:
@@ -2731,9 +2731,9 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split("_R_")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
 
-            samples_use = sample_dict[ret]
+            samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
             vmrs = []
 
