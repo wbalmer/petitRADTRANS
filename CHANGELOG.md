@@ -4,42 +4,49 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a53] - 2024-10-01
+## [3.1.0] - 2024-10-01
+### Highlights
+- Implementation of cloud fraction to model spectra with partial cloud coverage.
+- Implementation of convolution with variable width kernel.
+- New modelling options: simple circumplanetary disk, SiO clouds, vertically variable fseds, and more!
+- New tutorial: using `SpectralModel` with one or several JWST data.
+- New function `chemistry.mass_fractions2metallicity` to calculate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
+- More control on corner plots and some retrieval functions.
+- Implementation of several quality-of-life features: get best fit or Xth quantile spectrum with `Retrieval.calculate_forward_model`, get retrieval samples as a `dict` with `Retrieval.get_samples_dict`, and more!
+- Fixed numerous crashes and edge-cases incorrect behaviours.
+
 ### Added
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
-- Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
 - Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
-- Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
-- Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
-- Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
 - Possibility to use vertically variable fsed per species.
+- Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis).
 - Possibility to custom `SpectralModel` spectral modification functions at instantiation.
-- Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
-- Possibility to specify the retrieval name in `plot_result_corner`.
-- Possibility to load line-by-line opacities with different frequency grid boundaries.
-- Possibility to return the clear spectrum in addition to a cloudy spectrum.
 - Possibility to instantiate `SpectralModel` objects with shared opacities with the `from_radtrans` function.
+- Possibility to load line-by-line opacities with different frequency grid boundaries.
+- Possibility to load any crystalline cloud opacities without giving the space group if there is only one space group available for this cloud species.
+- Possibility to return the clear spectrum in addition to a cloudy spectrum.
+- Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
+- Possibility to specify the retrieval name in `plot_result_corner`.
 - Support of `rebin_spectrum_bin` in `SpectralModel`.
 - Support of spectral offsets in `SpectralModel`.
+- Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
 - Genericised temperature gradient profile function `dtdp_temperature_profile` to accept different top/bottom of atmosphere pressures.
-- Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
-- Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
-- Function to plot the above opacity contribution spectra.
 - Function to estimate atmospheric metallicity and element-to-hydrogen ratios from mass fractions.
 - Function to fill all layers of an atmosphere at once with filling species.
-- Functions to convert frequencies into wavelengths (in cm or in um), and vice-versa.
+- Function to output opacity contribution spectra for `Radtrans` and `SepctralModel` objects.
+- Function to plot the above opacity contribution spectra.
+- Functions to convert frequencies into wavelengths (in cm or in um), and vice versa.
 - Function `Radtrans.get_wavelengths` to obtain the equivalent in cm of a `Radtrans` object's frequency grid.
+- Function to get a forward model(s) of a retrieval, with option to get the best fit model or the Xth quantile model.
 - Function to directly get retrieval samples into a dict.
 - Function to convert the default log-likelihood to a chi2.
 - Documentation for the newly added functions.
+- Tutorial for using `SpectralModel` with JWST data.
 - Warnings for negative temperature, mass fractions, and mean molar masses when calculating opacities.
 - Warning when only one of the two parameters necessary to include a power law opacity has been set.
-- Test module for `SpectralModel` using custom functions.
-- Test module for `SpectralModel` in `'c-k'` opacity mode.
-- Test module for `SpectralModel` in `'lbl'` opacity mode.
-- Test module for `SpectralModel` retrieval framework.
+- Test modules for `SpectralModel`.
 - Performance tests.
 - Source files for JOSS papers.
 
@@ -48,57 +55,57 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Future: key `'modification_parameters'` of `SpectralModel.model_parameters` is canonically renamed `'modification_arguments'`. The old key will be deprecated in version 4.0.0.
 - Clarified a bit the documentation on the `SpectralModel` retrieval framework.
 - Requested input and output parameter names for externally provided function to load opacities for `format2petitradtrans`: since cm^2 should be returned it should be called cross-sections, not opacities.
+- The `examples` directory is relocated to the notebook directory, and renamed `retrievals`.
 - Restructured `retrieval.models.py` to reduce code reuse. New functions to generically compute an emission or transmission spectrum with patchy clouds/hazes.
 - Previous 'patchy' model functions are now redundant, all the functions can accept the same patchy cloud parameters. Still included for backwards compatibility.
-- The `examples` directory is relocated to the notebook directory, and renamed `retrievals`.
 
 ### Removed
 - Unused test functions.
 - Example retrieval output files.
 
 ### Fixed
-- Bug in `retrieval.loglikelihood()` where offsets in datasets were not applied if `external_radtrans_reference` was not `None`.
-- Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
-- Bug in function `calculate_transit_radii()` when `return_opacities=True`.
-- Function `format2petitradtrans` applied the incorrect pRT wavelength grid to the lbl opacity conversion.
+- Offsets in datasets are not applied in `retrieval.loglikelihood()` if `external_radtrans_reference` is not `None`.
 - Function `rebin_spectrum_bin` incorrectly handling overlapping bins.
+- Function `format2petitradtrans` apply the incorrect pRT wavelength grid to the lbl opacity conversion.
+- Mass fractions are modified when calculating CIA opacities in some cases.
+- Incorrect handling of `SpectralModel` spectra in retrievals when retrieving 1D data.
+- Incorrect filling mass fraction calculation in some cases.
+- Cloud mass fractions are taken into account when filling atmosphere.
 - Crash when unpickling `LockedDict` objects.
 - Crash when loading unspecified source opacities with different spectral info than the default opacity file and multiple files with that spectral info exist.
 - Crash of `SpectralModel` when adding the transit light loss effect without shifting the spectrum.
 - Crash of `SpectralModel` when adding a star spectrum on shifted spectra.
-- Function `Retrieval.plot_spectra` not working when `mode='median'`.
-- Mass fractions being modified when calculating CIA opacities in some cases.
-- Cloud mass fractions are taken into account when filling atmosphere.
-- Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
 - Crash of `SpectralModel` when not specifying the mass fraction of a line species.
 - Crash when preparing fully masked spectra.
 - Crash when using a fresh `SpectralModel` instance's `calculate_spectrum` with `update_parameters=False` without initializing `star_flux`.
 - Crash when negative data are used for a retrieval.
-- Bug in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
+- Electron symbol (`'e-'`) not supported as a `SpectralModel` imposed mass fraction.
+- Function maps of `SpectralModel` are incorrectly loaded.
+- Invalid cloud names are used in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
 - Model functions lacking the required 350nm scattering parameter for hazes as an optional parameter (solves [issue 76](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76)).
 - Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)). 
 - Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)). 
 - Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
-- Incorrect filling mass fraction calculation in some cases.
-- Incorrect handling of `SpectralModel` spectra in retrievals when retrieving 1D data.
-- Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
 - Unable to automatically download a default opacity file.
+- Opacities may be loaded from incorrect source if the source's name is included in another opacity's source name (e.g. 'Allard' and 'NewAllard').
+- Incorrect use of line opacity resolution and sample array shape in save VMR and save mass fraction functions.
 - Silent error when calculating the transit effect for a non-transiting planet.
-- Function maps of `SpectralModel` are incorrectly loaded.
-- Bug in emission retrieval tutorial, changing names of cloud parameters.
-- Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
+- Names of cloud parameters in emission retrieval tutorial are changing.
 - Incorrect behaviour: during the preparing step, data and uncertainties with inconsistent masks are tolerated.
 - Incorrect behaviour: mass fractions species names without spectral info are not recognized if opacities species names have spectral info (loading opacities with different spectral info is not possible anyway).
 - Incorrect behaviour: `exo_k` is imported to bin down opacities even when the binned-down opacity file already exists.
+- Function `Retrieval.plot_spectra` not working when `mode='median'`.
+- Plotted `retrieval` spectrum can be none.
+- Bug in function `retrieval.plot_spectra()` when plotting the best-fit spectrum together with `radtrans_grid=True`.
+- Bug in function `calculate_transit_radii()` when `return_opacities=True`.
+- Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Typos in some docs.
 - Typos in some comments.
-- Bug in retrieval where the plotted spectrum could be none
-- Corrected use of line opacity resolution and sample array shape in save VMR and save mass fraction functions.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-- Temporarily silented the overflow warning message until a solution to trigger the message less often is found.
+- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
 
 ## [3.0.8] - 2024-09-24
