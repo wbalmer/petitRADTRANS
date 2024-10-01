@@ -4,13 +4,13 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0a52] - 2024-09-30
+## [3.1.0a53] - 2024-10-01
 ### Added
-- Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Full integration of partial cloud coverage in `Radtrans`, with the possibility to select on which clouds to apply the partial coverage (affect the cloud opacities, the opaque cloud, and the power law opacities).
 - Patchy clouds can now be applied to individual cloud components, rather than only fully clear and cloudy, using the `remove_cloud_species` parameter (use full name).
 - Function to convolve a spectrum with a variable width kernel, based on Brewster implementation. Can be used in a retrieval if the `data_resolution` parameter is set as an array.
 - Emission models for retrievals can now include a simple circumplanetary disk model, given blackbody temperature and disk radius parameters.
+- Equilibrium mass fraction support for SiO clouds in `chemistry.clouds`.
 - Functions `plot_result_corner` and `contour_corner` can now use all the functionalities of the [`corner.corner` function](https://corner.readthedocs.io/en/latest/).
 - Possibility to generate mock input data for input == output retrievals, using the exact same format as the input data.
 - Possibility to run pRT's retrieval model with emcee (base implementation with less functionality than the full retrieval package, i.e., no plotting support for result analysis)
