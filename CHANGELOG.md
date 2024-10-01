@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.2.0a0] - 2024-10-01
+### Pending
+- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
+- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
+- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.1.0] - 2024-10-01
 ### Highlights
 - Implementation of cloud fraction to model spectra with partial cloud coverage.
 - Implementation of convolution with variable width kernel.
@@ -102,11 +108,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Thulium (Tm), Americium (Am), Curium (Cm) and Fermium (Fm) are identified as negatively charged species.
 - Typos in some docs.
 - Typos in some comments.
-
-### Pending
-- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
-- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
 
 ## [3.0.8] - 2024-09-24
 ### Fixed
