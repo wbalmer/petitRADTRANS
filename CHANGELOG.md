@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.1.0] - 2024-10-01
+## [3.2.0a0] - 2024-10-01
 ### Highlights
 - Implementation of cloud fraction to model spectra with partial cloud coverage.
 - Implementation of convolution with variable width kernel.
