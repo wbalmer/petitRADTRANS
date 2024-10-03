@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.1.0"
+version = "3.1.1"
 description = "Exoplanet spectral synthesis tool for retrievals"
 repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
 documentation = "https://petitradtrans.readthedocs.io/en/latest/"
@@ -55,7 +55,6 @@ retrieval = [
 ]
 full = [
     "mpi4py",
-    "exo_k",
     "requests",
     "skycalc-cli",
     "matplotlib",
@@ -70,14 +69,13 @@ test = [
     "pytest",
     "pytest-cov",
     "mpi4py",
-    "exo_k",
-    "ultranest",
     "requests",
     "skycalc-cli",
-    "species>=0.8.0",
     "matplotlib",
     "corner",
-    "seaborn"
+    "seaborn",
+    "species>=0.8.0",
+    "ultranest"
 ]
 
 [tool.flake8]

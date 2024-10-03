@@ -1,0 +1,68 @@
+# Template from:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
+# Official language image. Look for the different tagged releases at:
+# https://hub.docker.com/r/library/python/tags/
+
+# Change pip's cache directory to be inside the project directory since we can only cache local items
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+stages:
+  - build
+  - test
+
+# https://pip.pypa.io/en/stable/topics/caching/
+cache:
+  paths:
+    - .cache/pip
+
+build-multinest:
+  image: debian:latest
+  stage: build
+  script:
+    - apt update
+    - apt-get install -y build-essential cmake g++ git gfortran libopenmpi-dev libblas-dev liblapack-dev
+    - git clone --depth 1 -b master https://github.com/JohannesBuchner/MultiNest $CI_PROJECT_DIR/MultiNest
+    - cd $CI_PROJECT_DIR/MultiNest/build
+    - cmake ..
+    - make
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/MultiNest/lib/*
+
+build-py-venv:
+  image: debian:latest
+  stage: build
+  script:
+    - apt update
+    - apt-get install -y python3 python3-pip python3-venv
+    - cd /usr/local
+    - python3 -m venv $CI_PROJECT_DIR/venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - pip install tox
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/venv/*
+
+test-tox-flake8:
+  image: debian:latest
+  stage: test
+  script:
+    - apt update
+    - apt-get install -y python3 python3-pip python3-venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+    - tox -e flake8
+
+test-tox-py:
+  image: debian:latest
+  stage: test
+  script:
+    - apt update
+    - apt-get install -y chromium gfortran liblapack-dev libopenmpi-dev python3 python3-pip python3-venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+    - ls $CI_PROJECT_DIR/MultiNest/lib
+    - pip install numpy pymultinest
+    - python3 -c 'import pymultinest'
+    - tox -e py
