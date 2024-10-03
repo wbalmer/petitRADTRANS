@@ -1067,9 +1067,12 @@ def get_cloud_aliases(name: str) -> str:
         get_input_data_subpaths()['clouds_opacities']
     )
 
-    cloud_directories = [
-        f.path.rsplit(os.path.sep, 1)[1] for f in os.scandir(cloud_opacities_path) if f.is_dir()
-    ]
+    cloud_directories = []
+
+    if os.path.isdir(cloud_opacities_path):
+        cloud_directories = [
+            f.path.rsplit(os.path.sep, 1)[1] for f in os.scandir(cloud_opacities_path) if f.is_dir()
+        ]
 
     _name, spectral_info = _split_species_spectral_info(name)
     _name, method = _split_species_source(_name)
