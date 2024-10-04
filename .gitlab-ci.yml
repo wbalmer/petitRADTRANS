@@ -1,0 +1,77 @@
+# Change pip's cache directory to be inside the project directory since we can only cache local items
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+.default_rules: &default_rules
+  rules:  # only run job when pushing to master or dev, if a package or test file is changed
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+
+stages:
+  - build
+  - test
+
+# https://pip.pypa.io/en/stable/topics/caching/
+cache:
+  paths:
+    - .cache/pip
+
+build-multinest:
+  image: debian:latest
+  stage: build
+  <<: *default_rules
+  script:
+    - apt update
+    - apt-get install -y cmake g++ git gfortran libopenmpi-dev libblas-dev liblapack-dev
+    - git clone --depth 1 -b master https://github.com/JohannesBuchner/MultiNest $CI_PROJECT_DIR/MultiNest
+    - cd $CI_PROJECT_DIR/MultiNest/build
+    - cmake ..
+    - make
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/MultiNest/lib/*
+
+build-py-venv:
+  image: debian:latest
+  stage: build
+  <<: *default_rules
+  script:
+    - apt update
+    - apt-get install -y python3 python3-pip python3-venv
+    - cd /usr/local
+    - python3 -m venv $CI_PROJECT_DIR/venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - pip install tox
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/venv/*
+
+test-tox-flake8:
+  image: debian:latest
+  stage: test
+  <<: *default_rules
+  script:
+    - apt update
+    - apt-get install -y python3 python3-pip python3-venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+    - tox -e flake8
+
+test-tox-py:
+  image: debian:latest
+  stage: test
+  <<: *default_rules
+  script:
+    - apt update
+    - apt-get install -y chromium gfortran liblapack-dev libopenmpi-dev python3 python3-pip python3-venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+    - tox -e py

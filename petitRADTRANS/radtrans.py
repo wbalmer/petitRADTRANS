@@ -114,7 +114,6 @@ class Radtrans:
         # Inputs checks
         self.__check_line_opacity_mode(line_opacity_mode)
         self.__check_anisotropic_cloud_scattering(anisotropic_cloud_scattering)
-        self.__check_path_input_data(path_input_data)
 
         # Initialize properties
         if pressures is None:

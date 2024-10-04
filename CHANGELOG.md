@@ -4,11 +4,18 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a0] - 2024-10-01
+## [3.2.0a1] - 2024-10-04
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.1.1] - 2024-10-03
+### Changed
+- Repository now has a CI pipeline.
+
+### Fixed
+- Crash when loading opacities for the first time.
 
 ## [3.1.0] - 2024-10-01
 ### Highlights
