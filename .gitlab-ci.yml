@@ -1,9 +1,6 @@
-# Change pip's cache directory to be inside the project directory since we can only cache local items
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
+# Only run job when pushing to master or dev, if a package or test file is changed
 .default_rules: &default_rules
-  rules:  # only run job when pushing to master or dev, if a package or test file is changed
+  rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
         - .gitlab-ci.yml
@@ -19,18 +16,14 @@ stages:
   - build
   - test
 
-# https://pip.pypa.io/en/stable/topics/caching/
-cache:
-  paths:
-    - .cache/pip
-
 build-multinest:
-  image: debian:latest
+  image: debian:stable-slim
   stage: build
+  interruptible: true
   <<: *default_rules
-  script:
+  before_script:
     - apt update
-    - > 
+    - >
       apt-get install -y
       cmake
       g++
@@ -39,38 +32,43 @@ build-multinest:
       libblas-dev
       liblapack-dev
       libopenmpi-dev
+  script:
     - git clone --depth 1 -b master https://github.com/JohannesBuchner/MultiNest $CI_PROJECT_DIR/MultiNest
     - cd $CI_PROJECT_DIR/MultiNest/build
     - cmake ..
     - make
   artifacts:
+    expire_in: 30 minutes
     paths:
       - $CI_PROJECT_DIR/MultiNest/lib/*
 
 build-py-venv:
-  image: debian:latest
+  image: debian:stable-slim
   stage: build
   <<: *default_rules
-  script:
+  interruptible: true
+  before_script:
     - apt update
-    - > 
+    - >
       apt-get install -y
       python3
       python3-pip
       python3-venv
-    - cd /usr/local
+  script:
     - python3 -m venv $CI_PROJECT_DIR/venv
     - source $CI_PROJECT_DIR/venv/bin/activate
     - pip install tox
   artifacts:
+    expire_in: 30 minutes
     paths:
       - $CI_PROJECT_DIR/venv/*
 
 test-tox-flake8:
-  image: debian:latest
+  image: debian:stable-slim
   stage: test
+  interruptible: true
   <<: *default_rules
-  script:
+  before_script:
     - apt update
     - >
       apt-get install -y
@@ -78,15 +76,20 @@ test-tox-flake8:
       python3-pip
       python3-venv
     - source $CI_PROJECT_DIR/venv/bin/activate
+  script:
     - tox -e flake8
+  needs:
+    - job: build-py-venv
+      artifacts: true
 
 test-tox-py:
-  image: debian:latest
+  image: debian:stable-slim
   stage: test
+  interruptible: true
   <<: *default_rules
-  script:
+  before_script:
     - apt update
-    - > 
+    - >
       apt-get install -y
       chromium
       gfortran
@@ -97,4 +100,10 @@ test-tox-py:
       python3-venv
     - source $CI_PROJECT_DIR/venv/bin/activate
     - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+  script:
     - tox -e py
+  needs:
+    - job: build-multinest
+      artifacts: true
+    - job: build-py-venv
+      artifacts: true
