@@ -30,7 +30,15 @@ build-multinest:
   <<: *default_rules
   script:
     - apt update
-    - apt-get install -y cmake g++ git gfortran libopenmpi-dev libblas-dev liblapack-dev
+    - > 
+      apt-get install -y
+      cmake
+      g++
+      gfortran
+      git
+      libblas-dev
+      liblapack-dev
+      libopenmpi-dev
     - git clone --depth 1 -b master https://github.com/JohannesBuchner/MultiNest $CI_PROJECT_DIR/MultiNest
     - cd $CI_PROJECT_DIR/MultiNest/build
     - cmake ..
@@ -45,7 +53,11 @@ build-py-venv:
   <<: *default_rules
   script:
     - apt update
-    - apt-get install -y python3 python3-pip python3-venv
+    - > 
+      apt-get install -y
+      python3
+      python3-pip
+      python3-venv
     - cd /usr/local
     - python3 -m venv $CI_PROJECT_DIR/venv
     - source $CI_PROJECT_DIR/venv/bin/activate
@@ -60,9 +72,12 @@ test-tox-flake8:
   <<: *default_rules
   script:
     - apt update
-    - apt-get install -y python3 python3-pip python3-venv
+    - >
+      apt-get install -y
+      python3
+      python3-pip
+      python3-venv
     - source $CI_PROJECT_DIR/venv/bin/activate
-    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
     - tox -e flake8
 
 test-tox-py:
@@ -71,7 +86,15 @@ test-tox-py:
   <<: *default_rules
   script:
     - apt update
-    - apt-get install -y chromium gfortran liblapack-dev libopenmpi-dev python3 python3-pip python3-venv
+    - > 
+      apt-get install -y
+      chromium
+      gfortran
+      liblapack-dev
+      libopenmpi-dev
+      python3
+      python3-pip
+      python3-venv
     - source $CI_PROJECT_DIR/venv/bin/activate
     - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
     - tox -e py
