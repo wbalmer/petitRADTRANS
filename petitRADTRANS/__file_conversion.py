@@ -3064,30 +3064,30 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     if not os.path.isfile(wavenumbers_petitradtrans_file):
         print("Generating petitRADTRANS wavenumber grid... ", end='')
 
-        wavenumbers_petitradtrans = prt_resolving_space(
+        wavenumbers_petitradtrans_line_by_line = prt_resolving_space(
             start=standard_line_by_line_wavelength_boundaries[0],
             stop=standard_line_by_line_wavelength_boundaries[-1],
             resolving_power=1e6
-        )
+        )  # (um)
 
-        wavenumbers_petitradtrans = 1e4 / wavenumbers_petitradtrans[::-1]
+        wavenumbers_petitradtrans_line_by_line = 1e4 / wavenumbers_petitradtrans_line_by_line[::-1]   # um to cm-1
     else:
         print("Loading petitRADTRANS wavenumber grid... ", end='')
 
         with h5py.File(wavenumbers_petitradtrans_file, 'r') as f:
-            wavenumbers_petitradtrans = f['bin_edges'][:]
+            wavenumbers_petitradtrans_line_by_line = f['bin_edges'][:]
 
     print("Done.")
 
     selection = np.nonzero(
         np.logical_and(
-            np.greater_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[1]),
-            np.less_equal(wavenumbers_petitradtrans, 1e4 / line_by_line_wavelength_boundaries[0])
+            np.greater_equal(wavenumbers_petitradtrans_line_by_line, 1e4 / line_by_line_wavelength_boundaries[1]),
+            np.less_equal(wavenumbers_petitradtrans_line_by_line, 1e4 / line_by_line_wavelength_boundaries[0])
         )
     )[0]
     selection = np.array([selection[0] - 1, selection[-1] + 2])  # ensure that the selection contains the bounds
 
-    wavenumbers_line_by_line = wavenumbers_petitradtrans[selection[0]:selection[1]]
+    wavenumbers_line_by_line_selected = wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]]
 
     if rebin:
         print(f"Reading opacity files in directory '{opacities_directory}'...")
@@ -3134,10 +3134,10 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             file_extension=opacity_files_extension,
             wavelength_file=spectral_dimension_file,
             molmass=molmass,
-            wavenumbers_petitradtrans_line_by_line=wavenumbers_line_by_line,
+            wavenumbers_petitradtrans_line_by_line=wavenumbers_petitradtrans_line_by_line,  # use the unselected wvn
             save_line_by_line=save_line_by_line,
             rebin=rebin,
-            selection=selection
+            selection=selection  # wavenumbers selection
         )
 
         # Raise error if the wavenumbers are not sorted in increasing order
@@ -3185,7 +3185,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         print(f"Starting line-by-line conversion (boundaries: {line_by_line_wavelength_boundaries})...")
         sigmas_line_by_line = np.array(sigmas_line_by_line)[pressure_temperature_grid_sorted_id]
         sigmas_line_by_line = sigmas_line_by_line.reshape(
-            (unique_pressures.size, unique_temperatures.size, wavenumbers_line_by_line.size)
+            (unique_pressures.size, unique_temperatures.size, wavenumbers_line_by_line_selected.size)
         )
 
         output_directory = get_opacity_directory(
@@ -3195,7 +3195,9 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             full=False
         )
 
-        resolving_power = np.mean(wavenumbers_petitradtrans[:-1] / np.diff(wavenumbers_petitradtrans) + 0.5)
+        resolving_power = np.mean(
+            wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5
+        )
 
         filename = get_opacity_filename(
             resolving_power=resolving_power,
@@ -3225,7 +3227,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         write_line_by_line(
             file=hdf5_opacity_file,
             doi=doi,
-            wavenumbers=wavenumbers_line_by_line,
+            wavenumbers=wavenumbers_line_by_line_selected,
             opacities=sigmas_line_by_line,
             mol_mass=molmass,
             species=species,
@@ -3755,7 +3757,7 @@ def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wave
         # Interpolate the ExoCross calculation to that grid
         print(" Interpolating...")
         sig_interp = interp1d(wavenumbers, opacities)
-        sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line)
+        sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
     else:
         n_lines = finput.count_file_line_number_sequential(file)
         sigma = finput.load_all_line_by_line_opacities_sequential(file, n_lines)
