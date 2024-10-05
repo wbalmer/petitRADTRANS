@@ -4,11 +4,15 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a1] - 2024-10-04
+## [3.2.0a2] - 2024-10-05
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.1.2] - 2024-10-05
+### Fixed
+- Crash when converting DACE opacities (solves [issue 87](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/87), introduced in [3.1.0a29](https://gitlab.com/mauricemolli/petitRADTRANS/-/commit/3e7344610ec2b3ac2fbe2bad75bee0c905f6c09f)).
 
 ## [3.1.1] - 2024-10-03
 ### Changed
