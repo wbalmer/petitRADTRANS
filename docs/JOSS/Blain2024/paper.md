@@ -20,7 +20,7 @@ authors:
     orcid: 0000-0002-9792-3121
     affiliation: 1
 affiliations:
- - name: Max Planck Institut für Astronomie, DE
+ - name: Max Planck Institut für Astronomie, Königstuhl 17 D-69117 Heidelberg, Germany
    index: 1
 date: 18 May 2024
 bibliography: paper.bib
@@ -85,55 +85,8 @@ Ground-based high-resolution spectra contain telluric and stellar lines that mus
 ### Ground-based data simulation
 Data ($F$) taken from ground telescopes can be expressed as $F = M_\Theta \circ D + N$ [@Blain2024], where $M_\Theta$ is an exact model with true parameters $\Theta$, $D$ ("deformation matrix") represents the combination of telluric lines, stellar lines, and instrumental deformations (pseudo-continuum, blaze function, ...), and $N$ is the noise. The operator "$\circ$" represents the element-wise product. Telluric lines, noise, and other deformations can be included in a `SpectralModel` object. A time-varying airmass can be added as model parameter to better model the telluric lines. Finally, a command-line interface (CLI) with ESO's [SKYCALC](https://www.eso.org/observing/etc/bin/gen/form?INS.MODE=swspectr+INS.NAME=SKYCALC) sky model calculator has been implemented, adapting the CLI provided on the [ESO's website](https://www.eso.org/observing/etc/doc/skycalc/helpskycalccli.html).
 
-## Workflows
-Examples for these workflows are available in the pRT's documentation.
-
-### Spectra calculation
-Calculating spectra with `SpectralModel` is done in two steps:
-
-1. Instantiation: similarly to `Radtrans`, this step is done to load the opacities, and thus requires the same parameter as a `Radtrans` instantiation. In addition, the user can provide model parameters, that will give the spectral parameters and the modification parameters. Finally, a custom `dict` can be given if the user desires to use different functions than the built-in ones.
-2. Calculation: spectral calculation is done with a unique function. The spectrum type (emission or transmission), as well as modification flags (for scaling, Doppler-shifting, etc.) are given as arguments.
-
-### Retrievals
-Retrieving spectra with `SpectralModel` is done in seven steps:
-
-1. Loading the data,
-2. For high-resolution ground-based data: preparing the data,
-3. Setting the retrieved parameters, this is done by filling a `dict`,
-4. Setting the forward model, by instantiating a `SpectralModel` object,
-5. Instantiating a `Data` object with the `SpectralModel` dedicated function,
-6. Instantiating a `Retrieval` object from the previously built `Data` object(s),
-7. Running the retrieval.
-
-In addition, a new corner plot function, based on the `corner` package [@Foreman-Mackey2016], has been implemented to ease the representation of the retrieval results with this framework.
- 
-
 # The petitRADTRANS 3 update
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Test \label{tab:performances}  | pRT 2.7.7 time (s) | pRT 3.1.0 time (s)| pRT 2.7.7 RAM (MB) | pRT 3.1.0 RAM (MB) |
-|                                |                    |                   |                    |                    |
-+================================+====================+===================+====================+====================+
-| Opacity loading, `'c-k'`       | 3.2                | 1.0               | --                 | --                 |
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Opacity loading, `'lbl'`       | 6.2                | 0.5               | --                 | --                 |
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Emission, `'c-k'`              | 6.7                | 5.4               | 3135               | 1509               |
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Emission, `'lbl'`              | 8.1                | 5.1               | 5864               | 2643               |
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Transmission, `'c-k'`          | 1.3                | 0.7               | 992                | 758                |
-+--------------------------------+--------------------+-------------------+--------------------+--------------------+
-| Transmission, `'lbl'`          | 7.0                | 3.4               | 3929               | 2010               |
-+================================+====================+===================+====================+====================+
-| - Times are measured using the `cProfile` standard library, from the average of 7 runs.                           |
-| - "RAM": peak RAM usage as reported by the `tracemalloc` standard library.                                        |
-| - `'c-k'`: using correlated-k opacities (CH$_4$ and H$_2$O), from 0.3 to 28 $\mu$m.                               |
-| - `'lbl'`: using line-by-line opacities (CO and H$_2$O), from 0.9 to 1.2 $\mu$m.                                  |
-| - All spectra calculations are done using 100 pressure levels. Emission scattering is activated in `'c-k'` mode.  |
-| - Results obtained on Debian 12.5 (WSL2), CPU: AMD Ryzen 9 3950X @ 3.50 GHz.                                      |
-+================================+====================+===================+====================+====================+
-
-Fully and seamlessly implementing `SpectralModel` into pRT required major changes and refactors to pRT's code. The changes focus on optimisations (both for speed and RAM usage) for high-resolution spectra computing, but this also impacts the correlated-k (low-resolution) part of the code (see \autoref{tab:performances}). To speed-up "input data" (opacities, pre-calculated equilibrium chemistry table, star spectra table) loading times, pRT's loading system has been overhauled and the loaded files have been converted from a mix of ASCII, Fortran unformatted and [HDF5](https://www.hdfgroup.org/solutions/hdf5/) files to HDF5-only. Opacities now also follow an extended [ExoMol database](https://www.exomol.com/) naming and structure convention. The package's installation process has been made compatible with Python $\geq$ 3.12[^4]. Finally, several quality-of-life features (e.g., missing requested opacities can be automatically downloaded from the project's [Keeper library](https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/), or the `Planet` object) have been implemented.
+Fully and seamlessly implementing `SpectralModel` into pRT required major changes and refactors to pRT's code. The changes focus on optimisations (both for speed and RAM usage) for high-resolution spectra computing, but this also impacts the correlated-k (low-resolution) part of the code. Overall, computation times for a typical spectral calculation between version 2 and version 3 have been divided by two, and RAM usage reduced by 30%. To speed-up "input data" (opacities, pre-calculated equilibrium chemistry table, star spectra table) loading times, pRT's loading system has been overhauled and the loaded files have been converted from a mix of ASCII, Fortran unformatted and [HDF5](https://www.hdfgroup.org/solutions/hdf5/) files to HDF5-only. Opacities now also follow an extended [ExoMol database](https://www.exomol.com/) naming and structure convention. The package's installation process has been made compatible with Python $\geq$ 3.12[^4]. Finally, several quality-of-life features (e.g., missing requested opacities can be automatically downloaded from the project's [Keeper library](https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/), or the `Planet` object) have been implemented.
 
 [^4]: pRT 2 used the [`numpy.distutils` module](https://numpy.org/doc/stable/reference/distutils.html) to compile its Fortran extensions. This module is deprecated and is removed for Python 3.12. pRT 3 uses the [Meson build system](https://mesonbuild.com/) instead, with almost unnoticeable changes for users.
 
