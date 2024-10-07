@@ -63,11 +63,6 @@ In addition, `SpectralModel` provides built-in functions [@Blain2024] to scale, 
 
 The spectral calculation is done within the `calculate_spectrum` function (see \autoref{fig:flowchart}). The spectral mode (emission or transmission), as well as which of the spectral modification to activate (i.e. only scaling, or both convolving and rebinning, etc.), are controlled through the function's arguments ("spectral modification parameters").
 
-### Automatic optimal wavelength range calculation
-A way to slightly reduce the high[^3] memory usage of high-resolution spectral analysis is to load exactly the wavelength range required for an analysis, instead of relying on manual inputs. This task is complicated in high-resolution retrievals due to parameters influencing the Doppler-shift (that is, the radial velocity semi-amplitude $K_p$, the rest frame velocity shift $V_\mathrm{rest}$, and the mid transit time offset $T_0$) being retrieved. `SpectralModel` comes with a class method which takes into account the (uniform) prior range of these parameters to automatically calculate the optimal wavelength range to load.
-
-[^3]: Loading a typical pRT line-by-line opacity file between 1 and 2 $\mu$m takes 804 MB of RAM, according to `numpy.ndarray.nbytes`.
-
 ### Interface with pRT's `retrieval` module
 In order to be able to perform high-resolution data retrievals, the `Retrieval` object has been extended to support spectra with up to 3 dimensions, intended to be spectral order, exposure (time), and spectral pixel (wavelength). Several improvements to the module have been implemented as well:
 
