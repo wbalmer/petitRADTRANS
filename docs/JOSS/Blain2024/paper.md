@@ -50,8 +50,7 @@ The `SpectralModel` object extends the base capabilities of the petitRADTRANS pa
 The combination of ease-of-use and flexibility offered by `SpectralModel` makes it a powerful tool for high-resolution (but also low-resolution) atmospheric characterisation. With the upcoming first light of a new generation of ground based telescopes, such as the Extremely Large Telescope, `SpectralModel` makes petitRADTRANS ready for the new scientific discoveries that will be unveiled in the next era of high-resolution observations.
 
 # The `SpectralModel` object
-## Main features
-### Spectral parameter calculation framework
+## Spectral parameter calculation framework
 
 ![\label{fig:flowchart}Flowchart of `SpectralModel.calculate_spectrum` function. The annotation below the model functions represents an example of execution order of these function after topological sorting, involving the temperature ($T$), the metallicity ($Z$), the time ($t$), the mass fractions (MMR), the mean molar masses (MMW), the orbital phases ($\phi$), the relative velocities ($v$), and the transit effect ($\delta$). Additional deformations ($D$) and noise ($N$) can also be included.](flowchart.pdf)
 
@@ -63,7 +62,7 @@ In addition, `SpectralModel` provides built-in functions [@Blain2024] to scale, 
 
 The spectral calculation is done within the `calculate_spectrum` function (see \autoref{fig:flowchart}). The spectral mode (emission or transmission), as well as which of the spectral modification to activate (i.e. only scaling, or both convolving and rebinning, etc.), are controlled through the function's arguments ("spectral modification parameters").
 
-### Interface with pRT's `retrieval` module
+## Interface with pRT's `retrieval` module
 In order to be able to perform high-resolution data retrievals, the `Retrieval` object has been extended to support spectra with up to 3 dimensions, intended to be spectral order, exposure (time), and spectral pixel (wavelength). Several improvements to the module have been implemented as well:
 
 - The retrieved data can now be provided as arrays instead of requiring a file.
@@ -77,8 +76,12 @@ In addition, `SpectralModel`'s model parameters and spectral modification functi
 
 Ground-based high-resolution spectra contain telluric and stellar lines that must be removed. This is usually done with a "preparing" pipeline (also called "detrending" or "pre-processing" pipeline). To this end, a new `retrieval.preparing` sub-module has been implemented, containing the "Polyfit" pipeline [@Blain2024] and the "SysRem" pipeline [@Tamuz2005]. To perform a retrieval when the data are prepared with "Polyfit", the forward model must be prepared in the same way [@Blain2024]. This forward model preparation step can be activated when calculating a spectrum with `SpectralModel`.
 
-### Ground-based data simulation
-Data ($F$) taken from ground telescopes can be expressed as $F = M_\Theta \circ D + N$ [@Blain2024], where $M_\Theta$ is an exact model with true parameters $\Theta$, $D$ ("deformation matrix") represents the combination of telluric lines, stellar lines, and instrumental deformations (pseudo-continuum, blaze function, ...), and $N$ is the noise. The operator "$\circ$" represents the element-wise product. Telluric lines, noise, and other deformations can be included in a `SpectralModel` object. A time-varying airmass can be added as model parameter to better model the telluric lines. Finally, a command-line interface (CLI) with ESO's [SKYCALC](https://www.eso.org/observing/etc/bin/gen/form?INS.MODE=swspectr+INS.NAME=SKYCALC) sky model calculator has been implemented, adapting the CLI provided on the [ESO's website](https://www.eso.org/observing/etc/doc/skycalc/helpskycalccli.html).
+## Other features
+Telluric lines, noise, and other deformations can be included in a `SpectralModel` object. A time-varying airmass can be added as model parameter to better model the telluric lines. 
+
+A command-line interface (CLI) with ESO's [SKYCALC](https://www.eso.org/observing/etc/bin/gen/form?INS.MODE=swspectr+INS.NAME=SKYCALC) sky model calculator has been implemented, adapting the CLI provided on the [ESO's website](https://www.eso.org/observing/etc/doc/skycalc/helpskycalccli.html).
+
+SpectralModel comes with a class method which takes into account the (uniform) prior range of the radial velocity semi-amplitude ($K_p$), the rest frame velocity shift ($V_\mathrm{rest}$), and the mid transit time offset ($T_0$) to automatically calculate the optimal wavelength range to load, reducing memory usage.
 
 # The petitRADTRANS 3 update
 Fully and seamlessly implementing `SpectralModel` into pRT required major changes and refactors to pRT's code. The changes focus on optimisations (both for speed and RAM usage) for high-resolution spectra computing, but this also impacts the correlated-k (low-resolution) part of the code. Overall, computation times for a typical spectral calculation between version 2 and version 3 have been divided by two, and RAM usage reduced by 30%. To speed-up "input data" (opacities, pre-calculated equilibrium chemistry table, star spectra table) loading times, pRT's loading system has been overhauled and the loaded files have been converted from a mix of ASCII, Fortran unformatted and [HDF5](https://www.hdfgroup.org/solutions/hdf5/) files to HDF5-only. Opacities now also follow an extended [ExoMol database](https://www.exomol.com/) naming and structure convention. The package's installation process has been made compatible with Python $\geq$ 3.12[^4]. Finally, several quality-of-life features (e.g., missing requested opacities can be automatically downloaded from the project's [Keeper library](https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0/), or the `Planet` object) have been implemented.
