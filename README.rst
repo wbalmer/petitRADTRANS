@@ -26,6 +26,10 @@ petitRADTRANS
    :target: https://doi.org/10.21105/joss.05875
    :alt: DOI: 10.21105/joss.05875
 
+.. image:: https://joss.theoj.org/papers/10.21105/joss.07028/status.svg
+   :target: https://doi.org/10.21105/joss.07028
+   :alt: DOI: 10.21105/joss.07028
+
 **An easy-to-use Python package for calculating exoplanet spectra**
 
 Welcome to the repository of petitRADTRANS, an easy-to-use code for the calculation of exoplanet spectra.
@@ -42,6 +46,7 @@ If you use petitRADTRANS in your work, please cite the following articles:
 
 - for petitRADTRANS itself: `Mollière et al. 2019 <https://doi.org/10.1051/0004-6361/201935470>`_
 - for the retrieval package: `Nasedkin et al. 2024 <https://doi.org/10.21105/joss.05875>`_
+- for petitRADTRANS 3+: `Blain et al. 2024 <https://doi.org/10.21105/joss.07028>`_
 
 License
 =======
