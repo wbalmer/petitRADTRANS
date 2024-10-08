@@ -1,0 +1,109 @@
+cff-version: "1.2.0"
+message: If you use this software, please cite it using the
+  metadata from this file.
+
+# Project information
+title: petitRADTRANS
+authors:
+- name: "pRT Team"
+repository-code: "https://gitlab.com/mauricemolli/petitRADTRANS"
+url: "https://petitradtrans.readthedocs.io/en/latest/"
+license: MIT
+type: software
+
+identifiers:
+  - type: doi
+    description: "This is the collection of archived snapshots of
+      petitRADTRANS."
+    value: 10.5281/zenodo.8337870
+  - type: doi
+    description: "This is the archived snapshot of version 3.1.0 of
+      petitRADTRANS."
+    value: 10.5281/zenodo.13849587
+  - type: doi
+    description: "This is the archived snapshot of version 2.7.7 of
+      petitRADTRANS."
+    value: 10.5281/zenodo.10892021
+  - type: doi
+    description: "This is the archived snapshot of version 2.7.0 of
+      petitRADTRANS."
+    value: 10.5281/zenodo.8337871
+
+# Original paper
+preferred-citation:
+  title: "petitRADTRANS - A Python radiative transfer package for
+    exoplanet characterization and retrieval"
+  authors:
+  - family-names: Mollière
+    given-names: Paul
+    orcid: "https://orcid.org/0000-0003-4096-7067"
+  - family-names: Wardenier
+    given-names: Joost
+    orcid: "https://orcid.org/0000-0003-3191-2486"
+  - family-names: Henning
+    given-names: Thomas
+    orcid: "https://orcid.org/0000-0002-1493-300X"
+  - family-names: Molaverdikhani
+    given-names: Karan
+    orcid: "https://orcid.org/0000-0002-0502-0428"
+  - family-names: Molaverdikhani
+    given-names: Karan
+    orcid: "https://orcid.org/0000-0002-0502-0428"
+  - family-names: Snellen
+    given-names: Ignas
+    orcid: "https://orcid.org/0000-0003-1624-3667"
+  year: 2019
+  doi: 10.1051/0004-6361/201935470
+  journal: "Astronomy & Astrophysics"
+  type: article
+  url: "https://doi.org/10.1051/0004-6361/201935470"
+  volume: 627
+  pages: "A67"
+
+# Associated papers
+references:
+  - title: "SpectralModel: a high-resolution framework for petitRADTRANS
+      3"
+    authors:
+    - family-names: Blain
+      given-names: Doriann
+      orcid: "https://orcid.org/0000-0002-1957-0455"
+    - family-names: Mollière
+      given-names: Paul
+      orcid: "https://orcid.org/0000-0003-4096-7067"
+    - family-names: Nasedkin
+      given-names: Evert
+      orcid: "https://orcid.org/0000-0002-9792-3121"
+    date-published: 2024-10-07
+    doi: 10.21105/joss.07028
+    issn: 2475-9066
+    issue: 102
+    journal: Journal of Open Source Software
+    publisher:
+      name: Open Journals
+    start: 7028
+    type: article
+    url: "https://joss.theoj.org/papers/10.21105/joss.07028"
+    volume: 9
+  - title: Atmospheric Retrievals with petitRADTRANS
+    authors:
+    - family-names: Nasedkin
+      given-names: Evert
+      orcid: "https://orcid.org/0000-0002-9792-3121"
+    - family-names: Mollière
+      given-names: Paul
+      orcid: "https://orcid.org/0000-0003-4096-7067"
+    - family-names: Blain
+      given-names: Doriann
+      orcid: "https://orcid.org/0000-0002-1957-0455"
+    date-published: 2024-04-02
+    doi: 10.21105/joss.05875
+    issn: 2475-9066
+    issue: 96
+    journal: Journal of Open Source Software
+    publisher:
+      name: Open Journals
+    start: 5875
+    type: article
+    url: "https://joss.theoj.org/papers/10.21105/joss.05875"
+    volume: 9
