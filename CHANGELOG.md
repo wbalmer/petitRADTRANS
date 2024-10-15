@@ -4,7 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a2] - 2024-10-05
+## [3.2.0a3] - 2024-10-15
+### Fixed
+- Minor typo in a warning message.
+
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.

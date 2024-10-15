@@ -506,7 +506,7 @@ class SpectralModel(Radtrans):
                 parameter = parameter.split('log10_', 1)[1]
 
             if parameter not in default_parameters and parameter != 'modification_parameters':  # TODO modification_parameters is deprecated, remove in version 4 # noqa: E501
-                warnings.warn(f"model parameter '{parameter}' is not used by any function main function of this "
+                warnings.warn(f"model parameter '{parameter}' is not used by any function of this "
                               f"SpectralModel\n"
                               f"To remove this warning, add a custom function using this parameter, "
                               f"or remove it from your model")
