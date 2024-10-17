@@ -17,7 +17,10 @@ Guidelines to report an issue
 - Add relevant information.
 - Always include an example that can be used by the developers to reproduce your issue.
 - For large scripts or console outputs (more than ~20 lines), please use attached files.
-- If your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
+
+You can check `this example <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/88>`_ to help you structure your issue.
+
+.. important:: If your issue is resolved (by yourself or a developer), **please report it**, especially if you solved the issue yourself: this can help other people and also the developer team.
 
 While we are happy to help everyone in need, please only report direct petitRADTRANS-related issues. Most of the time issues from, for example, setups (Mac, Conda, compilers, ...) are not related to and cannot be fixed by petitRADTRANS. For these issues we recommend Q&A platforms such as `stackoverflow <https://stackoverflow.co/>`_. If you still encounter difficulties, contact the petitRADTRANS team and we will do our best to help you.
 
