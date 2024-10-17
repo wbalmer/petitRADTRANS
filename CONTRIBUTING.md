@@ -4,7 +4,7 @@ We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or pro
 
 When reporting issues please include as much detail as possible about your operating system, petitRADTRANS version and python version. Whenever possible, please also include a brief, self-contained code example that demonstrates the problem. Please carefully read the guidelines in the [documentation](https://petitradtrans.readthedocs.io/en/latest/content/contributing.html#suggestions-and-reporting-issues).
 
-Alternatively, you can directly contact members of the development team via [e-mail](https://petitradtrans.readthedocs.io/en/latest/index.html#contact).
+**While reporting the issue on Gitlab is the preferred method**, as it makes the issue public and thus can help other users to solve it, you can also directly contact members of the development team via [e-mail](https://petitradtrans.readthedocs.io/en/latest/index.html#contact), if you would like some help with modelling, for example.
 
 ## Contributing code or adding opacities
 We welcome contributions to petitRADTRANS! If you want to contribute a new capability to the code, especially if it is something more involved, please notify the development team before. This is such that we can gauge whether your contribution can or should be merged into pRT.
