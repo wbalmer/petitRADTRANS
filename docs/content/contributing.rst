@@ -7,16 +7,18 @@ Suggestions and reporting issues
 ================================
 We always aim to enhance petitRADTRANS, so do not hesitate to report bugs or propose new features or other suggestions. The preferred way in both cases is to create a new issue on the `petitRADTRANS gitlab <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. In that case, please take the time to read the guidelines below.
 
-Alternatively, you can directly contact members of the development team `via e-mail <../index.html#contact>`_.
+While reporting the issue on Gitlab is the preferred method, as it makes the issue public and thus can help other users to solve it, you can directly contact members of the development team `via e-mail <../index.html#contact>`_, if you would like some help with modelling, for example.
 
 Guidelines to report an issue
 -----------------------------
 - Ensure that the issue is petitRADTRANS-related (see below).
 - Use a clear title for the issue.
-- Add a few lines to describe your issue.
-- Add relevant information.
+- Add a few sentences to describe your issue in more details if necessary.
+- Add relevant information (OS, pRT version, Python version, use of ``venv`` or ``conda``, etc.).
+- Add some key-points: steps to reproduce, expect results and actual results.
 - Always include an example that can be used by the developers to reproduce your issue.
 - For large scripts or console outputs (more than ~20 lines), please use attached files.
+- You may also add how severe you estimate the issue is.
 
 You can check `this example <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/88>`_ to help you structure your issue.
 
@@ -42,7 +44,7 @@ If you would like to make a fix or add a feature to petitRADTRANS, you may proce
 1. Install `Git <https://git-scm.com/>`_.
 2. Sign up to `Gitlab <https://gitlab.com/>`_.
 3. `Fork <https://docs.gitlab.com/ee/user/project/repository/forking_workflow.html>`_ petitRADTRANS from the `main repository <https://gitlab.com/mauricemolli/petitRADTRANS>`_.
-    .. note:: You may directly create a new branch (step 10) instead of a fork.
+    .. note:: You may directly create a new branch (step 10) instead of a fork if you are in the pRT dev team.
 4. `Clone <https://docs.gitlab.com/ee/user/project/repository/#clone-a-repository>`_ your fork to work locally.
 5. Go inside the cloned directory. Add an upstream remote and fetch it with:
     .. code-block:: bash
@@ -89,7 +91,7 @@ pRT dev team: main repository workflow
 
 The above figure represents the workflow when working on pRT's main repository.
 
-The main repository is composed of two branches:
+The main repository is composed of at least two branches:
 
 - The ``master`` branch, which contains the stable, latest official release of pRT. It is intended for the users.
 - The ``dev`` branch, which contains the latest updates of the package. It is intended for pRT's developers.
@@ -115,9 +117,9 @@ When you estimate that your work is done, you can think about pushing to the ``d
 
 Major bug fixes
 ~~~~~~~~~~~~~~~
-When a major bug (crash of a major function, incorrect results) is identified, the master branch can be directly modified. The patch version of the code must be updated, as well as all development branches. A temporary ``hotfix`` branch can be created if the bug is particularly severe and necessitate a lot of work.
+When a major bug (crash of a major function, incorrect results) is identified, the master branch can be directly modified. The patch version of the code must be updated, as well as all development branches. A temporary ``hotfix`` branch can be created if the bug is particularly severe and requires a lot of work.
 
-.. tip:: Make use of :ref:`automatic tests<test_suite>` to prevent such case to happen!
+.. tip:: Make use of :ref:`automatic tests<test_suite>` to prevent such a case to happen!
 
 Backward-compatibility breaking changes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -233,17 +235,17 @@ In general, look at existing code for guidance. Before committing, take the time
 - Functions intended to be used by users should have `type hints <https://peps.python.org/pep-0484/>`_.
 - Avoid extremely long functions. As a rule of thumb, if a function is more than 100 lines long, break it into smaller functions.
 - Docstrings:
-    - must follow the `Google style <https://google.github.io/styleguide/pyguide.html#383-functions-and-methods>`_.
-    - must follow the normal sentence rules for docstrings.
+    - Must follow the `Google style <https://google.github.io/styleguide/pyguide.html#383-functions-and-methods>`_.
+    - Must follow the normal sentence rules.
 - Comments (starting with ``#`` on Python):
-    - must never end with a dot,
-    - on a line without code, must start with an uppercase,
-    - on a line with code, must start with a lowercase,
-    - may be exceed the line character limit (120) if they are on a line with code or unbreakable (e.g. URL), in that case add ``# noqa E501`` at the end of the comment to signal ``flake8`` that this is expected.
+    - Must never end with a dot.
+    - On a line without code, must start with an uppercase.
+    - On a line with code, must start with a lowercase.
+    - May be exceed the line character limit (120) if they are on a line with code or unbreakable (e.g. URL), in that case add ``# noqa E501`` at the end of the comment to signal ``flake8`` that this is expected.
 - If you are using PyCharm, fix all errors, warnings, and weak warnings, with the following exceptions:
-    - errors related to the import of Fortran extensions can be ignored as long as the code works and does not produce warnings.
-    - warnings related to expected types or not found references can be ignored if the warning is related to an external library or a fortran function, as long as the code works and does not produce warnings.
-    - weak warnings related to not using ``kwargs`` can be ignored: this is part of the code architecture.
+    - Errors related to the import of Fortran extensions can be ignored as long as the code works and does not produce warnings.
+    - Warnings related to expected types or not found references can be ignored if the warning is related to an external library or a fortran function, as long as the code works and does not produce warnings.
+    - Weak warnings related to not using ``kwargs`` can be ignored: this is part of the code architecture.
 
 .. _test_suite:
 
@@ -260,13 +262,15 @@ All the tests within the "tests" directory will be executed. A summary will be a
 
 Conda: running the tests
 ~~~~~~~~~~~~~~~~~~~~~~~~
-When using conda environments, you must install `tox-conda` prior to running the tox test suite.
-Additionally, you may run into issues with package versions and getting the test suite to run properly, in particular with the `numba` package.
-You will need to `conda install numba`, even if you have already installed the package through `pip`.
-We also suggest running `tox` for specific python versions, rather than automatically running on the base version installed on your system.
+When using conda environments, you must install ``tox-conda`` prior to running the tox test suite.
+
+Additionally, you may run into issues with package versions and getting the test suite to run properly, in particular with the ``numba`` package.
+You will need to ``conda install numba``, even if you have already installed the package through ``pip``.
+
+We also suggest running ``tox`` for specific python versions, rather than automatically running on the base version installed on your system.
 At the very least, you should run tests on the oldest version currently supported by pRT (python 3.9 as of 2024), as well as the most recent version.
 
-Below an example to tox test the code with flake8 and python 3.11:
+Below an example to ``tox`` test the code with ``flake8`` and python 3.11:
 
 .. code-block::
 
@@ -304,10 +308,10 @@ The test functions that will be executed by tox are in the test modules. To mini
 
 In order to keep things clean in the long run: if a test goes wrong, **avoid increasing the tolerance**. Instead, try first to understand the origin of the difference. It is your responsibility as a developer to understand and explain changes in results coming from the changes you made within the code.
 
-Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an AssertionError is raised, an error file is automatically generated in the "errors" directory. The error file is a .h5 file containing 6 datasets:
+Most of the tests consist of calling a petitRADTRANS function, and to compare the result with the last validated one. If an ``AssertionError`` is raised, an error file is automatically generated in the "errors" directory. The error file is a .h5 file containing 6 datasets:
 
-- ``test_outputs``, the results of the current test,
-- ``reference_outputs``, the results of the last validated test,
+- ``test_outputs``, a ``list`` containing the results of the current test,
+- ``reference_outputs``, a ``list`` containing the results of the last validated test,
 - ``prt_version``, the version of petitRADTRANS used to generate the last validated test,
 - ``relative_tolerance``, the relative tolerance used to compare the results,
 - ``absolute_tolerance``, the absolute tolerance used to compare the results.
@@ -315,14 +319,28 @@ Most of the tests consist of calling a petitRADTRANS function, and to compare th
 
 In addition, the test will compare the inputs of the tested function. If a discrepancy is detected, an error file is automatically generated in the "errors" directory. The error file is a .h5 file containing 6 datasets:
 
-- ``invalid_test_parameters``, the invalid inputs used for the current test,
-- ``reference_parameters``, the corresponding inputs used for the last validated test,
+- ``invalid_test_parameters``, a ``dict`` containing the invalid inputs used for the current test,
+- ``reference_parameters``, a ``dict`` containing the corresponding inputs used for the last validated test,
 - ``prt_version``, the version of petitRADTRANS used to generate the last validated test,
 - ``relative_tolerance``, the relative tolerance used to compare the results,
 - ``absolute_tolerance``, the absolute tolerance used to compare the results.
 - ``date``, the date of the test.
 
-These files can be used for diagnostic.
+These files can be used for diagnostic. To load an error file, you can use:
+
+.. code-block:: python
+
+    from tests.benchmark import TestFile
+
+    error_file = TestFile.load('./tests/errors/<filename>.h5')
+
+    # Examples
+    # For AssertionError files
+    error_file.test_outputs[<output_index>] - error_file.reference_outputs[<output_index>]
+
+    # For invalid inputs files
+    error_file.invalid_test_parameters['<parameter_name>'] - error_file.reference_parameters['<parameter_name>']
+
 
 Creating a new test
 ~~~~~~~~~~~~~~~~~~~
