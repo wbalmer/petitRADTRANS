@@ -1,13 +1,13 @@
 =========================
 Available opacity species
 =========================
-All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below.
+All the opacities that can be downloaded `via Keeper <https://keeper.mpdl.mpg.de/d/ccf25082fda448c8a0d0>`_ in petitRADTRANS are listed below. petitRADTRANS will automatically download opacity tables if you request a species that is not on your hard drive yet, but available on Keeper.
 
-.. important:: petitRADTRANS will automatically download opacity tables if you request a species that is not on your hard drive yet, but available on Keeper. Additional sources of opacities, and how to calculate and add your own, are described in `"Adding opacities" <adding_opacities.html>`_.
-
-.. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
+.. Tip:: Additional sources of opacities, and how to calculate and add your own, are described in `"Adding opacities" <adding_opacities.html>`_.
 
 .. important:: **Converting pRT2 opacities:** if you added opacities to pRT yourself in the past, before pRT3 was released (May 2024): these need to be converted to pRT3 format. This is explained in `"Converting pRT2 opacities to pRT3 format" <pRT3_changes_description.html#converting-prt2-opacities-to-prt3-format>`_.
+
+.. important:: Please cite the reference mentioned in the description when making use of a line species listed below. Information about the opacity source are also available in the opacity HDF file under the key ``DOI`` and its attributes.
 
 Line species
 ============
@@ -24,7 +24,7 @@ For some species such as CO and TiO, the contribution of all isotopologues is co
 All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. The actual wavelength coverage is given by looking at the full filenames in the table below.
 Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as desribed in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
 
-.. important:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
+.. Tip:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
 
 The available correlated-k opacities are listed below. When multiple source are available for a species, the recommended one is indicated in bold.
 
@@ -32,8 +32,8 @@ The available correlated-k opacities are listed below. When multiple source are 
     :widths: 20 20 20 20 20
     :header-rows: 1
 
-    * - Short species name*
-      - Unique species name**
+    * - Short species name [#]_
+      - Unique species name [#]_
       - File name
       - Reference for line list (mostly DOIs)
       - Contributor
@@ -383,9 +383,9 @@ The available correlated-k opacities are listed below. When multiple source are 
       - http://kurucz.harvard.edu/
       - `K. Molaverdikhani <mailto:karan.molaverdikhani@colorado.edu>`_
 
-\*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
+.. [#] This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
 
-\**: This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
+.. [#] This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
 
 .. _highResolution:
 
@@ -401,8 +401,8 @@ The available line-by-line opacities are listed below. When multiple source are 
     :widths: 10 10 10 10
     :header-rows: 1
 
-    * - Short species name*
-      - Unique species name**
+    * - Short species name [#]_
+      - Unique species name [#]_
       - Reference
       - Contributor
     * - Al
@@ -678,9 +678,9 @@ The available line-by-line opacities are listed below. When multiple source are 
       - `Kurucz <http://kurucz.harvard.edu>`_
       - `K. Molaverdikhani <karan.molaverdikhani@colorado.edu>`_
 
-\*: This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
+.. [#] This is the "minimal name" you have to provide pRT with in order to be able to load this opacity. If there are multiple options (e.g., you request ``'CO'``, but there is the HITEMP and the Exomol line list), it will ask you which one you prefer.
 
-\**: This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
+.. [#] This is the unique name for which there is no source ambiguity, when requested in pRT. The default resolving power and wavelength range will be used, unless more information are given.
 
 .. _namingConvention:
 
@@ -708,7 +708,7 @@ Hereafter are the explicit file naming rules for line species:
 - Elements in the chemical formula are separated by ``-``.
 - The number in front of the element indicates its isotope, when relevant.
 - The number after the element indicates its (stoichiometric) quantity in the molecule, when relevant.
-- Opacities combining isotopologues following their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number should be present next to the elements.
+- Opacities combining isotopologues following their natural (i.e. Earth) abundance are indicated with the string ``-NatAbund`` after the chemical formula. In that case, no isotope number must be present next to the elements.
 - The charge of the species is indicated after the formula, starting with ``_``. The character ``p`` is used for positive charges and ``n`` for negative charges.
 - The number in front of the charge indicates the charge amount, when relevant.
 - The source (e.g., line list database) of the opacity is indicated after the charge, starting with ``__``.
@@ -779,7 +779,10 @@ Gas continuum sources follow a naming convention similar to that of the :ref:`li
 
 Most of the CIA are given for species with their Earth natural isotopologue abundances. The very low resolving power of those opacities makes isotope-specific data largely irrelevant anyway.
 
-.. caution:: Make sure to add abundances for all continuum species you request. For example, if a ``gas_continuum_contributors`` opacity entry name is a CIA species, the ``mass_fractions`` dictionary keys must contain the colliding species. However, if a species that you need for a continuum opacity source is already added as line absorber mass fraction, even with extra identifiers (e.g., ``'H2O__POKAZATEL'``), do not add another entry to the mass fraction dictionary (so do not add ``'H2O'`` if you requested ``'H2O--H2O'`` CIA, in our example)! The danger is that the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``). Instead, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the continuum absorber mass fractions. If you add a continuum species for which no corresponding line opacity is loaded, you must add a mass fraction entry, however.
+.. caution::
+    Make sure to add abundances for all continuum species you request. If a ``gas_continuum_contributors`` opacity entry name is a CIA species, the ``mass_fractions`` dictionary keys must contain the colliding species. For example, including the ``'H2--He'`` CIA requires mass fractions for ``H2`` and ``He`` (N.B. for ``SpectralModel``, ``filling_species`` can be used instead in this case).
+
+    **However**, for example if you request ``'H2O--H2O'`` and the line absorber ``'H2O__POKAZATEL'``, you only need to add the mass fractions of ``'H2O__POKAZATEL'``. Indeed, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the continuum absorber mass fractions. If both ``H2O`` and ``H2O__POKAZATEL`` are added as mass fractions, the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``).
 
 Below are some working opacity name examples:
 
@@ -1097,4 +1100,7 @@ The Rayleigh scattering cross-sections available in pRT are listed below:
 - N2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
 - O2 (`Thalmann et al. 2014 <https://ui.adsabs.harvard.edu/abs/2014JQSRT.147..171T/abstract>`_, `2017 <https://ui.adsabs.harvard.edu/abs/2017JQSRT.189..281T/abstract>`_)
 
-.. caution:: Like for the gas continuum absorbers, make sure to add abundances for all Rayleigh species you request. However, if a species that you add as a Rayleigh scatterer is already added as a line absorber mass fraction, even with extra identifiers (e.g., ``'H2O__POKAZATEL'``), do not add another entry to the mass fraction dictionary (so do not add ``'H2O'`` if you requested ``'H2O'`` Rayleigh scattering)! The danger is that the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``). Instead, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the Rayleigh scatterer mass fractions. If you add a Rayleigh species for which no corresponding line opacity is loaded, you must add a mass fraction entry, however.
+.. caution::
+    Make sure to add abundances for all Rayleigh species you request. For example, including the ``'H2'`` scatterer requires mass fractions for ``H2`` (N.B. for ``SpectralModel``, ``filling_species`` can be used instead in this case).
+
+    **However**, for example if you request ``'H2O'`` and the line absorber ``'H2O__POKAZATEL'``, you only need to add the mass fractions of ``'H2O__POKAZATEL'``. Indeed, pRT will cut off flags such as ``__POKAZATEL`` and sum over all isotopologues to build the continuum absorber mass fractions. If both ``H2O`` and ``H2O__POKAZATEL`` are added as mass fractions, the abundance is counted twice when calculating the mean molar mass of the atmosphere (which happens automatically in ``SpectralModel`` objects, or if you call ``petitRADTRANS.chemistry.utils.compute_mean_molar_masses()``).

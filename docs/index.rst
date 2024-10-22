@@ -83,8 +83,8 @@ Former contributors and developers
    content/installation
    content/pRT3_changes_description
    content/tutorial
-   content/available_opacities
    content/retrieval_examples
+   content/available_opacities
    content/adding_opacities
    content/contributing
 

@@ -8,8 +8,11 @@ To install petitRADTRANS, without retrievals, you need to install:
 
 - Python 3.9+,
 - a fortran compiler, for example ``gfortran``.
+- to use the automatic data download feature, ``chromium``[*]_.
 
 **Running retrievals:** read the :ref:`MultiNest installation instructions<retrievalsSection>`.
+
+.. [*] To download data from Keeper, pRT uses ``selenium`` to load webpages through a browser. When the code for this interface was written, Chromium was the only mainstream browser that could be used `without any windows opening <https://en.wikipedia.org/wiki/Headless_browser>`_. Chromium is also `free and open-source <https://en.wikipedia.org/wiki/Chromium_(web_browser)>`_. In addition, it is the base of `many widespread browsers <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_.
 
 Linux
 -----
@@ -17,16 +20,16 @@ On Linux, install Python and the fortran compiler with:
 
 .. code-block:: bash
 
-    sudo apt-get install python python-pip gfortran
+    sudo apt-get install python python-pip gfortran chromium
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
-.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ (recommended) or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
 
 Mac OS
 ------
 
-.. important:: On Mac, it is highly recommended to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+.. important:: On Mac, it is highly recommended to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ (recommended) or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
 
 Recommended: using homebrew
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -72,7 +75,8 @@ Follow the WSL installation instructions from the previous link, then install pR
 Native installation prerequisites
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 1. Get a fortran compiler through, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
-2. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
+2. If you already have a `Chromium-based browser <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_, you can skip this step. Otherwise, download Chromium, for example from its `official website <https://download-chromium.appspot.com/>`_.
+3. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
 
 .. warning:: It is **not** possible to run parallel (fast) retrievals with a native Windows installation (see the :ref:`MultiNest section<multinest_windows>`).
 
@@ -90,7 +94,7 @@ Prerequisite for retrievals: MultiNest
 
 If you want to use pRT's retrieval package, you need to install the PyMultiNest package:
 
-1. Follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
+1. Follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#prerequisites-for-building-the-libraries>`_.
 2. Link the resulting library files by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``. This can be done by adding this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
 
     .. code-block:: bash

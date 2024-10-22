@@ -11,8 +11,8 @@ Tutorial
    notebooks/scattering_for_emission_spectra
    notebooks/analysis_tools
    retrieval_examples
-   notebooks/planet
    notebooks/spectral_model
+   notebooks/planet
    notebooks/rebinning_opacities
    notebooks/utility_functions
    notebooks/interpolating_chemical_equilibrium_abundances
