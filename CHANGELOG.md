@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a3] - 2024-10-15
+## [3.2.0a4] - 2024-10-22
 ### Fixed
 - Minor typo in a warning message.
 

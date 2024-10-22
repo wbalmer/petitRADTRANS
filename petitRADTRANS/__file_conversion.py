@@ -3103,7 +3103,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     elif len(opacity_files) < 130:
         warnings.warn(f"directory '{opacities_directory}' contains only {len(opacity_files)} files, "
                       f"the standard petitRADTRANS temperature-pressure grid size is 130; a finer temperature-pressure "
-                      f"grid allows for a more accurate interpolation of the opacities")
+                      f"grid allows for a more accurate interpolation of the cross-sections")
 
     species_isotopologue_name = copy.deepcopy(species)
 
@@ -3129,7 +3129,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     for i, opacity_file in enumerate(opacity_files):
         print(f" Reading file '{opacity_file}' ({i + 1}/{len(opacity_files)})... ", end='')
 
-        opacities, opacities_line_by_line, wavenumbers, pressure, temperature = load_function(
+        cross_sections, cross_sections_line_by_line, wavenumbers, pressure, temperature = load_function(
             file=opacity_file,
             file_extension=opacity_files_extension,
             wavelength_file=spectral_dimension_file,
@@ -3159,8 +3159,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
 
         temperatures.append(temperature)
         pressures.append(pressure)
-        sigmas.append(opacities)
-        sigmas_line_by_line.append(opacities_line_by_line)
+        sigmas.append(cross_sections)
+        sigmas_line_by_line.append(cross_sections_line_by_line)
 
         print("Done.")
 
@@ -3635,14 +3635,14 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     # Get the number of datapoints
     n_points = int(len(data) * 0.25)
     # Create array of the appropriate length
-    opacities = np.ones(n_points)
+    cross_sections = np.ones(n_points)
 
     # Read the binary data into the array
     for i in range(int(n_points)):
         value = struct.unpack('f', data[i * 4:(i + 1) * 4])
-        opacities[i] = value[0]
+        cross_sections[i] = value[0]
 
-    opacities *= cst.amu * molmass  # cm2.g-1 to cm2.molecule-1
+    cross_sections *= cst.amu * molmass  # cm2.g-1 to cm2.molecule-1
 
     filename = file.rsplit(os.path.sep, 1)[-1]
 
@@ -3657,7 +3657,7 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     wavenumber_start = filename.split('_', 3)[1:3]
     wavenumber_end = int(wavenumber_start[-1])
     wavenumber_start = int(wavenumber_start[0])
-    wavenumbers = np.linspace(wavenumber_start, wavenumber_end, opacities.size)
+    wavenumbers = np.linspace(wavenumber_start, wavenumber_end, cross_sections.size)
 
     # Handle insufficient wavelength coverage
     d_wavenumbers = np.mean(np.diff(wavenumbers))
@@ -3672,7 +3672,7 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
         wavenumbers = np.insert(
             wavenumbers, 0, [wavenumbers_petitradtrans_line_by_line[selection[0]], wavenumber_start - d_wavenumbers]
         )
-        opacities = np.insert(opacities, 0, [0, 0])
+        cross_sections = np.insert(cross_sections, 0, [0, 0])
 
     if wavenumber_end < wavenumbers_petitradtrans_line_by_line[selection[1]]:
         warnings.warn(
@@ -3684,10 +3684,10 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
         wavenumbers = np.concatenate(
             [wavenumbers, [wavenumber_end + d_wavenumbers, wavenumbers_petitradtrans_line_by_line[selection[1]]]]
         )
-        opacities = np.concatenate([opacities, [0, 0]])
+        cross_sections = np.concatenate([cross_sections, [0, 0]])
 
     # Interpolate the Dace calculation to that grid
-    sig_interp = interp1d(wavenumbers, opacities)
+    sig_interp = interp1d(wavenumbers, cross_sections)
     sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
 
     # Check if interp values are below 0 or NaN
@@ -3701,13 +3701,13 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
         raise ValueError
 
     if save_line_by_line:
-        opacities_line_by_line = sigmas_prt
+        cross_sections_line_by_line = sigmas_prt
     else:
-        opacities_line_by_line = None
+        cross_sections_line_by_line = None
         warnings.warn("Dace opacities do not extend enough "
                       "to be on the standard petitRADTRANS correlated-k wavelength grid")
 
-    return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
+    return cross_sections, cross_sections_line_by_line, wavenumbers, pressure, temperature
 
 
 def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wavenumbers_petitradtrans_line_by_line=None,
@@ -3752,11 +3752,11 @@ def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wave
         data = np.genfromtxt(file)
 
         wavenumbers = data[:, 0]
-        opacities = data[:, 1]
+        cross_sections = data[:, 1]
 
         # Interpolate the ExoCross calculation to that grid
         print(" Interpolating...")
-        sig_interp = interp1d(wavenumbers, opacities)
+        sig_interp = interp1d(wavenumbers, cross_sections)
         sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
     else:
         n_lines = finput.count_file_line_number_sequential(file)
@@ -3767,15 +3767,15 @@ def load_exocross(file, file_extension, molmass=None, wavelength_file=None, wave
 
         sigma = sigma[::-1]
         sigmas_prt = copy.deepcopy(sigma)
-        opacities = sigma
+        cross_sections = sigma
         wavenumbers = 1 / wavenumbers[::-1]
 
     if save_line_by_line:
-        opacities_line_by_line = sigmas_prt[selection[0]:selection[1]]
+        cross_sections_line_by_line = sigmas_prt[selection[0]:selection[1]]
     else:
-        opacities_line_by_line = None
+        cross_sections_line_by_line = None
 
-    return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
+    return cross_sections, cross_sections_line_by_line, wavenumbers, pressure, temperature
 
 
 def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=None, rewrite=False):
