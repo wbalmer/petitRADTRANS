@@ -8,11 +8,9 @@ To install petitRADTRANS, without retrievals, you need to install:
 
 - Python 3.9+,
 - a fortran compiler, for example ``gfortran``.
-- to use the automatic data download feature, ``chromium``[*]_.
+- to use the automatic data download feature, ``chromium`` [*]_.
 
 **Running retrievals:** read the :ref:`MultiNest installation instructions<retrievalsSection>`.
-
-.. [*] To download data from Keeper, pRT uses ``selenium`` to load webpages through a browser. When the code for this interface was written, Chromium was the only mainstream browser that could be used `without any windows opening <https://en.wikipedia.org/wiki/Headless_browser>`_. Chromium is also `free and open-source <https://en.wikipedia.org/wiki/Chromium_(web_browser)>`_. In addition, it is the base of `many widespread browsers <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_.
 
 Linux
 -----
@@ -227,3 +225,5 @@ A common error with Apple silicon when trying to run retrievals is ``AttributeEr
 Other issues
 ------------
 You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to `open a new issue <contributing.html#suggestions-and-reporting-issues>`_.
+
+.. [*] Why Chromium? To download data from Keeper, pRT uses ``selenium`` to load webpages through a browser. When the code for this interface was written, Chromium was the only mainstream browser that could be used `without any windows opening <https://en.wikipedia.org/wiki/Headless_browser>`_. Chromium is also `free and open-source <https://en.wikipedia.org/wiki/Chromium_(web_browser)>`_. In addition, it is the base of `many widespread browsers <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_.
