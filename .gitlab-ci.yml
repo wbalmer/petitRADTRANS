@@ -15,6 +15,7 @@
 stages:
   - build
   - test
+  - deploy
 
 build-multinest:
   image: debian:stable-slim
@@ -107,3 +108,29 @@ test-tox-py:
       artifacts: true
     - job: build-py-venv
       artifacts: true
+
+deploy-pypi:
+  image: debian:stable-slim
+  stage: deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+  before_script:
+    - apt update
+    - >
+      apt-get install -y
+      gfortran
+      git
+      pkg-config
+      python3
+      python3-pip
+      python3-build
+      python3-venv
+      twine
+  script:
+    - python3 -m build --sdist
+    - twine check dist/*
+    - twine upload --repository testpypi dist/*
