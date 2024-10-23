@@ -133,4 +133,4 @@ deploy-pypi:
   script:
     - python3 -m build --sdist
     - twine check dist/*
-    - twine upload --repository testpypi dist/*
+    - twine upload dist/*
