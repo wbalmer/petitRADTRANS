@@ -4288,7 +4288,11 @@ class Radtrans:
             )
 
     def load_cloud_opacities(self, path_input_data):
-        # Function to read cloud opacities
+        """ Load the cloud opacities.
+
+        Args:
+            path_input_data: path to petitRADTRANS' input_data directory
+        """
         hdf5_files = []
         internal_structures = []
         scattering_methods = []
@@ -4319,28 +4323,36 @@ class Radtrans:
             print(f" Loading opacities of cloud species '{self._cloud_species[i]}' from file '{hdf5_file}' "
                   f"({internal_structures[i]}, using {scattering_methods[i]} scattering)...", end='')
 
-            with h5py.File(hdf5_file, 'r') as f:
-                if i == 0:
-                    # Initialize cloud arrays
-                    cloud_wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
-                    cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
-                    clouds_particles_radii_bins = f['particle_radius_bins'][:]
-                    clouds_particles_radii = f['particles_radii'][:]
+            (
+                _cloud_wavelengths,
+                _cloud_particles_radii_bins,
+                _cloud_particles_radii,
+                _cloud_particles_densities,
+                _cloud_absorption_opacities,
+                _cloud_scattering_opacities,
+                _cloud_asymmetry_parameters
+            ) = self.load_cloud_opacity(hdf5_file)
 
-                    clouds_absorption_opacities = np.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
-                    clouds_scattering_opacities = np.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
-                    clouds_asymmetry_parameters = np.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
+            if i == 0:
+                # Initialize cloud arrays
+                cloud_wavelengths = _cloud_wavelengths
+                clouds_particles_radii_bins = _cloud_particles_radii_bins
+                clouds_particles_radii = _cloud_particles_radii
 
-                clouds_particles_densities[i] = f['particles_density'][()]
-                clouds_absorption_opacities[:, :, i] = f['absorption_opacities'][:]
-                clouds_scattering_opacities[:, :, i] = f['scattering_opacities'][:]
-                clouds_asymmetry_parameters[:, :, i] = f['asymmetry_parameters'][:]
+                clouds_absorption_opacities = np.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
+                clouds_scattering_opacities = np.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
+                clouds_asymmetry_parameters = np.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
+
+            clouds_particles_densities[i] = _cloud_particles_densities
+            clouds_absorption_opacities[:, :, i] = _cloud_absorption_opacities
+            clouds_scattering_opacities[:, :, i] = _cloud_scattering_opacities
+            clouds_asymmetry_parameters[:, :, i] = _cloud_asymmetry_parameters
 
             print(" Done.")
 
@@ -4375,6 +4387,24 @@ class Radtrans:
         )
 
         print(" Successfully loaded all clouds opacities")
+
+    @staticmethod
+    def load_cloud_opacity(file_path_hdf5):
+        """Load a cloud opacity file."""
+        with h5py.File(file_path_hdf5, 'r') as f:
+            cloud_wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
+            cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
+
+            return (
+                cloud_wavelengths,
+                f['particle_radius_bins'][:],
+                f['particles_radii'][:],
+                f['particles_density'][()],
+                f['absorption_opacities'][:],
+                f['scattering_opacities'][:],
+                f['asymmetry_parameters'][:]
+            )
+
 
     @staticmethod
     def load_hdf5_ktables(file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size):
@@ -4473,14 +4503,11 @@ class Radtrans:
         return _line_opacities_grid
 
     def load_line_opacities(self, path_input_data):
-        """Read the line opacities for spectral calculation.
+        """Load the line opacities for spectral calculation.
         The default pressure-temperature grid is a log-uniform (10, 13) grid.
 
         Args:
-            path_input_data:
-
-        Returns:
-
+            path_input_data: path to petitRADTRANS' input_data directory
         """
         # TODO currently all the pressure-temperature grid is loaded, it could be more memory efficient to provide a T an p range at init and only load the relevant parts of the grid # noqa: E501
         if self._line_opacity_mode == 'c-k':
