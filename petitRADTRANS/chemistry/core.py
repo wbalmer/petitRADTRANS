@@ -89,52 +89,57 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             )
         )
     # Free chemistry abundances
-    msum = 0.0
+    msum = np.zeros_like(pressures)
 
     if abundances_interp:
         for key, val in abundances_interp.items():
-            msum += np.max(val)
+            msum += val
 
     # Free chemistry species
     for species in line_species:
         species_short_name = species.split(".R")[0]
-
+        easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
         # Vertically constant abundance
         if species_short_name in parameters.keys():
-            easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
             if easy_chem_name in abundances_interp.keys():
-                msum -= np.max(abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]])
+                msum -= abundances_interp[easy_chem_name]
             abund = 10 ** parameters[species_short_name].value
             abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
-            msum += abund
+            msum += abund * np.ones_like(pressures)
 
         # Stepped abundance profile
         if f"{species_short_name}_abundance_steps" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
             abundances[species_short_name] = stepped_profile(
                 pressures,
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_abundance_steps"].value)
-            msum += np.max(abundances[species_short_name])
+            msum += abundances[species_short_name]
         
         # Linear spline interpolation
         if f"{species_short_name}_linear_abundance_nodes" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
             abundances[species_short_name], prior = linear_spline_profile(
                 pressures[small_index],
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_linear_abundance_nodes"].value,
                 gamma = 0.04,
                 nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
-            msum += np.max(abundances[species_short_name])
+            msum += abundances[species_short_name]
 
         # Cubic spline interpolation
         if f"{species_short_name}_cubic_abundance_nodes" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
             abundances[species_short_name],prior = cubic_spline_profile(
                 pressures[small_index],
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_cubic_abundance_nodes"].value,
                 gamma = 0.04,
                 nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
-            msum += np.max(abundances[species_short_name])
+            msum += abundances[species_short_name]
             
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
@@ -142,19 +147,19 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
-            abundances_interp['H2'] = 10 ** parameters['H2'].value * np.ones_like(pressures)
+            abundances_interp['H2'] = 10 ** parameters['H2'].value
 
         else:
-            abundances_interp['H2'] = 0.766 * (1.0 - msum) * np.ones_like(pressures)
+            abundances_interp['H2'] = 0.766 * (1.0 - msum)
 
         if 'He' in parameters.keys():
-            abundances_interp['He'] = 10 ** parameters['He'].value * np.ones_like(pressures)
+            abundances_interp['He'] = 10 ** parameters['He'].value
 
         else:
-            abundances_interp['He'] = 0.234 * (1.0 - msum) * np.ones_like(pressures)
+            abundances_interp['He'] = 0.234 * (1.0 - msum)
 
         # Imposing strict limit on msum to ensure H2 dominated composition
-        if msum > 1.0:
+        if np.max(msum) > 1.0:
             print(f"Abundance sum > 1.0, msum={msum}")
             return None, None, None, None
 
