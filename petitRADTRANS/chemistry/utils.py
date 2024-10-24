@@ -650,9 +650,9 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
     # This is defined by calculate_pressure_nodes
     nnodes = len(transition_pressures)-2
     log_pressure = np.log10(pressure_array)
-    if len(abundance_points) != len(transition_pressures)+1:
+    if len(abundance_points) != nnodes+1:
         warnings.warn("Length of abundance array must be 1 greater than the length of pressures array!")
-        return
+        return np.nan*np.ones_like(pressure_array)
     for i in range(nnodes):
         # Only set using intermediate nodes
         if i == 0:
