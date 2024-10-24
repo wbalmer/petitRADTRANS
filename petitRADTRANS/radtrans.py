@@ -4257,25 +4257,35 @@ class Radtrans:
 
             print(f" Loading CIA opacities for {collision} from file '{hdf5_file}'...", end='')
 
-            with h5py.File(hdf5_file, 'r') as f:
-                wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
-                wavelengths = wavelengths[::-1]  # correct ordering
-
-                species = f['mol_name'][:]
-                species = [s.decode('utf-8') for s in species]
-
-                # Update keys one-by-one to keep the LockedDict
-                self._cias_loaded_opacities[collision]['molecules'] = species
-                self._cias_loaded_opacities[collision]['weight'] = np.prod(f['mol_mass'][:])
-                self._cias_loaded_opacities[collision]['lambda'] = wavelengths
-                self._cias_loaded_opacities[collision]['temperature'] = f['t'][:]
-                self._cias_loaded_opacities[collision]['alpha'] = np.transpose(
-                    f['alpha'][:]
-                )[::-1, :]  # (wavelength, temperature), correct ordering
+            (
+                self._cias_loaded_opacities[collision]['molecules'],
+                self._cias_loaded_opacities[collision]['weight'],
+                self._cias_loaded_opacities[collision]['lambda'],
+                self._cias_loaded_opacities[collision]['temperature'],
+                self._cias_loaded_opacities[collision]['alpha']
+            ) = self.load_cia_opacity(hdf5_file)
 
             print(" Done.")
 
         print(" Successfully loaded all CIA opacities")
+
+    @staticmethod
+    def load_cia_opacity(file_path_hdf5):
+        """Load a CIA opacity file."""
+        with h5py.File(file_path_hdf5, 'r') as f:
+            wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
+            wavelengths = wavelengths[::-1]  # correct ordering
+
+            species = f['mol_name'][:]
+            species = [s.decode('utf-8') for s in species]
+
+            return (
+                species,
+                np.prod(f['mol_mass'][:]),  # weight
+                wavelengths,
+                f['t'][:],  # temperature
+                np.transpose(f['alpha'][:])[::-1, :]  # alpha (wavelength, temperature), correct ordering
+            )
 
     def load_cloud_opacities(self, path_input_data):
         # Function to read cloud opacities
