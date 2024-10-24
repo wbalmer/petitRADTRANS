@@ -105,7 +105,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 msum -= abundances_interp[easy_chem_name]
             abund = 10 ** parameters[species_short_name].value
             abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
-            msum += abund * np.ones_like(pressures)
+            msum += abundances_interp[easy_chem_name]
 
         # Stepped abundance profile
         if f"{species_short_name}_abundance_steps" in parameters.keys():
@@ -140,7 +140,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 gamma = 0.04,
                 nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
             msum += abundances_interp[easy_chem_name]
-            
+      
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
     if "Fe/H" not in parameters.keys():
