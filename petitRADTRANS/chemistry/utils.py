@@ -790,7 +790,8 @@ def calculate_pressure_nodes(pressure_array, mode = 'even', nnodes = 0, points_l
         pressures = [np.log10(pressure_array[0])]
         min_pressure = np.log10(pressure_array[-1])
         for i, node in enumerate(points_list):
-            next = pressures[i] - node
+            # pressures goes from low to high
+            next = pressures[i] + node
             pressures.append(max(next, min_pressure))
         pressures.append(min_pressure)
         return np.array(pressures)
