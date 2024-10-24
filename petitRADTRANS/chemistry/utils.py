@@ -680,6 +680,84 @@ def abundance_curvature_prior(press, abundance, gamma):
 
     return weighted_abund_prior
 
+def define_pressure_node_list(pressure_array, species_short_name, parameters):
+    """
+    Define the location of pressure nodes, allowing individual nodes to be 
+    retrieved parameters.
+
+    If mode is even, the nodes are evenly spaced in log pressure, with a total of
+    nnodes + 2 points (including the top and bottom of the atmospheres).
+    If mode is relative, then points list is returned.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        species_short_name (str): which molecular species does this apply to (each can be unique)
+        parameters (dict): dictionary of parameters used in a retrieval
+    Returns:
+        array: an array of pressure nodes, can be used in calculate_pressure_nodes
+    """
+    if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
+        nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
+        mode = parameters[f"{species_short_name}_interpolation_mode"].value
+
+        # Evenly spaced in log P
+        if mode == 'even':
+            pressure_interpolation_nodes = calculate_pressure_nodes(
+                pressure_array,
+                mode = parameters[f"{species_short_name}_interpolation_mode"].value,
+                nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value,
+                points_list = None
+            )
+        # Retrieve individual relative pressure node locations
+        elif mode == 'relative':
+            pnodes = [parameters[f"{species_short_name}_pressure_node_{i}"].value for i in range(nnodes)]
+            pressure_interpolation_nodes = calculate_pressure_nodes(
+            pressure_array,
+            mode = mode,
+            nnodes = None,
+            points_list = pnodes
+            )
+    # Predifined list of pressure node locations
+    elif f"{species_short_name}_pressure_nodes" in parameters.keys():
+        pressure_interpolation_nodes = calculate_pressure_nodes(
+            pressure_array,
+            mode = parameters[f"{species_short_name}_interpolation_mode"].value,
+            nnodes = None,
+            points_list = parameters[f"{species_short_name}_pressure_nodes"].value
+        )
+    # Default to bottom and top of atmosphere
+    else:
+        pressure_interpolation_nodes = [np.log10(pressure_array[0]),np.log10(pressure_array[-1])]
+    return pressure_interpolation_nodes
+
+
+def define_abundance_node_list(species_short_name, parameters):
+    """
+    Define the location of pressure nodes, allowing individual nodes to be 
+    retrieved parameters.
+
+    If mode is even, the nodes are evenly spaced in log pressure, with a total of
+    nnodes + 2 points (including the top and bottom of the atmospheres).
+    If mode is relative, then points list is returned.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        species_short_name (str): which molecular species does this apply to (each can be unique)
+        parameters (dict): dictionary of parameters used in a retrieval
+    Returns:
+        array: an array of pressure nodes
+    """
+    abundance_nodes = None
+    if f"{species_short_name}_n_abundance_nodes" in parameters.keys():
+        nnodes = parameters[f"{species_short_name}_n_abundance_nodes"].value
+        # Retrieve individual relative pressure node locations
+        abundance_nodes = [parameters[f"{species_short_name}_abundance_node_{i}"].value for i in range(nnodes)]
+
+    # Predifined list of pressure node locations
+    elif f"{species_short_name}_abundance_nodes" in parameters.keys():
+        abundance_nodes = parameters[f"{species_short_name}_abundance_nodes"].value
+    return abundance_nodes
+
 
 def calculate_pressure_nodes(pressure_array, mode = 'even', nnodes = 0, points_list = None):
     """

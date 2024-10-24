@@ -12,12 +12,21 @@ from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses,
     fixed_length_amr,
     linear_spline_profile,
     cubic_spline_profile,
-    stepped_profile
+    stepped_profile,
+    calculate_pressure_nodes,
+    define_pressure_node_list,
+    define_abundance_node_list
 )
 from petitRADTRANS.chemistry import clouds as fc
 
 
-def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
+def get_abundances(
+        pressures,
+        temperatures, 
+        line_species, 
+        cloud_species, 
+        parameters, 
+        amr=False):
     """
     This function takes in the C/O ratio, metallicity, and quench pressures and uses them
     to compute the gas phase and equilibrium condensate abundances from an interpolated table.
@@ -107,39 +116,47 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             abund = 10 ** parameters[species_short_name].value
             abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
             msum += abundances_interp[easy_chem_name]
+            continue
 
+        # Non-vertically constant abundances
+        pressure_interpolation_nodes = define_pressure_node_list(
+            pressures,
+            species_short_name,
+            parameters
+        )
+        abundance_nodes = define_abundance_node_list(species_short_name, parameters)
         # Stepped abundance profile
-        if f"{species_short_name}_abundance_steps" in parameters.keys():
+        if f"{species_short_name}_stepped_abundance_profile" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
             abundances_interp[easy_chem_name] = stepped_profile(
                 pressures,
-                parameters[f"{species_short_name}_pressure_nodes"].value,
-                parameters[f"{species_short_name}_abundance_steps"].value)
+                pressure_interpolation_nodes,
+                abundance_nodes)
             msum += abundances_interp[easy_chem_name]
 
         # Linear spline interpolation
-        if f"{species_short_name}_linear_abundance_nodes" in parameters.keys():
+        if f"{species_short_name}_linear_abundance_profile" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
             abundances_interp[easy_chem_name], _ = linear_spline_profile(
                 pressures,
-                parameters[f"{species_short_name}_pressure_nodes"].value,
-                parameters[f"{species_short_name}_linear_abundance_nodes"].value,
+                pressure_interpolation_nodes,
+                abundance_nodes,
                 gamma=0.04,
-                nnodes=len(parameters[f"{species_short_name}_pressure_nodes"].value))
+                nnodes=len(pressure_interpolation_nodes))
             msum += abundances_interp[easy_chem_name]
 
         # Cubic spline interpolation
-        if f"{species_short_name}_cubic_abundance_nodes" in parameters.keys():
+        if f"{species_short_name}_cubic_abundance_profile" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
             abundances_interp[easy_chem_name], _ = cubic_spline_profile(
                 pressures,
-                parameters[f"{species_short_name}_pressure_nodes"].value,
-                parameters[f"{species_short_name}_cubic_abundance_nodes"].value,
+                pressure_interpolation_nodes,
+                abundance_nodes,
                 gamma=0.04,
-                nnodes=len(parameters[f"{species_short_name}_pressure_nodes"].value))
+                nnodes=len(pressure_interpolation_nodes))
             msum += abundances_interp[easy_chem_name]
 
     # For free chemistry, need to fill with background gas (H2-He)
