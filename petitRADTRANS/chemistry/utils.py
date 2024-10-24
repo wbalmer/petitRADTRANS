@@ -745,6 +745,7 @@ def linear_spline_profile(pressure_array, pressure_nodes, abundance_points, gamm
     interpolated_abunds = 10**np.interp(np.log10(pressure_array),
                                    pressure_nodes,
                                    abundance_points)
+    
     prior = abundance_curvature_prior(pressure_array, interpolated_abunds, gamma)
     return interpolated_abunds, prior
 

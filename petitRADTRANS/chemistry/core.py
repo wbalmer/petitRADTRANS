@@ -121,8 +121,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         if f"{species_short_name}_linear_abundance_nodes" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
-            abundances_interp[easy_chem_name], prior = linear_spline_profile(
-                pressures[small_index],
+            abundances_interp[easy_chem_name], _ = linear_spline_profile(
+                pressures,
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_linear_abundance_nodes"].value,
                 gamma = 0.04,
@@ -133,8 +133,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         if f"{species_short_name}_cubic_abundance_nodes" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
-            abundances_interp[easy_chem_name],prior = cubic_spline_profile(
-                pressures[small_index],
+            abundances_interp[easy_chem_name], _ = cubic_spline_profile(
+                pressures,
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_cubic_abundance_nodes"].value,
                 gamma = 0.04,
