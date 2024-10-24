@@ -2891,7 +2891,7 @@ class Retrieval:
 
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
-            min_xaxis=1e-7
+            min_xaxis = 1e-7
             self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
