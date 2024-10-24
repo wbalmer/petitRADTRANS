@@ -8,7 +8,11 @@ except ModuleNotFoundError:
     get_exoatmos_abundances = None
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, fixed_length_amr
+from petitRADTRANS.chemistry.utils import compute_mean_molar_masses,\
+    fixed_length_amr,\
+    linear_spline_profile,\
+    cubic_spline_profile,\
+    stepped_profile
 from petitRADTRANS.chemistry import clouds as fc
 
 
@@ -93,13 +97,45 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Free chemistry species
     for species in line_species:
-        if species.split(".R")[0] in parameters.keys():
-            if species.split('_')[0].split('-')[0].split(".")[0] in abundances_interp.keys():
+        species_short_name = species.split(".R")[0]
+
+        # Vertically constant abundance
+        if species_short_name in parameters.keys():
+            easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
+            if easy_chem_name in abundances_interp.keys():
                 msum -= np.max(abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]])
-            abund = 10 ** parameters[species.split(".R")[0]].value
-            abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]] = abund * np.ones_like(pressures)
+            abund = 10 ** parameters[species_short_name].value
+            abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
             msum += abund
 
+        # Stepped abundance profile
+        if f"{species_short_name}_abundance_steps" in parameters.keys():
+            abundances[species_short_name] = stepped_profile(
+                pressures,
+                parameters[f"{species_short_name}_pressure_nodes"].value,
+                parameters[f"{species_short_name}_abundance_steps"].value)
+            msum += np.max(abundances[species_short_name])
+        
+        # Linear spline interpolation
+        if f"{species_short_name}_linear_abundance_nodes" in parameters.keys():
+            abundances[species_short_name], prior = linear_spline_profile(
+                pressures[small_index],
+                parameters[f"{species_short_name}_pressure_nodes"].value,
+                parameters[f"{species_short_name}_linear_abundance_nodes"].value,
+                gamma = 0.04,
+                nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
+            msum += np.max(abundances[species_short_name])
+
+        # Cubic spline interpolation
+        if f"{species_short_name}_cubic_abundance_nodes" in parameters.keys():
+            abundances[species_short_name],prior = cubic_spline_profile(
+                pressures[small_index],
+                parameters[f"{species_short_name}_pressure_nodes"].value,
+                parameters[f"{species_short_name}_cubic_abundance_nodes"].value,
+                gamma = 0.04,
+                nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
+            msum += np.max(abundances[species_short_name])
+            
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
     if "Fe/H" not in parameters.keys():
@@ -227,3 +263,5 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     abundances['He'] = abundances_interp['He'][small_index]
 
     return abundances, mmw, small_index, p_bases
+
+

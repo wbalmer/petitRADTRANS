@@ -65,6 +65,24 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
 
     return (energy / (cst.sigma*unit_factor)) ** 0.25
 
+def power_law_temperature_profile(press, alpha, T0):
+    """
+    Compute a power law profile for temperature; log(T) = a*log(P) + b.
+
+    This function computes a cubic spline profile for temperature using
+    pressure and temperature data points, along with a curvature prior.
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        alpha (float): power law exponent (how steep is the profile)
+        T0 (float): multiplicative factor (offsets the profile)
+
+    Returns:
+        temperaturess (array): temperature values for each pressure value
+    """
+    temperatures = T0*(press/press[0])**alpha
+    return temperatures
+
 
 def cubic_spline_profile(press, temperature_points, gamma, nnodes=0):
     """
