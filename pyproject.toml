@@ -12,8 +12,6 @@ requires = [
 name = "petitRADTRANS"
 version = "3.2.0a4"
 description = "Exoplanet spectral synthesis tool for retrievals"
-repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
-documentation = "https://petitradtrans.readthedocs.io/en/latest/"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
 ]
@@ -44,6 +42,12 @@ dependencies = [
     "selenium",
     "exo_k"
 ]
+
+[project.urls]
+Documentation = "https://petitradtrans.readthedocs.io/en/latest/"
+Repository = "https://gitlab.com/mauricemolli/petitRADTRANS"
+Issues = "https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
+Changelog = "https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 retrieval = [

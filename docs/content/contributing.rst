@@ -247,6 +247,41 @@ In general, look at existing code for guidance. Before committing, take the time
     - Warnings related to expected types or not found references can be ignored if the warning is related to an external library or a fortran function, as long as the code works and does not produce warnings.
     - Weak warnings related to not using ``kwargs`` can be ignored: this is part of the code architecture.
 
+.. _versioning:
+
+Versioning
+----------
+petitRADTRANS adheres to `Semantic Versioning <http://semver.org>`_.
+
+Alpha (``X.Y.ZaW``), beta (``X.Y.ZbW``), and release candidate (``X.Y.ZrcW``) versions are used exclusively in the ``dev`` branch.
+
+- Alpha versions: new features are planned or expected to be implemented.
+- Beta versions: only bug fixes are planned. No new feature can be added.
+- Release candidate versions: only tests are planned. The goal of these versions is to ensure that no hidden bug is left. As for the beta versions, no new feature can be added.
+
+The code's version must be updated in the following files:
+
+- CHANGELOG.md
+- meson.build
+- pyproject.toml
+- docs/conf.py
+
+petitRADTRANS comes with a changelog that is regularly updated with the most notable changes from the code. The format is based on `Keep a Changelog <http://keepachangelog.com>`_.
+
+For items in the "Added" (and "Removed") section, build your sentence as if it started with "Added:" (or "Removed":):
+    - Good example: "Function ``my_cool_function`` to do this useful thing.".
+    - Bad example: "It is now possible to do this useful thing.".
+
+For items in the "Changed" section, build your sentence as if you answered the question "what has changed?".
+
+For items in the "Fixed" section, build your sentence as if they were the title of an issue (answer to the question: "what issue is fixed?"), and describe the bug that is fixed:
+    - Good example: "<A bad thing> happens when function ``definitely_not_my_function`` is called.".
+    - Bad example: "Fixes a bug with <some feature>.".
+
+In the changelog, changes are ordered by perceived importance for the user. Changes or fixes internal to an alpha or beta version are not indicated.
+
+.. tip:: Note to devs: the CHANGELOG is primarily destined to the users. They use it to stay informed about new updates and fixes. Conciseness and precision are key to a good changelog!
+
 .. _test_suite:
 
 The petitRADTRANS test suite
@@ -406,37 +441,8 @@ To easily do this operation, execute the following:
 
 Before the reset, you will go through a checklist. Please take the time to read it. If you do not meet all the criteria, cancel the operation.
 
-.. _versioning:
+The petitRADTRANS build Docker image
+------------------------------------
+In order to speed-up the CI/CD pipeline, the petitRADTRANS' Gitlab repository uses a Docker image stored on Gitlab's `container registry <https://docs.gitlab.com/ee/user/packages/container_registry/>`_. This image is based on a lightweight OS and contains all the libraries necessary to build, test, and deploy petitRADTRANS.
 
-Versioning
-----------
-petitRADTRANS adheres to `Semantic Versioning <http://semver.org>`_.
-
-Alpha (``X.Y.ZaW``), beta (``X.Y.ZbW``), and release candidate (``X.Y.ZrcW``) versions are used exclusively in the ``dev`` branch.
-
-- Alpha versions: new features are planned or expected to be implemented.
-- Beta versions: only bug fixes are planned. No new feature can be added.
-- Release candidate versions: only tests are planned. The goal of these versions is to ensure that no hidden bug is left. As for the beta versions, no new feature can be added.
-
-The code's version must be updated in the following files:
-
-- CHANGELOG.md
-- meson.build
-- pyproject.toml
-- docs/conf.py
-
-petitRADTRANS comes with a changelog that is regularly updated with the most notable changes from the code. The format is based on `Keep a Changelog <http://keepachangelog.com>`_.
-
-For items in the "Added" (and "Removed") section, build your sentence as if it started with "Added:" (or "Removed":):
-    - Good example: "Function ``my_cool_function`` to do this useful thing.".
-    - Bad example: "It is now possible to do this useful thing.".
-
-For items in the "Changed" section, build your sentence as if you answered the question "what has changed?".
-
-For items in the "Fixed" section, build your sentence as if they were the title of an issue (answer to the question: "what issue is fixed?"), and describe the bug that is fixed:
-    - Good example: "<A bad thing> happens when function ``definitely_not_my_function`` is called.".
-    - Bad example: "Fixes a bug with <some feature>.".
-
-In the changelog, changes are ordered by perceived importance for the user. Changes or fixes internal to an alpha or beta version are not indicated.
-
-.. tip:: Note to devs: the CHANGELOG is primarily destined to the users. They use it to stay informed about new updates and fixes. Conciseness and precision are key to a good changelog!
+However, to keep pRT up-to-date, it is necessary to regularly update the image. This can be done by running the ``docker/build.sh`` shell script. This script will automatically build a new Docker image using ``docker/Dockerfile``, and push it to Gitlab's container registry, where it will be ready to use by the CI/CD pipeline.
