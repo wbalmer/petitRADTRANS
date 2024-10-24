@@ -131,7 +131,7 @@ def emission_model_diseq(prt_object,
 
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
-    
+
     contribution = False
     if "contribution" in parameters.keys():
         contribution = parameters["contribution"].value
@@ -822,6 +822,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         contribution=contribution
         )
 
+
 def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
@@ -944,6 +945,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
         distribution=distribution,
         contribution=contribution
         )
+
 
 def guillot_transmission(prt_object,
                          parameters,
@@ -1603,7 +1605,9 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
         parameters['alpha'].value,
         parameters['T_0'].value
         )
-
+    contribution = False
+    if "contribution" in parameters.keys():
+        contribution = parameters["contribution"].value
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
         p_use,

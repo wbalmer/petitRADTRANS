@@ -8,11 +8,12 @@ except ModuleNotFoundError:
     get_exoatmos_abundances = None
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses,\
-    fixed_length_amr,\
-    linear_spline_profile,\
-    cubic_spline_profile,\
+from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses,
+    fixed_length_amr,
+    linear_spline_profile,
+    cubic_spline_profile,
     stepped_profile
+)
 from petitRADTRANS.chemistry import clouds as fc
 
 
@@ -116,7 +117,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_abundance_steps"].value)
             msum += abundances_interp[easy_chem_name]
-        
+
         # Linear spline interpolation
         if f"{species_short_name}_linear_abundance_nodes" in parameters.keys():
             if easy_chem_name in abundances_interp.keys():
@@ -125,8 +126,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 pressures,
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_linear_abundance_nodes"].value,
-                gamma = 0.04,
-                nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
+                gamma=0.04,
+                nnodes=len(parameters[f"{species_short_name}_pressure_nodes"].value))
             msum += abundances_interp[easy_chem_name]
 
         # Cubic spline interpolation
@@ -137,10 +138,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 pressures,
                 parameters[f"{species_short_name}_pressure_nodes"].value,
                 parameters[f"{species_short_name}_cubic_abundance_nodes"].value,
-                gamma = 0.04,
-                nnodes = len(parameters[f"{species_short_name}_pressure_nodes"].value))
+                gamma=0.04,
+                nnodes=len(parameters[f"{species_short_name}_pressure_nodes"].value))
             msum += abundances_interp[easy_chem_name]
-      
+
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
     if "Fe/H" not in parameters.keys():
@@ -266,5 +267,3 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     abundances['He'] = abundances_interp['He'][small_index]
 
     return abundances, mmw, small_index, p_bases
-
-

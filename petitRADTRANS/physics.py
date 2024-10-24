@@ -65,6 +65,7 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
 
     return (energy / (cst.sigma*unit_factor)) ** 0.25
 
+
 def power_law_temperature_profile(press, alpha, T0):
     """
     Compute a power law profile for temperature; log(T) = a*log(P) + b.
