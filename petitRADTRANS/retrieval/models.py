@@ -641,6 +641,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
         parameters['T_int'].value,
         parameters['T_equ'].value
     )
+
     def gaussian(x, scale, mu, sig):
         return scale*np.exp(-np.power((x - mu)/sig, 2.)/2)
     temperature_addition = gaussian(np.log10(p_use),
@@ -648,7 +649,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
                                     parameters["temperature_location_log_pressure"].value,
                                     parameters["temperature_width_log_pressure"].value)
     temperatures += temperature_addition
-    safe_inds = np.where(temperatures<1.0)
+    safe_inds = np.where(temperatures < 1.0)
     temperatures[safe_inds] = 1.0
 
     # If in evaluation mode, and PTs are supposed to be plotted

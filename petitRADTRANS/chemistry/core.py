@@ -8,25 +8,19 @@ except ModuleNotFoundError:
     get_exoatmos_abundances = None
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses,
+from petitRADTRANS.chemistry.utils import (
+    compute_mean_molar_masses,
     fixed_length_amr,
     linear_spline_profile,
     cubic_spline_profile,
     stepped_profile,
-    calculate_pressure_nodes,
     define_pressure_node_list,
     define_abundance_node_list
 )
 from petitRADTRANS.chemistry import clouds as fc
 
 
-def get_abundances(
-        pressures,
-        temperatures, 
-        line_species, 
-        cloud_species, 
-        parameters, 
-        amr=False):
+def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
     """
     This function takes in the C/O ratio, metallicity, and quench pressures and uses them
     to compute the gas phase and equilibrium condensate abundances from an interpolated table.

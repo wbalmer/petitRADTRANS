@@ -658,7 +658,7 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
         if i == 0:
             abundance_profile[log_pressure >= transition_pressures[i+1]] = abundance_points[i]
         else:
-            abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure<transition_pressures[i])] =\
+            abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure < transition_pressures[i])] =\
                 abundance_points[i]
     abundance_profile[log_pressure < transition_pressures[-2]] = abundance_points[-1]
     return abundance_profile
@@ -684,9 +684,10 @@ def abundance_curvature_prior(press, abundance, gamma):
 
     return weighted_abund_prior
 
+
 def define_pressure_node_list(pressure_array, species_short_name, parameters):
     """
-    Define the location of pressure nodes, allowing individual nodes to be 
+    Define the location of pressure nodes, allowing individual nodes to be
     retrieved parameters.
 
     If mode is even, the nodes are evenly spaced in log pressure, with a total of
@@ -708,36 +709,36 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
         if mode == 'even':
             pressure_interpolation_nodes = calculate_pressure_nodes(
                 pressure_array,
-                mode = parameters[f"{species_short_name}_interpolation_mode"].value,
-                nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value,
-                points_list = None
+                mode=parameters[f"{species_short_name}_interpolation_mode"].value,
+                nnodes=parameters[f"{species_short_name}_n_pressure_nodes"].value,
+                points_list=None
             )
         # Retrieve individual relative pressure node locations
         elif mode == 'relative':
             pnodes = [parameters[f"{species_short_name}_pressure_node_{i}"].value for i in range(nnodes)]
             pressure_interpolation_nodes = calculate_pressure_nodes(
-            pressure_array,
-            mode = mode,
-            nnodes = None,
-            points_list = pnodes
+                pressure_array,
+                mode=mode,
+                nnodes=None,
+                points_list=pnodes
             )
     # Predifined list of pressure node locations
     elif f"{species_short_name}_pressure_nodes" in parameters.keys():
         pressure_interpolation_nodes = calculate_pressure_nodes(
             pressure_array,
-            mode = parameters[f"{species_short_name}_interpolation_mode"].value,
-            nnodes = None,
-            points_list = parameters[f"{species_short_name}_pressure_nodes"].value
+            mode=parameters[f"{species_short_name}_interpolation_mode"].value,
+            nnodes=None,
+            points_list=parameters[f"{species_short_name}_pressure_nodes"].value
         )
     # Default to bottom and top of atmosphere
     else:
-        pressure_interpolation_nodes = [np.log10(pressure_array[0]),np.log10(pressure_array[-1])]
+        pressure_interpolation_nodes = [np.log10(pressure_array[0]), np.log10(pressure_array[-1])]
     return pressure_interpolation_nodes
 
 
 def define_abundance_node_list(species_short_name, parameters):
     """
-    Define the location of pressure nodes, allowing individual nodes to be 
+    Define the location of pressure nodes, allowing individual nodes to be
     retrieved parameters.
 
     If mode is even, the nodes are evenly spaced in log pressure, with a total of
@@ -763,7 +764,7 @@ def define_abundance_node_list(species_short_name, parameters):
     return abundance_nodes
 
 
-def calculate_pressure_nodes(pressure_array, mode = 'even', nnodes = 0, points_list = None):
+def calculate_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
 
