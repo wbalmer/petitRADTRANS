@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a6] - 2024-10-24
+## [3.2.0a7] - 2024-10-24
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Fixed
 - Minor typo in a warning message.
+- Contribution overplotting in abundance profile plots
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
