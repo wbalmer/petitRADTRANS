@@ -645,18 +645,22 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
             - prior (array-like): Curvature prior values calculated for the spline.
     """
     abundance_profile = np.zeros_like(pressure_array)
-    nnodes = len(transition_pressures)
+
+    # Assumes that the transition array has both the top and bottom pressure as well
+    # This is defined by calculate_pressure_nodes
+    nnodes = len(transition_pressures)-2
     log_pressure = np.log10(pressure_array)
     if len(abundance_points) != len(transition_pressures)+1:
         warnings.warn("Length of abundance array must be 1 greater than the length of pressures array!")
         return
     for i in range(nnodes):
+        # Only set using intermediate nodes
         if i == 0:
-            abundance_profile[log_pressure >= transition_pressures[i]] = abundance_points[i]
+            abundance_profile[log_pressure >= transition_pressures[i+1]] = abundance_points[i]
         else:
-            abundance_profile[(log_pressure >= transition_pressures[i]) & (log_pressure<transition_pressures[i-1])] =\
+            abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure<transition_pressures[i])] =\
                 abundance_points[i]
-    abundance_profile[log_pressure < transition_pressures[-1]] = abundance_points[-1]
+    abundance_profile[log_pressure < transition_pressures[-2]] = abundance_points[-1]
     return abundance_profile
 
 
@@ -792,7 +796,7 @@ def calculate_pressure_nodes(pressure_array, mode = 'even', nnodes = 0, points_l
         for i, node in enumerate(points_list):
             # pressures goes from low to high
             next = pressures[i] + node
-            pressures.append(max(next, min_pressure))
+            pressures.append(min(next, min_pressure))
         pressures.append(min_pressure)
         return np.array(pressures)
     elif mode == 'set':
@@ -852,8 +856,13 @@ def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma
             - prior (array-like): Curvature prior values calculated for the spline.
     """
 
-    cs = PchipInterpolator(pressure_nodes,
-                           abundance_points)
+    try:
+        cs = PchipInterpolator(pressure_nodes,
+                               abundance_points)
+    except ValueError:
+        warnings.warn("Pressure array isn't monotonically increasing")
+        print(pressure_nodes)
+        return None, None
 
     interpolated_abunds = 10**cs(np.log10(pressure_array))
     prior = abundance_curvature_prior(pressure_array, interpolated_abunds, gamma)
