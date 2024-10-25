@@ -8,7 +8,15 @@ except ModuleNotFoundError:
     get_exoatmos_abundances = None
 
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import compute_mean_molar_masses, fixed_length_amr
+from petitRADTRANS.chemistry.utils import (
+    compute_mean_molar_masses,
+    fixed_length_amr,
+    linear_spline_profile,
+    cubic_spline_profile,
+    stepped_profile,
+    define_pressure_node_list,
+    define_abundance_node_list
+)
 from petitRADTRANS.chemistry import clouds as fc
 
 
@@ -85,20 +93,65 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             )
         )
     # Free chemistry abundances
-    msum = 0.0
+    msum = np.zeros_like(pressures)
 
     if abundances_interp:
         for key, val in abundances_interp.items():
-            msum += np.max(val)
+            msum += val
 
     # Free chemistry species
     for species in line_species:
-        if species.split(".R")[0] in parameters.keys():
-            if species.split('_')[0].split('-')[0].split(".")[0] in abundances_interp.keys():
-                msum -= np.max(abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]])
-            abund = 10 ** parameters[species.split(".R")[0]].value
-            abundances_interp[species.split('_')[0].split('-')[0].split(".")[0]] = abund * np.ones_like(pressures)
-            msum += abund
+        species_short_name = species.split(".R")[0]
+        easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
+        # Vertically constant abundance
+        if species_short_name in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
+            abund = 10 ** parameters[species_short_name].value
+            abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
+            msum += abundances_interp[easy_chem_name]
+            continue
+
+        # Non-vertically constant abundances
+        pressure_interpolation_nodes = define_pressure_node_list(
+            pressures,
+            species_short_name,
+            parameters
+        )
+        abundance_nodes = define_abundance_node_list(species_short_name, parameters)
+        # Stepped abundance profile
+        if f"{species_short_name}_stepped_abundance_profile" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
+            abundances_interp[easy_chem_name] = stepped_profile(
+                pressures,
+                pressure_interpolation_nodes,
+                abundance_nodes)
+            msum += abundances_interp[easy_chem_name]
+
+        # Linear spline interpolation
+        if f"{species_short_name}_linear_abundance_profile" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
+            abundances_interp[easy_chem_name], _ = linear_spline_profile(
+                pressures,
+                pressure_interpolation_nodes,
+                abundance_nodes,
+                gamma=0.04,
+                nnodes=len(pressure_interpolation_nodes))
+            msum += abundances_interp[easy_chem_name]
+
+        # Cubic spline interpolation
+        if f"{species_short_name}_cubic_abundance_profile" in parameters.keys():
+            if easy_chem_name in abundances_interp.keys():
+                msum -= abundances_interp[easy_chem_name]
+            abundances_interp[easy_chem_name], _ = cubic_spline_profile(
+                pressures,
+                pressure_interpolation_nodes,
+                abundance_nodes,
+                gamma=0.04,
+                nnodes=len(pressure_interpolation_nodes))
+            msum += abundances_interp[easy_chem_name]
 
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
@@ -106,20 +159,20 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
-            abundances_interp['H2'] = 10 ** parameters['H2'].value * np.ones_like(pressures)
+            abundances_interp['H2'] = 10 ** parameters['H2'].value
 
         else:
-            abundances_interp['H2'] = 0.766 * (1.0 - msum) * np.ones_like(pressures)
+            abundances_interp['H2'] = 0.766 * (1.0 - msum)
 
         if 'He' in parameters.keys():
-            abundances_interp['He'] = 10 ** parameters['He'].value * np.ones_like(pressures)
+            abundances_interp['He'] = 10 ** parameters['He'].value
 
         else:
-            abundances_interp['He'] = 0.234 * (1.0 - msum) * np.ones_like(pressures)
+            abundances_interp['He'] = 0.234 * (1.0 - msum)
 
         # Imposing strict limit on msum to ensure H2 dominated composition
-        if msum > 1.0:
-            print(f"Abundance sum > 1.0, msum={msum}")
+        if np.max(msum) > 1.0:
+            print(f"Abundance sum > 1.0, msum={np.max(msum):.2f}")
             return None, None, None, None
 
         mmw = compute_mean_molar_masses(abundances_interp)
@@ -200,29 +253,27 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             abundances[cloud] = abundances[cloud][small_index]
 
     for species in line_species:
-        sname = species.split('_')[0].split('-')[0]
-        sname = sname.split('.')[0]
-        sname = sname.split('-')[0]
+        easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
         # Depending on easychem vs interpolated and different versions of pRT
         # C2H2 is named differently.
-        if sname == "C2H2":
+        if easy_chem_name == "C2H2":
             # might be',acetylene'
             not_found = True
             for key in abundances_interp.keys():
-                if sname in key:
-                    sname = key
+                if easy_chem_name in key:
+                    easy_chem_name = key
                     not_found = False
                     break
             if not_found:
                 continue
         if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
-            abunds_change_rainout = copy.copy(abundances_interp[sname] / 2.)
+            abunds_change_rainout = copy.copy(abundances_interp[easy_chem_name] / 2.)
             if 'Fe(c)' in p_bases.keys() and 'use_easychem' not in parameters.keys():
                 index_ro = pressures < p_bases['Fe(c)']  # Must have iron cloud
                 abunds_change_rainout[index_ro] = 0.
             abundances[species] = abunds_change_rainout[small_index]
-        abundances[species] = abundances_interp[sname][small_index]
+        abundances[species] = abundances_interp[easy_chem_name][small_index]
     abundances['H2'] = abundances_interp['H2'][small_index]
     abundances['He'] = abundances_interp['He'][small_index]
 

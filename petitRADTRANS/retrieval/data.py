@@ -1,17 +1,117 @@
 import copy
 import logging
 import os
-import sys
+import warnings
 
 import numpy as np
 from astropy.io import fits
 from scipy.ndimage import gaussian_filter
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 import petitRADTRANS.physical_constants as cst
 
 
 class Data:
+    r"""
+    This class stores the spectral data to be retrieved from a single instrument or observation.
+
+    Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
+    The pRT instance can be overwritten, and associated with an existing pRT instance with the
+    external_pRT_reference parameter.
+    This setup allows for joint or independent retrievals on multiple datasets.
+    # TODO complete docstring
+    Args:
+        name : str
+            Identifier for this data set.
+        path_to_observations : str
+            Path to observations file, including filename. This can be a txt or dat file
+            containing the wavelength, flux, transit depth and error, or a fits file
+            containing the wavelength, spectrum and covariance matrix.
+            Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
+            mask attributes.
+        data_resolution : float or np.ndarray
+            Spectral resolution of the instrument. Optional, allows convolution of model to
+            instrumental line width. If the data_resolution is an array, the resolution can
+            vary as as a function of wavelength. The array should have the same shape as
+            the input wavelength array, and should specify the spectral resolution at each
+            wavelength bin.
+        model_resolution : float
+            Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
+            This will generate a new c-k table using exo-k. The default (and maximum)
+            correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
+            Lowering the resolution will speed up the computation.
+            If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
+            will sample the high-resolution opacities at the specified resolution.
+            This may be desired in the case where medium-resolution spectra are
+            required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
+            :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
+            may make sense to carry out the calculations with line_by_line_opacity_sampling = 10e5,
+            for example, and then re-binning to the final desired resolution:
+            this may save time! The user should verify whether this leads to
+            solutions which are identical to the re-binned results of the fiducial
+            :math:`10^6` resolution. If not, this parameter must not be used.
+            Note the difference between this parameter and the line_by_line_opacity_sampling
+            parameter in the RadTrans class - the actual desired resolution should
+            be set here.
+        system_distance : float
+            The distance to the object in cgs units. Defaults to a 10pc normalized distance.
+        external_radtrans_reference : object
+            An existing RadTrans object. Leave as none unless you're sure of what you're doing.
+        model_generating_function : method
+            A function, typically defined in run_definition.py that returns the model wavelength and spectrum
+            (emission or transmission).
+            This is the function that contains the physics of the model, and calls pRT in order to compute the
+            spectrum.
+        wavelength_boundaries : tuple,list
+            Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
+            Must at
+             least be equal to the range of the data.
+        scale : bool
+            Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
+            retrieval.
+        scale_err:
+            # TODO complete docstring
+        offset_bool:
+            # TODO complete docstring
+        wavelength_bin_widths : numpy.ndarray
+            Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
+        photometry : bool
+            Set to True if using photometric data.
+        photometric_transformation_function : method
+            Transform the photometry (account for filter transmission etc.).
+            This function must take in the wavelength and flux of a spectrum,
+            and output a single photometric point (and optionally flux error).
+        photometric_bin_edges : Tuple, numpy.ndarray
+            The edges of the photometric bin in micron. [low,high]
+        line_opacity_mode : str
+            Should the retrieval be run using correlated-k opacities (default, 'c-k'),
+            or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
+            recommended to set the model_resolution parameter. In general,
+            'c-k' mode is recommended for retrievals of everything other than
+            high-resolution (R>40000) spectra.
+        radtrans_grid: bool
+            Set to true if data has been binned to a pRT c-k grid.
+        concatenate_flux_epochs_variability: bool
+            Set to true if data concatenation treatment for variability is to be used.
+        atmospheric_column_flux_mixer: method
+            Function that mixes model fluxes of atmospheric columns in variability retrievals.
+        variability_atmospheric_column_model_flux_return_mode: bool
+            Set to true if the forward model should returns the fluxes of the individual atmospheric
+            columns. This is useful if external_radtrans_reference is True, but the master (reference) object
+            should return the column fluxes for mixing, not the combined column flux. In this case a column
+            mixing function needs to be handed to the data constructor.
+        radtrans_object:
+            An instance of Radtrans object to be used to generate model spectra in retrievals.
+        wavelengths:
+            (um) Wavelengths of the data.
+        spectrum:
+            Spectrum of the data.
+        uncertainties:
+            Uncertainties of the data, in the same units as the spectrum.
+        mask:
+            Mask of the data.
+    """
     resolving_power_str = ".R"
 
     def __init__(self,
@@ -41,86 +141,6 @@ class Data:
                  uncertainties=None,
                  mask=None
                  ):
-        r"""
-        This class stores the spectral data to be retrieved from a single instrument or observation.
-
-        Each dataset is associated with an instance of petitRadTrans and an atmospheric model.
-        The pRT instance can be overwritten, and associated with an existing pRT instance with the
-        external_pRT_reference parameter.
-        This setup allows for joint or independent retrievals on multiple datasets.
-        # TODO complete docstring
-        Args:
-            name : str
-                Identifier for this data set.
-            path_to_observations : str
-                Path to observations file, including filename. This can be a txt or dat file
-                containing the wavelength, flux, transit depth and error, or a fits file
-                containing the wavelength, spectrum and covariance matrix.
-            data_resolution : float
-                Spectral resolution of the instrument. Optional, allows convolution of model to
-                instrumental line width.
-            model_resolution : float
-                Will be ``None`` by default.  The resolution of the c-k opacity tables in pRT.
-                This will generate a new c-k table using exo-k. The default (and maximum)
-                correlated k resolution in pRT is :math:`\\lambda/\\Delta \\lambda > 1000` (R=500).
-                Lowering the resolution will speed up the computation.
-                If integer positive value, and if ``opacities == 'lbl'`` is ``True``, then this
-                will sample the high-resolution opacities at the specified resolution.
-                This may be desired in the case where medium-resolution spectra are
-                required with a :math:`\\lambda/\\Delta \\lambda > 1000`, but much smaller than
-                :math:`10^6`, which is the resolution of the ``lbl`` mode. In this case it
-                may make sense to carry out the calculations with line_by_line_opacity_sampling = 10e5,
-                for example, and then re-binning to the final desired resolution:
-                this may save time! The user should verify whether this leads to
-                solutions which are identical to the re-binned results of the fiducial
-                :math:`10^6` resolution. If not, this parameter must not be used.
-                Note the difference between this parameter and the line_by_line_opacity_sampling
-                parameter in the RadTrans class - the actual desired resolution should
-                be set here.
-            system_distance : float
-                The distance to the object in cgs units. Defaults to a 10pc normalized distance.
-            external_radtrans_reference : object
-                An existing RadTrans object. Leave as none unless you're sure of what you're doing.
-            model_generating_function : method
-                A function, typically defined in run_definition.py that returns the model wavelength and spectrum
-                (emission or transmission).
-                This is the function that contains the physics of the model, and calls pRT in order to compute the
-                spectrum.
-            wavelength_boundaries : tuple,list
-                Set the wavelength range of the pRT object. Defaults to a range +/-5% greater than that of the data.
-                Must at
-                 least be equal to the range of the data.
-            scale : bool
-                Turn on or off scaling the data by a constant factor. Set to True if scaling the data during the
-                retrieval.
-            wavelength_bin_widths : numpy.ndarray
-                Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
-            photometry : bool
-                Set to True if using photometric data.
-            photometric_transformation_function : method
-                Transform the photometry (account for filter transmission etc.).
-                This function must take in the wavelength and flux of a spectrum,
-                and output a single photometric point (and optionally flux error).
-            photometric_bin_edges : Tuple, numpy.ndarray
-                The edges of the photometric bin in micron. [low,high]
-            radtrans_grid: bool
-                Set to true if data has been binned to a pRT c-k grid.
-            concatenate_flux_epochs_variability: bool
-                Set to true if data concatenation treatment for variability is to be used.
-            atmospheric_column_flux_mixer: method
-                Function that mixes model fluxes of atmospheric columns in variability retrievals.
-            variability_atmospheric_column_model_flux_return_mode: bool
-                Set to true if the forward model should returns the fluxes of the individual atmospheric
-                columns. This is useful if external_radtrans_reference is True, but the master (reference) object
-                should return the column fluxes for mixing, not the combined column flux. In this case a column
-                mixing function needs to be handed to the data constructor.
-            line_opacity_mode : str
-                Should the retrieval be run using correlated-k opacities (default, 'c-k'),
-                or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
-                recommended to set the model_resolution parameter. In general,
-                'c-k' mode is recommended for retrievals of everything other than
-                high-resolution (R>40000) spectra.
-        """
         self.name = name
         self.path_to_observations = path_to_observations
 
@@ -146,18 +166,22 @@ class Data:
             logging.warning("Your system distance is less than 1 pc, are you sure you're using cgs units?")
 
         self.data_resolution = data_resolution
+        self.data_resolution_array_model = None
+
         self.model_resolution = model_resolution
         self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
         self.line_opacity_mode = line_opacity_mode
 
         if line_opacity_mode not in ['c-k', 'lbl']:
-            logging.error("line_opacity_mode must be either 'c-k' or 'lbl'!")
-            sys.exit(10)
+            raise ValueError(f"line_opacity_mode must be either 'c-k' or 'lbl', but was '{line_opacity_mode}'")
+
         # Sanity check model function
-        if not model_generating_function and not external_radtrans_reference:
-            logging.error("Please provide a model generating function or external reference for " + name + "!")
-            sys.exit(8)
+        if model_generating_function is None and external_radtrans_reference is None:
+            raise ValueError(
+                f"data '{name}': either model_generating_function or external_radtrans_reference must be set, "
+                f"but both were None"
+            )
 
         if model_resolution is not None:
             if line_opacity_mode == 'c_k' and model_resolution > 1000:
@@ -184,14 +208,18 @@ class Data:
         self.photometric_transformation_function = \
             photometric_transformation_function
 
-        if photometry:  # TODO sys.exit should be avoided, using raise should be preferred
+        if photometry:
+            missing = []
+
             if photometric_transformation_function is None:
-                logging.error("Please provide a photometry transformation function for " + name + "!")
-                sys.exit(9)
+                missing.append("'photometric_transformation_function'")
 
             if photometric_bin_edges is None:
-                logging.error("You must include the photometric bin size if photometry is True!")
-                sys.exit(9)
+                missing.append("'photometric_bin_edges'")
+
+            if len(missing) > 0:
+                ', '.join(missing)
+                raise ValueError(f"missing photometric arguments for photometric data '{name}': {missing}")
 
         self.photometry_range = wavelength_boundaries
         self.photometric_bin_edges = photometric_bin_edges
@@ -206,8 +234,7 @@ class Data:
         if path_to_observations is not None:
             # Check if data exists
             if not os.path.exists(path_to_observations):
-                logging.error(path_to_observations + " Does not exist!")
-                sys.exit(7)
+                raise FileNotFoundError(f"data file '{path_to_observations}' does not exist")
 
             if not photometry:
                 if path_to_observations.endswith("_x1d.fits"):
@@ -279,14 +306,17 @@ class Data:
 
         # Warnings and errors
         if obs.shape[1] < 3:
-            logging.error("Failed to properly load data in " + path + "!!!")
-            sys.exit(6)
+            raise ValueError(f"data file '{path}' must contain at least 3 columns (wavelength, flux, flux error), "
+                             f"but has {obs.shape[1]}")
         elif obs.shape[1] > 4:
-            logging.warning(
-                f" File {path} has more than four columns. Retrieval package assumes that "
-                f"the first three have this meaning: wavelength, [opt, wavelength bins], flux, flux error")
+            warnings.warn(f"data file '{path}' should contain at most 4 columns "
+                          f"(wavelength, [opt, wavelength bins], flux, flux error), "
+                          f"but has {obs.shape[1]}\n"
+                          f"Additional columns will be ignored")
+
         if np.isnan(obs).any():
-            logging.warning("nans present in " + path + ", please verify your data before running the retrieval!")
+            warnings.warn(f"NANs present in data file '{path}'")
+
         self.wavelengths = obs[:, 0]
         self.spectrum = obs[:, 1]
         self.uncertainties = obs[:, 2]
@@ -360,6 +390,10 @@ class Data:
         self.system_distance = distance
         return self.system_distance
 
+    def initialise_data_resolution(self, wavelengths_model):
+        if isinstance(self.data_resolution, np.ndarray):
+            self.data_resolution_array_model = np.interp(wavelengths_model, self.wavelengths, self.data_resolution)
+
     def update_bins(self, wlens):
         self.wavelength_bin_widths = np.zeros_like(wlens)
         self.wavelength_bin_widths[:-1] = np.diff(wlens)
@@ -396,8 +430,8 @@ class Data:
                   plotting,
                   parameters=None,
                   per_datapoint=False,
-                  atmospheric_model_column_fluxes=None
-                  ):
+                  atmospheric_model_column_fluxes=None,
+                  generate_mock_data=False):
         """
         Calculate the chi square between the model and the data.
 
@@ -413,6 +447,9 @@ class Data:
             atmospheric_model_column_fluxes : numpy.ndarray
                 The fluxes of individual atmospheric columns in case the retrieval is run in the associated
                 column_flux_return mode.
+            generate_mock_data : bool
+                Generate mock data for input = output tests. This is done in get_chisq because here the actual data
+                and the forward models are brought to the same shape (resolution convolved, rebinned, column mixed).
         Returns:
             logL : float
                 The log likelihood of the model given the data.
@@ -447,10 +484,18 @@ class Data:
                     model_spectra.append(spectrum_model)
 
                 for spectrum_model in model_spectra:
-                    if self.data_resolution is not None:
-                        spectrum_model = self.convolve(wlen_model,
-                                                       spectrum_model,
-                                                       self.data_resolution)
+                    if self.data_resolution_array_model is not None:
+                        spectrum_model = self.convolve(
+                            wlen_model,
+                            spectrum_model,
+                            self.data_resolution_array_model
+                        )
+                    elif self.data_resolution is not None:
+                        spectrum_model = self.convolve(
+                            wlen_model,
+                            spectrum_model,
+                            self.data_resolution
+                        )
 
                     # Rebin to model observation
                     if np.size(wlen_model) == np.size(self.wavelengths):
@@ -555,12 +600,21 @@ class Data:
 
             if not self.photometry:
                 plt.clf()
+                plt.title(self.name)
                 plt.plot(self.wavelengths, flux_rebinned)
                 plt.errorbar(self.wavelengths,
                              self.spectrum * self.scale_factor,
                              yerr=f_err,
                              fmt='+')
                 plt.show()
+
+        if generate_mock_data:
+            # Check if the mock data folder exists, if not create it:
+            if not os.path.exists("mock_data"):
+                os.makedirs("mock_data")
+
+            np.savetxt("mock_data/" + self.name + "_mock_data.dat",
+                       np.column_stack((self.wavelengths, flux_rebinned, self.uncertainties)))
 
         if per_datapoint:
             return log_l_per_datapoint
@@ -662,6 +716,10 @@ class Data:
 
             return - 0.5 * chi2 + penalty_term
 
+    @staticmethod
+    def log_likelihood2chi2(log_likelihood: float) -> float:
+        return -2 * log_likelihood
+
     # TODO: do we want to pass the whole parameter dict,
     # or just set a class variable for b in the likelihood function?
     def line_b_uncertainty_scaling(self, parameters):
@@ -714,7 +772,8 @@ class Data:
             flux_lsf
                 The convolved spectrum.
         """
-
+        if isinstance(instrument_res, np.ndarray):
+            return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
         # From talking to Ignas: delta lambda of resolution element
         # is FWHM of the LSF's standard deviation, hence:
         sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))

@@ -10,6 +10,7 @@ from petitRADTRANS.utils import LockedDict
 
 
 class PetitradtransConfigParser(configparser.ConfigParser):
+    """Used to manage petitRADTRANS's configuration."""
     _instance = None
 
     _directory = os.path.join(str(Path.home()), '.petitradtrans')

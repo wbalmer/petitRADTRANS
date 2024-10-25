@@ -8,3 +8,5 @@ __pycache__
 build/
 dist/
 petitRADTRANS.egg-info/
+/builds/
+/div/

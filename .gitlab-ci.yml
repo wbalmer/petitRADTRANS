@@ -1,0 +1,90 @@
+# Only run job when pushing to master or dev, if a package or test file is changed
+.default_rules: &default_rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+
+stages:
+  - build
+  - test
+  - deploy
+
+build-multinest:
+  image: registry.gitlab.com/mauricemolli/petitradtrans:build
+  stage: build
+  interruptible: true
+  <<: *default_rules
+  script:
+    - git clone --depth 1 -b master https://github.com/JohannesBuchner/MultiNest $CI_PROJECT_DIR/MultiNest
+    - cd $CI_PROJECT_DIR/MultiNest/build
+    - cmake ..
+    - make
+  artifacts:
+    expire_in: 30 minutes
+    paths:
+      - $CI_PROJECT_DIR/MultiNest/lib/*
+
+build-py-venv:
+  image: registry.gitlab.com/mauricemolli/petitradtrans:build
+  stage: build
+  <<: *default_rules
+  interruptible: true
+  script:
+    - python3 -m venv $CI_PROJECT_DIR/venv
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - pip install tox
+  artifacts:
+    expire_in: 30 minutes
+    paths:
+      - $CI_PROJECT_DIR/venv/*
+
+test-tox-flake8:
+  image: registry.gitlab.com/mauricemolli/petitradtrans:build
+  stage: test
+  interruptible: true
+  <<: *default_rules
+  before_script:
+    - source $CI_PROJECT_DIR/venv/bin/activate
+  script:
+    - tox -e flake8
+  needs:
+    - job: build-py-venv
+      artifacts: true
+
+test-tox-py:
+  image: registry.gitlab.com/mauricemolli/petitradtrans:build
+  stage: test
+  interruptible: true
+  <<: *default_rules
+  before_script:
+    - source $CI_PROJECT_DIR/venv/bin/activate
+    - export LD_LIBRARY_PATH=$CI_PROJECT_DIR/MultiNest/lib:$LD_LIBRARY_PATH
+  script:
+    - tox -e py
+  needs:
+    - job: build-multinest
+      artifacts: true
+    - job: build-py-venv
+      artifacts: true
+
+deploy-pypi:
+  image: registry.gitlab.com/mauricemolli/petitradtrans:build
+  stage: deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
+  script:
+    - python3 -m build --sdist
+    - twine check dist/*
+    - twine upload dist/*

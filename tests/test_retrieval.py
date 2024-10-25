@@ -17,9 +17,8 @@ from petitRADTRANS.retrieval.utils import gaussian_prior
 from .context import petitRADTRANS
 from .utils import tests_results_directory, reference_filenames, test_parameters
 
-# TODO MultiNest's random generator is computer-dependent (on Mac only?), the tolerance is increased to match this
+# TODO MultiNest's random generator is computer-dependent (on Mac only?), the tolerance is temporarily increased to match this until a fix is found  # noqa E501
 relative_tolerance = 1e0  # relative tolerance when comparing with older results
-max_number_of_tests = 3
 
 
 def init_run():

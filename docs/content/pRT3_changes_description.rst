@@ -126,3 +126,14 @@ Once you have set the path to your input_data folder (see `"Getting started" <co
 .. important:: If you want to keep the pRT2-formatted files, you should use ``clean=False``. Note that some of these files will be displaced, and hence will **no longer be usable as is by pRT2**. Running ``clean=True`` will minimize the impact of the conversion on your storage.
 
 Note that this will only convert the pRT2 **default** opacities. Custom-made opacities need to be converted manually (see above sections).
+
+Fixing out-of-memory errors during conversion
+---------------------------------------------
+
+If you get out-of-memory errors while converting line-by-line opacity files, you can set the ``memory_map_mode`` argument to ``True``. For example:
+
+.. code-block:: python
+
+    from petitRADTRANS.__file_conversion import convert_all
+
+    convert_all(memory_map_mode=True, clean=True)

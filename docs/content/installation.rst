@@ -8,6 +8,7 @@ To install petitRADTRANS, without retrievals, you need to install:
 
 - Python 3.9+,
 - a fortran compiler, for example ``gfortran``.
+- to use the automatic data download feature, ``chromium`` [*]_.
 
 **Running retrievals:** read the :ref:`MultiNest installation instructions<retrievalsSection>`.
 
@@ -17,16 +18,16 @@ On Linux, install Python and the fortran compiler with:
 
 .. code-block:: bash
 
-    sudo apt-get install python python-pip gfortran
+    sudo apt-get install python python-pip gfortran chromium
 
 On some distributions, ``python`` may need to be replaced with ``python3``.
 
-.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+.. Note:: A general Python recommendation is to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ (recommended) or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
 
 Mac OS
 ------
 
-.. important:: On Mac, it is highly recommended to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
+.. important:: On Mac, it is highly recommended to use a Python virtual environment such as `venv <https://docs.python.org/3/library/venv.html>`_ (recommended) or `conda <https://docs.anaconda.com/free/anaconda/install/index.html>`_, to prevent potential conflicts.
 
 Recommended: using homebrew
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -54,7 +55,7 @@ Then, install a fortran compiler with:
 Using gfortran disk images
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. warning:: While using **homebrew should be the preferred method** for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
+.. warning:: While using **homebrew is the preferred method** for installing external libraries on Mac, alternative methods exist. Use them at your own risk.
 
 François-Xavier Coudert's `github repository <https://github.com/fxcoudert/gfortran-for-macOS>`_ provides gfortran disk images (.dmg) with which you can install gfortran like any other program for Mac, through an installation wizard. Both Apple Silicon (M1, M2, M3) and Intel chip versions are available.
 
@@ -72,7 +73,8 @@ Follow the WSL installation instructions from the previous link, then install pR
 Native installation prerequisites
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 1. Get a fortran compiler through, for example, `MSYS2 <https://www.msys2.org/>`_ or `Visual Studio <https://visualstudio.microsoft.com/>`_.
-2. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
+2. If you already have a `Chromium-based browser <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_, you can skip this step. Otherwise, download Chromium, for example from its `official website <https://download-chromium.appspot.com/>`_.
+3. Go to the `Python website <https://www.python.org/>`_, then download and execute the Python installer.
 
 .. warning:: It is **not** possible to run parallel (fast) retrievals with a native Windows installation (see the :ref:`MultiNest section<multinest_windows>`).
 
@@ -90,7 +92,7 @@ Prerequisite for retrievals: MultiNest
 
 If you want to use pRT's retrieval package, you need to install the PyMultiNest package:
 
-1. Follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#building-the-libraries>`_.
+1. Follow the instructions provided on the `PyMultiNest website <https://johannesbuchner.github.io/PyMultiNest/install.html#prerequisites-for-building-the-libraries>`_.
 2. Link the resulting library files by including the ``MultiNest/lib/`` to your ``LD_LIBRARY_PATH``. This can be done by adding this line at the end of your environment setup file ".bash_profile", ".bashrc", or ".zshrc" (depending on your operating system and shell type):
 
     .. code-block:: bash
@@ -124,7 +126,7 @@ To be able to use the retrieval module, execute:
 
 .. code-block:: bash
 
-    pip install petitRADTRANS[retrievals] --no-build-isolation
+    pip install petitRADTRANS[retrieval] --no-build-isolation
 
 Compiling pRT from source
 =========================
@@ -143,7 +145,7 @@ Compiling pRT from source
 
     .. code-block:: bash
 
-        pip install .[retrievals] --no-build-isolation
+        pip install .[retrieval] --no-build-isolation
 
 Setting up the input_data directory
 ===================================
@@ -162,7 +164,7 @@ Testing the installation
 Open a new terminal window. Then open python and type:
 
 .. code-block:: python
-		
+
     from petitRADTRANS.radtrans import Radtrans
     radtrans = Radtrans(line_species=['CH4'])
 
@@ -214,7 +216,14 @@ Linking the MultiNest libraries the usual way may not work on a Mac when using `
     conda install mpi4py
 
 In case of troubles, if you use Homebrew, executing ``brew upgrade``, ``brew update``, then following the instructions of ``brew doctor`` may help. If you do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
+A common error with Apple silicon when trying to run retrievals is ``AttributeError: dlsym(RTLD_DEFAULT, run): symbol not found``. This is a problem inherited from ``pymultinest``, and to solve it you should add the following lines of code before importing pRT or ``pymultinest``.
+
+.. code-block:: bash
+    import os
+    os.environ["DYLB_LIBRARY_PATH"] = "/path/to/Multinest/lib"
 
 Other issues
 ------------
-You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to open a new issue.
+You can take a look at the solved issues `here <https://gitlab.com/mauricemolli/petitRADTRANS/-/issues>`_. If you do not find an helpful answer there, do not hesitate to `open a new issue <contributing.html#suggestions-and-reporting-issues>`_.
+
+.. [*] Why Chromium? To download data from Keeper, pRT uses ``selenium`` to load webpages through a browser. When the code for this interface was written, Chromium was the only mainstream browser that could be used `without any windows opening <https://en.wikipedia.org/wiki/Headless_browser>`_. Chromium is also `free and open-source <https://en.wikipedia.org/wiki/Chromium_(web_browser)>`_. In addition, it is the base of `many widespread browsers <https://en.wikipedia.org/wiki/Chromium_(web_browser)#Browsers_based_on_Chromium>`_.

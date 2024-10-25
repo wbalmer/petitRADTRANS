@@ -16,12 +16,57 @@ from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
 
 from petitRADTRANS.config import petitradtrans_config_parser
 
 
 __megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
+
+
+def _get_html(options, url, timeout):
+    with webdriver.Chrome(options) as driver:
+        print("Done.")
+        print(f"Rendering webpage ({url})... ", end='')
+
+        driver.get(url)
+        # Wait for the table containing the files to generate
+        try:
+            WebDriverWait(driver, timeout).until(
+                expected_conditions.presence_of_element_located((By.CLASS_NAME, 'table-hover'))
+            )
+        except TimeoutException as error:
+            # Display a more helpful error message than the basic one
+            try:
+                WebDriverWait(driver, 0.1).until(
+                    expected_conditions.presence_of_element_located((By.CLASS_NAME, 'error'))
+                )
+            except TimeoutException as error:  # no error printed on the webpage, likely because the URL is incorrect
+                raise TimeoutException(
+                    f"\n{str(error)}\n"
+                    f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
+                    f"This is likely due to an incorrect URL or to an issue with your internet connection.\n"
+                    f"If the URL ({url}) is incorrect, open your "
+                    f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
+                    f"and change the value of the parameter 'prt_input_data_url'.\n"
+                    f"If the table is present at the requested URL, increase the delay until timeout."
+                )
+
+            # The expected error is printed by the webpage: the URL is correct but the table was not found
+            raise TimeoutException(
+                f"\n{str(error)}\n"
+                f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
+                f"This is likely due to the absence of the requested table, or to the use of an outdated URL.\n"
+                f"Check the URL ({url}) for the presence of a table.\n"
+                f"If the URL is incorrect, open your "
+                f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
+                f"and change the value of the parameter 'prt_input_data_url'."
+            )
+
+        # Get the webpage html source once the table has generated
+        html = driver.page_source
+
+    return html
 
 
 def _path2keeper_url(path: str, path_input_data: str = None, url_input_data: str = None) -> str:
@@ -236,46 +281,23 @@ def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, 
 
     print("Starting up Chrome driver... ", end='')
     # Render the Keeper webpage
-    with webdriver.Chrome(options) as driver:
-        print("Done.")
-        print(f"Rendering webpage ({url})... ", end='')
-
-        driver.get(url)
-        # Wait for the table containing the files to generate
-        try:
-            WebDriverWait(driver, timeout).until(
-                expected_conditions.presence_of_element_located((By.CLASS_NAME, 'table-hover'))
+    try:
+        html = _get_html(
+            options=options,
+            url=url,
+            timeout=timeout
+        )
+    except SessionNotCreatedException as exception:  # this happens in Gitlab's CI
+        if os.environ.get('CI', False):  # 'CI' is a Gitlab predefined environment variable
+            # This can cause security issues (https://unix.stackexchange.com/a/68951), so it must be used for tests only
+            options.add_argument("--no-sandbox")
+            html = _get_html(
+                options=options,
+                url=url,
+                timeout=timeout
             )
-        except TimeoutException as error:
-            # Display a more helpful error message than the basic one
-            try:
-                WebDriverWait(driver, 0.1).until(
-                    expected_conditions.presence_of_element_located((By.CLASS_NAME, 'error'))
-                )
-            except TimeoutException as error:  # no error printed on the webpage, likely because the URL is incorrect
-                raise TimeoutException(
-                    f"\n{str(error)}\n"
-                    f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
-                    f"This is likely due to an incorrect URL or to an issue with your internet connection.\n"
-                    f"If the URL ({url}) is incorrect, open your "
-                    f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
-                    f"and change the value of the parameter 'prt_input_data_url'.\n"
-                    f"If the table is present at the requested URL, increase the delay until timeout."
-                )
-
-            # The expected error is printed by the webpage: the URL is correct but the table was not found
-            raise TimeoutException(
-                f"\n{str(error)}\n"
-                f"Spent too much time (> {timeout} s) to wait for the Keeper table's presence.\n"
-                f"This is likely due to the absence of the requested table, or to the use of an outdated URL.\n"
-                f"Check the URL ({url}) for the presence of a table.\n"
-                f"If the URL is incorrect, open your "
-                f"petitRADTRANS config file ({petitradtrans_config_parser.config_file}) "
-                f"and change the value of the parameter 'prt_input_data_url'."
-            )
-
-        # Get the webpage html source once the table has generated
-        html = driver.page_source
+        else:
+            raise exception
 
     print("Done.")
 

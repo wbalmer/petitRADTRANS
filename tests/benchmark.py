@@ -15,14 +15,14 @@ from .utils import tests_references_directory, tests_error_directory
 
 
 class TestFile:
-    def __init__(self, absolute_tolerance: float = None, relative_tolerance: float = None):
-        """Base class for test files.
-        Can be loaded and saved. Contains the test tolerances, the petitRADTRANS version and the date of the test.
+    """Base class for test files.
+    Can be loaded and saved. Contains the test tolerances, the petitRADTRANS version and the date of the test.
 
-        Args:
-            absolute_tolerance: absolute tolerance of the test
-            relative_tolerance: relative tolerance of the test
-        """
+    Args:
+        absolute_tolerance: absolute tolerance of the test
+        relative_tolerance: relative tolerance of the test
+    """
+    def __init__(self, absolute_tolerance: float = None, relative_tolerance: float = None):
         self.prt_version = petitRADTRANS.__version__
         self.date = None
         self.absolute_tolerance = absolute_tolerance
@@ -71,7 +71,7 @@ class TestFile:
             force_update: if True, force the date to be updated even if it has already been set
         """
         if self.date is None or force_update:
-            self.date = datetime.datetime.now(datetime.UTC).isoformat()
+            self.date = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     @classmethod
     def load(cls, file: str):
@@ -126,7 +126,7 @@ class TestFile:
 
 class ReferenceFile(TestFile):
     parameters_absolute_tolerance = 0.
-    parameters_relative_tolerance = 10 ** -sys.float_info.dig
+    parameters_relative_tolerance = 10 ** (-sys.float_info.dig + 1)  # +1 to account for OS-induced errors (Paul's PC)
 
     def __init__(self, parameters: dict = None, outputs: dict = None,
                  absolute_tolerance: float = None, relative_tolerance: float = None):
@@ -146,22 +146,22 @@ class ReferenceFile(TestFile):
 
 
 class Benchmark:
+    """Class to test a function.
+    The function tested is given arguments. Both the arguments/parameters and its outputs are compared with values
+    contained in a reference file, with given absolute and relative tolerances for the parameters and the outputs.
+    The reference file can also be generated.
+
+    Args:
+        function: function to test.
+        absolute_tolerance: absolute tolerance to use when comparing the outputs with those of the reference file.
+        relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
+        name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
+    """
     _make_reference_file = False
     _reference_file_rewrite = False
 
     def __init__(self, function: callable, absolute_tolerance: float = 0., relative_tolerance: float = 1e-6,
                  name: str = None):
-        """Class to test a function.
-        The function tested is given arguments. Both the arguments/parameters and its outputs are compared with values
-        contained in a reference file, with given absolute and relative tolerances for the parameters and the outputs.
-        The reference file can also be generated.
-
-        Args:
-            function: function to test.
-            absolute_tolerance: absolute tolerance to use when comparing the outputs with those of the reference file.
-            relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
-            name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
-        """
         if name is None:
             name = inspect.currentframe().f_back.f_code.co_name  # the name of the function that instantiated Benchmark
 
@@ -259,11 +259,24 @@ class Benchmark:
         }
 
     def _get_reference_file(self) -> str:
-        """Automatically get the benchmark reference file from its name."""
+        """Automatically get the benchmark reference file name from the Benchmark's name."""
         return os.path.join(
             tests_references_directory,
             str(self._name) + '_ref.h5'
         )
+
+    def _load_reference_file(self, reference_file=None) -> ReferenceFile:
+        """Automatically get the benchmark reference file. Intended to be used within test functions."""
+        if reference_file is None:
+            reference_file = self._get_reference_file()
+
+        if not os.path.isfile(reference_file):
+            raise FileNotFoundError(f"reference file '{reference_file}' does not exist, "
+                                    f"are you in a test function?\n"
+                                    f"If yes, generate the reference file first to run the test.\n"
+                                    f"If not, give the targeted reference file name in argument.")
+
+        return ReferenceFile.load(reference_file)
 
     def _run(self, **kwargs) -> dict:
         """Run the tested function.

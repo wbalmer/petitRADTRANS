@@ -2,6 +2,7 @@
 
 Regenerate the comparison files only when changing the precision of the models.
 """
+import copy
 import json
 import os
 
@@ -9,7 +10,7 @@ import numpy as np
 
 from .context import petitRADTRANS
 
-version = "2.4.5"  # petitRADTRANS.version.version used to generate last tests
+version = "3.1.0"  # petitRADTRANS.version.version used to generate last tests
 
 tests_data_directory = os.path.join(os.path.dirname(__file__), 'data')
 tests_references_directory = os.path.join(os.path.dirname(__file__), 'references')
@@ -34,14 +35,19 @@ reference_filenames = {
     for key, value in reference_filenames.items()
 }
 
-reference_filenames['mock_observation_transmission'] = reference_filenames[
-        'correlated_k_transmission_cloud_calculated_radius_scattering'
-    ].rsplit('.', 1)[0] + '.dat'  # using a .dat file is needed for the basic retrieval test
-reference_filenames['pymultinest_parameter_analysis'] = \
+reference_filenames['mock_observation_transmission'] = (
+    reference_filenames['correlated_k_transmission_cloud_calculated_radius_scattering'].rsplit('.', 1)[0]
+    + '.dat'  # using a .dat file is needed for the basic retrieval test
+)
+reference_filenames['pymultinest_parameter_analysis'] = (
     os.path.join(tests_data_directory, 'test_stats.json')
-reference_filenames['NASA_exoplanet_archive_test'] = \
+)
+reference_filenames['pymultinest_parameter_analysis_spectral_model'] = (
+    os.path.join(tests_data_directory, 'test_spectral_model_stats.json')
+)
+reference_filenames['NASA_exoplanet_archive_test'] = (
     os.path.join(tests_data_directory, 'NASA_exoplanet_archive_test.tab')
-
+)
 
 # Make directories if needed
 if not os.path.isdir(tests_results_directory):
@@ -66,21 +72,30 @@ def make_petitradtrans_test_config_file(filename):
                     'start': -6,
                     'stop': 2,
                     'stop_thin_atmosphere': 0,
-                    'num': 27
+                    'num': 27,
+                    'num_performance': 100
                 },
                 'mass_fractions_correlated_k': {
                     'H2': 0.74,
                     'He': 0.24,
                     '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
                     '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
-                 },
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
+                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                },
                 'mass_fractions_line_by_line': {
                     'H2': 0.74,
                     'He': 0.24,
-                    '1H2-16O__HITEMP.R1e6_0.3-28mu': 0.001,
+                    '1H2-16O__POKAZATEL.R1e6_0.3-28mu': 0.001,
                     'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
+                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                },
+                'mass_fractions_test': [1, -12],  # (log_10 MMR)
+                'filling_species': {
+                    'H2': 37,
+                    'He': 12,
+                    'Ne': 0.06
                 },
                 'mean_molar_mass': 2.33,  # (g.cm-3)
                 'chemical_parameters': {
@@ -104,13 +119,17 @@ def make_petitradtrans_test_config_file(filename):
                     'reference_gravity': 1e1 ** 2.45,  # (cm.s-2)
                     'eddy_diffusion_coefficients': 10 ** 7.5,
                     'orbit_semi_major_axis': 7.5e11,  # (cm)
+                    'orbital_period': 3600 * 24,  # (s)
+                    'orbital_inclination': 88,  # (deg)
+                    'transit_duration': 3600,  # (s)
                     'surface_reflectance': 0.3
                 },
                 'stellar_parameters': {
                     'effective_temperature': 5778.0,  # (K)
                     'radius': 1.0,  # (R_sun)
                     'mass': 1.0,  # (M_sun)
-                    'incidence_angle': 30  # (deg)
+                    'incidence_angle': 30,  # (deg)
+                    'system_distance': 10  # (ly)
                 },
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,
@@ -119,7 +138,7 @@ def make_petitradtrans_test_config_file(filename):
                         '12C-1H4__YT34to10.R1000_0.3-50mu'
                     ],
                     'line_species_line_by_line': [
-                        '1H2-16O__HITEMP.R1e6_0.3-28mu',
+                        '1H2-16O__POKAZATEL.R1e6_0.3-28mu',
                         'C-O-NatAbund__HITEMP.R1e6_0.3-28mu'
                     ],
                     'rayleigh_species': [
@@ -131,32 +150,48 @@ def make_petitradtrans_test_config_file(filename):
                         "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
                     ],
                     'wavelength_range_correlated_k': [0.9, 1.2],
+                    'wavelength_range_correlated_k_performance': [0.3, 28],
                     'wavelength_range_line_by_line': [2.3000, 2.3025]
                 },
                 'cloud_parameters': {
-                   'kappa_zero': 0.01,
-                   'gamma_scattering': -4.0,
-                   'cloud_pressure': 0.01,
-                   'haze_factor': 10.0,
-                   'cloud_species': {
-                       'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
-                           'mass_fraction': 5e-7,
-                           'radius': 5e-5,  # (cm)
-                           'f_sed': 2.0,
-                           'sigma_log_normal': 1.05,
-                           'b_hansen': 0.01
-                       },
-                   }
+                    'kappa_zero': 0.01,
+                    'gamma_scattering': -4.0,
+                    'cloud_pressure': 0.01,
+                    'haze_factor': 10.0,
+                    'cloud_fraction': 0.67,
+                    'complete_coverage_clouds': 0,  # index of the cloud species that must have complete coverage
+                    'cloud_species': {
+                        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                            'mass_fraction': 5e-7,
+                            'radius': 5e-5,  # (cm)
+                            'f_sed': 2.0,
+                            'f_sed_variable_setup': [2.0, 2.5],  # linearly changes from 1 at bottom to 5 at top
+                            'sigma_log_normal': 1.05,
+                            'b_hansen': 0.01
+                        },
+                        'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                            'mass_fraction': 3e-7,
+                            'radius': 4e-5,  # (cm)
+                            'f_sed': 3.0,
+                            'f_sed_variable_setup': [2.0, 2.5],  # linearly changes from 1 at bottom to 5 at top
+                            'sigma_log_normal': 1.2,
+                            'b_hansen': 0.02
+                        },
+                    }
                 },
                 'retrieval_parameters': {
                     'planetary_radius_bounds': (1.8, 2.0),
                     'intrinsic_temperature_bounds': (500, 1500),
                     'log10_cloud_pressure_bounds': (-6, 2),
-                    'log10_species_mass_fractions_bounds': (-6, 0),
+                    'log10_species_mass_fractions_bounds': (-6, -1),
+                    'radial_velocity_semi_amplitude_bounds': (100e5, 200e5),
+                    'rest_frame_velocity_shift_bounds': (-10e5, 10e5),
+                    'mid_transit_time_bounds': (-600, 600),
                     'sample_spectrum_output': False,
                     'ultranest': False,
                     'sampling_efficiency': 0.8,
                     'n_live_points': 50,
+                    'n_live_points_spectral_model': 15,
                     'const_efficiency_mode': False,
                     'resume': False,
                     'seed': 12345
@@ -170,6 +205,10 @@ def make_petitradtrans_test_config_file(filename):
                     'n_exposures': 20,
                     'rest_frame_velocity_shift': -1.5e5,
                     'relative_error': 1e-2
+                },
+                'preparing_parameters': {
+                    'tellurics_mask_threshold': 0.8,
+                    'polynomial_fit_degree': 2
                 },
                 'ccf_analysis_parameters': {
                     'normalize_ccf': True,
@@ -205,6 +244,12 @@ def init_test_parameters(recreate_parameter_file=False):
         parameters['pressures']['num']
     )
 
+    parameters['pressures_performance'] = np.logspace(
+        parameters['pressures']['start'],
+        parameters['pressures']['stop'],
+        parameters['pressures']['num_performance']
+    )
+
     parameters['pressures'] = np.logspace(
         parameters['pressures']['start'],
         parameters['pressures']['stop'],
@@ -219,6 +264,12 @@ def init_test_parameters(recreate_parameter_file=False):
 
     parameters['mean_molar_mass'] *= np.ones_like(parameters['pressures'])
     parameters['planetary_parameters']['eddy_diffusion_coefficients'] *= np.ones_like(parameters['pressures'])
+
+    parameters['cloud_parameters']['complete_coverage_clouds'] = ([
+        list(parameters['cloud_parameters']['cloud_species'].keys())[
+            parameters['cloud_parameters']['complete_coverage_clouds']
+        ]
+    ])
 
     return parameters
 
@@ -249,6 +300,224 @@ def check_cloud_mass_fractions():
                 )
 
 
+def check_cloud_complete_coverage_consistency(spectrum_function, benchmark, relative_tolerance,
+                                              cloud_fraction, complete_coverage_clouds, mass_fractions,
+                                              mass_fractions_clear=None,
+                                              opaque_cloud_top_pressure=None, **kwargs):
+    """Check if results obtained with partial cloud coverage are consistent."""
+    if mass_fractions_clear is None:
+        mass_fractions_clear = mass_fractions
+
+    if opaque_cloud_top_pressure is not None:
+        opaque_cloud_top_pressure_clear = None
+    else:
+        opaque_cloud_top_pressure_clear = opaque_cloud_top_pressure
+
+    # Test flux cloudy
+    print('Testing cloudy transit radii consistency...', end=' ')
+    _, flux_cloudy, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        complete_coverage_clouds=None,
+        **kwargs
+    )
+
+    _, flux_coverage1, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_cloudy,
+        flux_coverage1,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    # Test flux clear
+    print('Testing clear transit radii consistency...', end=' ')
+    _, flux_clear, _ = spectrum_function(
+        mass_fractions=mass_fractions_clear,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
+        complete_coverage_clouds=None,
+        **kwargs
+    )
+
+    _, flux_coverage0, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=0,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_clear,
+        flux_coverage0,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
+        flux_clear,
+        flux_cloudy,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    benchmark.run(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=cloud_fraction,
+        complete_coverage_clouds=complete_coverage_clouds,
+        **kwargs
+    )
+
+    # Test flux with cloud fraction
+    print('Testing transit radii with partial cloud coverage consistency...', end=' ')
+    reference_file = benchmark._load_reference_file()
+
+    assert np.allclose(
+        test_parameters['cloud_parameters']['cloud_fraction'] * flux_cloudy
+        + (1 - test_parameters['cloud_parameters']['cloud_fraction']) * flux_clear,
+        reference_file.outputs['1'],
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+
+def check_partial_cloud_coverage_full_consistency(spectrum_function, benchmark, relative_tolerance,
+                                                  cloud_fraction, mass_fractions, mass_fractions_clear=None,
+                                                  opaque_cloud_top_pressure=None, **kwargs):
+    """Check if results obtained with partial cloud coverage are consistent."""
+    if mass_fractions_clear is None:
+        mass_fractions_clear = mass_fractions
+
+    if opaque_cloud_top_pressure is not None:
+        opaque_cloud_top_pressure_clear = None
+    else:
+        opaque_cloud_top_pressure_clear = opaque_cloud_top_pressure
+
+    # Test flux cloudy
+    print('Testing cloudy transit radii consistency...', end=' ')
+    _, flux_cloudy, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        **kwargs
+    )
+
+    _, flux_coverage1, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=1,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_cloudy,
+        flux_coverage1,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    # Test flux clear
+    print('Testing clear transit radii consistency...', end=' ')
+    _, flux_clear, _ = spectrum_function(
+        mass_fractions=mass_fractions_clear,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure_clear,
+        **kwargs
+    )
+
+    _, flux_coverage0, _ = spectrum_function(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=0,
+        **kwargs
+    )
+
+    assert np.allclose(
+        flux_clear,
+        flux_coverage0,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    assert not np.allclose(  # check that there are differences between the cloudy and the cloudless cases
+        flux_clear,
+        flux_cloudy,
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+    benchmark.run(
+        mass_fractions=mass_fractions,
+        opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        cloud_fraction=cloud_fraction,
+        **kwargs
+    )
+
+    # Test flux with cloud fraction
+    print('Testing transit radii with partial cloud coverage consistency...', end=' ')
+    reference_file = benchmark._load_reference_file()
+
+    assert np.allclose(
+        test_parameters['cloud_parameters']['cloud_fraction'] * flux_cloudy
+        + (1 - test_parameters['cloud_parameters']['cloud_fraction']) * flux_clear,
+        reference_file.outputs['1'],
+        atol=0,
+        rtol=relative_tolerance
+    )
+
+    print('OK')
+
+def get_cloud_parameters(mass_fraction_type, filling_species=None):
+    mass_fractions = copy.deepcopy(test_parameters[mass_fraction_type])
+    cloud_particles_mean_radii = {}
+    cloud_f_sed = {}
+    cloud_particle_radius_distribution_std = None
+    cloud_b_hansen = {}
+
+    for cloud, parameters in test_parameters['cloud_parameters']['cloud_species'].items():
+        mass_fractions[cloud] = parameters['mass_fraction']
+        cloud_particles_mean_radii[cloud] = parameters['radius']
+        cloud_f_sed[cloud] = parameters['f_sed']
+        cloud_b_hansen = parameters['b_hansen']
+
+        if cloud_particle_radius_distribution_std is None:
+            cloud_particle_radius_distribution_std = parameters['sigma_log_normal']
+
+    if filling_species is not None:
+        for species in filling_species:
+            if species in mass_fractions:
+                del mass_fractions[species]
+
+    return (
+        mass_fractions, cloud_particles_mean_radii, cloud_f_sed, cloud_particle_radius_distribution_std, cloud_b_hansen
+    )
+
+def get_main_model_parameters(spectral_model, **kwargs):
+    """Calculate a SpectralModel spectrum and return the temperatures, mass fractions and mean molar masses in
+    addition to wavelengths and spectra."""
+    wavelengths, spectra = spectral_model.calculate_spectrum(**kwargs)
+
+    return (wavelengths, spectra,
+            spectral_model.temperatures, spectral_model.mass_fractions, spectral_model.mean_molar_masses)
+
+
 # Initializations
 def init_guillot_2010_temperature_profile():
     temperature_guillot = petitRADTRANS.physics.temperature_profile_function_guillot_global(
@@ -270,75 +539,5 @@ def init_radtrans_test():
     tp_guillot_2010 = init_guillot_2010_temperature_profile()
 
     return tp_iso, tp_guillot_2010
-
-
-def npz2dat(file, new_resolving_power=60.0, relative_error=0.05, mode='transmission'):
-    """Converts a .npz spectrum file into a .dat file suitable for the petitRADTRANS.retrieval Data class.
-
-    The .dat file is outputted in the same directory as the .npz file.
-
-    Args:
-        file:
-            The .npz file to convert.
-        new_resolving_power:
-            The resolution power of the .dat file. It should be lower than the one in the original file.
-        relative_error:
-            Mock observation uncertainty to add.
-        mode:
-            How to read the .npz file ('emission'|'transmission')
-    """
-    from scripts.mock_observation import convolve_rebin
-
-    npz_data = np.load(file)
-
-    wavelength = npz_data['wavelength']
-
-    if mode == 'emission':
-        flux = petitRADTRANS.physics.flux_hz2flux_cm(
-            npz_data['spectral_radiosity'],
-            petitRADTRANS.physical_constants.c * 1e4 / wavelength  # um to Hz
-        )
-        flux *= 1e-7  # erg.s-1.cm-2/cm to W.m-2/um
-
-        flux_str = 'spectral_radiosity units: W.m-2/um\n'
-    elif mode == 'transmission':
-        flux = (
-                       npz_data['transit_radius'] * petitRADTRANS.physical_constants.r_jup_mean
-                       / (test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun)
-               ) ** 2
-        flux_str = 'transit_radius units: (R_p/R_star)^2\n'
-    else:
-        raise ValueError(f"mode must be 'emission' or 'transmission', but was '{mode}'")
-
-    dump, wavelength, flux = convolve_rebin(
-        input_wavelengths=wavelength,
-        input_flux=flux,
-        instrument_resolving_power=new_resolving_power,
-        pixel_sampling=1,
-        instrument_wavelength_range=(wavelength[1], wavelength[-1])
-    )
-
-    error = relative_error * np.max(flux)
-
-    flux += np.random.default_rng().normal(
-        loc=0.,
-        scale=error,
-        size=np.size(flux)
-    )
-
-    error *= np.ones_like(wavelength)
-
-    np.savetxt(
-        fname=file.rsplit('.', 1)[0] + '.dat',
-        X=np.transpose((wavelength, flux, error)),
-        header='wavelength flux error\n'
-               f'File generated by tests.utils function\n'
-               f'wavelength units: um\n'
-               f'error and {flux_str}'
-               f'resolution power {new_resolving_power}\n'
-               f'relative error {relative_error}\n'
-               f'original file: {file}'
-    )
-
 
 temperature_isothermal, temperature_guillot_2010 = init_radtrans_test()

@@ -4,10 +4,9 @@ from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_pri
 
 
 class Parameter:
-    """
-    Parameter
-    This class allows easy translation between the pyMultinest hypercube and
-    the physical unit space. Each parameter includes a name, which can be used
+    r"""Allow easy translation between the pyMultinest hypercube and the physical unit space.
+
+    Each parameter includes a name, which can be used
     as a reference in the model function, a value, a flag of whether it's a free parameter,
     and if it's free, a function that translates the unit hypercube into physical space.
     The remainder of the arguments deal with the corner plots.
@@ -89,6 +88,22 @@ class Parameter:
 
 
 class RetrievalParameter:
+    """Used to set up retrievals.
+
+    Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
+    are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
+    half maximum.
+
+    Args:
+        name:
+            name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
+        prior_parameters:
+            list of two values for the prior parameters, depends on the prior type
+        prior_type:
+            type of prior to use, the available types are stored into available_priors
+        custom_prior:
+            function with arguments (cube, *args), args being positional arguments in prior_parameters
+    """
     __available_priors = [
         'log',
         'uniform',
@@ -99,17 +114,6 @@ class RetrievalParameter:
     ]
 
     def __init__(self, name, prior_parameters, prior_type='uniform', custom_prior=None):
-        """Used to set up retrievals.
-        Stores the prior function. Prior parameters depends on the type of prior. e.g., for uniform and log prior, these
-        are the bounds of the prior. For gaussian priors and alike, these are the values of the mean and full width
-        half maximum.
-
-        Args:
-            name: name of the parameter to retrieve, must match the corresponding model parameter of a SpectralModel
-            prior_parameters: list of two values for the prior parameters, depends on the prior type
-            prior_type: type of prior to use, the available types are stored into available_priors
-            custom_prior: function with arguments (cube, *args), args being positional arguments in prior_parameters
-        """
         # Check prior parameters validity
         if not hasattr(prior_parameters, '__iter__'):
             raise ValueError(

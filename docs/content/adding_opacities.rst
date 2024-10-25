@@ -1,11 +1,12 @@
 ================
 Adding opacities
 ================
-petitRADTRANS has an extensive database of line opacities. However, it is very likely that we are missing the one atom / molecule that you want. There are three options for adding external opacities to petitRADTRANS:
+petitRADTRANS has an extensive database of line opacities. However, it is very likely that we are missing the one atom / molecule that you want. There are four options for adding external opacities to petitRADTRANS:
 
 1. :ref:`ExoMolpRT`. These are already in the petitRADTRANS format and can be used in a plug-and-play fashion.
 2. :ref:`OWtopRT`.
-3. :ref:`Calculating opacities from line lists yourself<ECtopRT>`, and converting them to the petitRADTRANS format.
+3. :ref:`ECtopRT`.
+3. :ref:`Calculating opacities from line lists yourself<_AnyToPRT>`, and converting them to the petitRADTRANS format.
 
 These different options are explained in more detail below.
 
@@ -215,6 +216,8 @@ The converted correlated-k and line-by-line files will be put automatically insi
 
 .. note:: You can chose to convert only to line-by-line or correlated-k opacities by setting ``save_correlated_k=False`` and ``save_line_by_line=False``, respectively.
 
+.. _AnyToPRT:
+
 Converting any opacity into the petitRADTRANS format
 ====================================================
 The above ``format2petitradtrans()`` function also provides the tool to convert any opacity file into the petitRADTRANS format. All that is needed is a Python function that follows the structure below:
@@ -225,24 +228,36 @@ The above ``format2petitradtrans()`` function also provides the tool to convert 
                          file_extension,
                          molmass,
                          wavelength_file,
-                         wavenumbers_petitradtrans,
+                         wavenumbers_petitradtrans_line_by_line,
                          save_line_by_line,
                          rebin,
                          selection):
 
         ...
 
-        return opacities, opacities_line_by_line, wavenumbers, pressure, temperature
+        return cross_sections, cross_sections_line_by_line, wavenumbers, pressure, temperature
 
-Not all the input arguments need to be used. For the outputs, take care of the following:
+Note that the input must be exactly as shown here, even if not all arguments are used in the function. Below are some possible steps. This is only an example, some steps may not be relevant or would need to be modified in some specific case:
 
-- ``opacities`` must be in cm2/molecule.
-- ``opacities_line_by_line`` must be in cm2/molecule, and interpolated to ``wavenumbers_petitradtrans``.
-- ``wavenumbers`` must be the wavenumbers corresponding to ``opacities``, in cm-1.
+1. Read the file ``file`` (includes the extension), fetched by ``format2petitradtrans``, to extract the cross-sections.
+2. Use ``molmass`` to convert cross-sections in cm2/g to cm2/molecule (calculated by ``format2petitradtrans``).
+3. Use ``file_extension`` to extract filename information, such as ``pressure`` and ``temperature``.
+4. Use ``wavelength_file`` to calculate the wavenumbers associated with the cross-sections.
+5. Interpolate the cross-section on ``wavenumbers_petitradtrans_line_by_line``, only on the ``selection`` indices, if ``rebin`` is ``True``.
+6. Save the interpolated cross-sections into ``cross_sections_line_by_line`` only if ``save_line_by_line`` is ``True``, else set ``cross_sections_line_by_line`` to ``None``.
+7. Return all the necessary outputs (see below).
+
+For the outputs, take care of the following:
+
+- ``cross_sections`` must be in cm2/molecule.
+- ``cross_sections_line_by_line`` must be in cm2/molecule, and interpolated to ``wavenumbers_petitradtrans_line_by_line``.
+- ``wavenumbers`` must be the wavenumbers corresponding to ``cross_sections``, in cm-1.
 - ``pressure`` must be in bar.
 - ``temperature`` must be in K.
 
 Ideally, ``my_load_function`` must be applied to one file containing the opacities at one pressure and one temperature. The ``format2petitradtrans`` function will take care of fetching the files in ``opacities_directory`` with the ``opacity_files_extension`` extension (see below).
+
+.. important:: The cross_sections, cross_sections_line_by_line and wavenumbers must be returned in increasing wavenumber order!
 
 You can then proceed to the conversion as follows:
 

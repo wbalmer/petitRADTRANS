@@ -6,11 +6,16 @@ import h5py
 import numpy as np
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
 from petitRADTRANS._input_data_loader import get_input_file
+from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
+from petitRADTRANS.physics import wavelength2frequency
 
 
 class PhoenixStarTable:
+    """Used to store petitRADTRANS's PHOENIX star spectrum models.
+
+    The compute_spectrum function can be used to get a star spectrum at a given temperature.
+    """
     def __init__(self):
         self._loaded = False
 
@@ -74,9 +79,9 @@ class PhoenixStarTable:
                 + weight_high * self.radius_grid[int(interpolation_index)]
             )
 
-        freq = cst.c / self.wavelength_grid
+        frequency_grid = wavelength2frequency(self.wavelength_grid)
         flux = spec_dat
-        norm = -np.sum((flux[1:] + flux[:-1]) * np.diff(freq)) / 2.
+        norm = -np.sum((flux[1:] + flux[:-1]) * np.diff(frequency_grid)) / 2.
 
         spec_dat = flux / norm * cst.sigma * temperature ** 4.
 
