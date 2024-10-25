@@ -631,6 +631,10 @@ def _has_isotope(string):
         return False
 
 
+def _join_spectral_information(resolution_filename, range_filename):
+    return f"{resolution_filename}_{range_filename}"
+
+
 def _merge_contiguous_isotopes(species, isotope_separator):
     isotope_groups = re.findall(r'([A-Z][a-z]?|e)(\d{1,3})?', species)
     isotope_groups = [list(isotope_group) for isotope_group in isotope_groups]
@@ -1404,7 +1408,8 @@ def get_species_scientific_name(species: str) -> str:
     return rf"{_rebuild_isotope_numbers(name, mode='scientific')}"
 
 
-def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):
+def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=None,
+                          resolution_filename=None, range_filename=None):
     if natural_abundance != '':
         name += '-' + natural_abundance
 
@@ -1413,8 +1418,26 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
     if source != '':
         name += '__' + source
 
-    if spectral_info != '':
+    if spectral_info is not None:
+        if resolution_filename is not None or range_filename is not None:
+            raise ValueError(f"cannot give both complete spectral info ('{spectral_info}'), "
+                             f"and resolution ('{resolution_filename}') + range ('{range_filename}')\n"
+                             f"Set resolution_filename and range_filename to None, or set spectral_info to None")
+
         name += '.' + spectral_info
+    elif resolution_filename is not None or range_filename is not None:
+        if resolution_filename is None:
+            raise ValueError(f"both resolution_filename and range_filename must be not None, "
+                             f"but resolution_filename is None")
+
+        if range_filename is None:
+            raise ValueError(f"both resolution_filename and range_filename must be not None, "
+                             f"but range_filename is None")
+
+        name += '.' + _join_spectral_information(
+            resolution_filename=resolution_filename,
+            range_filename=range_filename
+        )
 
     return name
 
