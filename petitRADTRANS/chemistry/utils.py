@@ -4,6 +4,7 @@ import warnings
 
 import numpy as np
 import numpy.typing as npt
+from scipy.interpolate import PchipInterpolator
 
 from petitRADTRANS._input_data_loader import get_species_basename, get_species_isotopologue_name
 from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
@@ -621,3 +622,249 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
     }
 
     return metallicity, h_ratios
+
+
+def stepped_profile(pressure_array, transition_pressures, abundance_points):
+    """
+    Compute a stepped profile for abundance based on pressure points.
+
+    This function computes the steps for chemical abundance using
+    pressure and abundance data points, along with a curvature prior.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
+        abundance_points (array-like): An array or list of abundances for each pressure node.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated abundance values
+              based on the linear spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+    abundance_profile = np.zeros_like(pressure_array)
+
+    # Assumes that the transition array has both the top and bottom pressure as well
+    # This is defined by calculate_pressure_nodes
+    nnodes = len(transition_pressures)-2
+    log_pressure = np.log10(pressure_array)
+    if len(abundance_points) != nnodes+1:
+        warnings.warn("Length of abundance array must be 1 greater than the length of pressures array!")
+        return np.nan*np.ones_like(pressure_array)
+    for i in range(nnodes):
+        # Only set using intermediate nodes
+        if i == 0:
+            abundance_profile[log_pressure >= transition_pressures[i+1]] = abundance_points[i]
+        else:
+            abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure < transition_pressures[i])] =\
+                abundance_points[i]
+    abundance_profile[log_pressure < transition_pressures[-2]] = abundance_points[-1]
+    return abundance_profile
+
+
+def abundance_curvature_prior(press, abundance, gamma):
+    """
+    Compute a curvature prior for a abundance-pressure profile.
+
+    This function calculates a curvature prior for a abundance-pressure profile,
+    penalizing deviations from a smooth, low-curvature profile, based on Line 2015
+
+    Args:
+        press (array-like): An array or list of pressure data points.
+        abundance (array-like): An array or list of abundance data points.
+        gamma (float): The curvature penalization factor.
+
+    Returns:
+        float: The curvature prior value.
+    """
+    weighted_abund_prior = -0.5 * np.sum((abundance[2:] - 2 * abundance[1:-1] + abundance[:-2]) ** 2) / gamma
+    weighted_abund_prior -= 0.5 * np.log(2 * np.pi * gamma)
+
+    return weighted_abund_prior
+
+
+def define_pressure_node_list(pressure_array, species_short_name, parameters):
+    """
+    Define the location of pressure nodes, allowing individual nodes to be
+    retrieved parameters.
+
+    If mode is even, the nodes are evenly spaced in log pressure, with a total of
+    nnodes + 2 points (including the top and bottom of the atmospheres).
+    If mode is relative, then points list is returned.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        species_short_name (str): which molecular species does this apply to (each can be unique)
+        parameters (dict): dictionary of parameters used in a retrieval
+    Returns:
+        array: an array of pressure nodes, can be used in calculate_pressure_nodes
+    """
+    if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
+        nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
+        mode = parameters[f"{species_short_name}_interpolation_mode"].value
+
+        # Evenly spaced in log P
+        if mode == 'even':
+            pressure_interpolation_nodes = calculate_pressure_nodes(
+                pressure_array,
+                mode=parameters[f"{species_short_name}_interpolation_mode"].value,
+                nnodes=parameters[f"{species_short_name}_n_pressure_nodes"].value,
+                points_list=None
+            )
+        # Retrieve individual relative pressure node locations
+        elif mode == 'relative':
+            pnodes = [parameters[f"{species_short_name}_pressure_node_{i}"].value for i in range(nnodes)]
+            pressure_interpolation_nodes = calculate_pressure_nodes(
+                pressure_array,
+                mode=mode,
+                nnodes=None,
+                points_list=pnodes
+            )
+    # Predifined list of pressure node locations
+    elif f"{species_short_name}_pressure_nodes" in parameters.keys():
+        pressure_interpolation_nodes = calculate_pressure_nodes(
+            pressure_array,
+            mode=parameters[f"{species_short_name}_interpolation_mode"].value,
+            nnodes=None,
+            points_list=parameters[f"{species_short_name}_pressure_nodes"].value
+        )
+    # Default to bottom and top of atmosphere
+    else:
+        pressure_interpolation_nodes = [np.log10(pressure_array[0]), np.log10(pressure_array[-1])]
+    return pressure_interpolation_nodes
+
+
+def define_abundance_node_list(species_short_name, parameters):
+    """
+    Define the location of pressure nodes, allowing individual nodes to be
+    retrieved parameters.
+
+    If mode is even, the nodes are evenly spaced in log pressure, with a total of
+    nnodes + 2 points (including the top and bottom of the atmospheres).
+    If mode is relative, then points list is returned.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        species_short_name (str): which molecular species does this apply to (each can be unique)
+        parameters (dict): dictionary of parameters used in a retrieval
+    Returns:
+        array: an array of pressure nodes
+    """
+    abundance_nodes = None
+    if f"{species_short_name}_n_abundance_nodes" in parameters.keys():
+        nnodes = parameters[f"{species_short_name}_n_abundance_nodes"].value
+        # Retrieve individual relative pressure node locations
+        abundance_nodes = [parameters[f"{species_short_name}_abundance_node_{i}"].value for i in range(nnodes)]
+
+    # Predifined list of pressure node locations
+    elif f"{species_short_name}_abundance_nodes" in parameters.keys():
+        abundance_nodes = parameters[f"{species_short_name}_abundance_nodes"].value
+    return abundance_nodes
+
+
+def calculate_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=None):
+    """
+    Compute the location of nodes for a spline or step profile in pressure space.
+
+    If mode is even, the nodes are evenly spaced in log pressure, with a total of
+    nnodes + 2 points (including the top and bottom of the atmospheres).
+    If mode is relative, then points list is returned.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        mode (std): 'even' (evenly spaced), 'relative' (points list is monotonically decreasing in log P) or 'set'
+            (points list is user-defined spline nodes)
+        nnodes (int): Number of intermediate spline nodes (not counting top and bottom of atmosphere)
+        points_list (array_like): if relative, list of differences in log P between each node. If set.
+            then this is a user-defined list of spline points, and MUST include top and bottom pressure
+            values.
+
+    Returns:
+        array: an array of pressure nodes.
+    """
+    if mode == 'even':
+        return np.linspace(
+            np.log10(pressure_array[0]),
+            np.log10(pressure_array[-1]),
+            int(nnodes) + 2)
+    elif mode == 'relative':
+        # points_list is a list of delta log Pressures < 0.
+        # This enforces a monotonically decreasing list of pressure nodes
+        pressures = [np.log10(pressure_array[0])]
+        min_pressure = np.log10(pressure_array[-1])
+        for i, node in enumerate(points_list):
+            # pressures goes from low to high
+            next = pressures[i] + node
+            pressures.append(min(next, min_pressure))
+        pressures.append(min_pressure)
+        return np.array(pressures)
+    elif mode == 'set':
+        return np.array(points_list)
+    else:
+        warnings.warn("Incorrect mode specified to define pressure spline nodes! Returning full pressure array!")
+        return pressure_array
+
+
+def linear_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0):
+    """
+    Compute a linear spline profile for abundance based on pressure points.
+
+    This function computes a linear spline profile for abundance using
+    pressure and abundance data points, along with a curvature prior.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
+        abundance_points (array-like): An array or list of abundances for each pressure node.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated abundance values
+              based on the linear spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+    interpolated_abunds = 10**np.interp(
+        np.log10(pressure_array),
+        pressure_nodes,
+        abundance_points
+        )
+    prior = abundance_curvature_prior(pressure_array, interpolated_abunds, gamma)
+    return interpolated_abunds, prior
+
+
+def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0):
+    """
+    Compute a cubic spline profile for abundance based on pressure points.
+
+    This function computes a cubic spline profile for abundance using
+    pressure and abundance data points, along with a curvature prior.
+
+    Args:
+        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
+        pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
+        abundance_points (array-like): An array or list of abundances for each pressure node.
+        gamma (float): A parameter controlling the curvature of the spline.
+        nnodes (int, optional): Number of nodes to use in the spline interpolation.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - interpolated_temps (array-like): Interpolated abundance values
+              based on the cubic spline.
+            - prior (array-like): Curvature prior values calculated for the spline.
+    """
+
+    try:
+        cs = PchipInterpolator(pressure_nodes,
+                               abundance_points)
+    except ValueError:
+        warnings.warn("Pressure array isn't monotonically increasing")
+        print(pressure_nodes)
+        return None, None
+
+    interpolated_abunds = 10**cs(np.log10(pressure_array))
+    prior = abundance_curvature_prior(pressure_array, interpolated_abunds, gamma)
+    return interpolated_abunds, prior

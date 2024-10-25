@@ -2891,7 +2891,7 @@ class Retrieval:
 
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
-
+            min_xaxis = 1e-7
             self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
@@ -2985,6 +2985,8 @@ class Retrieval:
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
                 for i, spec in enumerate(species_to_plot):
+                    if np.min(abund_dict[spec.split('.')[0]]) < min_xaxis:
+                        min_xaxis = 0.9*np.min(abund_dict[spec.split('.')[0]])
                     ax.plot(abund_dict[spec.split('.')[0]],
                             pressures,
                             label=spec.split('_')[0],
@@ -3051,7 +3053,7 @@ class Retrieval:
                 yborders = pressures
                 for i_p in range(len(yborders) - 1):
                     mean_press = (yborders[i_p + 1] + yborders[i_p]) / 2.
-                    ax.fill_between([1e-7, 3],
+                    ax.fill_between([min_xaxis, 3],
                                     yborders[i_p + 1],
                                     yborders[i_p],
                                     color='white',
@@ -3061,7 +3063,7 @@ class Retrieval:
                                     zorder=100)
 
                 ax.plot(
-                    contr_em_weigh * (3 - 1e-7) + 1e-7,
+                    contr_em_weigh * (3 - min_xaxis) + min_xaxis,
                     pressures, '--',
                     color='black',
                     linewidth=1.,
