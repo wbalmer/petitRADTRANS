@@ -13,7 +13,7 @@ from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS._input_data_loader import (
     _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases,
     get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string,
-    get_species_basename, split_species_all_info
+    get_species_basename, join_species_all_info, split_species_all_info
 )
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
@@ -954,13 +954,24 @@ class Radtrans:
 
         if category == 'correlated_k_opacities':
             default_species, spectral_info = _split_species_spectral_info(species)
-            target_resolving_power, _ = _get_spectral_information(spectral_info)
+            target_resolving_power, range_filename = _get_spectral_information(spectral_info)
 
             if 'R' in target_resolving_power:
                 target_resolving_power = get_resolving_power_from_string(target_resolving_power)
 
             if target_resolving_power == '':
-                target_resolving_power = int(get_default_correlated_k_resolution()[1:])
+                target_resolving_power = int(get_default_correlated_k_resolution()[1:])  # get rid of leading 'R'
+
+            default_species = join_species_all_info(
+                name=default_species,  # contains already all non-spectral info
+                natural_abundance='',
+                charge='',
+                cloud_info='',
+                source='',
+                spectral_info=None,
+                resolution_filename=get_default_correlated_k_resolution(),
+                range_filename=range_filename
+            )
 
             hdf5_file = get_opacity_input_file(
                 path_input_data=path_input_data,
