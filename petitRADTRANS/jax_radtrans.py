@@ -450,7 +450,12 @@ def NG_source_approx(source_n,source_n1,source_n2,source_n3,source):
     return source
 
 @jit
-def compute_optical_depths(reference_gravity,pressures,opacities):
+def compute_optical_depths(
+    reference_gravity,
+    pressures,
+    opacities,
+    scattering_in_emission,
+    continuum_opacities_scattering):
     """_summary_
 
     Args:
@@ -464,6 +469,10 @@ def compute_optical_depths(reference_gravity,pressures,opacities):
         transmission: Tau, a 1D array of transmission coefficients for g, 
                       frequency and for every pressure level in the atmosphere.
     """
+
+    # TODO add scattering_in_emission check
+    # May want to write separate function rather than using lax.cond
+    
     optical_depth = jnp.zeros(opacities.shape)
     for i_struc in range(1,opacities.shape[3]):
         optical_depth = optical_depth.at[i_struc].set(optical_depth[i_struc-1] +\

@@ -23,6 +23,7 @@ from petitRADTRANS.physics import (
 )
 from petitRADTRANS.utils import intersection_indices,LockedDict
 import petitRADTRANS.jax_radtrans as jrt
+import petitRADTRANS.jax_physics as jphys
 from petitRADTRANS.jax_rayleigh_scattering import compute_rayleigh_scattering_opacities
 from petitRADTRANS.jax_interpolate_line_opacities import interpolate_line_opacities
 from time import time
@@ -1629,6 +1630,7 @@ class Radtrans:
 
     @staticmethod
     def _combine_ck_opacities(opacities, g_gauss, weights_gauss):
+        # TODO: write/use jax implementation
         opacities = opacities.at[:, :, 0, :].set(fcore.combine_ck_opacities(
             opacities,
             g_gauss,
@@ -1701,7 +1703,7 @@ class Radtrans:
 
         #jnp.save("fortran_optical_depths",optical_depths)
 
-        flux, emission_contribution = jrt.flux_ck(
+        flux, emission_contribution = jrt.compute_ck_flux(
             frequencies,
             temperatures,
             weights_gauss,
@@ -1889,6 +1891,7 @@ class Radtrans:
         # Calculate cloud opacities
         if cloud_particles_mean_radii is not None or cloud_hansen_a is not None:
             if cloud_particles_radius_distribution == "lognormal":
+                # TODO: move cloud function to jax cloud module
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
@@ -1904,6 +1907,7 @@ class Radtrans:
                         clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
+                # TODO: Write hansen cloud jax function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     fcore.compute_cloud_hansen_opacities(
@@ -1952,6 +1956,7 @@ class Radtrans:
 
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
+                # TODO: write cloud radius jax functions
                 _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius(
                     reference_gravity,
                     atmospheric_densities,
@@ -1978,6 +1983,7 @@ class Radtrans:
                         clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
+                # TODO: write jax cloud radius function
                 _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius_hansen(
                     reference_gravity,
                     atmospheric_densities,
@@ -1989,6 +1995,7 @@ class Radtrans:
                     eddy_diffusion_coefficients
                 )
 
+                # TODO: write jax hansen cloud function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     fcore.compute_cloud_hansen_opacities(
@@ -2005,6 +2012,7 @@ class Radtrans:
                     )
 
         # Take into account anisotropy (= 1 - asymmetry_parameter)
+        # TODO write jax cloud opacitity interpolation
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
          cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
             fcore.interpolate_cloud_opacities(
@@ -2048,6 +2056,7 @@ class Radtrans:
         base, the optical depth is constant and equal to the value at the cloud
         base.
         # TODO complete docstring
+        # TODO write as jax function
 
             Args:
                 reference_gravity (float):
@@ -2062,6 +2071,7 @@ class Radtrans:
                                               optical_depths, photon_destruction_probabilities,
                                               emission_geometry, stellar_intensity, star_irradiation_cos_angle,
                                               reflectances, emissivities, return_contribution):
+        # TODO: finish JAX implementation
         flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
             frequency_bins_edges,
             temperatures,
@@ -2223,8 +2233,12 @@ class Radtrans:
     @staticmethod
     def _compute_optical_depths(pressures, reference_gravity, opacities, continuum_opacities_scattering,
                                 scattering_in_emission):
+        # TODO: complete jax implementation
+        # Probably want to test scattering_in_emission here,
+        # and leave compute_optical_depths to be compiled without
+        # needing lax.cond
         optical_depths, photon_destruction_probabilities = \
-            fcore.compute_optical_depths(
+            jrt.compute_optical_depths(
                 reference_gravity,
                 pressures,
                 opacities,
@@ -2472,6 +2486,7 @@ class Radtrans:
         reference_pressure = reference_pressure * 1e6  # bar to cgs
 
         atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
+        # TODO: write jax hydrostatic eq function
         radius_hydrostatic_equilibrium = fcore.compute_radius_hydrostatic_equilibrium(
             pressures,
             reference_gravity,
@@ -2517,7 +2532,8 @@ class Radtrans:
     @staticmethod
     def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
                                      opacities, continuum_opacities_scattering, scattering_in_emission):
-        opacities_rosseland = fcore.compute_rosseland_opacities(
+        # TODO test implementation, should this function be in jrt or jphys?
+        opacities_rosseland = jphys.compute_rosseland_opacities(
             opacities[:, :, 0, :],
             temperatures,
             weights_gauss,
@@ -2676,6 +2692,7 @@ class Radtrans:
                                                     reference_gravity, reference_pressure, planet_radius,
                                                     weights_gauss, opacities, continuum_opacities_scattering,
                                                     scattering_in_transmission, variable_gravity):
+        # TODO: write jax transmission spectrum function
         transmission_contribution, radius_hydrostatic_equilibrium = (
             fcore.compute_transmission_spectrum_contribution(
                 opacities,
@@ -3860,8 +3877,9 @@ class Radtrans:
             )
         )
 
+        # TODO test jax implementation
         opacities_planck = (
-            fcore.compute_planck_opacities(
+            jrt.compute_planck_opacities(
                 opacities[:, :, :1, :],
                 temperatures,
                 self._lines_loaded_opacities['weights_gauss'],
