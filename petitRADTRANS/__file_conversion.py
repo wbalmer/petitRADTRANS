@@ -394,72 +394,16 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
         # Write HDF5 file
         print(f" Writing file '{hdf5_cia_file}'...", end=' ')
 
-        with h5py.File(hdf5_cia_file, "w") as fh5:
-            dataset = fh5.create_dataset(
-                name='DOI',
-                shape=(1,),
-                data=doi_dict[key]
-            )
-            dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-            dataset.attrs['additional_description'] = description_dict[key]
-
-            dataset = fh5.create_dataset(
-                name='Date_ID',
-                shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_'
-                     f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
-            )
-            dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                         'at which the table has been created, ' \
-                                         'along with the version of petitRADTRANS'
-
-            dataset = fh5.create_dataset(
-                name='wavenumbers',
-                data=wavenumbers
-            )
-            dataset.attrs['long_name'] = 'CIA wavenumbers'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='alpha',
-                data=np.transpose(cia_dict['alpha'])[:, ::-1]  # (temperature, wavenumber) wavenumbers ordering
-            )
-            dataset.attrs['long_name'] = 'Table of monochromatic absorption with axes (temperature, wavenumber)'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='t',
-                data=cia_dict['temperature']
-            )
-            dataset.attrs['long_name'] = 'Temperature grid'
-            dataset.attrs['units'] = 'K'
-
-            dataset = fh5.create_dataset(
-                name='mol_mass',
-                data=np.array([float(get_species_molar_mass(species)) for species in cia_dict['molecules']])
-            )
-            dataset.attrs['long_name'] = 'Masses of the colliding species'
-            dataset.attrs['units'] = 'AMU'
-
-            dataset = fh5.create_dataset(
-                name='mol_name',
-                data=cia_dict['molecules']
-            )
-            dataset.attrs['long_name'] = 'Names of the colliding species described'
-
-            dataset = fh5.create_dataset(
-                name='wlrange',
-                data=np.array([cia_dict['lambda'].min(), cia_dict['lambda'].max()]) * 1e4  # cm to um
-            )
-            dataset.attrs['long_name'] = 'Wavelength range covered'
-            dataset.attrs['units'] = 'µm'
-
-            dataset = fh5.create_dataset(
-                name='wnrange',
-                data=np.array([wavenumbers.min(), wavenumbers.max()])
-            )
-            dataset.attrs['long_name'] = 'Wavenumber range covered'
-            dataset.attrs['units'] = 'cm^-1'
+        write_cia_opacities(
+            hdf5_cia_file=hdf5_cia_file,
+            molecules=cia_dict['molecules'],
+            wavenumbers=wavenumbers,
+            wavelengths=cia_dict['lambda'],
+            alpha=np.transpose(cia_dict['alpha'])[:, ::-1],  # (temperature, wavenumber) wavenumbers ordering
+            temperatures=cia_dict['temperature'],
+            doi=doi_dict[key],
+            description=description_dict[key]
+        )
 
         print("Done.")
 
@@ -2666,94 +2610,20 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
 
     i = 0  # only one cloud
 
-    with h5py.File(hdf5_opacity_file, "w") as fh5:
-        dataset = fh5.create_dataset(
-            name='DOI',
-            shape=(1,),
-            data=doi
-        )
-        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-        dataset.attrs['additional_description'] = str(description)
-
-        dataset = fh5.create_dataset(
-            name='Date_ID',
-            shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}'
-                 f'_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
-        )
-        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                     'at which the table has been created, ' \
-                                     'along with the version of petitRADTRANS'
-
-        dataset = fh5.create_dataset(
-            name='wavenumbers',
-            data=wavenumbers
-        )
-        dataset.attrs['long_name'] = 'Opacities wavenumbers'
-        dataset.attrs['units'] = 'cm^-1'
-
-        dataset = fh5.create_dataset(
-            name='absorption_opacities',
-            data=cloud_absorption_opacities[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'cm^2.g^-1'
-
-        dataset = fh5.create_dataset(
-            name='scattering_opacities',
-            data=cloud_scattering_opacities[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'cm^2.g^-1'
-
-        dataset = fh5.create_dataset(
-            name='asymmetry_parameters',
-            data=cloud_asymmetry_parameter[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'None'
-
-        dataset = fh5.create_dataset(
-            name='particles_density',
-            data=cloud_particles_densities[i]
-        )
-        dataset.attrs['long_name'] = 'Average density of the cloud particles'
-        dataset.attrs['units'] = 'g.cm^-3'
-
-        dataset = fh5.create_dataset(
-            name='mol_name',
-            shape=(1,),
-            data=cloud_species[i]
-        )
-        dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
-
-        dataset = fh5.create_dataset(
-            name='particles_radii',
-            data=cloud_particles_radii
-        )
-        dataset.attrs['long_name'] = 'Particles average radius grid'
-        dataset.attrs['units'] = 'cm'
-
-        dataset = fh5.create_dataset(
-            name='particle_radius_bins',
-            data=cloud_particles_radius_bins
-        )
-        dataset.attrs['long_name'] = 'Particles average radius grid bins'
-        dataset.attrs['units'] = 'cm'
-
-        dataset = fh5.create_dataset(
-            name='wlrange',
-            data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
-        )
-        dataset.attrs['long_name'] = 'Wavelength range covered'
-        dataset.attrs['units'] = 'µm'
-
-        dataset = fh5.create_dataset(
-            name='wnrange',
-            data=np.array([wavenumbers.min(), wavenumbers.max()])
-        )
-        dataset.attrs['long_name'] = 'Wavenumber range covered'
-        dataset.attrs['units'] = 'cm^-1'
+    write_cloud_opacities(
+        hdf5_opacity_file=hdf5_opacity_file,
+        cloud_species=cloud_species[i],
+        wavenumbers=wavenumbers,
+        cloud_wavelengths=cloud_wavelengths,
+        cloud_absorption_opacities=cloud_absorption_opacities[:, ::-1, i],
+        cloud_scattering_opacities=cloud_scattering_opacities[:, ::-1, i],
+        cloud_asymmetry_parameter=cloud_asymmetry_parameter[:, ::-1, i],
+        cloud_particles_densities=cloud_particles_densities[i],
+        cloud_particles_radii=cloud_particles_radii,
+        cloud_particles_radius_bins=cloud_particles_radius_bins,
+        doi=doi,
+        description=description
+    )
 
     print("Done.")
 
@@ -3867,6 +3737,170 @@ def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species
 
     if success:
         print("Successfully binned down all k-tables\n")
+
+
+def write_cia_opacities(hdf5_cia_file, molecules, wavenumbers, wavelengths, alpha, temperatures,
+                        doi='', description=''):
+    with h5py.File(hdf5_cia_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['additional_description'] = description
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_'
+                 f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='wavenumbers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'CIA wavenumbers'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='alpha',
+            data=alpha
+        )
+        dataset.attrs['long_name'] = 'Table of monochromatic absorption with axes (temperature, wavenumber)'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='t',
+            data=temperatures
+        )
+        dataset.attrs['long_name'] = 'Temperature grid'
+        dataset.attrs['units'] = 'K'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            data=np.array([float(get_species_molar_mass(species)) for species in molecules])
+        )
+        dataset.attrs['long_name'] = 'Masses of the colliding species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            data=molecules
+        )
+        dataset.attrs['long_name'] = 'Names of the colliding species described'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+
+
+def write_cloud_opacities(hdf5_opacity_file, cloud_species, wavenumbers, cloud_wavelengths,
+                          cloud_absorption_opacities, cloud_scattering_opacities, cloud_asymmetry_parameter,
+                          cloud_particles_densities, cloud_particles_radii, cloud_particles_radius_bins,
+                          doi='', description=''):
+    with h5py.File(hdf5_opacity_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}'
+                 f'_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='wavenumbers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Opacities wavenumbers'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='absorption_opacities',
+            data=cloud_absorption_opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='scattering_opacities',
+            data=cloud_scattering_opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='asymmetry_parameters',
+            data=cloud_asymmetry_parameter
+        )
+        dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'None'
+
+        dataset = fh5.create_dataset(
+            name='particles_density',
+            data=cloud_particles_densities
+        )
+        dataset.attrs['long_name'] = 'Average density of the cloud particles'
+        dataset.attrs['units'] = 'g.cm^-3'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=cloud_species
+        )
+        dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
+
+        dataset = fh5.create_dataset(
+            name='particles_radii',
+            data=cloud_particles_radii
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='particle_radius_bins',
+            data=cloud_particles_radius_bins
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid bins'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
 
 
 def write_correlated_k(file, doi, wavenumbers, wavenumbers_bins_edges, cross_sections, mol_mass, species,
