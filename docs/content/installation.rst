@@ -101,6 +101,8 @@ If you want to use pRT's retrieval package, you need to install the PyMultiNest 
 
 .. warning:: **Using Mac+Anaconda:** see the :ref:`troubleshooting section<mac_anaconda_issue>`.
 
+.. _PreInstallSection:
+
 Pre-installation packages
 =========================
 Before starting the installation of pRT, make sure to install the following Python packages with:
@@ -168,7 +170,14 @@ Open a new terminal window. Then open python and type:
     from petitRADTRANS.radtrans import Radtrans
     radtrans = Radtrans(line_species=['CH4'])
 
-If you have not already manually downloaded the CH4 correlated-k opacities, this should trigger the download of the opacity file.
+If you have not already manually downloaded the CH4 correlated-k opacities, this should trigger the download of the opacity file. You may be prompted with the following message:
+
+.. code-block:: bash
+
+    More than one file detected in <long/path> and no default file set for this path in petitRADTRANS' configuration
+    Please select one of the files in the list below by typing the corresponding integer:
+
+In that case, simply choose a file among the one listed under the message, type the corresponding integer, then press "Enter". More information are available in the `tutorial <notebooks/getting_started.html#Loading-opacities>`_.
 
 The last lines of the output should be:
 
@@ -205,6 +214,36 @@ Try these fixes in that order:
 4. If you are on Mac, and do not use Homebrew, the error may be related with your setup. Carefully check for libraries versions, dependencies, and duplicate installations.
 5. In last resort, you can add the ``--no-clean`` flag to the installation command. Beware however: this will create a temporary directory that will not be removed from your system, taking space on your disk. Each new installation with this flag will create a new temporary directory, but will **not** remove the previous one. You may need to perform manual cleaning to free space on your disk.
 
+Minimum Python version not available
+------------------------------------
+In some Linux distro where the minimum Python version necessary to run petitRADTRANS is not available, it may be necessary to install a newer version from an alternative repository, e.g. the `deadsnakes repository <https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa>`_.
+
+In that case, execute the following (replace ``python3.x`` with the desired Python version, e.g. ``python3.13``):
+
+.. code-block:: bash
+
+    sudo add-apt-repository ppa:deadsnakes/ppa
+    sudo apt-get update
+    sudo apt-get install pkg-config
+    sudo apt-get install python3.x
+    sudo apt-get install python3.x-dev
+
+To prevent further Python-related issues with your operating system, which can be as severe as `completely breaking it <https://github.com/python/cpython/issues/102134#issuecomment-1445428402>`_, you then need to create a virtual environment (replace ``/path/to/my_venv`` with the path where you want to install your virtual environment):
+
+.. code-block:: bash
+
+    sudo apt-get install python3.x-venv
+    python3.x -m venv /path/to/my_venv
+    source /path/to/my_venv/bin/activate
+
+Then, follow the :ref:`Standard installation instructions<PreInstallSection>`. You may encounter further issues installing third-party packages like ``setuptools`` or ``mpi4py``. In that case, you can execute, e.g.:
+
+.. code-block:: bash
+
+    pip install -U setuptools cython
+
+The installation should then proceed without issue.
+
 .. _mac_anaconda_issue:
 
 Mac+Anaconda known issue with MultiNest
@@ -219,6 +258,7 @@ In case of troubles, if you use Homebrew, executing ``brew upgrade``, ``brew upd
 A common error with Apple silicon when trying to run retrievals is ``AttributeError: dlsym(RTLD_DEFAULT, run): symbol not found``. This is a problem inherited from ``pymultinest``, and to solve it you should add the following lines of code before importing pRT or ``pymultinest``.
 
 .. code-block:: bash
+
     import os
     os.environ["DYLB_LIBRARY_PATH"] = "/path/to/Multinest/lib"
 
