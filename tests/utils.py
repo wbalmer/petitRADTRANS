@@ -56,6 +56,18 @@ if not os.path.isdir(tests_results_directory):
 
 # Common parameters
 def make_petitradtrans_test_config_file(filename):
+    wavelength_range_correlated_k = [0.9, 1.2]
+    wavelength_range_correlated_k_performance = [0.3, 28]
+    wavelength_range_line_by_line = [2.3000, 2.3025]
+
+    wavelength_min, wavelength_max = _get_max_wavelength_range(
+        [wavelength_range_correlated_k, wavelength_range_line_by_line]
+    )
+
+    correlated_k_range = f"{wavelength_range_correlated_k[0]:.1f}-{wavelength_range_correlated_k[1]:.1f}mu"
+    line_by_line_range = f"{wavelength_range_line_by_line[0]:.1f}-{wavelength_range_line_by_line[1]:.1f}mu"
+    other_range = f"{wavelength_min:.1f}-{wavelength_max:.1f}mu"
+
     with open(os.path.join(filename), 'w') as f:
         json.dump(
             obj={
@@ -78,18 +90,18 @@ def make_petitradtrans_test_config_file(filename):
                 'mass_fractions_correlated_k': {
                     'H2': 0.74,
                     'He': 0.24,
-                    '1H2-16O__HITEMP.R1000_0.1-250mu': 0.001,
-                    '12C-1H4__YT34to10.R1000_0.3-50mu': 0.001,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
-                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                    f'1H2-16O__HITEMP.R1000_{correlated_k_range}': 0.001,
+                    f'12C-1H4__YT34to10.R1000_{correlated_k_range}': 0.001,
+                    f'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': 0.0,
+                    f'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': 0.0
                 },
                 'mass_fractions_line_by_line': {
                     'H2': 0.74,
                     'He': 0.24,
-                    '1H2-16O__POKAZATEL.R1e6_0.3-28mu': 0.001,
-                    'C-O-NatAbund__HITEMP.R1e6_0.3-28mu': 0.1,
-                    'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0,
-                    'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': 0.0
+                    f'1H2-16O__POKAZATEL.R1e6_{line_by_line_range}': 0.001,
+                    f'C-O-NatAbund__HITEMP.R1e6_{line_by_line_range}': 0.1,
+                    f'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': 0.0,
+                    f'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': 0.0
                 },
                 'mass_fractions_test': [1, -12],  # (log_10 MMR)
                 'filling_species': {
@@ -134,24 +146,24 @@ def make_petitradtrans_test_config_file(filename):
                 'spectrum_parameters': {
                     'line_by_line_opacity_sampling': 4,
                     'line_species_correlated_k': [
-                        '1H2-16O__HITEMP.R1000_0.1-250mu',
-                        '12C-1H4__YT34to10.R1000_0.3-50mu'
+                        f'1H2-16O__HITEMP.R1000_{correlated_k_range}',
+                        f'12C-1H4__YT34to10.R1000_{correlated_k_range}'
                     ],
                     'line_species_line_by_line': [
-                        '1H2-16O__POKAZATEL.R1e6_0.3-28mu',
-                        'C-O-NatAbund__HITEMP.R1e6_0.3-28mu'
+                        f'1H2-16O__POKAZATEL.R1e6_{line_by_line_range}',
+                        f'C-O-NatAbund__HITEMP.R1e6_{line_by_line_range}'
                     ],
                     'rayleigh_species': [
                         'H2',
                         'He'
                     ],
                     'continuum_opacities': [
-                        "H2--H2-NatAbund__BoRi.R831_0.6-250mu",
-                        "H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu"
+                        f"H2--H2-NatAbund__BoRi.R831_{other_range}",
+                        f"H2--He-NatAbund__BoRi.DeltaWavenumber2_{other_range}"
                     ],
-                    'wavelength_range_correlated_k': [0.9, 1.2],
-                    'wavelength_range_correlated_k_performance': [0.3, 28],
-                    'wavelength_range_line_by_line': [2.3000, 2.3025]
+                    'wavelength_range_correlated_k': wavelength_range_correlated_k,
+                    'wavelength_range_correlated_k_performance': wavelength_range_correlated_k_performance,
+                    'wavelength_range_line_by_line': wavelength_range_line_by_line
                 },
                 'cloud_parameters': {
                     'kappa_zero': 0.01,
@@ -161,7 +173,7 @@ def make_petitradtrans_test_config_file(filename):
                     'cloud_fraction': 0.67,
                     'complete_coverage_clouds': 0,  # index of the cloud species that must have complete coverage
                     'cloud_species': {
-                        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                        f'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': {
                             'mass_fraction': 5e-7,
                             'radius': 5e-5,  # (cm)
                             'f_sed': 2.0,
@@ -169,7 +181,7 @@ def make_petitradtrans_test_config_file(filename):
                             'sigma_log_normal': 1.05,
                             'b_hansen': 0.01
                         },
-                        'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu': {
+                        f'Mg-Si-O3-NatAbund(s)_crystalline_000__DHS.R39_{other_range}': {
                             'mass_fraction': 3e-7,
                             'radius': 4e-5,  # (cm)
                             'f_sed': 3.0,
@@ -224,6 +236,417 @@ def make_petitradtrans_test_config_file(filename):
             fp=f,
             indent=4
         )
+
+
+def make_test_opacities():
+    import h5py
+    from petitRADTRANS.__file_conversion import (
+        write_cia_opacities, write_cloud_opacities, write_correlated_k, write_line_by_line
+    )
+    from petitRADTRANS._input_data_loader import (
+        _get_spectral_information, _split_species_spectral_info,
+        get_cia_opacity_file_extension, get_cloud_opacity_file_extension, get_correlated_k_opacity_file_extension,
+        get_line_by_line_opacity_file_extension, get_opacity_input_file
+    )
+    from petitRADTRANS.config.configuration import petitradtrans_config_parser
+    from petitRADTRANS.spectral_model import SpectralModel
+
+    def __update_file_wavelength_range(_hdf5_file, _wavelength_min, _wavelength_max, _file_extension):
+        hdf5_opacity_file, spectral_information = _split_species_spectral_info(_hdf5_file)
+        resolution_filename, range_filename = _get_spectral_information(spectral_information)
+
+        range_filename = f"{_wavelength_min * 1e4:.1f}-{_wavelength_max * 1e4:.1f}mu"  # cm to um
+
+        return f"{hdf5_opacity_file}.{resolution_filename}_{range_filename}.{_file_extension}"
+
+    def __write_test_cia_opacities():
+        file_extension = get_cia_opacity_file_extension()
+
+        for species in parameters['spectrum_parameters'][opacity_type]:
+            species, _ = _split_species_spectral_info(species)  # use default
+
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='cia_opacities',
+                species=species
+            )
+
+            (
+                doi,
+                species,
+                wavenumbers,
+                alpha,
+                temperatures
+            ) = SpectralModel.load_cia_opacity(hdf5_file, return_radtrans_opacities=False)
+
+            selected_wavenumbers = 1 / wavenumbers[::-1]  # cm-1 to um, increasing order
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(selected_wavenumbers, wavelength_min),
+                np.less_equal(selected_wavenumbers, wavelength_max)
+            ))[0]
+
+            selection = np.concatenate(  # ensure that the boundaries are within the selection
+                (np.array([selection[0] - 2]),  # extra point for the interpolation
+                 selection,
+                 np.array([selection[-1] + 1]))
+            )
+
+            selected_wavenumbers = wavenumbers[::-1][selection][::-1]
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(
+                    wavenumbers,
+                    selected_wavenumbers[0]
+                ),
+                np.less_equal(
+                    wavenumbers,
+                    selected_wavenumbers[-1]
+                )
+            ))[0]
+
+            hdf5_file = __update_file_wavelength_range(
+                _hdf5_file=hdf5_file,
+                _wavelength_min=wavelength_min,
+                _wavelength_max=wavelength_max,
+                _file_extension=file_extension
+            )
+
+            print(f"Writing file {hdf5_file}...", end=' ')
+
+            species = [s.decode('utf-8') for s in species]
+
+            write_cia_opacities(
+                hdf5_cia_file=hdf5_file,
+                molecules=species,
+                wavenumbers=wavenumbers[selection],
+                wavelengths=1e4 / wavenumbers[selection],  # cm-1 to um
+                alpha=alpha[:, selection],
+                temperatures=temperatures,
+                doi=doi,
+                description=description
+            )
+
+            print(f"Done.")
+
+    def __write_test_cloud_opacities():
+        file_extension = get_cloud_opacity_file_extension()
+
+        for species in parameters['cloud_parameters'][opacity_type]:
+            species, _ = _split_species_spectral_info(species)  # use default
+
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='clouds_opacities',
+                species=species
+            )
+
+            (
+                wavenumbers,
+                cloud_particles_radius_bins,
+                cloud_particles_radii,
+                cloud_particles_densities,
+                cloud_absorption_opacities,
+                cloud_scattering_opacities,
+                cloud_asymmetry_parameters
+            ) = SpectralModel.load_cloud_opacity(hdf5_file, return_radtrans_opacities=False)
+
+            with h5py.File(hdf5_file, 'r') as f:
+                doi = f['DOI'][()]
+
+            selected_wavenumbers = 1 / wavenumbers[::-1]  # cm-1 to um, increasing order
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(selected_wavenumbers, wavelength_min),
+                np.less_equal(selected_wavenumbers, wavelength_max)
+            ))[0]
+
+            selection = np.concatenate(  # ensure that the boundaries are within the selection
+                (np.array([selection[0] - 1]), selection, np.array([selection[-1] + 1]))
+            )
+
+            selected_wavenumbers = wavenumbers[::-1][selection][::-1]
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(
+                    wavenumbers,
+                    selected_wavenumbers[0]
+                ),
+                np.less_equal(
+                    wavenumbers,
+                    selected_wavenumbers[-1]
+                )
+            ))[0]
+
+            cloud_species, _ = _split_species_spectral_info(hdf5_file)
+
+            hdf5_file = __update_file_wavelength_range(
+                _hdf5_file=hdf5_file,
+                _wavelength_min=wavelength_min,
+                _wavelength_max=wavelength_max,
+                _file_extension=file_extension
+            )
+
+            print(f"Writing file {hdf5_file}...", end=' ')
+
+            write_cloud_opacities(
+                hdf5_opacity_file=hdf5_file,
+                cloud_species=cloud_species,
+                wavenumbers=wavenumbers[selection],
+                cloud_wavelengths=1e4 / wavenumbers[selection][::-1],  # cm-1 to um
+                cloud_absorption_opacities=cloud_absorption_opacities[:, selection],
+                cloud_scattering_opacities=cloud_scattering_opacities[:, selection],
+                cloud_asymmetry_parameter=cloud_asymmetry_parameters[:, selection],
+                cloud_particles_densities=cloud_particles_densities,
+                cloud_particles_radii=cloud_particles_radii,
+                cloud_particles_radius_bins=cloud_particles_radius_bins,
+                doi=doi,
+                description=description
+            )
+
+            print(f"Done.")
+
+    def __write_test_correlated_k_opacities():
+        file_extension = get_correlated_k_opacity_file_extension()
+        _wavelength_min = parameters['spectrum_parameters']['wavelength_range_correlated_k'][0]
+        _wavelength_max = parameters['spectrum_parameters']['wavelength_range_correlated_k'][1]
+
+        for species in parameters['spectrum_parameters'][opacity_type]:
+            species, _ = _split_species_spectral_info(species)  # use default
+
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='correlated_k_opacities',
+                species=species
+            )
+
+            (
+                doi,
+                bin_centers,
+                bin_edges,
+                k_table,
+                mol_mass,
+                species,
+                pressures,
+                temperatures,
+                samples,
+                weights
+            ) = SpectralModel.load_hdf5_ktables(
+                file_path_hdf5=hdf5_file,
+                frequencies=None,
+                g_size=None,
+                temperature_pressure_grid_size=None,
+                return_radtrans_opacities=False
+            )
+
+            selected_wavenumbers = 1e4 / bin_edges[::-1]  # cm-1 to um, increasing order
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(
+                    selected_wavenumbers,
+                    _wavelength_min
+                ),
+                np.less_equal(
+                    selected_wavenumbers,
+                    _wavelength_max
+                )  # cm-1 to um
+            ))[0]
+
+            selection = np.concatenate(  # ensure that the boundaries are within the selection
+                (np.array([selection[0] - 1]), selection, np.array([selection[-1] + 1]))
+            )
+
+            selected_wavenumbers = bin_edges[::-1][selection][::-1]
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(bin_centers, selected_wavenumbers[0]),
+                np.less_equal(bin_centers, selected_wavenumbers[-1])
+            ))[0]
+
+            hdf5_file = __update_file_wavelength_range(
+                _hdf5_file=hdf5_file,
+                _wavelength_min=_wavelength_min * 1e-4,  # um to cm (converted back to um inside the function)
+                _wavelength_max=_wavelength_max * 1e-4,  # um to cm (converted back to um inside the function)
+                _file_extension=file_extension
+            )
+
+            print(f"Writing file {hdf5_file}...", end=' ')
+
+            write_correlated_k(
+                file=hdf5_file,
+                doi=doi,
+                wavenumbers=bin_centers[selection],
+                wavenumbers_bins_edges=selected_wavenumbers,
+                cross_sections=k_table[:, :, selection, :],
+                mol_mass=mol_mass,
+                species=species,
+                opacities_pressures=pressures,
+                opacities_temperatures=temperatures,
+                g_gauss=samples,
+                weights_gauss=weights,
+                description=description
+            )
+
+            print(f"Done.")
+
+    def __write_test_line_by_line_opacities():
+        file_extension = get_line_by_line_opacity_file_extension()
+
+        for species in line_species:
+            hdf5_file = get_opacity_input_file(
+                path_input_data=path_input_data,
+                category='line_by_line_opacities',
+                species=species
+            )
+
+            (
+                doi,
+                bin_edges,
+                cross_sections,
+                mol_mass,
+                species,
+                pressures,
+                temperatures
+            ) = SpectralModel.load_hdf5_line_opacity_table(
+                file_path_hdf5=hdf5_file,
+                frequencies=None,
+                line_by_line_opacity_sampling=1,
+                return_radtrans_opacities=False
+            )
+
+            selected_wavenumbers = 1e4 / bin_edges[::-1]  # cm-1 to um, increasing order
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(
+                    selected_wavenumbers,
+                    spectral_model.wavelength_boundaries[0]
+                    #parameters['spectrum_parameters']['wavelength_range_line_by_line'][0]
+                ),
+                np.less_equal(
+                    selected_wavenumbers,
+                    spectral_model.wavelength_boundaries[1]
+                    #parameters['spectrum_parameters']['wavelength_range_line_by_line'][1]
+                )  # cm-1 to um
+            ))[0]
+
+            selection = np.concatenate(  # ensure that the boundaries are within the selection
+                (np.array([selection[0] - 1 - parameters['spectrum_parameters']['line_by_line_opacity_sampling']]),
+                 selection,
+                 np.array([selection[-1] + 1 + parameters['spectrum_parameters']['line_by_line_opacity_sampling']]))
+            )
+
+            selected_wavenumbers = bin_edges[::-1][selection][::-1]
+
+            selection = np.nonzero(np.logical_and(
+                np.greater_equal(
+                    bin_edges,
+                    selected_wavenumbers[0]
+                ),
+                np.less_equal(
+                    bin_edges,
+                    selected_wavenumbers[-1]
+                )
+            ))[0]
+
+            hdf5_file = __update_file_wavelength_range(
+                _hdf5_file=hdf5_file,
+                _wavelength_min=parameters['spectrum_parameters']['wavelength_range_line_by_line'][0] * 1e-4,
+                _wavelength_max=parameters['spectrum_parameters']['wavelength_range_line_by_line'][1] * 1e-4,
+                _file_extension=file_extension
+            )
+
+            print(f"Writing file {hdf5_file}...", end=' ')
+
+            print(1e4/bin_edges[selection][::-1])
+            print(bin_edges[selection])
+
+            write_line_by_line(
+                file=hdf5_file,
+                doi=doi,
+                wavenumbers=bin_edges[selection],
+                opacities=cross_sections[:, :, selection],
+                mol_mass=mol_mass,
+                species=species,
+                opacities_pressures=pressures,
+                opacities_temperatures=temperatures,
+                description=description
+            )
+
+            print(f"Done.")
+
+    path_input_data = petitradtrans_config_parser.get_input_data_path()
+
+    with open(reference_filenames['config_test_radtrans'], 'r') as f:
+        parameters = json.load(f)
+
+    description = 'Truncated opacity intended for testing petitRADTRANS'
+
+    line_species = [
+        _split_species_spectral_info(s)[0]
+        for s in parameters['spectrum_parameters']['line_species_line_by_line']
+    ]
+
+    spectral_model = petitRADTRANS.spectral_model.SpectralModel(
+        # Radtrans parameters
+        pressures=test_parameters['pressures'],
+        line_species=test_parameters['spectrum_parameters']['line_species_line_by_line'],
+        rayleigh_species=test_parameters['spectrum_parameters']['rayleigh_species'],
+        gas_continuum_contributors=test_parameters['spectrum_parameters']['continuum_opacities'],
+        line_opacity_mode='lbl',
+        orbital_period=test_parameters['planetary_parameters']['orbital_period'],
+        star_mass=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.m_sun,  # g
+        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],  # cm
+        orbital_inclination=test_parameters['planetary_parameters']['orbital_inclination'],
+        rest_frame_velocity_shift=test_parameters['mock_observation_parameters'][
+            "rest_frame_velocity_shift"],  # cm.s-1
+        system_observer_radial_velocities=np.linspace(
+            test_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][0],
+            test_parameters['mock_observation_parameters']['system_observer_radial_velocities_range'][1],
+            test_parameters['mock_observation_parameters']['n_exposures']
+        ),  # cm.s-1
+        rebinned_wavelengths=petitRADTRANS.math.resolving_space(
+            test_parameters['spectrum_parameters']['wavelength_range_line_by_line'][0] * 1e-4,
+            test_parameters['spectrum_parameters']['wavelength_range_line_by_line'][1] * 1e-4,
+            test_parameters['mock_observation_parameters']['high_resolution_resolving_power']
+        ),  # (cm) used for the rebinning, and also to set the wavelengths boundaries
+        rebin_range_margin_power=3,  # TODO this should not be necessary
+        convolve_resolving_power=test_parameters['mock_observation_parameters']['high_resolution_resolving_power'],
+        mid_transit_time=0,
+        times=2 * test_parameters['planetary_parameters']['transit_duration'] * (
+                np.linspace(0, 1, test_parameters['mock_observation_parameters']['n_exposures']) - 0.5),
+    )
+
+    test_wavelength_ranges = [
+        spectral_model.wavelength_boundaries,
+        parameters['spectrum_parameters']['wavelength_range_correlated_k'],
+        parameters['spectrum_parameters']['wavelength_range_line_by_line']
+    ]
+
+    wavelength_min, wavelength_max = _get_max_wavelength_range(test_wavelength_ranges)
+
+    wavelength_min *= 1e-4  # um to cm
+    wavelength_max *= 1e-4  # um to cm
+
+    opacity_types = (
+        'line_species_correlated_k',
+        'line_species_line_by_line',
+        'continuum_opacities',
+        'cloud_species'
+    )
+
+    for opacity_type in opacity_types:
+        if opacity_type == 'cloud_species':
+            __write_test_cloud_opacities()
+        elif opacity_type == 'line_species_correlated_k':
+            __write_test_correlated_k_opacities()
+        elif opacity_type == 'line_species_line_by_line':
+            __write_test_line_by_line_opacities()
+        elif opacity_type == 'continuum_opacities':
+            __write_test_cia_opacities()
+        else:
+            raise NotImplementedError(f"making opacity files for opacity type '{opacity_type}' is not handled")
+
+    print('Done')
 
 
 def init_test_parameters(recreate_parameter_file=False):
@@ -283,6 +706,23 @@ test_parameters = init_test_parameters()
 
 
 # Useful functions
+def _get_max_wavelength_range(wavelength_ranges):
+    wavelength_min = np.inf
+    wavelength_max = -np.inf
+
+    for test_wavelength_range in wavelength_ranges:
+        test_wavelength_min = np.min(test_wavelength_range)
+        test_wavelength_max = np.max(test_wavelength_range)
+
+        if wavelength_min > test_wavelength_min:
+            wavelength_min = test_wavelength_min
+
+        if wavelength_max < test_wavelength_max:
+            wavelength_max = test_wavelength_max
+
+    return wavelength_min, wavelength_max
+
+
 def check_cloud_mass_fractions():
     """
     Check if cloud mass fraction is set to 0 by default.
