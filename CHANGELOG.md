@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a8] - 2024-10-26
+## [3.2.0a9] - 2024-10-26
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Fixed
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
+- Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Contribution overplotting in abundance profile plots.
 - Minor typo in a warning message.
 

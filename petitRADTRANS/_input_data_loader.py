@@ -329,13 +329,12 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None,
     else:  # at least one file detected in path
         if filename is not None:  # check if one of the files matches the given filename
             matching_files = []
-            resolution_filename = ''
             _filename = filename.split('.', 1)[0]
             _filename_source = _split_species_source(_filename)[1]
 
-            if expect_spectral_information:
-                resolution_filename, range_filename = _get_spectral_information(filename)
+            resolution_filename, range_filename = _get_spectral_information(filename)
 
+            if expect_spectral_information or resolution_filename != '' or range_filename != '':
                 # First pass, try to use default resolution
                 for file in files:
                     _file, spectral_info = _split_species_spectral_info(file)
