@@ -236,7 +236,7 @@ To prevent further Python-related issues with your operating system, which can b
     python3.x -m venv /path/to/my_venv
     source /path/to/my_venv/bin/activate
 
-Then, follow the :ref:`Standard installation instructions<PreInstallSection>`. You may encounter further issues installing third-party packages like ``setuptools`` or ``mpi4py``. In that case, you can execute, e.g.:
+Then, follow the :ref:`standard installation instructions<PreInstallSection>`. You may encounter further issues installing third-party packages like ``setuptools`` or ``mpi4py``. In that case, you can execute, e.g.:
 
 .. code-block:: bash
 
