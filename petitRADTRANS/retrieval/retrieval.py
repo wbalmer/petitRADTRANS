@@ -8,6 +8,17 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
+from jax import random, numpy as jnp
+
+from jaxns import DefaultNestedSampler
+from jaxns import Model
+from jaxns import Prior
+from jaxns import summary, plot_diagnostics, plot_cornerplot, save_results, load_results, save_pytree
+
+# TODO decide if we want to use tfp distributions
+import tensorflow_probability.substrates.jax as tfp
+
+tfpd = tfp.distributions
 
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
@@ -2181,6 +2192,8 @@ class Retrieval:
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
 
+        TODO: simplfy code, want to enable use of more or less arbitrary samplers
+
         Args:
             sampling_efficiency : Float
                 pymultinest sampling efficiency. If const efficiency mode is true, should be set to around
@@ -2368,6 +2381,62 @@ class Retrieval:
                 fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
                 print(fmts % (parameter_name, median, sigma))
 
+    # TODO: sort alphabetically
+    def prior_model_jax(self):
+        """
+        TODO finish docstring
+        TODO need to use jax_parameter
+        """
+        for key,parameter in self.configuration.parameters.items():
+            parameter.set_prior()
+            parameter.value = yield parameter.prior_sample
+        return self.configuration.parameters
+
+    def run_jaxns(
+            self,
+            max_samples=1e7,
+            num_live_points=400,
+            parameter_estimation=True,
+            num_parallel_workers=1,
+            verbose=False):
+        """
+        TODO complete docstring
+        TODO check to see how priors work
+        """
+        model = Model(
+            prior_model=self.prior_model_jax,
+            log_likelihood=self.log_likelihood
+            )
+        
+        # TODO check which sampler we want, or provide options
+        ns = DefaultNestedSampler(
+            model=model,
+            max_samples=max_samples,
+            num_live_points = num_live_points,
+            parameter_estimation = parameter_estimation,
+            num_parallel_workers = num_parallel_workers,
+            verbose=verbose)
+        
+        # TODO: probably want a random seed
+        termination_reason, state = ns(random.PRNGKey(42654))
+        results = ns.to_results(termination_reason=termination_reason, state=state)
+        summary(results)
+        return results
+    
+
+    def save_jax_ns_results(self):
+        """
+        TODO implement
+        Save jaxns results in a useful format
+        """
+
+    def read_jax_ns_results(self):
+        """
+        TODO implement
+        Read in saved jaxns results
+        """
+        return
+    
     def sample_teff(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
         r"""
         This function samples the outputs of a retrieval and computes Teff

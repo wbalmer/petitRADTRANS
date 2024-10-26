@@ -321,7 +321,7 @@ class Data:
         self.spectrum = obs[:, 1]
         self.uncertainties = obs[:, 2]
 
-    def load_jwst(self, path):
+    def load_x1d_fits(self, path):
         """
         Load in a x1d fits file as produced by the STSci JWST pipeline.
         Expects units of Jy for the flux and micron for the wavelength.
@@ -336,6 +336,8 @@ class Data:
         self.uncertainties = hdul["EXTRACT1D"].data["FLUX_ERROR"]
 
         # Convert from Jy to W/m^2/micron
+        # TODO: include unit conversions in utils
+        # TODO set which extension number to use, with reasonable default
         self.spectrum = 1e-26 * 2.99792458e14 * self.spectrum / self.wavelengths ** 2
         self.uncertainties = 1e-26 * 2.99792458e14 * self.uncertainties / self.wavelengths ** 2
 
@@ -760,6 +762,8 @@ class Data:
         r"""
         This function convolves a model spectrum to the instrumental wavelength
         using the provided data_resolution
+
+        TODO Move out of data class
         Args:
             input_wavelength : numpy.ndarray
                 The wavelength grid of the model spectrum

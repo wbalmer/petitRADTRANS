@@ -88,7 +88,7 @@ class Parameter:
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
     def set_prior(self):
-        self.prior_sample = Prior(self.distribution,name = self.name)
+        self.prior_sample = Prior(self.distribution, name = self.name)
     
 class RetrievalParameter:
     __available_priors = [

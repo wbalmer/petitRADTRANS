@@ -68,6 +68,8 @@ def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma
                   ) ** 0.25
 
     return temperature
+
+
 def setup_clouds(pressures, parameters, cloud_species):
     """
     This function provides the set of cloud parameters used in
