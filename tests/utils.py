@@ -274,6 +274,11 @@ def init_test_parameters(recreate_parameter_file=False):
     return parameters
 
 
+def update_petitradtrans_test_config_file():
+    print('Updating Radtrans test parameters file...', end=' ')
+    make_petitradtrans_test_config_file(filename=reference_filenames['config_test_radtrans'])
+    print('Done.')
+
 test_parameters = init_test_parameters()
 
 
