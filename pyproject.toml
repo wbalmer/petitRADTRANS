@@ -5,7 +5,8 @@ requires = [
     "ninja>=1.8.2",
     "Cython>=0.29.35",
     "pybind11>=2.10.4",
-    "numpy"
+    "numpy",
+    "jax"
 ]
 
 [project]
@@ -32,11 +33,13 @@ dependencies = [
     "meson-python",
     "ninja",
     "numpy",
+    "jax",
     "scipy",
     "astropy>=5.2",  # introduces the CAHA observing site
     "molmass",
     "h5py",
     "pymultinest",
+    "jaxns",
     "pyvo",
     "bs4",
     "selenium",
