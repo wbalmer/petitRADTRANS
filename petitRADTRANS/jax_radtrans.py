@@ -4,9 +4,12 @@ from numba import njit
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.fortran_src.fortran_core.math as fmath
+import petitRADTRANS.jax_physics as jphys
+import petitRADTRANS.jax_math as jmath
 
 """
 JAX implementation of fortran_core.core
+- rayleigh scattering moved to jax_rayleigh_scattering
 """
 
 # Testing arrays
@@ -53,7 +56,7 @@ def flux_ck_contribution(frequencies,
         mean_transm = jnp.sum(transm_mu* weights_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
-        r = planck_f(temperatures,frequencies)
+        r = jphys.planck_f(temperatures,frequencies)
         # Do the actual radiative transport
         flux_mu = jnp.sum((r[:,:-1]+r[:,1:])*(transm_all[:,0:-1]-transm_all[:,1:])/2.0,axis=1)      
         flux_mu = jnp.add(flux_mu,r[:,struct_shape[1]]*transm_all[:,struct_shape[1]])
@@ -101,7 +104,7 @@ def compute_ck_flux(
         mean_transm = jnp.sum(transm_mu* w_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
-        r = planck_f(temperature,frequency)
+        r = jphys.planck_f(temperature,frequency)
         # Do the actual radiative transport
         flux_mu = jnp.sum((r[:,:-1]+r[:,1:])*(transm_all[:,0:-1]-transm_all[:,1:])*0.5,axis=1)      
         flux_mu = jnp.add(flux_mu,r[:,struct_shape[1]]*transm_all[:,struct_shape[1]])
@@ -152,12 +155,16 @@ def compute_species_optical_depths(reference_gravity, pressures, opacities):
 
     return optical_depths
 
+
 def compute_cloud_particles_mean_radius():
     # TODO
     return
+
+
 def compute_cloud_particles_mean_radius_hansen():
     # TODO
     return
+
 
 def compute_feautrier_radiative_transfer(border_freqs,
                         tau_approx_scat,
@@ -171,6 +178,9 @@ def compute_feautrier_radiative_transfer(border_freqs,
                         I_star_0,
                         geom,
                         mu_star):
+    # TODO: finish adding physics to this function
+    # Very incomplete
+
     #tau_approx_scat = (N_g,freq_len_bounded,struc_len)
     # new = (freq_len_bounded,struc_len,N_g)
     # Lengths of arrays
@@ -205,7 +215,7 @@ def compute_feautrier_radiative_transfer(border_freqs,
     else:
         print('Invalid geometry')
 
-    r = vmap(planck_f_lr,in_axes=(None,0,0))(temperature,border_freqs[:-1],border_freqs[1:])
+    r = vmap(jphys.planck_f_lr,in_axes=(None,0,0))(temperature,border_freqs[:-1],border_freqs[1:])
     plancks = r
     source = photon_destruct[:,:,:]*plancks[:,:,None] +  (1.0-photon_destruct[:,:,:])*J_star_ini[:,:,:]
     photon_destruct = jnp.where(photon_destruct_in<1e-10,1e-10,photon_destruct)
@@ -272,7 +282,7 @@ def compute_feautrier_radiative_transfer(border_freqs,
         contr_em = contr_em.T
         contr_em = jnp.divide(contr_em,jnp.sum(contr_em,axis=0))
     return flux, source
-py_feautrier_rad_trans = jit(feautrier_rad_trans, static_argnames=('geom'))
+py_compute_feautrier_radiative_transfer = jit(compute_feautrier_radiative_transfer, static_argnames=('geom'))
 
 def cond_fun(state):
     i_iter_scat,flux,source,temperature,border_freqs,plancks,photon_destruct,\
@@ -355,7 +365,7 @@ def single_scat_iteration(state):
     lambda_loc = lambda_loc.at[:,-1,:,:].add(w_gauss_mu[None,None,:]/(1.0 + 2.0*f1[:,-1,:,:]**2.0))
 
     I_plus = I_plus_surface 
-    I_J= wrap_tridag(a, b, c, r, I_plus, I_minus)
+    I_J= jmath.wrap_tridag(a, b, c, r, I_plus, I_minus)
     I_J = jnp.transpose(I_J,axes=(0,3,2,1))
     I_H = -I_J 
     deriv1 = f1[:,1:,:,:]*(I_J[:,2:,:,:]-I_J[:,1:-1,:,:])
@@ -375,7 +385,7 @@ def single_scat_iteration(state):
     J_planet_scat = J_planet_scat.at[:,:,:].set(J_bol_g)
 
     photon_destruct = jnp.where(photon_destruct < 1e-10, 1e-10, photon_destruct)
-    temp = vmap(planck_f_lr,in_axes = (None,0,0))(temperature[1:-1],border_freqs[:-1],border_freqs[1:])
+    temp = vmap(jphys.planck_f_lr,in_axes = (None,0,0))(temperature[1:-1],border_freqs[:-1],border_freqs[1:])
     r = r.at[:,1:-1,:].set(jnp.repeat(temp[:, :, jnp.newaxis], 16, axis=2))
     source = source.at[:,:,:].set(jnp.sum((photon_destruct[:,:,:,None]*r[:,:,:,None]+\
                                             (1.0-photon_destruct[:,:,:,None])*(J_star_ini[:,:,:,None]+\
@@ -461,17 +471,185 @@ def compute_optical_depths(reference_gravity,pressures,opacities):
                         /2.0/reference_gravity*(pressures[i_struc]-pressures[i_struc-1]))
     return optical_depth
 
-def compute_planck_opacities():
-    # In jax_physics
-    return
 
-def compute_radius_hydrostatic_equilibrium():
-    # TODO
-    return
+@jit
+def compute_photon_destruction_prob(total_opacity_in, continuum_opacity_scat_emis):
+    """_summary_
+    # TODO this might not be used anymore - calculated in Radtrans?
+    Args:
+        gravity (float): Surface gravity in cgs (cm/s^2)
+        pressure (ndarray):1D array of pressures in pascal
+        total_opacity_in (ndarray): kappa, has shape (g_len, freq_len, press_len)
+                                    This is the sum of all species' opacities, at 
+                                    every c-k g coordinate, frequency and pressure.
+        continuum_opacity_scat_emis (ndarray): The continuum opacity, which is constant 
+                                                in g, for every frequency and pressure.
+                                                This includes clouds, Rayleigh and CIA
+                                                opacities.
+
+    Returns:
+        photon_destruction_prob: probability that the photon DOESN'T leave the atmospheric layer
+    """
+    total_opacity = total_opacity_in[:,:,0,:]
+    g_len = total_opacity_in.shape[0]
+    photon_destruction_prob = jnp.ones(total_opacity.shape)
+    for i_g in range(g_len):
+        total_opacity = total_opacity.at[i_g].set(total_opacity[i_g] + continuum_opacity_scat_emis)
+        photon_destruction_prob = photon_destruction_prob.at[i_g].set(continuum_opacity_scat_emis/total_opacity[i_g])
+    photon_destruction_prob = 1 - photon_destruction_prob
+    return photon_destruction_prob
+
+
+@jit
+def compute_planck_opacities_core(
+    total_opacity,
+    border_freqs,
+    temperature,
+    w_gauss):
+    """_summary_
+
+    Args:
+        total_opacity (_type_): _description_
+        border_freqs (_type_): _description_
+        temperature (_type_): _description_
+        w_gauss (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    diff_freqs = jnp.diff(border_freqs)
+    B_nu = jphys.star_planck(temperature,border_freqs)
+
+    kappa_planck= jnp.sum(B_nu *jnp.sum(w_gauss[:,None,None]/total_opacity[:,:-1,:],axis=0) *diff_freqs[:,None],axis=0)
+    norm = jnp.sum(B_nu * diff_freqs[:,None], axis = 0)
+    return kappa_planck / norm
+
+def _compute_planck_opacities(
+    total_opacity, 
+    temperature, 
+    w_gauss, 
+    border_freqs,
+    do_scat_emis, 
+    continuum_opacity_scattering_emis):
+    """_summary_
+
+    Args:
+        total_opacity (_type_): _description_
+        temperature (_type_): _description_
+        w_gauss (_type_): _description_
+        border_freqs (_type_): _description_
+        do_scat_emis (_type_): _description_
+        continuum_opacity_scattering_emis (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    if do_scat_emis:
+        total_opacity_use = total_opacity + continuum_opacity_scattering_emis[None,:,:]
+    else:
+        total_opacity_use = total_opacity
+    kappa_planck = compute_planck_opacities_core(total_opacity_use[:,:,:], 
+                                   border_freqs, 
+                                   temperature,
+                                   w_gauss)
+    return kappa_planck
+compute_planck_opacities = jit(_compute_planck_opacities,static_argnums=(4))
+
+def _compute_radius_hydrostatic_equilibrium(
+        pressures, 
+        reference_gravity, 
+        atmosphere_densities,
+        reference_pressure, 
+        planet_radius,
+        variable_gravity
+    ):
+    n_layers = pressures.shape[0]
+
+    inv_rho = 1.0 / atmosphere_densities
+    radius_hydrostatic_equilibrium = jnp.zeros(n_layers)
+    R0 = 0.0
+
+    if variable_gravity:
+        coefficient = 1.0 / reference_gravity / planet_radius ** 2.0
+    else:
+        coefficient = -1.0 / reference_gravity
+
+    # Calculate radius with vertically varying gravity, set up such that at P=P0, i.e. R=planet_radius
+    # the planet has the predefined scalar gravity value
+    """
+    radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[-2].set(radius_hydrostatic_equilibrium[-1]\
+            - (inv_rho[-2] + inv_rho(-1))\
+            * (pressures[-1] - pressures[-2]) * coefficient * 0.5
+    )
+        do i_str = n_layers - 2, 1, -1
+            radius_hydrostatic_equilibrium(i_str) = radius_hydrostatic_equilibrium(i_str + 1) - integ_parab(&
+                pressures(i_str), &
+                pressures(i_str + 1), &
+                pressures(i_str + 2), &
+                inv_rho(i_str), &
+                inv_rho(i_str + 1), &
+                inv_rho(i_str + 2), &
+                pressures(i_str), pressures(i_str+1) &
+            ) * coefficient
+        end do
+
+        ! Find R0
+        do i_str = n_layers - 1, 1, -1
+            if ((pressures(i_str + 1) > reference_pressure) .and. (pressures(i_str) <= reference_pressure)) then
+                if (i_str <= n_layers - 2) then
+                    R0 = radius_hydrostatic_equilibrium(i_str + 1) - integ_parab(&
+                        pressures(i_str), &
+                        pressures(i_str + 1), &
+                        pressures(i_str + 2), &
+                        inv_rho(i_str), &
+                        inv_rho(i_str + 1), &
+                        inv_rho(i_str + 2), &
+                        reference_pressure, &
+                        pressures(i_str + 1) &
+                    ) * coefficient
+
+                    exit
+                else
+                    R0 = radius_hydrostatic_equilibrium(i_str + 1) - (inv_rho(i_str) + inv_rho(i_str+1)) &
+                        * (pressures(i_str + 1) - reference_pressure) * coefficient * 0.5d0
+
+                    exit
+                end if
+            end if
+        end do
+
+        if (variable_gravity) then
+            R0 = 1d0 / planet_radius - R0
+            radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
+            radius_hydrostatic_equilibrium = 1d0 / radius_hydrostatic_equilibrium
+        else
+            R0 = planet_radius - R0
+            radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
+        end if
+
+        contains
+            function integ_parab(x, y, z, fx, fy, fz, a, b)
+                ! Function to calc higher order integ.
+                implicit none
+                ! I/O
+                double precision :: x, y, z, fx, fy, fz, a, b
+                double precision :: integ_parab
+                ! Internal
+                double precision :: c1, c2, c3
+
+                c3 = ((fz - fy) / (z - y) - (fz - fx) / (z - x)) / (y - x)
+                c2 = (fz - fx) / (z - x) - c3 * (z + x)
+                c1 = fx - c2 * x - c3 * x ** 2d0
+
+                integ_parab = c1 * (b - a) + c2 * (b ** 2d0 - a ** 2d0) / 2d0 + c3 * (b ** 3d0 - a ** 3d0) / 3d0
+            end function integ_parab"""
+    return radius_hydrostatic_equilibrium
+compute_radius_hydrostatic_equilibrium = jit(_compute_radius_hydrostatic_equilibrium,static_argnums=(5))
+
 
 def compute_rosseland_opacities():
     # TODO
-    # Unclear if necessary - check jax_physics
+    # Unclear if necessary - check jax_physics (compute_rosseland_opacity)
     return
 
 def compute_transit_radii():
@@ -485,3 +663,27 @@ def compute_transmission_spectrum_contribution():
 def interpolate_cloud_opacities():
     # TODO
     return
+
+@jit
+def transmission_g_tot_ck_scat(gravity,
+                               pressure,
+                               total_opacity_in,
+                               continuum_opacity_scattering_emis):
+    """
+    # TODO: what is the new name
+
+    Args:
+        gravity (_type_): _description_
+        pressure (_type_): _description_
+        total_opacity_in (_type_): _description_
+        continuum_opacity_scattering_emis (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    photon_destruction_prob = compute_photon_destruction_prob(total_opacity_in,
+                                                           continuum_opacity_scattering_emis)
+    transmission = compute_optical_depths(gravity,
+                                       pressure,
+                                       total_opacity_in)
+    return transmission, photon_destruction_prob

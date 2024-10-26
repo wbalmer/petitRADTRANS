@@ -1,6 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 from numba import njit
+import warnings
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
 import petitRADTRANS.physical_constants as cst
 import petitRADTRANS.fortran_src.fortran_core.math as fmath
@@ -11,6 +12,7 @@ JAX implementation of fortran_core.physics
 
 @jit
 def planck_f_lr(T,nul,nur):
+    # TODO this might not be used anymore.
     # calculate planck function between two frequencies
     B_nu = 0.0
     # Take mean using Boole's method
@@ -30,58 +32,6 @@ def planck_f_lr(T,nul,nur):
         7.0* 2.0*cst.h*nu5**3.0/cst.c**2.0/(jnp.exp(cst.h*nu5/(cst.kB*T))-1.0))
     return B_nu
 
-
-
-@jit
-def calc_photon_destruction_prob(total_opacity_in,
-                                 continuum_opacity_scat_emis):
-    """_summary_
-
-    Args:
-        gravity (float): Surface gravity in cgs (cm/s^2)
-        pressure (ndarray):1D array of pressures in pascal
-        total_opacity_in (ndarray): kappa, has shape (g_len, freq_len, press_len)
-                                    This is the sum of all species' opacities, at 
-                                    every c-k g coordinate, frequency and pressure.
-        continuum_opacity_scat_emis (ndarray): The continuum opacity, which is constant 
-                                                in g, for every frequency and pressure.
-                                                This includes clouds, Rayleigh and CIA
-                                                opacities.
-
-    Returns:
-        photon_destruction_prob: probability that the photon DOESN'T leave the atmospheric layer
-    """
-    total_opacity = total_opacity_in[:,:,0,:]
-    g_len = total_opacity_in.shape[0]
-    photon_destruction_prob = jnp.ones(total_opacity.shape)
-    for i_g in range(g_len):
-        total_opacity = total_opacity.at[i_g].set(total_opacity[i_g] + continuum_opacity_scat_emis)
-        photon_destruction_prob = photon_destruction_prob.at[i_g].set(continuum_opacity_scat_emis/total_opacity[i_g])
-    photon_destruction_prob = 1 - photon_destruction_prob
-    return photon_destruction_prob
-
-@jit
-def transmission_g_tot_ck_scat(gravity,
-                               pressure,
-                               total_opacity_in,
-                               continuum_opacity_scattering_emis):
-    """_summary_
-
-    Args:
-        gravity (_type_): _description_
-        pressure (_type_): _description_
-        total_opacity_in (_type_): _description_
-        continuum_opacity_scattering_emis (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    photon_destruction_prob = calc_photon_destruction_prob(total_opacity_in,
-                                                           continuum_opacity_scattering_emis)
-    transmission = compute_optical_depths(gravity,
-                                       pressure,
-                                       total_opacity_in)
-    return transmission, photon_destruction_prob
 
 @jit
 def compute_rosseland_opacities_core(clouds_final_absorption_opacities,
@@ -114,9 +64,12 @@ def compute_rosseland_opacities_core(clouds_final_absorption_opacities,
     return numerator / kappa_rosse
 
 
-def compute_star_planck_function_integral():
-    # TODO
-    return 
+def compute_star_planck_function_integral(temperatures,frequencies):
+    """
+    Not clear what this function is actually doing...
+    TODO check what the difference between the different integral functions is
+    """
+    return compute_planck_function_integral(temperatures, frequencies)
 
 def compute_rosseland_opacity(opacities, 
                               temperature, 
@@ -149,59 +102,6 @@ def compute_rosseland_opacity(opacities,
                                                    weights_gauss)
     return kappa_rosse
 rosseland_opacity = jit(compute_rosseland_opacity,static_argnums=(4))
-
-def _planck_opacity(total_opacity, 
-                      temperature, 
-                      w_gauss, 
-                      border_freqs,
-                      do_scat_emis, 
-                      continuum_opacity_scattering_emis):
-    """_summary_
-
-    Args:
-        total_opacity (_type_): _description_
-        temperature (_type_): _description_
-        w_gauss (_type_): _description_
-        border_freqs (_type_): _description_
-        do_scat_emis (_type_): _description_
-        continuum_opacity_scattering_emis (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    if do_scat_emis:
-        total_opacity_use = total_opacity + continuum_opacity_scattering_emis[None,:,:]
-    else:
-        total_opacity_use = total_opacity
-    kappa_planck = compute_planck_opacities(total_opacity_use[:,:,:], 
-                                   border_freqs, 
-                                   temperature,
-                                   w_gauss)
-    return kappa_planck
-planck_opacity = jit(_planck_opacity,static_argnums=(4))
-
-@jit
-def compute_planck_opacities(total_opacity,
-                    border_freqs,
-                    temperature,
-                    w_gauss):
-    """_summary_
-
-    Args:
-        total_opacity (_type_): _description_
-        border_freqs (_type_): _description_
-        temperature (_type_): _description_
-        w_gauss (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    diff_freqs = jnp.diff(border_freqs)
-    B_nu = star_planck(temperature,border_freqs)
-
-    kappa_planck= jnp.sum(B_nu *jnp.sum(w_gauss[:,None,None]/total_opacity[:,:-1,:],axis=0) *diff_freqs[:,None],axis=0)
-    norm = jnp.sum(B_nu * diff_freqs[:,None], axis = 0)
-    return kappa_planck / norm
 
 
 @jit
@@ -253,9 +153,47 @@ def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
     B_nu_dT = (two_h_over_c2 * jnp.outer(jnp.ones_like(T), nu**4) / denominator).T  # Correct broadcasting
     return B_nu_dT
 
-def compute_planck_function_integral():
-    #TODO
-    return
+@jit
+def compute_planck_function_integral(temperatures, frequencies):
+    """
+    Compute mean using Boole's method
+    TODO: possibly a faster integration method?
+    """
+
+    cst_c2 = cst.c ** 2.0
+    cst_h_c2 = cst.h / cst_c2
+    cst_h_k = cst.h / cst.k
+    factor1 = 1.0 / 90.0
+    factor2 = 14.0 * cst_h_c2 # (7 * 2)
+    factor3 = 64.0 * cst_h_c2 # (32 * 2)
+    factor4 = 24.0 * cst_h_c2 # (12 * 2)
+
+    planck_flux = jnp.zeros(temperatures.shape[0], frequencies.shape[0] - 1)
+
+    if (frequencies[1] > frequencies[0]):
+        warnings.warn("Error: frequencies must be in decreasing order")
+        return None
+
+    cst_h_kt = cst_h_k / temperatures
+
+    for i in range(frequencies.shape[0] - 1):
+        nu_large = frequencies(i)
+        nu_small = frequencies(i + 1)
+
+        diff_nu = nu_large - nu_small
+
+        nu2 = nu_small + diff_nu * 0.25
+        nu3 = nu_small + diff_nu * 0.5
+        nu4 = nu_small + diff_nu * 0.75
+
+        planck_flux = planck_flux.at[:, i].add(factor1 * (\
+            factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)\
+            + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)\
+            + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)\
+            + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)\
+            + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)\
+        ))   
+    return planck_flux
 
 @jit
 def star_planck(T,nu):

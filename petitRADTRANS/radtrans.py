@@ -1733,6 +1733,7 @@ class Radtrans:
         This function integrates the cloud opacity through the different layers of the atmosphere to get the total
         optical depth, scattering and anisotropic fraction.
         # TODO optical depth or opacity?
+        # TODO Move to jax cloud module
 
         author: Francois Rozet
 
