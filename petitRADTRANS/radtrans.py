@@ -4288,9 +4288,18 @@ class Radtrans:
         print(" Successfully loaded all CIA opacities")
 
     @staticmethod
-    def load_cia_opacity(file_path_hdf5):
+    def load_cia_opacity(file_path_hdf5, return_radtrans_opacities=True):
         """Load a CIA opacity file."""
         with h5py.File(file_path_hdf5, 'r') as f:
+            if not return_radtrans_opacities:
+                return (
+                    f['DOI'][()][0].decode('utf-8'),
+                    f['mol_name'][:],
+                    f['wavenumbers'][:],
+                    f['alpha'][:],
+                    f['t'][:]
+                )
+
             wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
             wavelengths = wavelengths[::-1]  # correct ordering
 
@@ -4301,7 +4310,7 @@ class Radtrans:
                 species,
                 np.prod(f['mol_mass'][:]),  # weight
                 wavelengths,
-                f['t'][:],  # temperature
+                f['t'][:],  # temperatures
                 np.transpose(f['alpha'][:])[::-1, :]  # alpha (wavelength, temperature), correct ordering
             )
 
@@ -4407,9 +4416,20 @@ class Radtrans:
         print(" Successfully loaded all clouds opacities")
 
     @staticmethod
-    def load_cloud_opacity(file_path_hdf5):
+    def load_cloud_opacity(file_path_hdf5, return_radtrans_opacities=True):
         """Load a cloud opacity file."""
         with h5py.File(file_path_hdf5, 'r') as f:
+            if not return_radtrans_opacities:
+                return (
+                    f['wavenumbers'][:],
+                    f['particle_radius_bins'][:],
+                    f['particles_radii'][:],
+                    f['particles_density'][()],
+                    f['absorption_opacities'][:],
+                    f['scattering_opacities'][:],
+                    f['asymmetry_parameters'][:]
+                )
+
             cloud_wavelengths = 1 / f['wavenumbers'][:]  # cm-1 to cm
             cloud_wavelengths = cloud_wavelengths[::-1]  # correct ordering
 
@@ -4423,18 +4443,33 @@ class Radtrans:
                 f['asymmetry_parameters'][:]
             )
 
-
     @staticmethod
-    def load_hdf5_ktables(file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size):
+    def load_hdf5_ktables(file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size,
+                          return_radtrans_opacities=True):
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
+            k_table = np.array(f['kcoeff'])
+
+            if not return_radtrans_opacities:
+                return (
+                    f['DOI'][()][0].decode('utf-8'),
+                    f['bin_centers'][:],
+                    f['bin_edges'][:],
+                    k_table,
+                    f['mol_mass'][()][0],
+                    f['mol_name'][()][0].decode('utf-8'),
+                    f['p'][:],
+                    f['t'][:],
+                    f['samples'][:],
+                    f['weights'][:]
+                )
+
             n_wavelengths = len(f['bin_centers'][:])
             _frequencies = cst.c * f['bin_centers'][:][::-1]
             n_temperatures = len(f['t'][:])
             n_pressures = len(f['p'][:])
 
             # Reshape k-table to petitRADTRANS format
-            k_table = np.array(f['kcoeff'])
             k_table = np.swapaxes(k_table, 0, 1)
             k_table = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
             k_table = np.swapaxes(k_table, 0, 2)
@@ -4458,11 +4493,23 @@ class Radtrans:
         return line_opacities_grid
 
     @staticmethod
-    def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, line_by_line_opacity_sampling=1):
+    def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, line_by_line_opacity_sampling=1,
+                                     return_radtrans_opacities=True):
         """Load opacities (cm2.g-1) tables in HDF5 format, based on petitRADTRANS pseudo-ExoMol setup."""
         frequencies_relative_tolerance = 1e-12  # allow for a small relative deviation from the wavenumber grid
 
         with h5py.File(file_path_hdf5, 'r') as f:
+            if not return_radtrans_opacities:
+                return (
+                    f['DOI'][()][0].decode('utf-8'),
+                    f['bin_edges'][:],
+                    f['xsecarr'][:],
+                    f['mol_mass'][()][0],
+                    f['mol_name'][()][0].decode('utf-8'),
+                    f['p'][:],
+                    f['t'][:]
+                )
+
             frequency_grid = cst.c * f['bin_edges'][:]  # cm-1 to s-1
 
             selection = np.nonzero(np.logical_and(
