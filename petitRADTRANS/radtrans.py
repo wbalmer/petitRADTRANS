@@ -557,7 +557,7 @@ class Radtrans:
         # Add optional absorption opacity from outside
         if additional_absorption_opacities_function is None:
             if cloud_photosphere_median_optical_depth is not None:
-                cloud_absorption_opacities = np.zeros((frequencies.size, pressures.size))
+                cloud_absorption_opacities = jnp.zeros((frequencies.size, pressures.size))
         else:
             additional_absorption_opacities = additional_absorption_opacities_function(
                 hz2um(frequencies),
@@ -572,7 +572,7 @@ class Radtrans:
         # Add optional scattering opacity from outside
         if additional_scattering_opacities_function is None:
             if cloud_photosphere_median_optical_depth is not None:
-                cloud_scattering_opacities = np.zeros((frequencies.size, pressures.size))
+                cloud_scattering_opacities = jnp.zeros((frequencies.size, pressures.size))
         else:
             additional_scattering_opacities = additional_scattering_opacities_function(
                 hz2um(frequencies),
@@ -625,7 +625,7 @@ class Radtrans:
         cloud_opacities = None
         _cloud_particles_mean_radii = None
 
-        cloud_continuum_opacities = np.zeros((frequencies.size, pressures.size))
+        cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size))
         cloud_continuum_opacities_scattering = 0
 
         # Add opaque cloud deck opacity
@@ -722,7 +722,7 @@ class Radtrans:
                     if species not in complete_coverage_clouds:
                         clear_cloud_species_mass_fractions[species] *= 0
 
-                cloud_continuum_opacities = [cloud_continuum_opacities, np.zeros((frequencies.size, pressures.size))]
+                cloud_continuum_opacities = [cloud_continuum_opacities, jnp.zeros((frequencies.size, pressures.size))]
                 cloud_continuum_opacities_scattering = [cloud_continuum_opacities_scattering, None]
                 cloud_scattering_opacities = [cloud_scattering_opacities, None]
                 cloud_absorption_opacities = [cloud_absorption_opacities, None]
@@ -768,7 +768,7 @@ class Radtrans:
                                       pressures, temperatures, mass_fractions, mean_molar_masses,
                                       cias_loaded_opacities, gas_continuum_contributors, gray_opacity):
         # Reset
-        continuum_opacities = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
+        continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype='d', order='F')
 
         # Add CIA opacities
         continuum_opacities += (
@@ -806,7 +806,7 @@ class Radtrans:
                                                  pressures, temperatures, mass_fractions, mean_molar_masses,
                                                  rayleigh_species, haze_factor):
         # Reset
-        continuum_opacities_scattering = np.zeros((frequencies.size, pressures.size), dtype='d', order='F')
+        continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype='d', order='F')
         scattering_in_transmission = False
 
         # Add rayleigh scattering opacities
@@ -850,7 +850,7 @@ class Radtrans:
         elif line_opacity_mode == 'lbl' and len(line_species) > 1:
             # In the line-by-line case we can simply add the opacities of different species in frequency space
             # All opacities are stored in the first species index slot
-            opacities[:, :, 0, :] = np.sum(opacities, axis=2)
+            opacities[:, :, 0, :] = jnp.sum(opacities, axis=2)
 
         return opacities
 
@@ -951,7 +951,7 @@ class Radtrans:
             array2=file_frequencies
         )
 
-        if np.nonzero(indices_opacities)[0].size != np.nonzero(indices_file)[0].size:
+        if np.nonzero(indices_opacities)[0].size != jnp.nonzero(indices_file)[0].size:
             raise ValueError(
                 f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
                 f"cannot be broadcast to indexing result of size {np.nonzero(indices_file)[0].size}\n"
@@ -1277,15 +1277,15 @@ class Radtrans:
         Returns:
 
         """
-        if np.any(np.less_equal(temperatures, 0)):
+        if jnp.any(jnp.less_equal(temperatures, 0)):
             warnings.warn(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
 
         for species, mass_fraction in mass_fractions.items():
-            if np.any(np.less(mass_fraction, 0)):
+            if jnp.any(jnp.less(mass_fraction, 0)):
                 warnings.warn(f"mass fractions for species '{species}' ('mass_fractions') "
                               f"contains negative values ({mass_fraction})")
 
-        if np.any(np.less(mean_molar_masses, 0)):
+        if jnp.any(jnp.less(mean_molar_masses, 0)):
             warnings.warn(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
 
         if cloud_fraction < 0 or cloud_fraction > 1:
@@ -1456,8 +1456,8 @@ class Radtrans:
                 )
 
             # Store clear continuum_opacities_scattering in new axis
-            continuum_opacities_scattering = continuum_opacities_scattering[np.newaxis]
-            continuum_opacities_scattering = np.repeat(continuum_opacities_scattering, 2, axis=0)
+            continuum_opacities_scattering = continuum_opacities_scattering[jnp.newaxis]
+            continuum_opacities_scattering = jnp.repeat(continuum_opacities_scattering, 2, axis=0)
 
             # Store the opacities of the first species
             if self.__sum_opacities:
@@ -1515,9 +1515,9 @@ class Radtrans:
                 if additional_absorption_opacities is not None:
                     cloud_continuum_opacities += additional_absorption_opacities
 
-                opacities = np.swapaxes(opacities, 1, 2)  # (g, species, frequencies, layers)
-                opacities[:, 0] += cloud_continuum_opacities
-                opacities = np.swapaxes(opacities, 2, 1)  # (g, frequencies, species, layers)
+                opacities = jnp.swapaxes(opacities, 1, 2)  # (g, species, frequencies, layers)
+                opacities = opacities.at[:, 0].add(cloud_continuum_opacities)
+                opacities = jnp.swapaxes(opacities, 2, 1)  # (g, frequencies, species, layers)
 
             opacities = [opacities, _opacities_clear]
 
@@ -1847,7 +1847,7 @@ class Radtrans:
         atmospheric_densities = pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         if continuum_opacities is None:
-            continuum_opacities = np.zeros((frequency_bins_edges.size - 1, pressures.size))
+            continuum_opacities = jnp.zeros((frequency_bins_edges.size - 1, pressures.size))
 
         # Initialize Hansen's b coefficient
         if "hansen" in cloud_particles_radius_distribution.lower():
@@ -2378,9 +2378,9 @@ class Radtrans:
             # Use a smaller wavelength range for the median optical depth
             # The units of cloud_wavelengths are converted from micron to cm
             # Unit conversion is done multiple times to preserve memory
-            wavelengths_select = (np.logical_and(
-                np.greater_equal(frequency2wavelength(frequencies), cloud_wavelengths[0] * 1e-4),
-                np.less_equal(frequency2wavelength(frequencies), cloud_wavelengths[1] * 1e-4)
+            wavelengths_select = (jnp.logical_and(
+                jnp.greater_equal(frequency2wavelength(frequencies), cloud_wavelengths[0] * 1e-4),
+                jnp.less_equal(frequency2wavelength(frequencies), cloud_wavelengths[1] * 1e-4)
             ))
 
         # Calculate the cloud-free optical depth per wavelength
@@ -2423,7 +2423,7 @@ class Radtrans:
             max_rescaling = 1e100
 
             for f in cloud_f_sed.keys():
-                if isinstance(cloud_f_sed[f], np.ndarray):
+                if isinstance(cloud_f_sed[f], jnp.ndarray):
                     raise ValueError("Only scalar cloud_f_sed values are allowed for cloud rescaling!")
 
                 _max_rescaling = 2. * (cloud_f_sed[f] + 1.)
@@ -2856,27 +2856,27 @@ class Radtrans:
 
         # Extend the wavelength range if user requests larger range than what first line opa species contains
         if wavelengths[-1] < self._wavelength_boundaries[1]:
-            delta_log_wavelength = np.diff(np.log10(wavelengths))[-1]
+            delta_log_wavelength = jnp.diff(jnp.log10(wavelengths))[-1]
 
-            add_high = 1e1 ** np.arange(
-                np.log10(wavelengths[-1]),
-                np.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
+            add_high = 1e1 ** jnp.arange(
+                jnp.log10(wavelengths[-1]),
+                jnp.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
                 delta_log_wavelength
             )[1:]
-            wavelengths = np.concatenate((wavelengths, add_high))
+            wavelengths = jnp.concatenate((wavelengths, add_high))
 
         if wavelengths[0] > self._wavelength_boundaries[0]:
-            delta_log_wavelength = np.diff(np.log10(wavelengths))[0]
+            delta_log_wavelength = jnp.diff(jnp.log10(wavelengths))[0]
 
             if delta_log_wavelength == 0:  # handle duplicate first wavelength
-                delta_log_wavelength = np.diff(np.log10(wavelengths))[1]
+                delta_log_wavelength = jnp.diff(jnp.log10(wavelengths))[1]
 
             add_low = 1e1 ** (-np.arange(
-                -np.log10(wavelengths[0]),
-                -np.log10(self._wavelength_boundaries[0]) + delta_log_wavelength,
+                -jnp.log10(wavelengths[0]),
+                -jnp.log10(self._wavelength_boundaries[0]) + delta_log_wavelength,
                 delta_log_wavelength
             )[1:][::-1])
-            wavelengths = np.concatenate((add_low, wavelengths))
+            wavelengths = jnp.concatenate((add_low, wavelengths))
 
         # Get back to frequencies
         if self._line_opacity_mode == 'c-k':
@@ -2884,15 +2884,15 @@ class Radtrans:
             frequencies = (frequency_bins_edges[1:] + frequency_bins_edges[:-1]) * 0.5
 
             # Cut the wavelength range if user requests smaller range than what first line opa species contains
-            indices_within_boundaries = np.nonzero(np.logical_and(
-                np.greater(frequency2wavelength(frequencies), self._wavelength_boundaries[0] * 1e-4),  # um to cm
-                np.less(frequency2wavelength(frequencies), self._wavelength_boundaries[1] * 1e-4)  # um to cm
+            indices_within_boundaries = jnp.nonzero(jnp.logical_and(
+                jnp.greater(frequency2wavelength(frequencies), self._wavelength_boundaries[0] * 1e-4),  # um to cm
+                jnp.less(frequency2wavelength(frequencies), self._wavelength_boundaries[1] * 1e-4)  # um to cm
             ))[0]
 
-            frequencies = np.array(frequencies[indices_within_boundaries], dtype='d', order='F')
+            frequencies = jnp.array(frequencies[indices_within_boundaries], dtype='d', order='F')
 
             # Get the corresponding frequencies bin edges, +2 is to catch the upper bin edge
-            frequency_bins_edges = np.array(
+            frequency_bins_edges = jnp.array(
                 frequency_bins_edges[indices_within_boundaries[0]:indices_within_boundaries[-1] + 2],
                 dtype='d',
                 order='F'
@@ -2925,41 +2925,33 @@ class Radtrans:
         Returns:
             A (wavelength, temperature) array containing the CIA opacities.
         """
-        factor = (
-            combined_mass_fractions / collision_dict['weight']
+        weights = jnp.array(collision_dict['weight'],dtype=jnp.float64)
+        alphas = jnp.array(collision_dict['alpha'],dtype=jnp.float64)
+        binned_temperatures = jnp.array(collision_dict['temperature'],dtype=jnp.float64)
+        binned_wavelengths = jnp.array(collision_dict['lambda'],dtype=jnp.float64)
+
+        
+        factor = combined_mass_fractions / weights \
             * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
-        )
 
-        log10_alpha = np.log10(collision_dict['alpha'])
+        log10_alpha = jnp.log10(alphas)
 
-        if collision_dict['temperature'].shape[0] > 1:
-            # Interpolation on temperatures for each wavelength point
-            interpolating_function = interp1d(
-                x=collision_dict['temperature'],
-                y=log10_alpha,
-                kind='linear',
-                bounds_error=False,
-                fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
-            )
+        #if collision_dict['temperature'].shape[0] > 1:
+        # Interpolation on temperatures for each wavelength point
+        cia_temperature_interpolated = vmap(
+        lambda alpha: jnp.interp(temperatures, binned_temperatures, alpha)
+        )(log10_alpha)
+        cia_temperature_interpolated = jnp.exp(cia_temperature_interpolated * jnp.log(10))
 
-            cia_opacities = np.exp(interpolating_function(temperatures) * np.log(10))
+        # Interpolation on frequencies for each temperature point
+        cia_frequency_interpolated = vmap(
+            lambda cia_opacity: jnp.interp(cst.c / frequencies, binned_wavelengths, cia_opacity)
+        )(cia_temperature_interpolated.T).T
 
-            interpolating_function = interp1d(
-                x=collision_dict['lambda'],
-                y=cia_opacities,
-                kind='linear',
-                bounds_error=False,
-                fill_value=sys.float_info.min,
-                axis=0
-            )
+        # Ensure no values below sys.float_info.min
+        cia_opacities = jnp.where(cia_frequency_interpolated < sys.float_info.min, 0, cia_frequency_interpolated)
 
-            cia_opacities = interpolating_function(frequency2wavelength(frequencies))
-            cia_opacities[cia_opacities < sys.float_info.min] = 0
-
-            return cia_opacities * factor
-        else:
-            raise ValueError(f"petitRADTRANS require a rectangular CIA table, "
-                             f"table shape was {collision_dict['temperature'].shape}")
+        return cia_opacities * factor
 
 
 
@@ -3125,7 +3117,7 @@ class Radtrans:
                             )
 
                         if _default_mass_fractions is None:
-                            _default_mass_fractions = {species: np.zeros(self.pressures.size)}
+                            _default_mass_fractions = {species: jnp.zeros(self.pressures.size)}
 
                         # Use the first line species in order to keep the resolving power consistent in all spectra
                         if opacity != 'line_species':
@@ -3185,8 +3177,8 @@ class Radtrans:
                         for key, value in opacity_value.items():
                             spectral_parameters[key] = copy.deepcopy(value)
 
-                        if np.any(np.equal(list(spectral_parameters.values()), None)):
-                            if not np.all(np.equal(list(spectral_parameters.values()), None)):
+                        if jnp.any(jnp.equal(list(spectral_parameters.values()), None)):
+                            if not jnp.all(jnp.equal(list(spectral_parameters.values()), None)):
                                 missing = []
 
                                 for k, v in spectral_parameters.items():
@@ -3408,7 +3400,7 @@ class Radtrans:
             warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
                           "is not recommended")
 
-        star_irradiation_cos_angle = np.cos(np.deg2rad(star_irradiation_angle))  # flux
+        star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))  # flux
 
         if star_irradiation_cos_angle <= 0.:
             star_irradiation_cos_angle = 1e-8
@@ -3716,11 +3708,12 @@ class Radtrans:
                 len(self._lines_loaded_opacities['weights_gauss']), 1
             )
 
+            # TODO vmap
             for i_freq in range(self._frequencies.size):
                 tau_p = jnp.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
                 pressures_tau_p = interp1d(tau_p, self._pressures)
-                if np.max(tau_p) > 2. / 3.:
-                    photosphere_radius[i_freq] = radius_interp(pressures_tau_p(2 / 3))
+                if jnp.max(tau_p) > 2. / 3.:
+                    photosphere_radius = photosphere_radius.at[i_freq].set(radius_interp(pressures_tau_p(2 / 3)))
                 else:
                     warnings.warn('Atmosphere is too transparent for calculating the "photospheric '
                                   'radius" at tau = 2/3. Returning the radius at maximum pressure instead!')
@@ -4405,28 +4398,35 @@ class Radtrans:
             # Initialize an empty array that has the same spectral entries as
             # pRT object has nominally. Only fill those values where the ExoMol tables
             # have entries.
-            opacities = jnp.zeros(
+            ret_val = jnp.zeros(
                 g_size * frequencies.size * temperature_pressure_grid_size
             ).reshape(
                 (g_size, frequencies.size, 1, temperature_pressure_grid_size)
             )
-            
+            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
+                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
+            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
+                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
+
             if jnp.nonzero(index_fill)[0].size != jnp.nonzero(index_use)[0].size:
                 raise ValueError(
                     f"frequencies size mismatch: value frequency array of size {jnp.nonzero(index_fill)[0].size} "
                     f"cannot be broadcast to indexing result of size {jnp.nonzero(index_use)[0].size}\n"
                     f"This may be caused by loading opacities of different resolving power")
 
-            opacities = opacities.at[:, index_fill, 0, :].set(k_table[:, indices_file, :])
-            opacities = opacities.at[opacities < 0.].set(0.)
+            ret_val = ret_val.at[:, index_fill, 0, :].set(k_table2[:, index_use, :])
 
+            ret_val = ret_val.at[ret_val < 0.].set(0.)
 
             # Divide by mass to convert cross-sections to opacities
             mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
 
-        line_opacities_grid = opacities * mol_mass_inv
+        line_opacities_grid = ret_val * mol_mass_inv
+
+        # line_opacities_grid = line_opacities_grid[:, :, jnp.newaxis, :]
 
         return line_opacities_grid
+
 
     @staticmethod
     def load_hdf5_line_opacity_table(file_path_hdf5, frequencies, line_by_line_opacity_sampling=1):
@@ -4495,7 +4495,7 @@ class Radtrans:
             (_line_opacities_grid.shape[0] * _line_opacities_grid.shape[1], _line_opacities_grid.shape[2])
         )  # (tp, wvl)
         _line_opacities_grid = jnp.swapaxes(_line_opacities_grid, 0, 1)  # (wvl, tp)
-        _line_opacities_grid = _line_opacities_grid[np.newaxis, :, np.newaxis, :]  # (g, wvl, species, tp)
+        _line_opacities_grid = _line_opacities_grid[jnp.newaxis, :, jnp.newaxis, :]  # (g, wvl, species, tp)
 
         return _line_opacities_grid
 
