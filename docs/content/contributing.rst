@@ -15,7 +15,7 @@ Guidelines to report an issue
 - Use a clear title for the issue.
 - Add a few sentences to describe your issue in more details if necessary.
 - Add relevant information (OS, pRT version, Python version, use of ``venv`` or ``conda``, etc.).
-- Add some key-points: steps to reproduce, expect results and actual results.
+- Add some key-points: steps to reproduce, expected results and actual results.
 - Always include an example that can be used by the developers to reproduce your issue.
 - For large scripts or console outputs (more than ~20 lines), please use attached files.
 - You may also add how severe you estimate the issue is.

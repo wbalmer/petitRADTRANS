@@ -6,7 +6,7 @@ petitRADTRANS has an extensive database of line opacities. However, it is very l
 1. :ref:`ExoMolpRT`. These are already in the petitRADTRANS format and can be used in a plug-and-play fashion.
 2. :ref:`OWtopRT`.
 3. :ref:`ECtopRT`.
-3. :ref:`Calculating opacities from line lists yourself<_AnyToPRT>`, and converting them to the petitRADTRANS format.
+4. :ref:`Calculating opacities from line lists yourself<_AnyToPRT>`, and converting them to the petitRADTRANS format.
 
 These different options are explained in more detail below.
 
@@ -111,7 +111,7 @@ Then, build ExoCross by typing ``make`` in the terminal. Sometimes the compiler 
 
 So the ``&`` is the line break operator. After fixing this, recompile using ``make``.
 
-In this example we will calculate the opacities of the NaH molecule. All necessary files for calculating opacities can be found on the `ExoMol website <http://www.exomol.com/data/molecules/NaH/23Na-1H/Rivlin/>`_.
+In this example we will calculate the opacities of the NaH molecule. All necessary files for calculating opacities can be found on the ExoMol Website on the `NaH page <http://www.exomol.com/data/molecules/NaH/23Na-1H/Rivlin/>`_.
 
 Download the following files:
 
