@@ -962,14 +962,21 @@ class Radtrans:
             if target_resolving_power == '':
                 target_resolving_power = int(get_default_correlated_k_resolution()[1:])  # get rid of leading 'R'
 
+            if range_filename == '':
+                resolution_filename = None
+                range_filename = None
+            else:
+                spectral_info = None
+                resolution_filename = get_default_correlated_k_resolution()
+
             default_species = join_species_all_info(
                 name=default_species,  # contains already all non-spectral info
                 natural_abundance='',
                 charge='',
                 cloud_info='',
                 source='',
-                spectral_info=None,
-                resolution_filename=get_default_correlated_k_resolution(),
+                spectral_info=spectral_info,
+                resolution_filename=resolution_filename,
                 range_filename=range_filename
             )
 
