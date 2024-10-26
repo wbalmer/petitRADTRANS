@@ -631,7 +631,9 @@ class Radtrans:
 
         # Add opaque cloud deck opacity
         if opaque_cloud_top_pressure is not None:
-            cloud_continuum_opacities[:, pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
+            # TODO why '+=' and not '='?  # noqa E501
+            cloud_continuum_opacities = \
+                cloud_continuum_opacities.at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99) 
 
         # Add power law opacity
         if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
@@ -730,6 +732,8 @@ class Radtrans:
                 cloud_opacities = [cloud_opacities, None]
 
                 if opaque_cloud_top_pressure is not None:
+                    # TODO why '+=' and not '='?  # noqa E501
+                    # TODO JAXify with multiple indices
                     cloud_continuum_opacities[1][:, pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
 
                 (cloud_continuum_opacities[1], cloud_continuum_opacities_scattering[1],
@@ -851,7 +855,7 @@ class Radtrans:
         elif line_opacity_mode == 'lbl' and len(line_species) > 1:
             # In the line-by-line case we can simply add the opacities of different species in frequency space
             # All opacities are stored in the first species index slot
-            opacities[:, :, 0, :] = jnp.sum(opacities, axis=2)
+            opacities = opacities.at[:, :, 0, :].set(jnp.sum(opacities, axis=2))
 
         return opacities
 
@@ -1308,12 +1312,14 @@ class Radtrans:
         for i_spec in range(len(self._line_species)):
             # Check if user provided the detailed line absorber name or if line absorber name should be matched exactly
             if self._line_species[i_spec] in mass_fractions:
-                line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
+                line_species_mass_fractions = \
+                    line_species_mass_fractions.at[:, i_spec].set(mass_fractions[self._line_species[i_spec]])
             else:
                 default_species, spectral_info = _split_species_spectral_info(self._line_species[i_spec])
 
                 if default_species in mass_fractions:
-                    line_species_mass_fractions[:, i_spec] = mass_fractions[default_species]
+                    line_species_mass_fractions = \
+                        line_species_mass_fractions.at[:, i_spec].set(mass_fractions[default_species])
                 else:
                     raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
                                      f"(listed species: {list(mass_fractions.keys())}")
@@ -1408,8 +1414,8 @@ class Radtrans:
             _cloud_scattering_opacities = None
 
         if len(complete_coverage_clouds) > 0:
-            cloud_absorption_opacities[1] = _cloud_absorption_opacities
-            cloud_scattering_opacities[1] = _cloud_scattering_opacities
+            cloud_absorption_opacities = cloud_absorption_opacities.at[1].set(_cloud_absorption_opacities)
+            cloud_scattering_opacities = cloud_absorption_opacities.at[1].set(_cloud_scattering_opacities)
         else:
             cloud_absorption_opacities = _cloud_absorption_opacities
             cloud_scattering_opacities = _cloud_scattering_opacities
@@ -1481,15 +1487,17 @@ class Radtrans:
             _opacities_clear = copy.deepcopy(opacities[:, :, 0])  # opacities of 1st species times MMR + clear continuum
 
             # Add cloud scattering opacities
-            continuum_opacities_scattering[0] += cloud_continuum_opacities_scattering
+            continuum_opacities_scattering = \
+                continuum_opacities_scattering.at[0].add(cloud_continuum_opacities_scattering)
 
             if additional_scattering_opacities is not None:
-                continuum_opacities_scattering[0] += additional_scattering_opacities
+                continuum_opacities_scattering = \
+                    continuum_opacities_scattering.at[0].add(additional_scattering_opacities)
 
             if self.__sum_opacities:
                 # Set opacities values back to before combination
-                opacities[:, :, 0] = _opacities_first_species
-                opacities[:, :, 1:] /= line_species_mass_fractions.T[1:]
+                opacities = opacities.at[:, :, 0].set(_opacities_first_species)
+                opacities = opacities.at[:, :, 1:].divide(line_species_mass_fractions.T[1:])
 
                 del _opacities_first_species
 
@@ -2130,6 +2138,7 @@ class Radtrans:
             return jnp.zeros_like(wavelengths)
 
     @staticmethod
+    @jit
     def _compute_h_minus_bound_free_xsec(wavelengths_bin_edges):
         """ Calculate the H- bound-free cross-section in units of cm^2 per H-, as defined on page 155 of
         "The Observation and Analysis of Stellar Photospheres" by David F. Gray
@@ -2159,15 +2168,16 @@ class Radtrans:
 
         index = right <= 1.64e4
 
+        # TODO probably should vmap or something
         for i_a in range(len(a)):
-            ret_val[index] += a[i_a] * (
+            ret_val = ret_val.at[index].add(a[i_a] * (
                     right[index] ** (i_a + 1) - left[index] ** (i_a + 1)
-            ) / (i_a + 1)
+            ) / (i_a + 1))
 
         index_bracket = (left < 1.64e4) & (right > 1.64e4)
         for i_a in range(len(a)):
-            ret_val[index_bracket] += a[i_a] * (1.64e4 ** (i_a + 1) -
-                                                left[index_bracket] ** (i_a + 1)) / (i_a + 1)
+            ret_val = ret_val.at[index_bracket].add(a[i_a] * (1.64e4 ** (i_a + 1) -
+                                                left[index_bracket] ** (i_a + 1)) / (i_a + 1))
 
         index = (left + right) / 2. > 1.64e4
         ret_val = ret_val.at[index].set(0.)
@@ -2624,11 +2634,11 @@ class Radtrans:
             transparencies += continuum_opa_scat_reshaped * rho
         else:
             transparencies *= rho
-            transparencies[:, :, :1, :] += continuum_opa_scat_reshaped * rho
+            transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped * rho)
 
         # Calculate average mean free path between neighboring layers for later integration
         # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-        transparencies[:, :, :, 1:] += transparencies[:, :, :, :-1]
+        transparencies = transparencies.at[:, :, :, 1:].add(transparencies[:, :, :, :-1])
 
         # Prepare matrix for delta path lengths during optical depth integration
         diff_s = jnp.zeros((pressures.size, pressures.size))
@@ -2677,7 +2687,7 @@ class Radtrans:
         # - 2 cancels with 1/2 of average inverse mean free path above
         # - pi cancels when calculating the radius from the area below
         transparencies *= radius_hydrostatic_equilibrium
-        transparencies[:, 1:] += transparencies[:, :-1]
+        transparencies = transparencies.at[:, 1:].add(transparencies[:, :-1])
         transparencies = transparencies[:, 1:]  # get rid of unnecessary layer
         transparencies *= annulus_radius_increments
         transit_radii = jnp.sum(transparencies, axis=1)  # (frequencies)
@@ -2820,14 +2830,14 @@ class Radtrans:
         selection = jnp.array([selection[0], selection[-1]])
 
         if frequency_grid[selection[0]] > frequency_min:
-            selection[0] -= 1
+            selection = selection.at[0].add(-1)
 
         if frequency_grid[selection[-1]] < frequency_max:
-            selection[-1] += 1
+            selection = selection.at[-1].add(1)
 
         if sampling > 1:
             # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-            selection[0] -= sampling - 1
+            selection = selection.at[0].subtract(sampling - 1)
 
         frequencies = frequency_grid[selection[0]:selection[-1] + 1]
         frequencies = frequencies[::-1]
@@ -3485,6 +3495,7 @@ class Radtrans:
             )
         )
 
+        # TODO Fix Ansisotropic scattering
         #if auto_anisotropic_cloud_scattering:
         #    self._anisotropic_cloud_scattering = 'auto'
 
@@ -3520,7 +3531,8 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
-            opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
+            # TODO figure out how to do this with JAX (may need temp arrays)
+            opacities[0][:, :, 0] = opacities[1], opacities[0][:, :, 0]
 
             if not return_opacities and not return_photosphere_radius:  # get rid of the now useless cloudy case
                 opacities = opacities[0]
@@ -3564,6 +3576,7 @@ class Radtrans:
 
             if return_opacities or return_photosphere_radius:
                 # Swap clear opacities with cloudy opacities
+                # TODO same as above, figure out how to swap with JAX
                 opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
                 _opacities = opacities[0]
                 _continuum_opacities_scattering = continuum_opacities_scattering[0]
@@ -4120,6 +4133,7 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
+            # TODO implement with JAX
             opacities[0][:, :, 0] = opacities[1]
             opacities = opacities[0]  # get rid of the now useless cloudy case
             continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
@@ -4493,12 +4507,12 @@ class Radtrans:
             )
 
             # Fill opacity array
-            # TODO JAXIFY
             _line_opacities_grid = jnp.zeros(
                 (line_opacities_grid.shape[0], line_opacities_grid.shape[1], frequencies.size)
             )
-            _line_opacities_grid[:, :, indices_opacities] = line_opacities_grid[:, :, indices_file]
+            _line_opacities_grid = _line_opacities_grid.at[:, :, indices_opacities].set(line_opacities_grid[:, :, indices_file])
             
+            # TODO figure out what all of this was for
             #line_opacities_grid = jnp.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
             #line_opacities_grid = line_opacities_grid.reshape(
             #    (line_opacities_grid.shape[0] * line_opacities_grid.shape[1], line_opacities_grid.shape[2])
