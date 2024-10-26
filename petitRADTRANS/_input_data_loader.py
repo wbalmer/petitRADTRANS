@@ -1065,6 +1065,11 @@ def get_cia_aliases(name: str) -> str:
     return name
 
 
+def get_cia_opacity_file_extension():
+    """Return petitRADTRANS' CIA opacity files extension."""
+    return 'ciatable.petitRADTRANS.h5'
+
+
 def get_cloud_aliases(name: str) -> str:
     cloud_opacities_path = os.path.join(
         petitradtrans_config_parser.get_input_data_path(),
@@ -1195,6 +1200,16 @@ def get_cloud_aliases(name: str) -> str:
     return name
 
 
+def get_cloud_opacity_file_extension():
+    """Return petitRADTRANS' cloud opacity files extension."""
+    return 'cotable.petitRADTRANS.h5'
+
+
+def get_correlated_k_opacity_file_extension():
+    """Return petitRADTRANS' correlated-k opacity files extension."""
+    return 'ktable.petitRADTRANS.h5'
+
+
 def get_default_cloud_resolution() -> str:
     return get_resolving_power_string(39)
 
@@ -1273,6 +1288,11 @@ def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect
         matches = os.path.join(full_path, matches)
 
     return matches
+
+
+def get_line_by_line_opacity_file_extension():
+    """Return petitRADTRANS' line-by-line opacity files extension."""
+    return 'xsec.petitRADTRANS.h5'
 
 
 def get_opacity_directory(species: str, category: str,
