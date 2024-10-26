@@ -1447,12 +1447,12 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
         name += '.' + spectral_info
     elif resolution_filename is not None or range_filename is not None:
         if resolution_filename is None:
-            raise ValueError(f"both resolution_filename and range_filename must be not None, "
-                             f"but resolution_filename is None")
+            raise ValueError("both resolution_filename and range_filename must be not None, "
+                             "but resolution_filename is None")
 
         if range_filename is None:
-            raise ValueError(f"both resolution_filename and range_filename must be not None, "
-                             f"but range_filename is None")
+            raise ValueError("both resolution_filename and range_filename must be not None, "
+                             "but range_filename is None")
 
         name += '.' + _join_spectral_information(
             resolution_filename=resolution_filename,
