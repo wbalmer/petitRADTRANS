@@ -3,6 +3,11 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+## [4.0.0a0] - 2024-10-24
+## Changed
+- WORK IN PROGRESS 
+- Transitioning to JAX backend for GPU operations.
+
 
 ## [3.2.0a7] - 2024-10-24
 ### Added

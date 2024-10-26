@@ -1,6 +1,9 @@
 import jax.numpy as jnp
 from jax import lax, vmap, jit
 
+"""
+JAX implementation of fortran_inputs.interpolate_line_opacities
+"""
 
 @jit
 def interpolate_line_opacities(pressures, temperatures, temperature_pressure_grid_input, opacity_grid):
