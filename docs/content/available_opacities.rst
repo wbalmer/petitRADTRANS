@@ -22,7 +22,7 @@ In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated
 For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
 
 All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. The actual wavelength coverage is given by looking at the full filenames in the table below.
-Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as desribed in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
+Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as described in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
 
 .. Tip:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
 
