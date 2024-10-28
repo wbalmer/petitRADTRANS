@@ -177,7 +177,7 @@ If you have not already manually downloaded the CH4 correlated-k opacities, this
     More than one file detected in <long/path> and no default file set for this path in petitRADTRANS' configuration
     Please select one of the files in the list below by typing the corresponding integer:
 
-In that case, simply choose a file among the one listed under the message, type the corresponding integer, then press "Enter". More information are available in the `tutorial <notebooks/getting_started.html#Loading-opacities>`_.
+In that case, simply choose a file among the one listed under the message, type the corresponding integer, then press "Enter". More information is available in the `tutorial <notebooks/getting_started.html#Loading-opacities>`_.
 
 The last lines of the output should be:
 
