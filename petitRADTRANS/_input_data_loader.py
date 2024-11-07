@@ -1298,7 +1298,6 @@ def get_opacity_directory(species: str, category: str,
                           path_input_data: str = None, full: bool = False):
     if path_input_data is None:
         path_input_data = petitradtrans_config_parser.get_input_data_path()
-
     check_opacity_name(species)
 
     basename = get_species_basename(species, join=True)
@@ -1427,8 +1426,9 @@ def get_species_scientific_name(species: str) -> str:
     return rf"{_rebuild_isotope_numbers(name, mode='scientific')}"
 
 
-def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=None,
+def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info='',
                           resolution_filename=None, range_filename=None):
+
     if natural_abundance != '':
         name += '-' + natural_abundance
 
@@ -1437,7 +1437,7 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
     if source != '':
         name += '__' + source
 
-    if spectral_info is not None:
+    if spectral_info != '':
         if resolution_filename is not None or range_filename is not None:
             raise ValueError(f"cannot give both complete spectral info ('{spectral_info}'), "
                              f"and resolution ('{resolution_filename}') + range ('{range_filename}')\n"

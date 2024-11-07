@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Contribution overplotting in abundance profile plots.
 - Minor typo in a warning message.
+- Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
