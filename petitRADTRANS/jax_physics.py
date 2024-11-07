@@ -71,12 +71,13 @@ def compute_star_planck_function_integral(temperatures,frequencies):
     """
     return compute_planck_function_integral(temperatures, frequencies)
 
-def compute_rosseland_opacity(opacities, 
-                              temperature, 
-                              weights_gauss, 
-                              frequencies_bin_edges, 
-                              scattering_in_emission, 
-                              continuum_opacities_scattering):
+def _compute_rosseland_opacities(
+        opacities, 
+        temperature, 
+        weights_gauss, 
+        frequencies_bin_edges, 
+        scattering_in_emission, 
+        continuum_opacities_scattering):
     """_summary_
 
     Args:
@@ -101,7 +102,7 @@ def compute_rosseland_opacity(opacities,
                                                    temperature,
                                                    weights_gauss)
     return kappa_rosse
-rosseland_opacity = jit(compute_rosseland_opacity,static_argnums=(4))
+compute_rosseland_opacities = jit(_compute_rosseland_opacities,static_argnums=(4))
 
 
 @jit
