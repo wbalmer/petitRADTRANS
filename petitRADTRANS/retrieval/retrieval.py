@@ -2933,11 +2933,11 @@ class Retrieval:
             if sample_posteriors:
                 abundances = {}
                 for species in species_to_plot:
-                    abundances[species.split()[0]] = []
+                    abundances[species.split('.')[0]] = []
 
                 # Go through EVERY sample to find the abundance distribution.
                 # Very slow.
-                for sample in samples_use:
+                for sample in samples_use.T:
                     if volume_mixing_ratio:
                         abund_dict, mmw = self.get_volume_mixing_ratios(sample[:-1], parameters_read)
                     else:

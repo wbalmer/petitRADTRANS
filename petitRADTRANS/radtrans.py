@@ -966,7 +966,7 @@ class Radtrans:
                 resolution_filename = None
                 range_filename = None
             else:
-                spectral_info = None
+                spectral_info = ''
                 resolution_filename = get_default_correlated_k_resolution()
 
             default_species = join_species_all_info(
