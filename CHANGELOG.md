@@ -4,12 +4,13 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a9] - 2024-10-26
+## [3.2.0a11] - 2024-11-08
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
+- Write out pRT version in retrieval summary files.
 
 ### Changed
 - Changed behaviour of msum in chemistry.core: now checks each pressure level to ensure mfrac less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Contribution overplotting in abundance profile plots.
 - Minor typo in a warning message.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name
+- Bug fix in stepped abundance profile
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
