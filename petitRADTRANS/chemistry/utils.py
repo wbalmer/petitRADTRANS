@@ -656,11 +656,11 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
     for i in range(nnodes):
         # Only set using intermediate nodes
         if i == 0:
-            abundance_profile[log_pressure >= transition_pressures[i+1]] = abundance_points[i]
+            abundance_profile[log_pressure >= transition_pressures[i+1]] = 10**abundance_points[i]
         else:
             abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure < transition_pressures[i])] =\
-                abundance_points[i]
-    abundance_profile[log_pressure < transition_pressures[-2]] = abundance_points[-1]
+                10**abundance_points[i]
+    abundance_profile[log_pressure < transition_pressures[-2]] = 10**abundance_points[-1]
     return abundance_profile
 
 
