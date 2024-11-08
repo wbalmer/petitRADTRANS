@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
 
+import petitRADTRANS
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
@@ -722,6 +723,7 @@ class Retrieval:
 
             summary.write(self.configuration.retrieval_name + '\n')
             summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + '\n')
+            summary.write(f"pRT v{petitRADTRANS.__version__}\n")
             summary.write(self.output_directory + '\n')
             summary.write(f"Live points: {self.n_live_points}\n\n")
             summary.write("Fixed Parameters\n")
