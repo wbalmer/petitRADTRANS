@@ -4,13 +4,14 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a11] - 2024-11-08
+## [3.2.0a12] - 2024-11-15
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
 - Write out pRT version in retrieval summary files.
+- Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
 
 ### Changed
 - Changed behaviour of msum in chemistry.core: now checks each pressure level to ensure mfrac less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
