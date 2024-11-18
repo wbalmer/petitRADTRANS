@@ -80,8 +80,8 @@ def compute_ck_flux(
     frequency,
     temperature,
     w_gauss,
-    scat_angle,
-    w_gauss_scat_angle,
+    emission_angle,
+    w_gauss_emission_angle,
     optical_depths):
     """_summary_
 
@@ -89,8 +89,8 @@ def compute_ck_flux(
         frequency (ndarray): shape (len_freq)
         transmission (ndarray): shape (len_g, len_freq, len_spec, len_temp))
         temperature (ndarray): shape (len_temp)
-        scat_angle (ndarray): shape (len_scatter)
-        w_gauss_scat_angle (ndarray): shape (len_scatter)
+        emission_angle (ndarray): shape (len_scatter)
+        w_gauss_emission_angle (ndarray): shape (len_scatter)
         w_gauss (ndarray): shape (len_scatter)
 
     Returns:
@@ -98,9 +98,9 @@ def compute_ck_flux(
     """
     struct_shape = (frequency.shape[0],temperature.shape[0])
     flux = jnp.zeros(struct_shape[0])
-    for i_scat_angle in range(scat_angle.shape[0]):
+    for i_emission_angle in range(emission_angle.shape[0]):
         # Transmissions for a given incidence angle
-        transm_mu= jnp.exp(-optical_depths/scat_angle[i_scat_angle])
+        transm_mu= jnp.exp(-optical_depths/emission_angle[i_emission_angle])
         mean_transm = jnp.sum(transm_mu* w_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
@@ -110,8 +110,9 @@ def compute_ck_flux(
         flux_mu = jnp.add(flux_mu,r[:,struct_shape[1]]*transm_all[:,struct_shape[1]])
         #print(flux_mu.shape)
         # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
-        flux = jnp.add(flux,flux_mu*0.5*scat_angle[i_scat_angle]*w_gauss_scat_angle[i_scat_angle])
+        flux = jnp.add(flux,flux_mu*0.5*emission_angle[i_emission_angle]*w_gauss_emission_angle[i_emission_angle])
     #Normalization
+    # TODO Contribution function
     return flux*4.0*jnp.pi, None
 
 def compute_cloud_hansen_opacities():
