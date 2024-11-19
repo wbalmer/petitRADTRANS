@@ -904,10 +904,22 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
     for index in range(num_layer):
         layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
 
-    temperatures = dtdp_temperature_profile(p_use,
-                                            num_layer,
-                                            layer_pt_slopes,
-                                            parameters['T_bottom'].value)
+
+    top_of_atmosphere_presure = -3
+    bottom_of_atmosphere_presure = 3
+
+    if "top_of_atmosphere_pressure" in parameters.keys():
+        top_of_atmosphere_presure = parameters["top_of_atmosphere_pressure"].value
+    if "bottom_of_atmosphere_pressure" in parameters.keys():
+        bottom_of_atmosphere_presure = parameters["bottom_of_atmosphere_pressure"].value
+    temperatures = dtdp_temperature_profile(
+        p_use,
+        num_layer,
+        layer_pt_slopes,
+        parameters['T_bottom'].value,
+        top_of_atmosphere_pressure=top_of_atmosphere_presure,
+        bottom_of_atmosphere_pressure=bottom_of_atmosphere_presure
+        )
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
