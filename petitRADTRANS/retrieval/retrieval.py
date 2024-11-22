@@ -4386,7 +4386,7 @@ class Retrieval:
                 x_major_ticks = []
                 for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
                     x_major_ticks.append(round(i_tick, 1))
-                for i_tick in range(1,int(round(max_wavelength, 0))):
+                for i_tick in range(1, int(round(max_wavelength, 0))):
                     x_major_ticks.append(int(i_tick))
                 ax.set_xticks(x_major_ticks)
                 ax.set_xticklabels(x_major_ticks)
