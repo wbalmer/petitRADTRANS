@@ -4370,7 +4370,7 @@ class Retrieval:
             max_wavelength = best_fit_wavelengths[-1]
 
             ax.tick_params(
-                axis='both', 
+                axis='both',
                 which='minor',
                 bottom=True,
                 top=True,
@@ -4378,15 +4378,15 @@ class Retrieval:
                 right=True,
                 direction='in',
                 length=5)
-            
+
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
                 # For the minor ticks, use no labels; default NullFormatter.
                 x_major_ticks = []
-                for i_tick in np.linspace(min_wavelength,1.0,int(10*(1.0-min_wavelength))):
-                    x_major_ticks.append(round(i_tick,1))
-                for i_tick in range(1,int(round(max_wavelength,0))):
+                for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
+                    x_major_ticks.append(round(i_tick, 1))
+                for i_tick in range(1,int(round(max_wavelength, 0))):
                     x_major_ticks.append(int(i_tick))
                 ax.set_xticks(x_major_ticks)
                 ax.set_xticklabels(x_major_ticks)
@@ -4398,7 +4398,7 @@ class Retrieval:
                 ax.tick_params(axis='both', which='minor',
                                bottom=True, top=True, left=True, right=True,
                                direction='in', length=5)
-            
+
             ax.yaxis.set_minor_locator(AutoMinorLocator())
             ax.set_ylabel(self.configuration.plot_kwargs["spec_ylabel"])
 
@@ -4432,9 +4432,9 @@ class Retrieval:
                     min_wavelength = 0.08
                 # For the minor ticks, use no labels; default NullFormatter.
                 x_major_ticks = []
-                for i_tick in np.linspace(min_wavelength,1.0,int(10*(1.0-min_wavelength))):
-                    x_major_ticks.append(round(i_tick,1))
-                for i_tick in range(1,int(round(max_wavelength,0))):
+                for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
+                    x_major_ticks.append(round(i_tick, 1))
+                for i_tick in range(1, int(round(max_wavelength, 0))):
                     x_major_ticks.append(int(i_tick))
                 ax_r.set_xticks(x_major_ticks)
                 ax_r.set_xticklabels(x_major_ticks)
@@ -4443,11 +4443,17 @@ class Retrieval:
                 ax_r.xaxis.set_minor_formatter(NullFormatter())
             else:
                 ax_r.xaxis.set_minor_locator(AutoMinorLocator())
-                ax_r.tick_params(axis='both', which='minor',
-                                 bottom=True, top=True, left=True, right=True,
-                                 direction='in', length=5)
+                ax_r.tick_params(
+                    axis='both',
+                    which='minor',
+                    bottom=True,
+                    top=True,
+                    left=True,
+                    right=True,
+                    direction='in',
+                    length=5)
             ax_r.yaxis.set_minor_locator(AutoMinorLocator())
-            
+
             ax_r.set_ylabel(r"Residuals [$\sigma$]")
             ax_r.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
 
