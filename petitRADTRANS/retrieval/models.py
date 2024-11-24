@@ -41,7 +41,7 @@ from petitRADTRANS.physics import (
     power_law_temperature_profile
 )
 from petitRADTRANS.chemistry import clouds
-
+from species.util.dust_util import apply_ism_ext
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)
 
@@ -1952,6 +1952,13 @@ def calculate_emission_spectrum(prt_object,
 
     if "T_disk_blackbody" in parameters.keys():
         spectrum_model += add_blackbody_cpd_model(parameters, wlen_model)
+
+    if "v_band_extinction" in parameters.keys():
+        spectrum_model = apply_ism_ext(
+            wlen_model,
+            spectrum_model,
+            parameters["v_band_extinction"].value,
+            parameters["v_band_reddening"].value)
     if contribution:
         return wlen_model, spectrum_model, additional_outputs['emission_contribution']
     else:

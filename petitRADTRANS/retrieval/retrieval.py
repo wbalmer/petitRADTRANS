@@ -1479,7 +1479,6 @@ class Retrieval:
             spec.split('.')[0]
             for spec in self.configuration.data[name].radtrans_object.line_species
         ]
-
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
@@ -3986,7 +3985,7 @@ class Retrieval:
                 The lower pane of the plot, containing the residuals between the fit and the data
         """
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import AutoMinorLocator, LogLocator, NullFormatter
+        from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullFormatter
 
         if marker_cmap is None:
             marker_cmap = plt.colormaps['bwr']
@@ -4304,9 +4303,12 @@ class Retrieval:
                         )
 
             # Plot the best fit model
+            spectrum_type_label = "Best fit"
+            if mode == 'median':
+                spectrum_type_label = "Median"
             ax.plot(best_fit_wavelengths,
                     best_fit_spectrum * self.configuration.plot_kwargs["y_axis_scaling"],
-                    label=rf'Best Fit Model, $\chi^2=${chi2:.2f}',
+                    label=rf'{spectrum_type_label} model, $\chi^2/\nu=${chi2:.2f}',
                     linewidth=4,
                     alpha=0.5,
                     color='r')
@@ -4350,7 +4352,14 @@ class Retrieval:
                 pass
 
             # Fancy ticks for upper pane
-            ax.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
+            ax.tick_params(
+                axis="both",
+                direction="in",
+                length=10,
+                bottom=True,
+                top=True,
+                left=True,
+                right=True)
             try:
                 ax.xaxis.set_major_formatter('{x:.1f}')
             except Exception:  # TODO find exception expected here
@@ -4360,17 +4369,28 @@ class Retrieval:
             min_wavelength = best_fit_wavelengths[0]
             max_wavelength = best_fit_wavelengths[-1]
 
+            ax.tick_params(
+                axis='both',
+                which='minor',
+                bottom=True,
+                top=True,
+                left=True,
+                right=True,
+                direction='in',
+                length=5)
+
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
                 # For the minor ticks, use no labels; default NullFormatter.
-                x_major = LogLocator(
-                    base=10.0,
-                    subs=np.linspace(min_wavelength, max_wavelength, 4, dtype=int),
-                    numticks=4
-                )
-                ax.xaxis.set_major_locator(x_major)
-                x_minor = LogLocator(base=10.0, subs=np.linspace(min_wavelength, max_wavelength, 40), numticks=100)
+                x_major_ticks = []
+                for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
+                    x_major_ticks.append(round(i_tick, 1))
+                for i_tick in range(1, int(round(max_wavelength, 0))):
+                    x_major_ticks.append(int(i_tick))
+                ax.set_xticks(x_major_ticks)
+                ax.set_xticklabels(x_major_ticks)
+                x_minor = MultipleLocator(1)
                 ax.xaxis.set_minor_locator(x_minor)
                 ax.xaxis.set_minor_formatter(NullFormatter())
             else:
@@ -4378,40 +4398,65 @@ class Retrieval:
                 ax.tick_params(axis='both', which='minor',
                                bottom=True, top=True, left=True, right=True,
                                direction='in', length=5)
-            ax.yaxis.set_minor_locator(AutoMinorLocator())
-            ax.tick_params(axis='both', which='minor',
-                           bottom=True, top=True, left=True, right=True,
 
-                           direction='in', length=5)
+            ax.yaxis.set_minor_locator(AutoMinorLocator())
             ax.set_ylabel(self.configuration.plot_kwargs["spec_ylabel"])
 
             # Fancy ticks for lower pane
-            ax_r.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
+            ax_r.tick_params(
+                axis="both",
+                direction="in",
+                length=10,
+                bottom=True,
+                top=True,
+                left=True,
+                right=True)
             try:
                 ax_r.xaxis.set_major_formatter('{x:.1f}')
             except Exception:  # TODO find exception expected here
                 warnings.warn("Please update to matplotlib 3.3.4 or greater")
                 pass
 
+            ax_r.tick_params(
+                axis='both',
+                which='minor',
+                bottom=True,
+                top=True,
+                left=True,
+                right=True,
+                direction='in',
+                length=5)
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 # For the minor ticks, use no labels; default NullFormatter.
-                x_major = LogLocator(base=10.0, subs=(1, 2, 3, 4), numticks=4)
-                ax_r.xaxis.set_major_locator(x_major)
-                x_minor = LogLocator(base=10.0, subs=np.arange(0.1, 10.1, 0.1) * 0.1, numticks=100)
+                if min_wavelength < 0:
+                    min_wavelength = 0.08
+                # For the minor ticks, use no labels; default NullFormatter.
+                x_major_ticks = []
+                for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
+                    x_major_ticks.append(round(i_tick, 1))
+                for i_tick in range(1, int(round(max_wavelength, 0))):
+                    x_major_ticks.append(int(i_tick))
+                ax_r.set_xticks(x_major_ticks)
+                ax_r.set_xticklabels(x_major_ticks)
+                x_minor = MultipleLocator(1)
                 ax_r.xaxis.set_minor_locator(x_minor)
                 ax_r.xaxis.set_minor_formatter(NullFormatter())
             else:
                 ax_r.xaxis.set_minor_locator(AutoMinorLocator())
-                ax_r.tick_params(axis='both', which='minor',
-                                 bottom=True, top=True, left=True, right=True,
-                                 direction='in', length=5)
+                ax_r.tick_params(
+                    axis='both',
+                    which='minor',
+                    bottom=True,
+                    top=True,
+                    left=True,
+                    right=True,
+                    direction='in',
+                    length=5)
             ax_r.yaxis.set_minor_locator(AutoMinorLocator())
-            ax_r.tick_params(axis='both', which='minor',
-                             bottom=True, top=True, left=True, right=True,
-                             direction='in', length=5)
 
             ax_r.set_ylabel(r"Residuals [$\sigma$]")
             ax_r.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
+
             ax.legend(loc='upper center', ncol=len(self.configuration.data.keys()) + 1).set_zorder(1002)
             plt.tight_layout()
             plt.savefig(

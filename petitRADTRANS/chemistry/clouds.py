@@ -265,6 +265,8 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
         return simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw)
     elif "KCL(s)" in name or "KCL(l)" in name:
         return simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw)
+    elif "SiO(s)":
+        return simple_cdf_sio(press, temp, metallicity, co_ratio, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
@@ -282,6 +284,8 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
         return simple_cdf_na2s_free(press, temp, mfrac, mmw)
     elif "KCL(s)" in name or "KCL(l)" in name:
         return simple_cdf_kcl_free(press, temp, mfrac, mmw)
+    elif "SiO(s)" in name:
+        return simple_cdf_sio_free(press, temp, mfrac, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
@@ -666,6 +670,34 @@ def return_t_cond_kcl_free(x_kcl, mmw=2.33):
     return p_vap(t) / (x_kcl * mmw / m_kcl), t
 
 
+def return_t_cond_sio(metallicity, co_ratio, mmw=2.33):
+    # Taken from Wetzel+2013
+    t = np.linspace(100., 10000., 1000)
+
+    def p_vap(x):                        # conversion to bar
+        return np.exp(33.848 - 42648./x)*1e-6
+
+    xsio = return_x_sio(metallicity, co_ratio)
+
+    m_sio = __get_species_molar_mass('Si') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (xsio * mmw / m_sio), t
+
+
+def return_t_cond_sio_free(x_sio, mmw=2.33):
+    # Taken from Wetzel+2013
+    t = np.linspace(100., 10000., 1000)
+
+    def p_vap(x):                        # conversion to bar
+        return np.exp(33.848 - 42648./x)*1e-6
+
+    m_sio = __get_species_molar_mass('Si') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (x_sio * mmw / m_sio), t
+
+
 def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_fe_comb(metallicity, co_ratio, mmw)
     index = (pc > 1e-8) & (pc < 1e5)
@@ -866,6 +898,47 @@ def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
 
 def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
     pc, tc = return_t_cond_kcl_free(x_kcl, mmw)
+    index = (pc > 1e-8) & (pc < 1e5)
+    pc, tc = pc[index], tc[index]
+    tcond_p = interp1d(pc, tc)
+
+    tcond_on_input_grid = tcond_p(press)
+
+    tdiff = tcond_on_input_grid - temp
+    diff_vec = tdiff[1:] * tdiff[:-1]
+    ind_cdf = (diff_vec < 0.)
+
+    if len(diff_vec[ind_cdf]) > 0:
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
+    else:
+        p_cloud = np.min(press)
+
+    return p_cloud
+
+
+def simple_cdf_sio(press, temp, metallicity, co_ratio, mmw=2.33):
+    pc, tc = return_t_cond_sio(metallicity, co_ratio, mmw)
+    index = (pc > 1e-8) & (pc < 1e5)
+    pc, tc = pc[index], tc[index]
+    tcond_p = interp1d(pc, tc)
+    tcond_on_input_grid = tcond_p(press)
+
+    tdiff = tcond_on_input_grid - temp
+    diff_vec = tdiff[1:] * tdiff[:-1]
+    ind_cdf = (diff_vec < 0.)
+
+    if len(diff_vec[ind_cdf]) > 0:
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
+    else:
+        p_cloud = np.min(press)
+
+    return p_cloud
+
+
+def simple_cdf_sio_free(press, temp, x_sio, mmw=2.33):
+    pc, tc = return_t_cond_sio_free(x_sio, mmw)
     index = (pc > 1e-8) & (pc < 1e5)
     pc, tc = pc[index], tc[index]
     tcond_p = interp1d(pc, tc)
