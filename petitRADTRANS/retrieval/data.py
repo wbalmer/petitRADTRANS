@@ -133,6 +133,7 @@ class Data:
                  offset_bool=False,
                  resample=False,
                  filters=False,
+                 radvel=False,
                  wavelength_bin_widths=None,
                  photometry=False,
                  photometric_transformation_function=None,
@@ -206,6 +207,7 @@ class Data:
         self.offset_bool = offset_bool
         self.resample = resample
         self.filters = filters
+        self.radvel = radvel
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -np.inf
@@ -542,11 +544,21 @@ class Data:
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
 
+        if self.radvel:
+            wavel_shift = parameters[self.name + "_radvel"].value * 1e1 * self.wavelengths / cst.c # i think this is in cm
+
+            flux_rebinned = frebin.rebin_spectrum_bin(
+                                self.wavelengths,
+                                flux_rebinned,
+                                wavel_shift,
+                                self.wavelength_bin_widths
+                            )
+
         if self.resample:
             r_slope = parameters[self.name + "_R_slope"].value
             r_intersect = parameters[self.name + "_R_int"].value
             r_array = (np.ones_like(self.wavelengths)*r_slope)+r_intersect
-            flux_rebinned = convolve_and_sample_Rvers(self.wavelengths, r_array, flux_rebinned)
+            flux_rebinned = self.convolve_and_sample_Rvers(self.wavelengths, r_array, flux_rebinned)
         
         if self.filters:
             nodes = parameters[self.name + "_nodes"].value
