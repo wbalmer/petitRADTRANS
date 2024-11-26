@@ -180,8 +180,8 @@ class Retrieval:
 
         # Setup pRT Objects for each data structure.
         self.setup_data()
-        if self.configuration.run_mode=='evaluate':
-            sample_dict, parameters_dict = self.get_samples(output_directory = self.output_directory)
+        if self.configuration.run_mode == 'evaluate':
+            sample_dict, parameters_dict = self.get_samples(output_directory=self.output_directory)
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
             parameters_read = parameters_dict[self.configuration.retrieval_name]
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -1622,12 +1622,12 @@ class Retrieval:
 
         return chi2 / d_o_f
 
-    def get_reduced_chi2_from_model(self, 
-                                    wlen_model, 
-                                    spectrum_model, 
+    def get_reduced_chi2_from_model(self,
+                                    wlen_model,
+                                    spectrum_model,
                                     parameters,
                                     subtract_n_parameters=False,
-                                    verbose=False, 
+                                    verbose=False,
                                     show_chi2=False):
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
@@ -1648,7 +1648,7 @@ class Retrieval:
         log_l = 0
         norm = 0
         d_o_f = 0
-        
+
         for name, data in self.configuration.data.items():
             if isinstance(data.data_resolution, np.ndarray):
                 data.initialise_data_resolution(wlen_model)
@@ -3836,12 +3836,36 @@ class Retrieval:
                     wavelength_max = data.wavelength_boundaries[1]
 
             # Set up parameter dictionary
+            # Find the boundaries of the wavelength range to calculate
+            wavelength_min = np.inf
+            wavelength_max = -np.inf
+
+            for name, data in self.configuration.data.items():
+                if data.wavelength_boundaries[0] < wavelength_min:
+                    wavelength_min = data.wavelength_boundaries[0]
+
+                if data.wavelength_boundaries[1] > wavelength_max:
+                    wavelength_max = data.wavelength_boundaries[1]
+            
+            # Set up the pRT object
+            p = None
+            if self.configuration.amr:
+                p = self.configuration._setup_pres()
+                parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
+                parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
+                parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
+            else:
+                p = self.configuration.pressures        
+            species = copy.copy(self.configuration.data[
+                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
             atmosphere = Radtrans(
-                line_species=copy.copy(self.configuration.line_species),
+                pressures=p,
+                line_species=species,
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
-                line_opacity_mode='c-k',
+                line_opacity_mode=self.configuration.data[
+                    self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
                 wavelength_boundaries=np.array([wavelength_min * 0.98, wavelength_max * 1.02]),
                 scattering_in_emission=self.configuration.scattering_in_emission
             )
@@ -3867,8 +3891,8 @@ class Retrieval:
                     ret_val = self.get_full_range_model(
                         parameters,
                         model_generating_function=model_generating_function,
-                        prt_reference=prt_reference)
-
+                        prt_reference=prt_reference,
+                        prt_object=atmosphere)
 
                     wavelengths = None
                     model = None
@@ -4022,7 +4046,7 @@ class Retrieval:
             # Get best-fit index
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
             sample_use = samples_use[:-1, best_fit_index]
-            
+
             # Then get the full wavelength range
             # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
             if mode.lower() == "median":
@@ -4480,10 +4504,14 @@ class Retrieval:
             comm.barrier()
 
         return fig, ax, ax_r
-    
+
+
     def save_configuration(self):
-        filename = f"{self.output_directory}/evaluate_{self.configuration.retrieval_name}/{self.configuration.retrieval_name}_configuration.pkl"
-        with open(filename,"wb") as db:
-            #db[self.configuration.retrieval_name] = self.configuration
-            dill.dump(self.configuration,db)
+        """
+        Save the retrieval_config configuration to file. Warning, can take up a significant amount of storage
+        space, as the opacities for each Radtrans object will also be saved to file.
+        """
+        filename = f"{self.configuration.retrieval_name}_configuration.pkl"
+        with open(f"{self.output_directory}/evaluate_{self.configuration.retrieval_name}/{filename}", "wb") as db:
+            dill.dump(self.configuration, db)
         print(f"Saving configuration to file: {filename}")
