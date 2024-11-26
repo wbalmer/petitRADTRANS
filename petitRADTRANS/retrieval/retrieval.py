@@ -3846,18 +3846,18 @@ class Retrieval:
 
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
-            
+
             # Set up the pRT object
             p = None
             if self.configuration.amr:
                 p = self.configuration._setup_pres()
-                parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
-                parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
-                parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
             else:
-                p = self.configuration.pressures        
-            species = copy.copy(self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
+                p = self.configuration.pressures
+            species = copy.copy(
+                self.configuration.data[
+                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
+                )
+
             atmosphere = Radtrans(
                 pressures=p,
                 line_species=species,
@@ -4504,7 +4504,6 @@ class Retrieval:
             comm.barrier()
 
         return fig, ax, ax_r
-
 
     def save_configuration(self):
         """

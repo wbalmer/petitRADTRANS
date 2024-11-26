@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a14] - 2024-11-22
+## [3.2.0a15] - 2024-11-26
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -13,10 +13,12 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Write out pRT version in retrieval summary files.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
 - Added ability to retrieve extinction (`"v_band_extinction"`) and reddening (`"v_band_reddening"`). Must be used together.
+- Can now save `retrieval.configuration` to a pickle file.
 
 ### Changed
 - Changed behaviour of msum in chemistry.core: now checks each pressure level to ensure mfrac less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
 - Tests now use more lightweights opacity files.
+- Fixed calculations of chi2 and ensured consistent opacity usage in `get_full_range_model`
 
 ### Fixed
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
