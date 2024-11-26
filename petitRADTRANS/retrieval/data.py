@@ -75,6 +75,10 @@ class Data:
             # TODO complete docstring
         offset_bool:
             # TODO complete docstring
+        resample: 
+            # TODO complete docstring
+        filters:
+            # TODO complete doctstring
         wavelength_bin_widths : numpy.ndarray
             Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
         photometry : bool
@@ -127,6 +131,8 @@ class Data:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
+                 resample=False,
+                 filters=False,
                  wavelength_bin_widths=None,
                  photometry=False,
                  photometric_transformation_function=None,
@@ -198,6 +204,8 @@ class Data:
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
+        self.resample = resample
+        self.filters = filters
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -np.inf
@@ -534,6 +542,17 @@ class Data:
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
 
+        if self.resample:
+            r_slope = parameters[self.name + "_R_slope"].value
+            r_intersect = parameters[self.name + "_R_int"].value
+            r_array = (np.ones_like(self.wavelengths)*r_slope)+r_intersect
+            flux_rebinned = convolve_and_sample_Rvers(self.wavelengths, r_array, flux_rebinned)
+        
+        if self.filters:
+            nodes = parameters[self.name + "_nodes"].value
+            x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
+            flux_rebinned = hpf,_ = self.filter_spec_with_spline(self.wavelengths,flux_rebinned,x_nodes=x_nodes)
+
         if self.scale:
             diff = (flux_rebinned - self.spectrum * parameters[self.name + "_scale_factor"].value) + self.offset
         else:
@@ -794,6 +813,53 @@ class Data:
                                    mode='nearest')
 
         return flux_lsf
+
+    @staticmethod
+    def convolve_and_sample_Rvers(wv_channels, r_array, model_wvs, model_fluxes, channel_width=None, num_sigma=3):
+        """
+        From Jerry Xuan circa 2024
+        
+        Simulate the observations of a model. Convolves the model with a variable Gaussian LSF, sampled at each desired spectral channel.
+    
+        Args:
+            wv_channels: the wavelengths desired (length of N_output)
+            r_array: the R of each wv_channels (length of N_output)
+            model_wvs: the wavelengths of the model (length of N_model)
+            model_fluxes: the fluxes of the model (length of N_model)
+            channel_width: (optional) the full width of each wavelength channel in units of wavelengths (length of N_output)
+            num_sigma (float): number of +/- sigmas to evaluate the LSF to. 
+    
+        Returns:
+            output_model: the fluxes in each of the wavelength channels (length of N_output)
+        """
+    
+        # JX added to use function with input R, instead of LSF FWHM. 
+        # first get FWHM of LSF from lambda / R. Then convert FWHM to stddev of Gaussian
+        sigmas_wvs = wv_channels / r_array / (2*np.sqrt(2*np.log(2)))  # corrected a math error here, July 15 2024
+    
+        model_in_range = np.where((model_wvs >= np.min(wv_channels)) & (model_wvs < np.max(wv_channels)))
+        dwv_model = np.abs(model_wvs[model_in_range] - np.roll(model_wvs[model_in_range], 1))
+        dwv_model[0] = dwv_model[1]
+    
+        filter_size = int(np.ceil(np.max((2 * num_sigma * sigmas_wvs)/np.min(dwv_model)) ))
+        filter_coords = np.linspace(-num_sigma, num_sigma, filter_size)
+        #print(np.min(wv_channels), np.max(wv_channels), np.min(model_wvs), np.max(model_wvs), dwv_model, np.min(dwv_model))
+        
+        try:
+            filter_coords = np.tile(filter_coords, [wv_channels.shape[0], 1]) #  shape of (N_output, filter_size)
+        except Exception as e:
+            print(e)
+            print('reached exception for ' + str(filter_size))
+    
+        filter_wv_coords = filter_coords * sigmas_wvs[:,None] + wv_channels[:,None] # model wavelengths we want
+        lsf = np.exp(-filter_coords**2/2)/np.sqrt(2*np.pi)
+    
+        model_interp = interpolate.interp1d(model_wvs, model_fluxes, kind='cubic', bounds_error=False)
+        filter_model = model_interp(filter_wv_coords)
+    
+        output_model = np.nansum(filter_model * lsf, axis=1)/np.sum(lsf, axis=1)
+        
+        return output_model
 
     @staticmethod
     def filter_spec_with_spline(wvs, spec,specerr=None,x_nodes=None,M_spline=None):
