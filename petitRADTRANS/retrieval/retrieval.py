@@ -4,6 +4,7 @@ import os
 import sys
 import traceback
 import warnings
+import dill
 
 import numpy as np
 import numpy.typing as npt
@@ -179,7 +180,13 @@ class Retrieval:
 
         # Setup pRT Objects for each data structure.
         self.setup_data()
-
+        if self.configuration.run_mode=='evaluate':
+            sample_dict, parameters_dict = self.get_samples(output_directory = self.output_directory)
+            samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
+            parameters_read = parameters_dict[self.configuration.retrieval_name]
+            log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
+            best_fit_sample = samples_use[:-1, best_fit_index]
+            self.best_fit_parameters = self.build_param_dict(best_fit_sample, parameters_read)
         try:
             self.generate_retrieval_summary()
         except (ValueError, FileNotFoundError) as e:  # TODO check if ValueError was expected here
@@ -1199,7 +1206,6 @@ class Retrieval:
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
 
             norm = norm + add
-
         return 2 * (-log_l - norm)
 
     def get_chi2_normalisation(self, sample: npt.NDArray[float]) -> float:
@@ -1394,10 +1400,11 @@ class Retrieval:
 
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
-
+            species = copy.copy(self.configuration.data[
+                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=copy.copy(self.configuration.line_species),
+                line_species=species,
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
@@ -1615,8 +1622,13 @@ class Retrieval:
 
         return chi2 / d_o_f
 
-    def get_reduced_chi2_from_model(self, wlen_model, spectrum_model, subtract_n_parameters=False,
-                                    verbose=False, show_chi2=False):
+    def get_reduced_chi2_from_model(self, 
+                                    wlen_model, 
+                                    spectrum_model, 
+                                    parameters,
+                                    subtract_n_parameters=False,
+                                    verbose=False, 
+                                    show_chi2=False):
         """
         Get the 𝛘^2/DoF of the supplied spectrum - divide chi^2 by DoF
 
@@ -1636,36 +1648,29 @@ class Retrieval:
         log_l = 0
         norm = 0
         d_o_f = 0
-
+        
         for name, data in self.configuration.data.items():
             if isinstance(data.data_resolution, np.ndarray):
                 data.initialise_data_resolution(wlen_model)
 
             d_o_f += np.size(data.spectrum)
-            sf = 1
+            sf = 1.0
+
             log_l += data.get_chisq(
                 wlen_model,
                 spectrum_model,
                 False,
-                self.configuration.parameters
+                parameters
             )
 
             if data.covariance is not None:
-                if self.best_fit_parameters:
-                    if data.scale_err:
-                        sf *= self.best_fit_parameters[f"{name}_scale_factor"].value
+                if data.scale_err:
+                    sf = parameters[f"{name}_scale_factor"].value
 
-                    _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2)
-                    add = 0.5 * log_det
-                else:
-                    if data.scale_err:
-                        sf *= data.scale_factor
-
-                    _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2)
-                    add = 0.5 * log_det
+                _, log_det = np.linalg.slogdet(2 * np.pi * data.covariance * sf ** 2.0)
+                add = 0.5 * log_det
             else:
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * data.uncertainties ** 2.))
-
             norm += add
 
         if subtract_n_parameters:
@@ -1674,7 +1679,6 @@ class Retrieval:
                     d_o_f -= 1
 
         chi2 = 2 * (-log_l - norm)
-
         if verbose:
             if show_chi2:
                 print(f"Best fit 𝛘^2 = {chi2:.2f}")
@@ -3210,7 +3214,6 @@ class Retrieval:
                             i_p += 1
 
             # Plotting
-            #
             self.plot_spectra(samples_use,
                               parameters_read,
                               refresh=True,
@@ -3861,7 +3864,11 @@ class Retrieval:
 
                     parameters = self.build_param_dict(samples_use[:-1, random_index], parameters_read)
                     parameters["contribution"] = Parameter("contribution", False, value=False)
-                    ret_val = self.get_full_range_model(parameters, prt_object=atmosphere)
+                    ret_val = self.get_full_range_model(
+                        parameters,
+                        model_generating_function=model_generating_function,
+                        prt_reference=prt_reference)
+
 
                     wavelengths = None
                     model = None
@@ -3904,6 +3911,7 @@ class Retrieval:
                 wlen_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
+                parameters=parameters,
                 verbose=True,
                 show_chi2=True
             )
@@ -4014,7 +4022,7 @@ class Retrieval:
             # Get best-fit index
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
             sample_use = samples_use[:-1, best_fit_index]
-
+            
             # Then get the full wavelength range
             # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
             if mode.lower() == "median":
@@ -4026,8 +4034,7 @@ class Retrieval:
             if only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
                 return None, None, None
-            for i, s in enumerate(sample_use):
-                print(parameters_read[i], s)
+
             best_fit_wavelengths, best_fit_spectrum = self.get_best_fit_model(
                 sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
                 parameters_read,  # name of the parameters
@@ -4041,6 +4048,7 @@ class Retrieval:
                 wlen_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
+                parameters=self.best_fit_parameters,
                 verbose=True,
                 show_chi2=True
             )
@@ -4472,3 +4480,10 @@ class Retrieval:
             comm.barrier()
 
         return fig, ax, ax_r
+    
+    def save_configuration(self):
+        filename = f"{self.output_directory}/evaluate_{self.configuration.retrieval_name}/{self.configuration.retrieval_name}_configuration.pkl"
+        with open(filename,"wb") as db:
+            #db[self.configuration.retrieval_name] = self.configuration
+            dill.dump(self.configuration,db)
+        print(f"Saving configuration to file: {filename}")

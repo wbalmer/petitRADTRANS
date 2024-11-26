@@ -590,7 +590,6 @@ class Data:
         else:
             log_l += -0.5 * np.sum((diff / f_err) ** 2)
             log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2))
-
             if per_datapoint:  # TODO is there a point calculating log_l if only log_l_per_datapoint is returned?
                 # Only diagonal covariance elements
                 log_l_per_datapoint = -0.5 * np.log(2 * np.pi * f_err ** 2) - 0.5 * (diff / f_err) ** 2
