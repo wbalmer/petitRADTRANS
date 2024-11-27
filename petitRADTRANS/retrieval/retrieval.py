@@ -8,6 +8,7 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
+from spectres.spectral_resampling_numba import spectres_numba
 
 from petitRADTRANS.__file_conversion import bin_species_exok
 from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
@@ -22,6 +23,7 @@ from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.utils import flatten_object
+import petitRADTRANS.physical_constants as cst
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
@@ -4154,6 +4156,16 @@ class Retrieval:
                                 self.best_fit_spectra[name][1],
                                 data.data_resolution
                             )
+
+                        if data.radvel:
+                            wavel_shift = self.best_fit_parameters[data.name + "_radvel"].value * 1e1 * self.best_fit_spectra[name][0] / cst.c # i think this is in cm
+                            
+                            spectrum_model = spectres_numba(self.best_fit_spectra[name][0],
+                                                            self.best_fit_spectra[name][0] + wavel_shift,
+                                                            spectrum_model,
+                                                            verbose=False
+                            )
+
                         best_fit_binned = frebin.rebin_spectrum_bin(
                             self.best_fit_spectra[name][0],
                             spectrum_model,
@@ -4208,6 +4220,18 @@ class Retrieval:
                             best_fit_binned = best_fit_binned[0]
                         except Exception:  # TODO find exception expected here
                             pass
+
+                if data.resample:
+                    r_slope = self.best_fit_parameters[data.name + "_R_slope"].value
+                    r_intersect = self.best_fit_parameters[data.name + "_R_int"].value
+                    r_array = (wavelengths*r_slope)+r_intersect
+                    best_fit_binned = data.convolve_and_sample_Rvers(wavelengths, r_array, wavelengths, best_fit_binned)
+                
+                if data.filters:
+                    nodes = self.best_fit_parameters[data.name + "_nodes"].value
+                    x_nodes = np.linspace(wavelengths[0], wavelengths[-1], nodes)
+                    best_fit_binned = data.filter_spec_with_spline(wavelengths,best_fit_binned,x_nodes=x_nodes)
+
                 # Plot the data
                 marker = 'o'
 
@@ -4256,6 +4280,13 @@ class Retrieval:
                         )
 
                         label = None
+                    # Plot the best fit model per instrument
+                    ax.plot(wavelengths,
+                            best_fit_binned * self.configuration.plot_kwargs["y_axis_scaling"],
+                            label=rf'Best Fit Model, $\chi^2=${chi2:.2f}',
+                            linewidth=4,
+                            alpha=0.5,
+                            color='r', zorder=20)    
                 else:
                     # Don't label photometry?
                     for i in range(len(flux)):
@@ -4299,13 +4330,6 @@ class Retrieval:
                             alpha=0.6
                         )
 
-            # Plot the best fit model
-            ax.plot(best_fit_wavelengths,
-                    best_fit_spectrum * self.configuration.plot_kwargs["y_axis_scaling"],
-                    label=rf'Best Fit Model, $\chi^2=${chi2:.2f}',
-                    linewidth=4,
-                    alpha=0.5,
-                    color='r')
 
             # Plot the shading in the residual plot
             yabs_max = abs(max(ax_r.get_ylim(), key=abs))
