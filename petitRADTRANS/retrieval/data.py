@@ -5,8 +5,10 @@ import warnings
 
 import numpy as np
 from astropy.io import fits
+from scipy.optimize import lsq_linear
 from scipy.ndimage import gaussian_filter
-from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
+from spectres.spectral_resampling_numba import spectres_numba
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
@@ -518,6 +520,15 @@ class Data:
                     else:
                         rebin = True
 
+                    if self.radvel:
+                        wavel_shift = parameters[self.name + "_radvel"].value * 1e1 * wlen_model / cst.c # i think this is in cm
+                        
+                        spectrum_model = spectres_numba(wlen_model,
+                                                    wlen_model + wavel_shift,
+                                                    spectrum_model,
+                                                    verbose=False
+                        )
+
                     if rebin:
                         flux_rebinned = frebin.rebin_spectrum_bin(
                             wlen_model,
@@ -544,26 +555,16 @@ class Data:
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
 
-        if self.radvel:
-            wavel_shift = parameters[self.name + "_radvel"].value * 1e1 * self.wavelengths / cst.c # i think this is in cm
-
-            flux_rebinned = frebin.rebin_spectrum_bin(
-                                self.wavelengths,
-                                flux_rebinned,
-                                wavel_shift,
-                                self.wavelength_bin_widths
-                            )
-
         if self.resample:
             r_slope = parameters[self.name + "_R_slope"].value
             r_intersect = parameters[self.name + "_R_int"].value
-            r_array = (np.ones_like(self.wavelengths)*r_slope)+r_intersect
-            flux_rebinned = self.convolve_and_sample_Rvers(self.wavelengths, r_array, flux_rebinned)
+            r_array = (self.wavelengths*r_slope)+r_intersect
+            flux_rebinned = self.convolve_and_sample_Rvers(self.wavelengths, r_array, self.wavelengths, flux_rebinned)
         
         if self.filters:
             nodes = parameters[self.name + "_nodes"].value
             x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
-            flux_rebinned = hpf,_ = self.filter_spec_with_spline(self.wavelengths,flux_rebinned,x_nodes=x_nodes)
+            flux_rebinned = self.filter_spec_with_spline(self.wavelengths,flux_rebinned,x_nodes=x_nodes)
 
         if self.scale:
             diff = (flux_rebinned - self.spectrum * parameters[self.name + "_scale_factor"].value) + self.offset
@@ -866,15 +867,15 @@ class Data:
         filter_wv_coords = filter_coords * sigmas_wvs[:,None] + wv_channels[:,None] # model wavelengths we want
         lsf = np.exp(-filter_coords**2/2)/np.sqrt(2*np.pi)
     
-        model_interp = interpolate.interp1d(model_wvs, model_fluxes, kind='cubic', bounds_error=False)
+        model_interp = interp1d(model_wvs, model_fluxes, kind='cubic', bounds_error=False)
         filter_model = model_interp(filter_wv_coords)
     
         output_model = np.nansum(filter_model * lsf, axis=1)/np.sum(lsf, axis=1)
         
         return output_model
 
-    @staticmethod
-    def filter_spec_with_spline(wvs, spec,specerr=None,x_nodes=None,M_spline=None):
+
+    def filter_spec_with_spline(self, wvs, spec,specerr=None,x_nodes=None,M_spline=None):
         """
         From BREADS, BSD 3-Clause License
 
@@ -884,7 +885,7 @@ class Data:
             specerr = np.ones(spec.shape)
     
         if M_spline is None:
-            M_spline = get_spline_model(x_nodes, wvs, spline_degree=3)
+            M_spline = self.get_spline_model(x_nodes, wvs, spline_degree=3)
     
         M = M_spline/specerr[:,None]
         d = spec/specerr
@@ -896,12 +897,12 @@ class Data:
         m = np.dot(M, paras)
         r = d - m
     
-        LPF_spec = np.zeros(spec.shape)+np.nan
+        # LPF_spec = np.zeros(spec.shape)+np.nan
         HPF_spec = np.zeros(spec.shape)+np.nan
-        LPF_spec[where_finite] = m*specerr[where_finite]
+        # LPF_spec[where_finite] = m*specerr[where_finite]
         HPF_spec[where_finite] = r*specerr[where_finite]
     
-        return HPF_spec,LPF_spec
+        return HPF_spec#,LPF_spec
 
     @staticmethod
     def get_spline_model(x_knots, x_samples, spline_degree=3):
