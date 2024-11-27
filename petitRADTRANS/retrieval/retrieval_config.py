@@ -566,14 +566,14 @@ class RetrievalConfig:
 
         with open(path) as photometry:
             if photometric_transformation_function is None:
-                try:
-                    import species as sp
-                    from species.phot.syn_phot import SyntheticPhotometry
-                    sp.SpeciesInit()
-                except ModuleNotFoundError:  # TODO find what error is expected here
-                    logging.error(
-                        "Please provide a function to transform a spectrum into photometry, or pip install species"
-                    )
+                #try:
+                import species as sp
+                from species.phot.syn_phot import SyntheticPhotometry
+                sp.SpeciesInit()
+                #except ModuleNotFoundError:  # TODO find what error is expected here
+                #    logging.error(
+                #        "Please provide a function to transform a spectrum into photometry, or pip install species"
+                #    )
                     
             for line in photometry:
                 # # must be the comment character

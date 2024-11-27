@@ -2221,17 +2221,18 @@ class Retrieval:
                         label = None
                 else:
                     # Don't label photometry?
+                    print(wlen)
+                    print(flux)
+                  
+                    color_i = 'grey'
+                    ecolor = 'grey'
+                    if marker_color_type is not None:
+                        color_i = markerfacecolors[name][i]
+                        ecolor = 'k'
 
-                    for i in range(len(flux)):
-                        color_i = 'grey'
-                        ecolor = 'grey'
-                        if marker_color_type is not None:
-                            color_i = markerfacecolors[name][i]
-                            ecolor = 'k'
-
-                        ax.errorbar(wlen[i],
-                                    (flux[i] * self.rd.plot_kwargs["y_axis_scaling"]),
-                                    yerr=error[i] * self.rd.plot_kwargs["y_axis_scaling"],
+                    ax.errorbar(wlen,
+                                    (flux * self.rd.plot_kwargs["y_axis_scaling"]),
+                                    yerr=error * self.rd.plot_kwargs["y_axis_scaling"],
                                     xerr=dd.wlen_bins / 2., 
                                     linewidth=0, 
                                     elinewidth=2,
@@ -2246,9 +2247,9 @@ class Retrieval:
                                     alpha=0.6)
                     
                         # Plot the residuals
-                        ax_r.errorbar(wlen[i],
-                                    ((flux - best_fit_binned) / (error))[i],
-                                    yerr=(error / error)[i],
+                    ax_r.errorbar(wlen,
+                                    ((flux - best_fit_binned) / (error)),
+                                    yerr=(error / error),
                                     xerr=dd.wlen_bins / 2., 
                                     color='grey', 
                                     marker=marker, 

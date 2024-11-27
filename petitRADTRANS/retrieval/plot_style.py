@@ -13,9 +13,10 @@ import matplotlib as mpl
 have_display = bool(os.environ.get('DISPLAY', None))
 if not have_display:
     mpl.use('Agg')
-prt_colours = ['#009FB8', '#FF695C', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
+prt_colours = ['#5f61b4', 'tomato', '#70FF92', '#FFBB33', '#6171FF', "#FF1F69", "#52AC25", '#E574FF', "#FF261D",
                "#B429FF"]
-font = {'family': 'serif',
+font = {'family': 'monospace',
+        'font.monospace' : "DejaVu Sans Mono",
         'size': 24}
 lines = {'markeredgecolor': 'k',
          'markersize': 8}
