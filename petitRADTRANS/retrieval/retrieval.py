@@ -4036,13 +4036,16 @@ class Retrieval:
                 mode=mode
             )
 
-            chi2 = self.get_reduced_chi2_from_model(
-                wlen_model=best_fit_wavelengths,
-                spectrum_model=best_fit_spectrum,
-                subtract_n_parameters=True,
-                verbose=True,
-                show_chi2=True
-            )
+            try:
+                chi2 = self.get_reduced_chi2_from_model(
+                    wlen_model=best_fit_wavelengths,
+                    spectrum_model=best_fit_spectrum,
+                    subtract_n_parameters=True,
+                    verbose=True,
+                    show_chi2=True
+                )
+            except TypeError:
+                chi2 = 0
 
             if not only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
