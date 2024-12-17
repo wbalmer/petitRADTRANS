@@ -3855,7 +3855,7 @@ class Retrieval:
                 p = self.configuration.pressures
             species = copy.copy(
                 self.configuration.data[
-                self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
+                    self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species
                 )
 
             atmosphere = Radtrans(
