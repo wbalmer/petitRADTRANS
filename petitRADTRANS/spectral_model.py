@@ -1905,7 +1905,7 @@ class SpectralModel(Radtrans):
 
         if hasattr(filling_species, '__iter__'):
             # Facilitate the building of H2 and He-only filling species dict
-            if len(filling_species) == 2:
+            if len(filling_species) == 2 and not isinstance(filling_species, dict):
                 if 'H2' in filling_species and 'He' in filling_species:
                     if use_equilibrium_chemistry:
                         filling_species = {
