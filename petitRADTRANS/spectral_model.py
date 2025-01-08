@@ -2029,7 +2029,11 @@ class SpectralModel(Radtrans):
 
             # Get the sum of mass fractions of non-imposed species
             for species in mass_fractions_chemical_table:
-                if species not in imposed_mass_fractions and species not in filling_species:
+                if species not in imposed_mass_fractions:
+                    if species in filling_species:
+                        if filling_species[species] is not None:
+                            continue
+
                     mass_fractions[species] = mass_fractions_chemical_table[species]
                     m_sum_chemical_table_species += mass_fractions_chemical_table[species]
 
