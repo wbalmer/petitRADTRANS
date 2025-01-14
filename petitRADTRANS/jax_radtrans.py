@@ -395,9 +395,11 @@ def compute_feautrier_radiative_transfer(
               planck +
               (1.0 - photon_destruction_probabilities_) *
               J_star_ini)
-
-    dtau_1_level = dtau_1_level.at[:,0].set(optical_depths[:, i, 1] - optical_depths[:, i, 0])
+    dtau_1_level = jnp.zeros(n_layers - 1)
+    dtau_2_level = jnp.zeros(n_layers - 2)
+    dtau_1_level = dtau_1_level.at[:, 0].set(optical_depths[:, i, 1] - optical_depths[:, i, 0])
     dtau_1_level = jnp.where(jnp.abs(dtau_1_level[0]) < tiniest, tiniest, dtau_1_level.at[0].get())
+
     # Main loop starts here
     for i in range(1, n_frequencies_bin_edges):
         def process_g(l, results_g):
@@ -405,34 +407,42 @@ def compute_feautrier_radiative_transfer(
 
             def process_k(k, dtau_arrays):
                 dtau_1_level, dtau_2_level = dtau_arrays
-                dtau_1_level = dtau_1_level.at[l,k].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k])
-                dtau_1_level = jnp.where(jnp.abs(dtau_1_level[l,k]) < tiniest, tiniest, dtau_1_level.at[l,k].get())
+                dtau_1_level = dtau_1_level.at[l, k].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k])
+                dtau_1_level = jnp.where(jnp.abs(dtau_1_level[l, k]) < tiniest,
+                                         tiniest,
+                                         dtau_1_level.at[l, k].get())
 
-                dtau_2_level = dtau_2_level.at[l,k - 1].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k - 1])
-                dtau_2_level = jnp.where(jnp.abs(dtau_2_level[l,k - 1]) < tiniest, tiniest, dtau_2_level.at[l,k - 1].get())
+                dtau_2_level = dtau_2_level.at[l, k - 1].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k - 1])
+                dtau_2_level =\
+                    jnp.where(jnp.abs(dtau_2_level[l, k - 1]) < tiniest,
+                              tiniest,
+                              dtau_2_level.at[l, k - 1].get())
                 return dtau_1_level, dtau_2_level
-            
+
             dtau_1_level, dtau_2_level = jax.lax.fori_loop(1, n_layers - 1, process_k, (dtau_1_level, dtau_2_level))
-            
+
             def process_j(j, results_j):
                 b, c, a, lambda_loc, f2_struct, f3_struct = results_j
 
                 # First level (top)
-                f1 = emission_cos_angles[j] / dtau_1_level[l,0]
+                f1 = emission_cos_angles[j] / dtau_1_level[l, 0]
                 f1 = jnp.where(f1 > inv_del_tau_min, inv_del_tau_min, f1)
 
                 b = b.at[0, j].set(1.0 + 2.0 * f1 * (1.0 + f1))
                 c = c.at[0, j].set(-2.0 * f1**2.0)
                 a = a.at[0, j].set(0.0)
 
-                lambda_loc = lambda_loc.at[0, l, i].set(lambda_loc[0, l, i] + emission_cos_angles_weights[j] / (1.0 + 2.0 * f1 * (1.0 + f1)))
+                lambda_loc = lambda_loc.at[0, l, i].set(lambda_loc[0, l, i] +
+                                                        emission_cos_angles_weights[j] /
+                                                        (1.0 + 2.0 * f1 * (1.0 + f1))
+                                                        )
 
                 # Mid levels
                 def process_k_inner(k, results_k):
                     b, c, a, lambda_loc, f2_struct, f3_struct = results_k
-                    f1 = mu_double[j] / dtau_2_level[l,k - 1]
-                    f2 = emission_cos_angles[j] / dtau_1_level[l,k]
-                    f3 = emission_cos_angles[j] / dtau_1_level[l,k - 1]
+                    f1 = mu_double[j] / dtau_2_level[l, k - 1]
+                    f2 = emission_cos_angles[j] / dtau_1_level[l, k]
+                    f3 = emission_cos_angles[j] / dtau_1_level[l, k - 1]
 
                     f1 = jnp.where(f1 > inv_del_tau_min_half, inv_del_tau_min_half, f1)
                     f2 = jnp.where(f2 > inv_del_tau_min, inv_del_tau_min, f2)
