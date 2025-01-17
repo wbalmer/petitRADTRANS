@@ -151,7 +151,7 @@ class PreCalculatedEquilibriumChemistryTable:
 
         return mass_fractions
 
-    def load(self, path: str = None, path_input_data: str = None):
+    def load(self, path: str = None, path_input_data: str = None, file: str = ''):
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
