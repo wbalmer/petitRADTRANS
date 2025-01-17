@@ -7,7 +7,7 @@ import numpy as np
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
-from petitRADTRANS._input_data_loader import get_input_file
+from petitRADTRANS._input_data import find_input_file
 
 
 class PreCalculatedEquilibriumChemistryTable:
@@ -159,11 +159,11 @@ class PreCalculatedEquilibriumChemistryTable:
             file = self.get_default_file(path_input_data)
 
         if not os.path.isfile(file):
-            file = get_input_file(
+            file = find_input_file(
                 file=file,
                 path_input_data=path_input_data,
                 sub_path=None,
-                expect_spectral_information=False,
+                match_function=None,  # use the default match function
                 find_all=False,
                 search_online=True
             )
