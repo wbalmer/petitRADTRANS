@@ -334,6 +334,17 @@ def intersection_indices(array1, array2):
     return indices1, indices2
 
 
+def list_str2str(list_str, separator: str = ", "):
+    """Convert a list of strings into a string in which each input string is quoted and separated by 'separator'.
+    Example:
+        >>> list_str2str(('AA', 'BBB', 'C'))
+        >>> "'AA', 'BBB', 'C'"
+    """
+    separator = "'" + separator + "'"
+
+    return "'" + separator.join(list_str) + "'"
+
+
 def load_csv(file, **kwargs):
     data = {}
     header_read = False
