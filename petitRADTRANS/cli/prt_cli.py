@@ -1,4 +1,5 @@
 """Command line interface to download petitRADTRANS input data files.
+# TODO should probably be renamed keeper_cli or prt_keeper_cli in v4.0.0
 """
 
 import datetime
