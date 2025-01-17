@@ -4,6 +4,7 @@ import os
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
@@ -16,28 +17,28 @@ class PreCalculatedEquilibriumChemistryTable:
     The interpolate_mass_fractions function can be used to get mass fractions at given thermochemical conditions.
     """
     def __init__(self):
-        self._loaded = False
+        self._loaded: bool = False
 
-        self.log10_metallicities = None
-        self.co_ratios = None
-        self.temperatures = None
-        self.pressures = None
-        self.species = None
-        self.mass_fractions = None
-        self.nabla_adiabatic = None
-        self.mean_molar_masses = None
+        self.log10_metallicities: [npt.NDArray[float], None] = None
+        self.co_ratios: [npt.NDArray[float], None] = None
+        self.temperatures: [npt.NDArray[float], None] = None
+        self.pressures: [npt.NDArray[float], None] = None
+        self.species: [tuple[str, ...], None] = None
+        self.mass_fractions: [npt.NDArray[float], None] = None
+        self.nabla_adiabatic: [npt.NDArray[float], None] = None
+        self.mean_molar_masses: [npt.NDArray[float], None] = None
 
     @staticmethod
-    def get_default_file(path_input_data=None):
+    def get_default_file(path_input_data: str = None) -> str:
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
-        return os.path.join(
+        return str(os.path.join(
             path_input_data,
             get_input_data_subpaths()["pre_calculated_chemistry"],
             "equilibrium_chemistry",
             "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
-        )
+        ))
 
     def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
                                    temperatures: iter, pressures: iter,
@@ -48,7 +49,7 @@ class PreCalculatedEquilibriumChemistryTable:
             co_ratios:
                 Desired carbon to oxygen ratios, obtained by increasing the amount of oxygen.
             log10_metallicities:
-                Base-10 logarithm of the desired metallitcities.
+                Base-10 logarithm of the desired metallicities.
             temperatures:
                 (K) desired temperatures
             pressures:
@@ -62,11 +63,10 @@ class PreCalculatedEquilibriumChemistryTable:
         if not self._loaded:
             self.load()
 
-        co_ratios, log10_metallicities, temperatures, pressures = \
-            np.array(co_ratios).reshape(-1), \
-            np.array(log10_metallicities).reshape(-1), \
-            np.array(temperatures).reshape(-1), \
-            np.array(pressures).reshape(-1)
+        co_ratios: npt.NDArray[float] = np.array(co_ratios).reshape(-1)
+        log10_metallicities: npt.NDArray[float] = np.array(log10_metallicities).reshape(-1)
+        temperatures: npt.NDArray[float] = np.array(temperatures).reshape(-1)
+        pressures: npt.NDArray[float] = np.array(pressures).reshape(-1)
 
         # Apply boundary treatment
         co_ratios[co_ratios <= np.min(self.co_ratios)] = np.min(self.co_ratios) + 1e-6
@@ -92,34 +92,61 @@ class PreCalculatedEquilibriumChemistryTable:
         pressures_large_int = np.searchsorted(self.pressures, pressures) + 1
 
         _mass_fractions = fchem.interpolate_chemical_table(
-            co_ratios, log10_metallicities, temperatures,
-            pressures, co_ratios_large_int,
-            fehs_large_int, temps_large_int,
-            pressures_large_int, self.log10_metallicities, self.co_ratios,
-            self.pressures, self.temperatures, self.mass_fractions, True
+            co_ratios,
+            log10_metallicities,
+            temperatures,
+            pressures,
+            co_ratios_large_int,
+            fehs_large_int,
+            temps_large_int,
+            pressures_large_int,
+            self.log10_metallicities,
+            self.co_ratios,
+            self.pressures,
+            self.temperatures,
+            self.mass_fractions,
+            True
         )
 
         # Sort in output format of this function
-        mass_fractions = {}
+        mass_fractions: dict[str, ...] = {}
 
         for id_, name in enumerate(self.species):
             mass_fractions[name] = _mass_fractions[id_]
 
         if full:
             mean_molar_masses = fchem.interpolate_chemical_table(
-                co_ratios, log10_metallicities, temperatures,
-                pressures, co_ratios_large_int,
-                fehs_large_int, temps_large_int,
-                pressures_large_int, self.log10_metallicities, self.co_ratios,
-                self.pressures, self.temperatures, self.mean_molar_masses[np.newaxis], False
+                co_ratios,
+                log10_metallicities,
+                temperatures,
+                pressures,
+                co_ratios_large_int,
+                fehs_large_int,
+                temps_large_int,
+                pressures_large_int,
+                self.log10_metallicities,
+                self.co_ratios,
+                self.pressures,
+                self.temperatures,
+                self.mean_molar_masses[np.newaxis],
+                False
             )[0]
 
             nabla_adiabatic = fchem.interpolate_chemical_table(
-                co_ratios, log10_metallicities, temperatures,
-                pressures, co_ratios_large_int,
-                fehs_large_int, temps_large_int,
-                pressures_large_int, self.log10_metallicities, self.co_ratios,
-                self.pressures, self.temperatures, self.nabla_adiabatic[np.newaxis], False
+                co_ratios,
+                log10_metallicities,
+                temperatures,
+                pressures,
+                co_ratios_large_int,
+                fehs_large_int,
+                temps_large_int,
+                pressures_large_int,
+                self.log10_metallicities,
+                self.co_ratios,
+                self.pressures,
+                self.temperatures,
+                self.nabla_adiabatic[np.newaxis],
+                False
             )[0]
         else:
             mean_molar_masses = None
@@ -128,8 +155,12 @@ class PreCalculatedEquilibriumChemistryTable:
         # Carbon quenching, assumes pressures_goal is sorted in ascending order
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > np.min(pressures):
-                q_index = min(np.searchsorted(pressures, carbon_pressure_quench),
-                              int(len(pressures)) - 1)
+                q_index = np.min(
+                    (
+                        np.searchsorted(pressures, carbon_pressure_quench),
+                        pressures.size - 1
+                    )
+                )
 
                 methane_abb = mass_fractions['CH4']
                 methane_abb[pressures < carbon_pressure_quench] = \
