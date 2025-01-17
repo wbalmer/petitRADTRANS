@@ -1,12 +1,12 @@
-subdir('retrieval')
-subdir('config')
-#subdir('slurm_runs')
+subdir('ccf')
 subdir('chemistry')
-subdir('stellar_spectra')
 subdir('cli')
 subdir('ccf')
+subdir('config')
 subdir('plotlib')
+subdir('retrieval')
 subdir('slurm_runs')
+subdir('stellar_spectra')
 
 py.install_sources([
     'math.py',
@@ -16,6 +16,7 @@ py.install_sources([
     'radtrans.py',
     'spectral_model.py',
     'utils.py',
+    '_input_data.py',
     '_input_data_loader.py',
     '__debug.py',
     '__file_conversion.py',
