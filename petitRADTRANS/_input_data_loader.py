@@ -1,3 +1,4 @@
+# TODO deprecated module, remove in v4.0.0
 import copy
 import os
 import re
