@@ -940,7 +940,7 @@ class Radtrans:
                 if name != cia:
                     warnings.warn(
                         "usage of CIA aliases is deprecated and will be removed in a future update.\n"
-                        "Use the CIA actual name, with pRT's CIA separator between colliding species, instead",
+                        "Use the CIA actual name, with pRT's CIA separator ('--') between colliding species, instead",
                         FutureWarning
                     )
 
