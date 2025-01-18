@@ -455,8 +455,11 @@ class Opacity:
             return False
 
     @classmethod
-    def _join_spectral_information(cls, spectral_sampling, wavelength_range):
-        return f"{spectral_sampling}{cls._wavelength_range_separator}{wavelength_range}"
+    def _join_spectral_information(cls, spectral_sampling: str, wavelength_range: str):
+        if wavelength_range != '':
+            wavelength_range = cls._wavelength_range_separator + wavelength_range
+
+        return f"{spectral_sampling}{wavelength_range}"
 
     @classmethod
     def _match_function(cls, path_input_data, sub_path, files=None, filename=None,
@@ -1558,8 +1561,8 @@ class Opacity:
                 matter_state = _matter_state
                 break
 
-        if solid_structure != '':
-            solid_structure, solid_structure_id = solid_structure.split(cls._solid_structure_separator, 1)
+        if cls._solid_structure_separator in solid_structure:
+            solid_structure, solid_structure_id = solid_structure.split(cls._solid_structure_separator)
 
         return matter_state, solid_structure, solid_structure_id
 
@@ -1581,7 +1584,7 @@ class Opacity:
 
         if f"{natural_abundance_string}" in name:
             name = name.replace(f'{natural_abundance_string}', '')
-            natural_abundance = natural_abundance_string
+            natural_abundance = cls._natural_abundance_string
         else:
             natural_abundance = ''
 
@@ -1713,11 +1716,8 @@ class Opacity:
         _split = spectral_info.split(cls._wavelength_range_separator, 1)
 
         if len(_split) == 1:
-            raise ValueError(
-                f"no wavelength range information detected in spectral information '{spectral_info}', "
-                f"wavelength range information must be separated from spectral sampling information using "
-                f"'{cls._wavelength_range_separator}'"
-            )
+            spectral_sampling_info = _split[0]
+            wavelength_range_info = ''
         else:
             spectral_sampling_info, wavelength_range_info = _split
 
@@ -2267,7 +2267,9 @@ class CloudOpacity(Opacity):
                 if len(matches) == 1:
                     _, _cloud_info = cls.split_species_cloud_info(matches[0])
                     _, _, space_group = cls.split_cloud_info(_cloud_info)
-                    cloud_info += cls._solid_structure_separator + space_group
+
+                    if space_group != '':
+                        cloud_info += cls._solid_structure_separator + space_group
                 elif len(matches) > 1:
                     space_group_example = ''
 
@@ -2313,13 +2315,23 @@ class CloudOpacity(Opacity):
 
                     _name = _name + cloud_info + method + spectral_info
 
-                    raise FileExistsError(
-                        f"more than one solid condensate cloud with name '{name}'\n"
-                        f"Space groups are not mandatory only if a unique cloud opacity with this name exists in your "
-                        f"input_data directory.\n"
-                        f"Add a space group to your cloud name (e.g., '{_name}')\n"
-                        f"Available space groups with this name: {available}"
-                    )
+                    if len(valid_opacities) > 1:
+                        raise FileExistsError(
+                            f"more than one solid condensate cloud with name '{name}'\n"
+                            f"Space groups are not mandatory only if a unique cloud opacity with this name "
+                            f"exists in your input_data directory.\n"
+                            f"Add a space group to your cloud name (e.g., '{_name}')\n"
+                            f"Available space groups with this name: {available}"
+                        )
+                    else:
+                        raise FileExistsError(
+                            f"more than one solid condensate cloud with name '{name}'\n"
+                            f"Only one space group for cloud species '{name}' is available ({available}). "
+                            f"You should have been prompted with a choice for a default file.\n"
+                            f"This is a petitRADTRANS code issue and should be reported here: "
+                            f"https://gitlab.com/mauricemolli/petitRADTRANS/-/issues\n"
+                            f"This could also be a naming convention issue."
+                        )
 
         if spectral_info != '':
             spectral_info = cls._spectral_information_separator + spectral_info
