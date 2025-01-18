@@ -7,7 +7,13 @@ from molmass import Formula
 
 from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.utils import LockedDict, user_input
+from petitRADTRANS.utils import list_str2str, LockedDict, user_input
+
+warnings.warn(
+    "module '_input_data_loader' is deprecated and will be removed in a future update."
+    "Use the modules 'opacities' or 'input_data' instead.",
+    FutureWarning
+)
 
 
 def __build_cia_aliases_dict():
@@ -167,6 +173,7 @@ def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
 
 
 def _get_base_cia_names():
+    # TODO duplicate from __file_conversion, remove in v 4.0.0
     return LockedDict.build_and_lock({
         'H2--H2': 'H2--H2-NatAbund__BoRi.R831_0.6-250mu',
         'H2--He': 'H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu',
@@ -1033,6 +1040,7 @@ def check_opacity_name(opacity_name: str):
 
 
 def get_cia_aliases(name: str) -> str:
+    # TODO remove in version 4.0.0
     # Try to match name with full directory and directory shortcut
     cia_filenames = _get_base_cia_names()
 
@@ -1058,6 +1066,13 @@ def get_cia_aliases(name: str) -> str:
 
     for cia, aliases in cia_aliases.items():
         if name in aliases:
+            if name != cia:
+                warnings.warn(
+                    "usage of CIA aliases is deprecated and will be removed in a future update.\n"
+                    "Use the CIA actual name, with pRT's CIA separator between colliding species, instead",
+                    FutureWarning
+                )
+
             return cia_filenames[cia]
 
     # Name does not match a directory, a directory shortcut, or an alias
@@ -1298,13 +1313,16 @@ def get_opacity_directory(species: str, category: str,
                           path_input_data: str = None, full: bool = False):
     if path_input_data is None:
         path_input_data = petitradtrans_config_parser.get_input_data_path()
+
     check_opacity_name(species)
 
     basename = get_species_basename(species, join=True)
     istopologue_name = get_species_isotopologue_name(species, join=False)
 
     _, natural_abundance, charge, cloud_info, source, spectral_info = (
-        split_species_all_info(species, final_charge_format='pm'))
+        split_species_all_info(species, final_charge_format='pm')
+    )
+
     filename = join_species_all_info(
         name=istopologue_name,
         charge=charge,
@@ -1439,10 +1457,11 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
 
     if spectral_info != '':
         if resolution_filename is not None or range_filename is not None:
-            raise ValueError(f"cannot give both complete spectral info ('{spectral_info}'), "
-                             f"and resolution ('{resolution_filename}') + range ('{range_filename}')\n"
-                             f"Set resolution_filename and range_filename to None, or set spectral_info to None")
-
+            raise ValueError(
+                f"cannot give both complete spectral info ('{spectral_info}'), "
+                f"and resolution ('{resolution_filename}') + range ('{range_filename}')\n"
+                f"Set resolution_filename and range_filename to None, or set spectral_info to an empty string"
+            )
         name += '.' + spectral_info
     elif resolution_filename is not None or range_filename is not None:
         if resolution_filename is None:
