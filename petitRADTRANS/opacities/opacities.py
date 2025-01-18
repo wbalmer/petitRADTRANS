@@ -14,7 +14,6 @@ import h5py
 from petitRADTRANS import __version__ as prt_version
 from petitRADTRANS._input_data import default_file_selection, find_input_file
 from petitRADTRANS.cli.prt_cli import get_keeper_files_url_paths
-from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import list_str2str, LockedDict
 
@@ -375,6 +374,8 @@ class Opacity:
     @classmethod
     def _before_write(cls, temperature_grid_type: str, molar_mass: float, species_name: [str, tuple[str, ...]],
                       date_id: str) -> ([float, npt.NDArray[float]], str):
+        from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
+
         if temperature_grid_type not in cls._temperature_grid_types:
             raise ValueError(
                 f"temperature grid type must be "
