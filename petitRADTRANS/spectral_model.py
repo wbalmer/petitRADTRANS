@@ -21,7 +21,7 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
     doppler_shift, temperature_profile_function_guillot_metallic, hz2um, flux2irradiance, flux_hz2flux_cm,
-    rebin_spectrum, rebin_spectrum_bin, um2hz
+    rebin_spectrum, rebin_spectrum_bin, frequency2wavelength
 )
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.radtrans import Radtrans
@@ -32,7 +32,9 @@ from petitRADTRANS.retrieval.retrieval import Retrieval
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
-from petitRADTRANS.utils import dict2hdf5, LockedDict, hdf52dict, fill_object, remove_mask, topological_sort
+from petitRADTRANS.utils import (
+    dict2hdf5, list_str2str, LockedDict, hdf52dict, fill_object, remove_mask, topological_sort
+)
 
 
 class SpectralModel(Radtrans):
@@ -2372,7 +2374,7 @@ class SpectralModel(Radtrans):
                 target_distance=orbit_semi_major_axis
             )  # ingoing radiosity of the star on the planet
 
-            stellar_intensities = planet_star_spectral_irradiances / np.pi  # W.m-2/um to W.m-2.sr-1/um
+            stellar_intensities = planet_star_spectral_irradiances / np.pi  # erg.s-1.cm-2/Hz to erg.s-1.cm-2.sr-1/Hz
 
             if star_flux[0] is not None:  # otherwise, the star spectral radiosities are re-binned
                 stellar_intensities = rebin_spectrum(
@@ -3424,13 +3426,13 @@ class SpectralModel(Radtrans):
             star_flux = (None, None)
 
         star_spectrum_wavelengths = star_flux[0]
-        star_spectrum = star_flux[1]
+        star_spectrum = star_flux[1]  # erg.s-1.cm-2/Hz
 
         if star_spectrum_wavelengths is not None and star_flux[1] is not None:
-            star_spectrum = flux_hz2flux_cm(
+            star_spectrum = flux_hz2flux_cm(  # erg.s-1.cm-2/Hz to erg.s-1.cm-2/cm
                 star_spectrum,
-                um2hz(star_spectrum_wavelengths)
-            ) * 1e-7 / np.pi  # erg.s.cm^2.sr/cm to W.cm^2.sr/cm
+                frequency2wavelength(star_spectrum_wavelengths)
+            )
 
         if star_observed_spectrum is not None:
             star_observed_spectrum = None  # reset star_observed_spectrum
