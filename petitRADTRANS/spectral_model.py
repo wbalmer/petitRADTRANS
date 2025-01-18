@@ -15,8 +15,9 @@ from scipy.ndimage import gaussian_filter1d as scipy_gaussian_filter1d
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
-from petitRADTRANS.chemistry.utils import (compute_mean_molar_masses, fill_atmosphere,
-                                           mass_fractions2volume_mixing_ratios, simplify_species_list)
+from petitRADTRANS.chemistry.utils import (
+    compute_mean_molar_masses, fill_atmosphere, mass_fractions2volume_mixing_ratios, simplify_species_list
+)
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.math import gaussian_weights_running, resolving_space
 from petitRADTRANS.physics import (
@@ -647,7 +648,7 @@ class SpectralModel(Radtrans):
                         break
 
                 if not is_special_parameter:
-                    available = "'" + "', '".join(special_retrieval_parameters) + "'"
+                    available = list_str2str(special_retrieval_parameters)
                     raise ValueError(
                         f"parameter '{key}' is not a special retrieval parameter\n"
                         f"Available special retrieval parameters are {available}."
@@ -3108,7 +3109,7 @@ class SpectralModel(Radtrans):
                     break
 
             if not is_special_parameter:
-                available = "'" + "', '".join(special_parameters) + "'"
+                available = list_str2str(special_parameters)
                 raise ValueError(
                     f"parameter '{parameter}' is not a special retrieval parameter\n"
                     f"Available special retrieval parameters are {available}."
