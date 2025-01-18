@@ -1165,7 +1165,7 @@ def get_cloud_aliases(name: str) -> str:
                     else:
                         valid_opacities.add(match)
 
-                available = "'" + "', '".join([match.rsplit('_', 1)[1] for match in valid_opacities]) + "'"
+                available = list_str2str([match.rsplit('_', 1)[1] for match in valid_opacities])
 
                 if space_group_example != '':
                     cloud_info += '_' + space_group_example
@@ -1446,7 +1446,6 @@ def get_species_scientific_name(species: str) -> str:
 
 def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info='',
                           resolution_filename=None, range_filename=None):
-
     if natural_abundance != '':
         name += '-' + natural_abundance
 
