@@ -98,11 +98,11 @@ class Opacity:
     # Patterns
     _amorphous_structure_id_pattern: re.Pattern = re.compile(r'[A-Z]{1,5}')  # up to 5 capital letters
     _charge_pattern: re.Pattern = re.compile(
-        r'.+(' + rf'{_charge_separator}' + r'(\d{0,3})'
+        r'(' + rf'({_charge_separator})?' + r'(\d{0,3})?'
         + r'['
         + '\\' + rf'{"///".join(_charge_symbols)}'.replace('///', '\\')
         + rf'{"".join(_charge_chars)}'
-        + r'])'
+        + r'])$'
     )
     _isotope_pattern: re.Pattern = re.compile(r'(\d{1,3})?([A-Z][a-z]?|e)(\d{1,3})?')
     _space_group_pattern: re.Pattern = re.compile(r'\d{3}')  # 3 digits
@@ -1645,11 +1645,11 @@ class Opacity:
             for symbol, char in cls._charges.items():
                 charge = charge.replace(char, symbol)
 
-        charge = charge[len(cls._charge_separator):]  # remove leading separator
-
         # Temporarily remove charge symbol to remove isotopic numbers
         if len(charge) > 0:
-            name = species.split(charge, 1)[0]
+            name = species.rsplit(charge, 1)[0]
+
+        charge = charge.replace(cls._charge_separator, '')  # remove leading separator
 
         return name, charge
 
