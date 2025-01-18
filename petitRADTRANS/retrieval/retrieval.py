@@ -4,26 +4,25 @@ import os
 import sys
 import traceback
 import warnings
-import dill
 
+import dill
 import numpy as np
 import numpy.typing as npt
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.stats import binned_statistic
 
 import petitRADTRANS
-from petitRADTRANS.__file_conversion import bin_species_exok
-from petitRADTRANS._input_data_loader import get_opacity_input_file, get_resolving_power_string, join_species_all_info
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
+from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
-from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
+from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.utils import flatten_object
+from petitRADTRANS.utils import flatten_object, list_str2str
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
@@ -297,10 +296,13 @@ class Retrieval:
         for line in self.configuration.line_species:
             _line = line.split('.', 1)[0]  # remove possible previous spectral info
 
-            matches = get_opacity_input_file(
+            matches = CorrelatedKOpacity.find(
                 path_input_data=self.path,
                 category='correlated_k_opacities',
-                species=join_species_all_info(_line, spectral_info=get_resolving_power_string(resolution)),
+                species=CorrelatedKOpacity.join_species_all_info(
+                    species_name=_line,
+                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
+                ),
                 find_all=True,
                 search_online=False
             )
@@ -311,9 +313,9 @@ class Retrieval:
         # If not, setup low-res c-k tables
         if len(species) > 0:
             if rank == 0:
-                bin_species_exok(
+                CorrelatedKOpacity.exo_k_multiple_rebin_from_species(
                     species=species,
-                    resolution=resolution
+                    resolving_power=resolution
                 )
 
             if comm is not None:
@@ -495,7 +497,7 @@ class Retrieval:
             # Check if the given parameters are all set in the configuration
             for parameter_name in parameters:
                 if parameter_name not in configuration_parameters:
-                    available_parameters = "'" + "', '".join(configuration_parameters) + "'"
+                    available_parameters = list_str2str(configuration_parameters)
 
                     raise KeyError(
                         f"retrieved parameter '{parameter_name}' is not a configured parameter of this retrieval\n"
@@ -2416,7 +2418,12 @@ class Retrieval:
         species = []
 
         for _species in self.configuration.line_species:
-            species.append(join_species_all_info(_species, spectral_info=get_resolving_power_string(resolution)))
+            species.append(
+                CorrelatedKOpacity.join_species_all_info(
+                    species_name=_species,
+                    spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
+                )
+            )
 
         if self.configuration.amr:
             pressures = self.configuration._setup_pres()
@@ -2794,11 +2801,13 @@ class Retrieval:
                     species = []
 
                     for line_species in self.configuration.line_species:
-                        line_species = line_species.split('.', 1)[0]  # remove possible previous spectral info
+                        line_species, spectral_info = CorrelatedKOpacity.split_species_spectral_info(line_species)
+                        opacity_wavelength_range = CorrelatedKOpacity.split_spectral_info(spectral_info)[1]
 
-                        species.append(join_species_all_info(
+                        species.append(CorrelatedKOpacity.join_species_all_info(
                             line_species,
-                            spectral_info=get_resolving_power_string(data.model_resolution)
+                            spectral_sampling=CorrelatedKOpacity.get_resolving_power_string(data.model_resolution),
+                            wavelength_range=opacity_wavelength_range,
                         ))
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,

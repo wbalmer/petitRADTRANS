@@ -10,14 +10,12 @@ from matplotlib.lines import Line2D
 from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS._input_data_loader import (
-    get_cia_aliases, get_species_basename, get_species_scientific_name, split_species_all_info
-)
 from petitRADTRANS.chemistry.clouds import (
     return_t_cond_fe, return_t_cond_fe_l, return_t_cond_fe_comb, return_t_cond_kcl, return_t_cond_mgsio3,
     return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
+from petitRADTRANS.opacities.opacities import Opacity
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
 from petitRADTRANS.physics import frequency2wavelength
@@ -1204,8 +1202,7 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
 
         for species in species_list:
             if opacity_source == 'gas_continuum_contributors':
-                _species = split_species_all_info(get_cia_aliases(species))[0]
-                _species = _species.split('--', 1)
+                _species = species.split('--', 1)
 
                 if _species[0] == _species[1]:
                     _species = _species[0]
@@ -1220,7 +1217,10 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
                 _species = species
 
             if species not in opacity_sources_colors[opacity_source]:
-                species_color = get_species_color(get_species_basename(_species), implemented_only=False)
+                species_color = get_species_color(
+                    Opacity.get_species_base_name(_species),
+                    implemented_only=False
+                )
 
                 if species_color == default_color:
                     i = next(default_species_color_index)
@@ -1286,7 +1286,7 @@ def plot_opacity_contributions(radtrans_object: Radtrans,
             continue
         else:
             for species, spectrum in opacity_source.items():
-                _species = get_species_scientific_name(species)
+                _species = Opacity.get_species_scientific_name(species)
 
                 if opacity_type == 'rayleigh_species':
                     _species += ' (Rayleigh)'

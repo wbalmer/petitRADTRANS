@@ -8,9 +8,8 @@ import os
 
 import numpy as np
 
-from petitRADTRANS._input_data_loader import (get_default_correlated_k_resolution, get_opacity_input_file,
-                                              get_resolving_power_string, join_species_all_info)
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
+from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
@@ -107,15 +106,24 @@ def init_run():
 
     # Remove old binned down opacities to test rebinning function
     for species in test_parameters['spectrum_parameters']['line_species_correlated_k']:
-        file = get_opacity_input_file(
+        file = CorrelatedKOpacity.find(
             path_input_data=petitRADTRANS.config.petitradtrans_config_parser.get_input_data_path(),
             category='correlated_k_opacities',
-            species=species
+            species=species,
+            find_all=False,
+            search_online=True
         ).replace(
-            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
-            join_species_all_info(
+            CorrelatedKOpacity.join_species_all_info(
                 '',
-                get_resolving_power_string(test_parameters['mock_observation_parameters']['resolving_power'] * 2)
+                spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                    resolving_power=int(CorrelatedKOpacity.get_default_resolving_power())
+                )
+            ),
+            CorrelatedKOpacity.join_species_all_info(
+                '',
+                CorrelatedKOpacity.get_resolving_power_string(
+                    resolving_power=test_parameters['mock_observation_parameters']['resolving_power'] * 2
+                )
             )
         )
 

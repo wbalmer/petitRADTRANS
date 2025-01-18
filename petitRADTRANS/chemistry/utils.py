@@ -6,9 +6,9 @@ import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import PchipInterpolator
 
-from petitRADTRANS._input_data_loader import get_species_basename, get_species_isotopologue_name
 from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
                                                  get_species_elements)
+from petitRADTRANS.opacities.opacities import Opacity
 
 
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
@@ -198,8 +198,8 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
     else:
         layers = np.array([fill_layer])
 
-    filled_mass_fractions = {
-        species: np.zeros(layers.size)
+    filled_mass_fractions: dict[str, npt.NDArray[float]] = {
+        species: np.zeros(layers.size, dtype=float)
         for species in all_species
     }
 
@@ -499,13 +499,16 @@ def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
 
 
 def simplify_species_list(species_list: list) -> list:
-    species_basenames = [get_species_basename(species) for species in species_list]
-    species_isotopologue_names = [get_species_isotopologue_name(species) for species in species_list]
+    species_basenames = [
+        Opacity.get_species_base_name(species)
+        for species in species_list
+    ]
+    species_isotopologue_names = [Opacity.get_species_isotopologue_name(species) for species in species_list]
 
     for i, species in enumerate(species_isotopologue_names):
         # Use isotopologue name if species is not the main isotopologue
-        species_main_name = get_species_isotopologue_name(species=species_basenames[i])
-        species_natural_abundance_name = get_species_isotopologue_name(species=species_basenames[i] + '-NatAbund')
+        species_main_name = Opacity.get_species_isotopologue_name(species_basenames[i])
+        species_natural_abundance_name = Opacity.get_species_isotopologue_name(species_basenames[i] + '-NatAbund')
 
         if species != species_main_name and species != species_natural_abundance_name:
             species_basenames[i] = species
@@ -633,10 +636,8 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
 
     Args:
         pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
-        pressure_nodes (array-like): An array or list of log pressure points at which the spline is fixed
+        transition_pressures: # TODO complete docstring
         abundance_points (array-like): An array or list of abundances for each pressure node.
-        gamma (float): A parameter controlling the curvature of the spline.
-        nnodes (int, optional): Number of nodes to use in the spline interpolation.
 
     Returns:
         tuple: A tuple containing two elements:
@@ -701,6 +702,8 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     Returns:
         array: an array of pressure nodes, can be used in calculate_pressure_nodes
     """
+    pressure_interpolation_nodes = None
+
     if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
         nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
         mode = parameters[f"{species_short_name}_interpolation_mode"].value
@@ -719,10 +722,10 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
             pressure_interpolation_nodes = calculate_pressure_nodes(
                 pressure_array,
                 mode=mode,
-                nnodes=None,
+                nnodes=None,  # TODO None is not handled in function, potential issue?
                 points_list=pnodes
             )
-    # Predifined list of pressure node locations
+    # Predefined list of pressure node locations
     elif f"{species_short_name}_pressure_nodes" in parameters.keys():
         pressure_interpolation_nodes = calculate_pressure_nodes(
             pressure_array,
@@ -733,6 +736,7 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     # Default to bottom and top of atmosphere
     else:
         pressure_interpolation_nodes = [np.log10(pressure_array[0]), np.log10(pressure_array[-1])]
+
     return pressure_interpolation_nodes
 
 
@@ -746,7 +750,6 @@ def define_abundance_node_list(species_short_name, parameters):
     If mode is relative, then points list is returned.
 
     Args:
-        pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
         species_short_name (str): which molecular species does this apply to (each can be unique)
         parameters (dict): dictionary of parameters used in a retrieval
     Returns:
@@ -796,8 +799,8 @@ def calculate_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=
         min_pressure = np.log10(pressure_array[-1])
         for i, node in enumerate(points_list):
             # pressures goes from low to high
-            next = pressures[i] + node
-            pressures.append(min(next, min_pressure))
+            _next = pressures[i] + node
+            pressures.append(min(_next, min_pressure))
         pressures.append(min_pressure)
         return np.array(pressures)
     elif mode == 'set':

@@ -10,14 +10,11 @@ from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
-from petitRADTRANS._input_data_loader import (
-    _get_spectral_information, _split_species_spectral_info, get_cia_aliases, get_cloud_aliases,
-    get_default_correlated_k_resolution, get_opacity_input_file, get_resolving_power_from_string,
-    get_species_basename, join_species_all_info, split_species_all_info
-)
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+
+from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
@@ -244,6 +241,7 @@ class Radtrans:
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards pRT3 names when pRT2 names are used.
         """
+        # TODO remove in version 4.0.0
         base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
 
         def __handle_deprecated_attributes(suggested_name):
@@ -848,7 +846,7 @@ class Radtrans:
         base_species_mass_fractions = {}
 
         for species, mass_fraction in mass_fractions.items():
-            species_basename = get_species_basename(species)
+            species_basename = Opacity.get_species_base_name(species)
 
             if species_basename not in base_species_mass_fractions:
                 base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
@@ -921,6 +919,37 @@ class Radtrans:
         )
 
     @staticmethod
+    def __get_cia_aliases(name: str) -> str:
+        # TODO remove in version 4.0.0
+        # Try to match name with aliases
+        cia_aliases = {
+            'H2--H2': ['H2H2', 'H2-H2', 'H2--H2'],
+            'H2--He': ['H2He', 'H2-He', 'H2--He', 'HeH2', 'He-H2', 'He--H2'],
+            'H2O--H2O': ['H2OH2O', 'H2O-H2O', 'H2O--H2O'],
+            'H2O--N2': ['H2ON2', 'H2O-N2', 'H2O--N2', 'N2H2O', 'N2-H2O', 'N2--H2O'],
+            'N2--H2': ['N2H2', 'N2-H2', 'N2--H2', 'H2N2', 'H2-N2', 'H2--N2'],
+            'N2--He': ['N2He', 'N2-He', 'N2--He', 'HeN2', 'He-N2', 'He--N2'],
+            'N2--N2': ['N2N2', 'N2-N2', 'N2--N2'],
+            'O2--O2': ['O2O2', 'O2-O2', 'O2--O2'],
+            'N2--O2': ['N2O2', 'N2-O2', 'N2--O2', 'O2N2', 'O2-N2', 'O2--N2'],
+            'CO2--CO2': ['CO2CO2', 'CO2-CO2', 'CO2--CO2']
+        }
+
+        for cia, aliases in cia_aliases.items():
+            if name in aliases:
+                if name != cia:
+                    warnings.warn(
+                        "usage of CIA aliases is deprecated and will be removed in a future update.\n"
+                        "Use the CIA actual name, with pRT's CIA separator between colliding species, instead",
+                        FutureWarning
+                    )
+
+                return cia
+
+        # Name does not match a directory, a directory shortcut, or an alias
+        return name
+
+    @staticmethod
     def __get_frequency_grids_intersection_indices(frequencies, file_frequencies):
         """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
 
@@ -952,35 +981,37 @@ class Radtrans:
     def __get_line_opacity_file(path_input_data, species, category):
         hdf5_file = None
 
-        if category == 'correlated_k_opacities':
-            default_species, spectral_info = _split_species_spectral_info(species)
-            target_resolving_power, range_filename = _get_spectral_information(spectral_info)
+        if category == CorrelatedKOpacity.get_default_category():
+            default_species, spectral_info = Opacity.split_species_spectral_info(species)
+            target_resolving_power, range_filename = Opacity.find_spectral_information(spectral_info)
 
             if 'R' in target_resolving_power:
-                target_resolving_power = get_resolving_power_from_string(target_resolving_power)
+                target_resolving_power = CorrelatedKOpacity.get_resolving_power_from_string(target_resolving_power)
 
             if target_resolving_power == '':
-                target_resolving_power = int(get_default_correlated_k_resolution()[1:])  # get rid of leading 'R'
+                target_resolving_power = int(CorrelatedKOpacity.get_default_resolving_power())
 
             if range_filename == '':
                 resolution_filename = None
                 range_filename = None
             else:
                 spectral_info = ''
-                resolution_filename = get_default_correlated_k_resolution()
+                resolution_filename = CorrelatedKOpacity.get_resolving_power_string(
+                    resolving_power=int(CorrelatedKOpacity.get_default_resolving_power())
+                )
 
-            default_species = join_species_all_info(
-                name=default_species,  # contains already all non-spectral info
+            default_species = Opacity.join_species_all_info(
+                species_name=default_species,  # contains already all non-spectral info
                 natural_abundance='',
                 charge='',
                 cloud_info='',
                 source='',
                 spectral_info=spectral_info,
-                resolution_filename=resolution_filename,
-                range_filename=range_filename
+                spectral_sampling=resolution_filename,
+                wavelength_range=range_filename
             )
 
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = CorrelatedKOpacity.find(
                 path_input_data=path_input_data,
                 category=category,
                 species=default_species,
@@ -989,9 +1020,9 @@ class Radtrans:
             )
 
             # Bin down the opacities if necessary
-            if target_resolving_power < int(get_default_correlated_k_resolution()[1:]):
+            if target_resolving_power < int(CorrelatedKOpacity.get_default_resolving_power()):
                 # Try to find the binned-down file first
-                _hdf5_file = get_opacity_input_file(
+                _hdf5_file = CorrelatedKOpacity.find(
                     path_input_data=path_input_data,
                     category=category,
                     species=species,
@@ -999,7 +1030,7 @@ class Radtrans:
                     search_online=False  # don't search online since this is not the standard resolving power
                 )
 
-                if len(_hdf5_file) == 0:  # no matching file found, make the file using exo_k
+                if len(_hdf5_file) == 0:  # no matching file found, make the file using exo_k, then find it
                     state = rebin_ck_line_opacities(
                         input_file=hdf5_file,
                         target_resolving_power=target_resolving_power,
@@ -1011,13 +1042,13 @@ class Radtrans:
                         raise RuntimeError("unable to perform binning down, please install exo_k")
 
                     hdf5_file = None
-                elif isinstance(_hdf5_file, str):
+                elif isinstance(_hdf5_file, str):  # exactly one matching file found, use it
                     hdf5_file = _hdf5_file
-                else:  # more than one file exists, use the standard way of finding the correct file
+                else:  # more than one file exists, try to find the correct file
                     hdf5_file = None
 
         if hdf5_file is None:
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = Opacity.find(
                 path_input_data=path_input_data,
                 category=category,
                 species=species,
@@ -1062,7 +1093,7 @@ class Radtrans:
             clouds_particles_porosity_factor = {species: -np.inf for species in cloud_species}
 
         for species in cloud_species:
-            _, _, _, _, source, _ = split_species_all_info(get_cloud_aliases(species))
+            _, _, _, _, source, _ = Opacity.split_species_all_info(CloudOpacity.get_aliases(species))
 
             if source == 'DHS':
                 if clouds_particles_porosity_factor[species] == 0:
@@ -1305,7 +1336,7 @@ class Radtrans:
             if self._line_species[i_spec] in mass_fractions:
                 line_species_mass_fractions[:, i_spec] = mass_fractions[self._line_species[i_spec]]
             else:
-                default_species, spectral_info = _split_species_spectral_info(self._line_species[i_spec])
+                default_species, spectral_info = Opacity.split_species_spectral_info(self._line_species[i_spec])
 
                 if default_species in mass_fractions:
                     line_species_mass_fractions[:, i_spec] = mass_fractions[default_species]
@@ -2727,10 +2758,9 @@ class Radtrans:
         if len(self._line_species) > 0:
             frequencies, frequency_bins_edges = self._init_frequency_grid_from_lines()
         elif len(self._gas_continuum_contributors) > 0:
-            hdf5_file = get_cia_aliases(self._gas_continuum_contributors[0])
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = self.__get_cia_aliases(self._gas_continuum_contributors[0])
+            hdf5_file = CIAOpacity.find(
                 path_input_data=self._path_input_data,
-                category='cia_opacities',
                 species=hdf5_file
             )
 
@@ -2743,10 +2773,9 @@ class Radtrans:
                 sampling=1
             )
         elif len(self._cloud_species) > 0:
-            hdf5_file = get_cloud_aliases(self._cloud_species[0])
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = CloudOpacity.get_aliases(self._cloud_species[0])
+            hdf5_file = CloudOpacity.find(
                 path_input_data=self._path_input_data,
-                category='clouds_opacities',
                 species=hdf5_file
             )
 
@@ -2835,9 +2864,8 @@ class Radtrans:
             wavelengths = hz2um(frequency_bins_edges)
         elif self._line_opacity_mode == 'lbl':  # line-by-line
             # Load the wavelength grid
-            opacities_file = get_opacity_input_file(
+            opacities_file = LineByLineOpacity.find(
                 path_input_data=self._path_input_data,
-                category='line_by_line_opacities',
                 species=self._line_species[0]
             )
 
@@ -3096,10 +3124,10 @@ class Radtrans:
 
                         # Use full names for CIA and clouds to have a clean legend when plotting the opacities
                         if opacity == 'gas_continuum_contributors':
-                            species = get_cia_aliases(species)
+                            species = self.__get_cia_aliases(species)
                         elif opacity == 'cloud_species':
                             _user_cloud_species = copy.deepcopy(species)
-                            species = get_cloud_aliases(species)
+                            species = CloudOpacity.get_aliases(species)
 
                         fixed_opacity_sources = copy.deepcopy(opacity_source_default[opacity_type])
                         fixed_opacity_sources[opacity] = [species]
@@ -3343,9 +3371,9 @@ class Radtrans:
                     Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
                     the non-isotropic geometry scenario.
                 reflectances (Optional):
-                    Reflectances of the surface (layer with highest pressure).
+                    Reflectances of the surface (layer with the highest pressure).
                 emissivities (Optional):
-                    Emissivities of the surface (layer with highest pressure).
+                    Emissivities of the surface (layer with the highest pressure).
                 additional_absorption_opacities_function (Optional[function]):
                     A python function that takes wavelength arrays in microns and pressure arrays in bars
                     as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
@@ -4266,10 +4294,9 @@ class Radtrans:
             if collision in Radtrans.__get_non_cia_gas_continuum_contributions():
                 continue
 
-            hdf5_file = get_cia_aliases(collision)
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = self.__get_cia_aliases(collision)
+            hdf5_file = CIAOpacity.find(
                 path_input_data=path_input_data,
-                category='cia_opacities',
                 species=hdf5_file
             )
 
@@ -4325,11 +4352,10 @@ class Radtrans:
         scattering_methods = []
 
         for i in range(len(self._cloud_species)):
-            hdf5_file = get_cloud_aliases(self._cloud_species[i])
+            hdf5_file = CloudOpacity.get_aliases(self._cloud_species[i])
 
-            hdf5_file = get_opacity_input_file(
+            hdf5_file = CloudOpacity.find(
                 path_input_data=path_input_data,
-                category='clouds_opacities',
                 species=hdf5_file
             )
 

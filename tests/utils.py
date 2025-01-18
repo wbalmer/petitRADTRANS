@@ -243,31 +243,27 @@ def make_test_opacities():
     from petitRADTRANS.__file_conversion import (
         write_cia_opacities, write_cloud_opacities, write_correlated_k, write_line_by_line
     )
-    from petitRADTRANS._input_data_loader import (
-        _get_spectral_information, _split_species_spectral_info,
-        get_cia_opacity_file_extension, get_cloud_opacity_file_extension, get_correlated_k_opacity_file_extension,
-        get_line_by_line_opacity_file_extension, get_opacity_input_file
+
+    from petitRADTRANS.opacities.opacities import (
+        Opacity, CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity
     )
-    from petitRADTRANS.config.configuration import petitradtrans_config_parser
     from petitRADTRANS.spectral_model import SpectralModel
 
     def __update_file_wavelength_range(_hdf5_file, _wavelength_min, _wavelength_max, _file_extension):
-        hdf5_opacity_file, spectral_information = _split_species_spectral_info(_hdf5_file)
-        resolution_filename, range_filename = _get_spectral_information(spectral_information)
+        hdf5_opacity_file, spectral_information = Opacity.split_species_spectral_info(_hdf5_file)
+        resolution_filename, range_filename = Opacity.find_spectral_information(spectral_information)
 
         range_filename = f"{_wavelength_min * 1e4:.1f}-{_wavelength_max * 1e4:.1f}mu"  # cm to um
 
         return f"{hdf5_opacity_file}.{resolution_filename}_{range_filename}.{_file_extension}"
 
     def __write_test_cia_opacities():
-        file_extension = get_cia_opacity_file_extension()
+        file_extension = CIAOpacity.get_default_extension()
 
         for species in parameters['spectrum_parameters'][opacity_type]:
-            species, _ = _split_species_spectral_info(species)  # use default
+            species, _ = Opacity.split_species_spectral_info(species)  # use default
 
-            hdf5_file = get_opacity_input_file(
-                path_input_data=path_input_data,
-                category='cia_opacities',
+            hdf5_file = CIAOpacity.find(
                 species=species
             )
 
@@ -330,14 +326,12 @@ def make_test_opacities():
             print(f"Done.")
 
     def __write_test_cloud_opacities():
-        file_extension = get_cloud_opacity_file_extension()
+        file_extension = CloudOpacity.get_default_extension()
 
         for species in parameters['cloud_parameters'][opacity_type]:
-            species, _ = _split_species_spectral_info(species)  # use default
+            species, _ = Opacity.split_species_spectral_info(species)  # use default
 
-            hdf5_file = get_opacity_input_file(
-                path_input_data=path_input_data,
-                category='clouds_opacities',
+            hdf5_file = CloudOpacity.find(
                 species=species
             )
 
@@ -378,7 +372,7 @@ def make_test_opacities():
                 )
             ))[0]
 
-            cloud_species, _ = _split_species_spectral_info(hdf5_file)
+            cloud_species, _ = Opacity.split_species_spectral_info(hdf5_file)
 
             hdf5_file = __update_file_wavelength_range(
                 _hdf5_file=hdf5_file,
@@ -407,16 +401,14 @@ def make_test_opacities():
             print(f"Done.")
 
     def __write_test_correlated_k_opacities():
-        file_extension = get_correlated_k_opacity_file_extension()
+        file_extension = CorrelatedKOpacity.get_default_extension()
         _wavelength_min = parameters['spectrum_parameters']['wavelength_range_correlated_k'][0]
         _wavelength_max = parameters['spectrum_parameters']['wavelength_range_correlated_k'][1]
 
         for species in parameters['spectrum_parameters'][opacity_type]:
-            species, _ = _split_species_spectral_info(species)  # use default
+            species, _ = Opacity.split_species_spectral_info(species)  # use default
 
-            hdf5_file = get_opacity_input_file(
-                path_input_data=path_input_data,
-                category='correlated_k_opacities',
+            hdf5_file = CorrelatedKOpacity.find(
                 species=species
             )
 
@@ -490,12 +482,10 @@ def make_test_opacities():
             print(f"Done.")
 
     def __write_test_line_by_line_opacities():
-        file_extension = get_line_by_line_opacity_file_extension()
+        file_extension = LineByLineOpacity.get_default_extension()
 
         for species in line_species:
-            hdf5_file = get_opacity_input_file(
-                path_input_data=path_input_data,
-                category='line_by_line_opacities',
+            hdf5_file = LineByLineOpacity.find(
                 species=species
             )
 
@@ -574,15 +564,13 @@ def make_test_opacities():
 
             print(f"Done.")
 
-    path_input_data = petitradtrans_config_parser.get_input_data_path()
-
     with open(reference_filenames['config_test_radtrans'], 'r') as f:
         parameters = json.load(f)
 
     description = 'Truncated opacity intended for testing petitRADTRANS'
 
     line_species = [
-        _split_species_spectral_info(s)[0]
+        Opacity.split_species_spectral_info(s)[0]
         for s in parameters['spectrum_parameters']['line_species_line_by_line']
     ]
 
