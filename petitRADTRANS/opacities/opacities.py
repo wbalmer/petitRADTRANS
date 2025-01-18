@@ -1757,7 +1757,7 @@ class CIAOpacity(Opacity):
     def __init__(
             self,
             species_list,
-            natural_abundance: bool = False,
+            natural_abundance: bool = True,
             charge: int = 0,
             source: str = 'unknown',
             spectral_sampling_type: str = 'R',
@@ -1796,6 +1796,35 @@ class CIAOpacity(Opacity):
             file_name=file_name,
             sub_path=sub_path,
             absolute_path=absolute_path
+        )
+
+    @classmethod
+    def find(cls, species: str, category: str = None, path_input_data: str = None, find_all: bool = False,
+             search_online: bool = True) -> str:
+        # Natural abundance by default
+        if not cls._has_isotope(species):
+            name, natural_abundance, charge, cloud_info, source, spectral_info = cls.split_species_all_info(
+                species=species
+            )
+
+            if natural_abundance == '':
+                natural_abundance = cls._natural_abundance_string
+
+            species = cls.join_species_all_info(
+                species_name=name,
+                natural_abundance=natural_abundance,
+                charge=charge,
+                cloud_info=cloud_info,
+                source=source,
+                spectral_info=spectral_info
+            )
+
+        return super().find(
+            species=species,
+            category=category,
+            path_input_data=path_input_data,
+            find_all=find_all,
+            search_online=search_online
         )
 
     @classmethod
@@ -2014,7 +2043,7 @@ class CloudOpacity(Opacity):
     def __init__(
             self,
             species_list,
-            natural_abundance: bool = False,
+            natural_abundance: bool = True,
             charge: int = 0,
             source: str = 'unknown',
             spectral_sampling_type: str = 'R',
@@ -2057,6 +2086,35 @@ class CloudOpacity(Opacity):
             file_name=file_name,
             sub_path=sub_path,
             absolute_path=absolute_path
+        )
+
+    @classmethod
+    def find(cls, species: str, category: str = None, path_input_data: str = None, find_all: bool = False,
+             search_online: bool = True) -> str:
+        # Natural abundance by default
+        if not cls._has_isotope(species):
+            name, natural_abundance, charge, cloud_info, source, spectral_info = cls.split_species_all_info(
+                species=species
+            )
+
+            if natural_abundance == '':
+                natural_abundance = cls._natural_abundance_string
+
+            species = cls.join_species_all_info(
+                species_name=name,
+                natural_abundance=natural_abundance,
+                charge=charge,
+                cloud_info=cloud_info,
+                source=source,
+                spectral_info=spectral_info
+            )
+
+        return super().find(
+            species=species,
+            category=category,
+            path_input_data=path_input_data,
+            find_all=find_all,
+            search_online=search_online
         )
 
     @classmethod
