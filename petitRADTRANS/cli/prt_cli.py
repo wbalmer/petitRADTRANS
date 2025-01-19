@@ -1,7 +1,6 @@
 """Command line interface to download petitRADTRANS input data files.
 # TODO should probably be renamed keeper_cli or prt_keeper_cli in v4.0.0
 """
-
 import datetime
 import functools
 import http.client
@@ -14,13 +13,12 @@ import warnings
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions
-from selenium.webdriver.common.by import By
 from selenium.common.exceptions import SessionNotCreatedException, TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.support.ui import WebDriverWait
 
 from petitRADTRANS.config import petitradtrans_config_parser
-
 
 __megabyte = 9.5367431640625e-07  # 1 / 1024 ** 2 (B to MB)
 

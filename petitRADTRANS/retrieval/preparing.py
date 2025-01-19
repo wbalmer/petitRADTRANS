@@ -1,5 +1,4 @@
-"""
-Useful functions for data reduction.
+"""Stores useful functions for data reduction.
 """
 import copy
 import sys

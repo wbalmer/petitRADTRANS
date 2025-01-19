@@ -1,3 +1,5 @@
+"""Stores useful plot function.
+"""
 import copy
 import os
 
@@ -16,9 +18,9 @@ from petitRADTRANS.chemistry.clouds import (
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.opacities.opacities import Opacity
+from petitRADTRANS.physics import frequency2wavelength
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.plotlib.style import default_color, get_species_color, update_figure_font_size
-from petitRADTRANS.physics import frequency2wavelength
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.spectral_model import SpectralModel

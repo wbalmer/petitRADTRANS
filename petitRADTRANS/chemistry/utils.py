@@ -10,7 +10,6 @@ from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, 
                                                  get_species_elements)
 from petitRADTRANS.opacities.opacities import Opacity
 
-
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
     # atomic number, log10 elemental abundance, uncertainty
     """

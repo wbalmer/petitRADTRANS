@@ -1,11 +1,9 @@
-"""
-This module contains a set of useful functions that don't really fit anywhere
+"""This module contains a set of useful functions that don't really fit anywhere
 else. This includes flux conversions, prior functions, mean molecular weight
 calculations, transforms from mass to number fractions, and fits file output.
 """
-import os
-
 import json
+import os
 import warnings
 
 import numpy as np

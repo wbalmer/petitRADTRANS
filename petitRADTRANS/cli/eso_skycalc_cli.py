@@ -1,6 +1,5 @@
 """Wrapper of ESO's SKYCALC Command Line Interface.
 """
-
 import copy
 import json
 import os

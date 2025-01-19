@@ -1,4 +1,5 @@
-"""Planet object."""
+"""Stores the Planet object.
+"""
 import os
 import warnings
 

@@ -1,5 +1,4 @@
-"""
-Models Module
+"""Models Module
 
 This module contains a set of functions that generate the spectra used
 in the petitRADTRANS retrieval. This includes setting up the
@@ -26,22 +25,24 @@ All models must take the same set of inputs:
 """
 # TODO replace by SpectralModel function
 import numpy as np
+from species.util.dust_util import apply_ism_ext
 
+from petitRADTRANS.chemistry import clouds
 from petitRADTRANS.chemistry.core import get_abundances
-from petitRADTRANS.planet import Planet
 from petitRADTRANS.physics import (
-    flux2irradiance,
-    temperature_profile_function_ret_model, temperature_profile_function_guillot_global,
-    temperature_profile_function_isothermal,
     cubic_spline_profile,
-    linear_spline_profile,
     dtdp_temperature_profile,
+    flux2irradiance,
+    linear_spline_profile,
     madhu_seager_2009,
     planck_function_cm,
-    power_law_temperature_profile
+    power_law_temperature_profile,
+    temperature_profile_function_guillot_global,
+    temperature_profile_function_isothermal,
+    temperature_profile_function_ret_model
 )
-from petitRADTRANS.chemistry import clouds
-from species.util.dust_util import apply_ism_ext
+from petitRADTRANS.planet import Planet
+
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)
 

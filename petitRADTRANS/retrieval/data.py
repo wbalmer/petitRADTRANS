@@ -5,10 +5,10 @@ import warnings
 
 import numpy as np
 from astropy.io import fits
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.ndimage import gaussian_filter
 
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 import petitRADTRANS.physical_constants as cst
 
 

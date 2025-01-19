@@ -6,10 +6,10 @@ import os
 import re
 import warnings
 
-from molmass import Formula
+import h5py
 import numpy as np
 import numpy.typing as npt
-import h5py
+from molmass import Formula
 
 from petitRADTRANS import __version__ as prt_version
 from petitRADTRANS._input_data import default_file_selection, find_input_file

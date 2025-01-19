@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.2.0a16"
+version = "3.2.0a17"
 description = "Exoplanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -36,12 +36,12 @@ dependencies = [
     "astropy>=5.2",  # introduces the CAHA observing site
     "molmass",
     "h5py",
+    "dill",
     "pymultinest",
     "pyvo",
     "bs4",
     "selenium",
-    "exo_k",
-    "dill",
+    "exo_k"
 ]
 
 [project.urls]
@@ -56,8 +56,7 @@ retrieval = [
     "requests",
     "skycalc-cli",
     "matplotlib",
-    "corner",
-    "dill",
+    "corner"
 ]
 full = [
     "mpi4py",
@@ -67,8 +66,7 @@ full = [
     "corner",
     "seaborn",  # only used in nice_corner
     "species>=0.8.0",  # only used in RetrievalConfig.add_photometry
-    "ultranest", # alternative to pymultinest
-    "dill",  
+    "ultranest" # alternative to pymultinest
 ]
 test = [
     "build",
@@ -82,8 +80,7 @@ test = [
     "corner",
     "seaborn",
     "species>=0.8.0",
-    "ultranest",
-    "dill",
+    "ultranest"
 ]
 
 [tool.flake8]

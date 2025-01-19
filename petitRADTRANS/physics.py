@@ -4,8 +4,8 @@ import numpy as np
 from scipy.interpolate import interp1d, PchipInterpolator
 
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import running_mean
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.math import running_mean
 
 
 def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):

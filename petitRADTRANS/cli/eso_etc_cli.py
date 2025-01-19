@@ -1,7 +1,6 @@
 """petitRADTRANS implementation of ESO's Exposure Time Calculator Command Line Interface.
 Source: https://etc.eso.org/observing/etc/home
 """
-
 import copy
 import json
 import os

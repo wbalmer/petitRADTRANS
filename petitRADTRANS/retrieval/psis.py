@@ -1,4 +1,4 @@
-"""Pareto smoothed importance sampling (PSIS)
+"""Pareto smoothed importance sampling (PSIS)  # TODO find a more explicit name for this module in version 4.0.0
 
 This module implements Pareto smoothed importance sampling (PSIS) and PSIS
 leave-one-out (LOO) cross-validation for Python (Numpy).

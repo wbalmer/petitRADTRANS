@@ -1,5 +1,5 @@
-"""Physical constants, in CGS"""
-
+"""Stores physical constants in CGS.
+"""
 import astropy.constants as a_cst
 import numpy as np
 import scipy.constants as s_cst

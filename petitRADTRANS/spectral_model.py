@@ -1,7 +1,6 @@
 """SpectralModel object and related.
 The argument kwargs is not always used in SpectralModel functions, this is by design (see __init__ docstring).
 """
-
 import copy
 import inspect
 import os
