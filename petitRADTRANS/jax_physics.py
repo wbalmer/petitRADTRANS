@@ -4,7 +4,7 @@ from numba import njit
 import warnings
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
 import petitRADTRANS.physical_constants as cst
-import petitRADTRANS.fortran_src.fortran_core.math as fmath
+#import petitRADTRANS.fortran_radtrans_core import math as fmath
 
 """
 JAX implementation of fortran_core.physics
@@ -64,7 +64,7 @@ def compute_rosseland_opacities_core(clouds_final_absorption_opacities,
     return numerator / kappa_rosse
 
 
-def compute_star_planck_function_integral(temperatures,frequencies):
+def compute_star_planck_function_integral(temperatures, frequencies):
     """
     Not clear what this function is actually doing...
     TODO check what the difference between the different integral functions is
@@ -154,32 +154,37 @@ def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
     B_nu_dT = (two_h_over_c2 * jnp.outer(jnp.ones_like(T), nu**4) / denominator).T  # Correct broadcasting
     return B_nu_dT
 
-@jit
+
 def compute_planck_function_integral(temperatures, frequencies):
     """
     Compute mean using Boole's method
     TODO: possibly a faster integration method?
     """
 
+    if frequencies[1] > frequencies[0]:
+        warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
+        return None
+    else:
+        return _compute_planck_function_integral(temperatures, frequencies)
+
+
+@jit
+def _compute_planck_function_integral(temperatures, frequencies):
     cst_c2 = cst.c ** 2.0
     cst_h_c2 = cst.h / cst_c2
-    cst_h_k = cst.h / cst.k
+    cst_h_k = cst.h / cst.kB
     factor1 = 1.0 / 90.0
-    factor2 = 14.0 * cst_h_c2 # (7 * 2)
-    factor3 = 64.0 * cst_h_c2 # (32 * 2)
-    factor4 = 24.0 * cst_h_c2 # (12 * 2)
+    factor2 = 14.0 * cst_h_c2  # (7 * 2)
+    factor3 = 64.0 * cst_h_c2  # (32 * 2)
+    factor4 = 24.0 * cst_h_c2  # (12 * 2)
 
-    planck_flux = jnp.zeros(temperatures.shape[0], frequencies.shape[0] - 1)
-
-    if (frequencies[1] > frequencies[0]):
-        warnings.warn("Error: frequencies must be in decreasing order")
-        return None
+    planck_flux = jnp.zeros((temperatures.shape[0], frequencies.shape[0] - 1))
 
     cst_h_kt = cst_h_k / temperatures
 
     for i in range(frequencies.shape[0] - 1):
-        nu_large = frequencies(i)
-        nu_small = frequencies(i + 1)
+        nu_large = frequencies[i]
+        nu_small = frequencies[i + 1]
 
         diff_nu = nu_large - nu_small
 
@@ -187,17 +192,18 @@ def compute_planck_function_integral(temperatures, frequencies):
         nu3 = nu_small + diff_nu * 0.5
         nu4 = nu_small + diff_nu * 0.75
 
-        planck_flux = planck_flux.at[:, i].add(factor1 * (\
-            factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)\
-            + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)\
-            + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)\
-            + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)\
-            + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)\
-        ))   
+        planck_flux = planck_flux.at[:, i].add(
+            factor1 * (factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)
+                       + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)
+                       + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)
+                       + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)
+                       + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)
+                       ))
     return planck_flux
 
+
 @jit
-def star_planck(T,nu):
+def star_planck(T, nu):
     """
     Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
     For every temperature and frequency provided. 

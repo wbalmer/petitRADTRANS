@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from numba import njit
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
 import petitRADTRANS.physical_constants as cst
-import petitRADTRANS.fortran_src.fortran_core.math as fmath
+from  petitRADTRANS.fortran_radtrans_core import math as fmath
 
 """
 JAX implementation of fortran_core.math

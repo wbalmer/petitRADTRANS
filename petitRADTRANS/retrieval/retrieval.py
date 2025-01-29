@@ -10,7 +10,7 @@ import numpy.typing as npt
 from scipy.stats import binned_statistic
 from jax import random, numpy as jnp
 
-from jaxns import DefaultNestedSampler
+from jaxns import NestedSampler
 from jaxns import Model
 from jaxns import Prior
 from jaxns import summary, plot_diagnostics, plot_cornerplot, save_results, load_results, save_pytree
@@ -2409,7 +2409,7 @@ class Retrieval:
             )
         
         # TODO check which sampler we want, or provide options
-        ns = DefaultNestedSampler(
+        ns = NestedSampler(
             model=model,
             max_samples=max_samples,
             num_live_points = num_live_points,

@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from numba import njit
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
 import petitRADTRANS.physical_constants as cst
-import petitRADTRANS.fortran_src.fortran_core.math as fmath
+#import petitRADTRANS.fortran_radtrans_core import math as fmath
 import petitRADTRANS.jax_physics as jphys
 import petitRADTRANS.jax_math as jmath
 
@@ -192,10 +192,15 @@ def NG_source_approx(source_n,source_n1,source_n2,source_n3,source):
     return source
 
 @jit
-def m_approximate_ng_source(source_n, source_n1, source_n2, source_n3, source,
-                            n_g, n_frequencies_bin_edges, n_layers):
+def m_approximate_ng_source(source_n,
+                            source_n1,
+                            source_n2,
+                            source_n3):
     """Approximates the source term."""
 
+    n_g,n_frequencies_bin_edges,n_layers = source_n.shape
+    n_frequencies_bin_edges += 1
+    source = jnp.zeros((n_g,n_frequencies_bin_edges,n_layers))
     huge_q = jnp.sqrt(jnp.finfo(jnp.float64).max)
     tiniest = jnp.finfo(jnp.float64).tiny
 
@@ -214,10 +219,9 @@ def m_approximate_ng_source(source_n, source_n1, source_n2, source_n3, source,
             Q2 = tn - tn1 - tn2 + tn3
             Q3 = tn - tn1
 
-            Q1 = Q1.at[0].set(0.0) # equivalent to Q1(1) = 0d0
-            Q2 = Q2.at[0].set(0.0) # equivalent to Q2(1) = 0d0
-            Q3 = Q3.at[0].set(0.0) # equivalent to Q3(1) = 0d0
-
+            Q1 = Q1.at[0].set(0.0)  # equivalent to Q1(1) = 0d0
+            Q2 = Q2.at[0].set(0.0)  # equivalent to Q2(1) = 0d0
+            Q3 = Q3.at[0].set(0.0)  # equivalent to Q3(1) = 0d0
 
             A1 = jnp.minimum(jnp.sum(Q1 * Q1), huge_q)
             A2 = jnp.minimum(jnp.sum(Q2 * Q1), huge_q)
@@ -242,22 +246,25 @@ def m_approximate_ng_source(source_n, source_n1, source_n2, source_n3, source,
             a = (C1 * B2 - C2 * B1) / AB_denominator
             b = (C2 * A1 - C1 * A2) / AB_denominator
 
-            calculate_condition = (jnp.abs(A1) >= 1e-250) & \
-                                    (jnp.abs(A2) >= 1e-250) & \
-                                    (jnp.abs(B1) >= 1e-250) & \
-                                    (jnp.abs(B2) >= 1e-250) & \
-                                    (jnp.abs(C1) >= 1e-250) & \
-                                    (jnp.abs(C2) >= 1e-250)
+            calculate_condition = ((jnp.abs(A1) >= 1e-250) &
+                                   (jnp.abs(A2) >= 1e-250) &
+                                   (jnp.abs(B1) >= 1e-250) &
+                                   (jnp.abs(B2) >= 1e-250) &
+                                   (jnp.abs(C1) >= 1e-250) &
+                                   (jnp.abs(C2) >= 1e-250))
 
-            a, b, source = jax.lax.cond(AB_denominator >= tiniest and calculate_condition, calculate_source, use_original_source, (a, b, source))
+            a, b, source = lax.cond(AB_denominator >= tiniest and calculate_condition,
+                                    calculate_source,
+                                    use_original_source,
+                                    (a, b, source))
 
             return source
 
-        source = jax.lax.fori_loop(0, n_g, ng_loop, source)
+        source = lax.fori_loop(0, n_g, ng_loop, source)
 
         return source
 
-    source = jax.lax.fori_loop(0, n_frequencies_bin_edges - 1, freq_loop, source)
+    source = lax.fori_loop(0, n_frequencies_bin_edges - 1, freq_loop, source)
 
     return source
 
@@ -319,15 +326,9 @@ def compute_feautrier_radiative_transfer(
 
     flux = jnp.zeros(n_frequencies_bin_edges - 1)
     emission_contribution = jnp.zeros((n_layers, n_frequencies_bin_edges - 1))
-    planck = jnp.zeros((n_layers, n_frequencies_bin_edges - 1))
+    #planck = jnp.zeros((n_layers, n_frequencies_bin_edges - 1))
 
-    for k in range(n_frequencies_bin_edges - 1):
-        for i in range(n_layers):
-            planck = planck.at[i, k].set(jphys.compute_planck_function_integral(
-                frequencies_bin_edges[k],
-                frequencies_bin_edges[k+1],
-                temperatures[i])
-                )
+    planck = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
 
     # Main radiative transfer loop (simplified structure)
     for i_freq in range(n_frequencies_bin_edges - 1):
@@ -352,9 +353,9 @@ def compute_feautrier_radiative_transfer(
                                     jnp.exp(-optical_depths[:, i, :] /
                                             emission_cos_angles[i_mu]))
                 return J_star_ini_i_mu + 0.5 * I_star_calc_i_mu * emission_cos_angles_weights[i_mu]
-            J_star_ini_i = jax.lax.fori_loop(0, n_angles, inner_inner_loop, J_star_ini_i)
+            J_star_ini_i = lax.fori_loop(0, n_angles, inner_inner_loop, J_star_ini_i)
             return J_star_ini_i
-        J_star_ini = jax.lax.fori_loop(0, n_frequencies_bin_edges - 1, inner_loop, J_star_ini)
+        J_star_ini = lax.fori_loop(0, n_frequencies_bin_edges - 1, inner_loop, J_star_ini)
 
     else:
         def inner_loop(i, J_star_ini_i):
@@ -367,7 +368,7 @@ def compute_feautrier_radiative_transfer(
             J_star_ini = J_star_ini.at[:, :, i].set(inner_loop(i, J_star_ini[:, :, i]))
             return J_star_ini
 
-        J_star_ini = jax.lax.fori_loop(0, n_frequencies_bin_edges - 1, update_J_star_ini, J_star_ini)
+        J_star_ini = lax.fori_loop(0, n_frequencies_bin_edges - 1, update_J_star_ini, J_star_ini)
 
     planck = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
 
@@ -385,11 +386,11 @@ def compute_feautrier_radiative_transfer(
 
             return I_surface_no_scattering_l.at[l].set(I_surface_emission + I_surface_reflection)
 
-        I_surface_no_scattering_i = jax.lax.fori_loop(0, n_g, update_scattering, jnp.zeros(n_g))
+        I_surface_no_scattering_i = lax.fori_loop(0, n_g, update_scattering, jnp.zeros(n_g))
         return I_surface_no_scattering.at[i].set(I_surface_no_scattering_i)
     
     I_surface_no_scattering = \
-        jax.lax.fori_loop(0, n_frequencies_bin_edges - 1, update_surface_intensity, I_surface_no_scattering)
+        lax.fori_loop(0, n_frequencies_bin_edges - 1, update_surface_intensity, I_surface_no_scattering)
     
     source = (photon_destruction_probabilities_ *
               planck +
@@ -419,7 +420,7 @@ def compute_feautrier_radiative_transfer(
                               dtau_2_level.at[l, k - 1].get())
                 return dtau_1_level, dtau_2_level
 
-            dtau_1_level, dtau_2_level = jax.lax.fori_loop(1, n_layers - 1, process_k, (dtau_1_level, dtau_2_level))
+            dtau_1_level, dtau_2_level = lax.fori_loop(1, n_layers - 1, process_k, (dtau_1_level, dtau_2_level))
 
             def process_j(j, results_j):
                 b, c, a, lambda_loc, f2_struct, f3_struct = results_j
@@ -461,7 +462,7 @@ def compute_feautrier_radiative_transfer(
                     return b, c, a, lambda_loc, f2_struct, f3_struct
 
                 b, c, a, lambda_loc, f2_struct, f3_struct = \
-                    jax.lax.fori_loop(1, n_layers - 1, process_k_inner, (b, c, a, lambda_loc, f2_struct, f3_struct))
+                    lax.fori_loop(1, n_layers - 1, process_k_inner, (b, c, a, lambda_loc, f2_struct, f3_struct))
 
                 # Last level (surface)
                 f1 = emission_cos_angles[j] / dtau_1_level[l,n_layers - 2]  # Corrected index here
@@ -472,7 +473,7 @@ def compute_feautrier_radiative_transfer(
 
                 return b, c, a, lambda_loc, f2_struct, f3_struct
             b, c, a, lambda_loc, f2_struct, f3_struct =\
-                jax.lax.fori_loop(0, n_angles, process_j, (b, c, a, lambda_loc, f2_struct, f3_struct))
+                lax.fori_loop(0, n_angles, process_j, (b, c, a, lambda_loc, f2_struct, f3_struct))
 
             def scattering_iteration(i_iter_scat, results_iter):
                 (i_iter_scat,
@@ -513,11 +514,11 @@ def compute_feautrier_radiative_transfer(
                                                    I_plus_surface)
                         return I_H, I_J, I_plus_surface
                     
-                    I_H, I_J, I_plus_surface = jax.lax.fori_loop(1, n_layers - 1, k_loop, (I_H, I_J, I_plus_surface))
+                    I_H, I_J, I_plus_surface = lax.fori_loop(1, n_layers - 1, k_loop, (I_H, I_J, I_plus_surface))
                     I_H = I_H.at[n_layers-1, j].set(0.0)
                     return r, b, c, a, I_plus_surface, I_J, I_H
                 r, b, c, a, I_plus_surface, I_J, I_H =\
-                    jax.lax.fori_loop(0, n_angles, angle_loop, (r, b, c, a, I_plus_surface, I_J, I_H))
+                    lax.fori_loop(0, n_angles, angle_loop, (r, b, c, a, I_plus_surface, I_J, I_H))
                 
                 flux_tmp_old = flux_tmp
                 flux_tmp = 0.0
@@ -525,7 +526,7 @@ def compute_feautrier_radiative_transfer(
                 def flux_loop(j, flux_tmp):
                     return flux_tmp - I_H[0, j] * mu_weight[j]
                 
-                flux_tmp = jax.lax.fori_loop(0, n_angles, flux_loop, flux_tmp)
+                flux_tmp = lax.fori_loop(0, n_angles, flux_loop, flux_tmp)
 
                 conv_val = jnp.abs(1.0 - flux_tmp_old / flux_tmp)
 
@@ -541,7 +542,7 @@ def compute_feautrier_radiative_transfer(
                     def j_bol_loop(j, J_bol_g):
                         return J_bol_g + I_J[:, j] * emission_cos_angles_weights[j]
                     
-                    J_bol_g = jax.lax.fori_loop(0, n_angles, j_bol_loop, J_bol_g)
+                    J_bol_g = lax.fori_loop(0, n_angles, j_bol_loop, J_bol_g)
 
                     J_planet_scat = J_planet_scat.at[:, l, i].set(J_bol_g)
 
@@ -598,7 +599,7 @@ def compute_feautrier_radiative_transfer(
                  source_planet_scat_n,
                  source_planet_scat_n1,
                  source_planet_scat_n2,
-                 source_planet_scat_n3) = jax.lax.while_loop(cond_fun,
+                 source_planet_scat_n3) = lax.while_loop(cond_fun,
                                                              body_fun,
                                                              (i_iter_scat,
                                                               conv_val,
@@ -649,7 +650,7 @@ def compute_feautrier_radiative_transfer(
              source_planet_scat_n1,
              source_planet_scat_n2,
              source_planet_scat_n3) = \
-                jax.lax.fori_loop(0,
+                lax.fori_loop(0,
                                   iter_scat,
                                   scattering_iteration,
                                   (i_iter_scat,
@@ -676,7 +677,7 @@ def compute_feautrier_radiative_transfer(
                 def flux_loop(j, flux):
                     return flux - I_H[0, j] * pi_4 * weights_gauss[l] * mu_weight[j]
 
-                flux = jax.lax.fori_loop(0, n_angles, flux_loop, flux)
+                flux = lax.fori_loop(0, n_angles, flux_loop, flux)
                 return flux
 
             # Example usage (inside the larger function, after the scattering iteration):
@@ -684,7 +685,7 @@ def compute_feautrier_radiative_transfer(
 
             return flux
 
-        flux = jax.lax.fori_loop(0, n_g, process_g, (flux))
+        flux = lax.fori_loop(0, n_g, process_g, (flux))
 
 
 
@@ -803,11 +804,6 @@ def _compute_planck_opacities(
     return kappa_planck
 compute_planck_opacities = jit(_compute_planck_opacities,static_argnums=(4))
 
-Python
-
-import jax
-import jax.numpy as jnp
-from jax import jit
 
 @jit
 def integ_parab(x, y, z, fx, fy, fz, a, b):
@@ -848,7 +844,7 @@ def compute_radius_hydrostatic_equilibrium(pressures, reference_gravity, atmosph
       )
       return (radius_hydrostatic_equilibrium,)
 
-    radius_hydrostatic_equilibrium, = jax.lax.fori_loop(n_layers - 3, 0, body, (radius_hydrostatic_equilibrium,))
+    radius_hydrostatic_equilibrium, = lax.fori_loop(n_layers - 3, 0, body, (radius_hydrostatic_equilibrium,))
 
     def find_r0_body(i, val):
         R0 = val[0]
@@ -866,7 +862,7 @@ def compute_radius_hydrostatic_equilibrium(pressures, reference_gravity, atmosph
             found = True
         return (R0, found)
     
-    R0, _ = jax.lax.fori_loop(n_layers - 2, 0, find_r0_body, (0.0, False))
+    R0, _ = lax.fori_loop(n_layers - 2, 0, find_r0_body, (0.0, False))
 
     if variable_gravity:
         R0 = 1.0 / planet_radius - R0
@@ -970,19 +966,22 @@ def compute_transit_radii(opacities, temperatures, pressures, reference_gravity,
 
     return transit_radii, radius_hydrostatic_equilibrium
 
+
 def compute_transmission_spectrum_contribution():
     # TODO
     return
+
 
 @jit
 def integrate_opacities(intp_ind, n_cloud_wavelengths, n_layers, kappa, lambd, l_bord1, l_bord2):
     """Calculate the integral of a linearly interpolated function kappa."""
 
     kappa_integ = kappa[intp_ind, :] * (l_bord2 - l_bord1) + \
-                  (kappa[intp_ind + 1, :] - kappa[intp_ind, :]) / \
-                  (lambd[intp_ind + 1] - lambd[intp_ind]) * \
-                  0.5 * ((l_bord2 - lambd[intp_ind])**2 - (l_bord1 - lambd[intp_ind])**2)
+        (kappa[intp_ind + 1, :] - kappa[intp_ind, :]) / \
+        (lambd[intp_ind + 1] - lambd[intp_ind]) * \
+        0.5 * ((l_bord2 - lambd[intp_ind])**2 - (l_bord1 - lambd[intp_ind])**2)
     return kappa_integ
+
 
 @jit
 def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opacities,
@@ -1066,7 +1065,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
             integrate_section(intp_index_small_max, intp_index_small_max+1)
         else:
             integrate_section(intp_index_small_min, intp_index_small_min+1)
-            _, _ = jax.lax.while_loop(
+            _, _ = lax.while_loop(
                 lambda val: val[0] < intp_index_small_max, 
                 inner_loop_body, 
                 (intp_index_small_min + 1, None)
@@ -1103,7 +1102,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
     (clouds_final_absorption_opacities, 
      cloud_anisotropic_extinctions, 
      cloud_isotropic_extinctions, 
-     cloud_scattering_reduction_factor_out) = jax.lax.fori_loop(0, n_frequencies_bins - 1, loop_body, carry)
+     cloud_scattering_reduction_factor_out) = lax.fori_loop(0, n_frequencies_bins - 1, loop_body, carry)
 
     return (clouds_final_absorption_opacities, 
             cloud_anisotropic_extinctions, 
@@ -1128,9 +1127,13 @@ def transmission_g_tot_ck_scat(gravity,
     Returns:
         _type_: _description_
     """
-    photon_destruction_prob = compute_photon_destruction_prob(total_opacity_in,
-                                                           continuum_opacity_scattering_emis)
-    transmission = compute_optical_depths(gravity,
-                                       pressure,
-                                       total_opacity_in)
+    photon_destruction_prob = compute_photon_destruction_prob(
+        total_opacity_in,
+        continuum_opacity_scattering_emis
+        )
+    transmission = compute_optical_depths(
+        gravity,
+        pressure,
+        total_opacity_in
+        )
     return transmission, photon_destruction_prob
