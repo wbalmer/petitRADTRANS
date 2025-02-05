@@ -1549,8 +1549,7 @@ module fortran_radtrans_core
             else
                 do i = 1, n_frequencies_bin_edges-1
                     J_star_ini(:, :, i) = abs(&
-                        stellar_intensity(i) / 4d0 * exp(-optical_depths(:,i,:)/star_irradiation_cos_angle)&
-                    )
+                        stellar_intensity(i) / 4d0 * exp(-optical_depths(:,i,:)/star_irradiation_cos_angle))
                 end do
             end if
 
@@ -1712,7 +1711,7 @@ module fortran_radtrans_core
 
                             I_H(n_layers, j) = 0d0
                         end do  ! emission_cos_angles
-
+                        
                         ! Test if the flux has converged
                         flux_tmp_old = flux_tmp
                         flux_tmp = 0d0
@@ -1741,7 +1740,7 @@ module fortran_radtrans_core
                             + (1d0 - photon_destruction_probabilities_(:, l, i)) &
                             * (J_star_ini(l, :, i)+J_planet_scat(:, l, i)-lambda_loc(:, l, i) * source(:, l, i))&
                         ) / (1d0 - (1d0 - photon_destruction_probabilities_(:, l, i)) * lambda_loc(:, l, i))
-
+                        
                         ! Accelerate the source function convergence with Ng acceleration
                         source_planet_scat_n3 = source_planet_scat_n2
                         source_planet_scat_n2 = source_planet_scat_n1
@@ -1816,79 +1815,78 @@ module fortran_radtrans_core
                         emission_contribution(:,i_freq)/sum(emission_contribution(:,i_freq))
                 end do
             end if
-
-            contains
-                subroutine m_approximate_ng_source(source_n,source_n1,source_n2,source_n3,source, &
-                                         n_g,n_frequencies_bin_edges,n_layers)
-                    implicit none
-
-                    double precision, parameter :: huge_q = sqrt(huge(0d0)), tiniest = tiny(0d0)
-
-                    integer :: n_layers, n_frequencies_bin_edges, n_g, i_ng, i_freq
-                    double precision :: tn(n_layers), tn1(n_layers), tn2(n_layers), &
-                            tn3(n_layers), temp_buff(n_layers), &
-                            source_n(n_g,n_frequencies_bin_edges-1,n_layers), &
-                            source_n1(n_g,n_frequencies_bin_edges-1,n_layers), &
-                            source_n2(n_g,n_frequencies_bin_edges-1,n_layers), &
-                            source_n3(n_g,n_frequencies_bin_edges-1,n_layers), &
-                            source(n_g,n_frequencies_bin_edges-1,n_layers), &
-                            source_buff(n_g,n_frequencies_bin_edges-1,n_layers)
-                    double precision :: Q1(n_layers), Q2(n_layers), Q3(n_layers)
-                    double precision :: A1, A2, B1, B2, C1, C2, AB_denominator
-                    double precision :: a, b
-
-                    do i_freq = 1, n_frequencies_bin_edges-1
-                        do i_ng = 1, n_g
-                            tn = source_n(i_ng,i_freq,1:n_layers)
-                            tn1 = source_n1(i_ng,i_freq,1:n_layers)
-                            tn2 = source_n2(i_ng,i_freq,1:n_layers)
-                            tn3 = source_n3(i_ng,i_freq,1:n_layers)
-
-                            Q1 = tn - 2d0 * tn1 + tn2
-                            Q2 = tn - tn1 - tn2 + tn3
-                            Q3 = tn - tn1
-
-                            ! test
-                            Q1(1) = 0d0
-                            Q2(1) = 0d0
-                            Q3(1) = 0d0
-
-                            A1 = min(sum(Q1 * Q1), huge_q)
-                            A2 = min(sum(Q2 * Q1), huge_q)
-                            B1 = min(sum(Q1 * Q2), huge_q)
-                            B2 = min(sum(Q2 * Q2), huge_q)
-                            C1 = min(sum(Q1 * Q3), huge_q)
-                            C2 = min(sum(Q2 * Q3), huge_q)
-
-                            AB_denominator = A1 * B2 - A2 * B1
-
-                            ! Nan handling
-                            if(AB_denominator < tiniest) then
-                                return
-                            end if
-
-                            if (abs(A1) >= 1d-250 .and. &
-                                    abs(A2) >= 1d-250 .and. &
-                                    abs(B1) >= 1d-250 .and. &
-                                    abs(B2) >= 1d-250 .and. &
-                                    abs(C1) >= 1d-250 .and. &
-                                    abs(C2) >= 1d-250) then
-                                a = (C1 * B2 - C2 * B1) / AB_denominator
-                                b = (C2 * A1 - C1 * A2) / AB_denominator
-
-                                temp_buff = max((1d0 - a - b) * tn + a * tn1 + b * tn2, 0d0)
-
-                                source_buff(i_ng,i_freq,1:n_layers) = temp_buff
-                            else
-                                source_buff(i_ng,i_freq,1:n_layers) = source(i_ng,i_freq,1:n_layers)
-                            end if
-                        end do
-                    end do
-
-                    source = source_buff
-                end subroutine m_approximate_ng_source
+                
         end subroutine compute_feautrier_radiative_transfer
 
+        subroutine m_approximate_ng_source(source_n,source_n1,source_n2,source_n3,source, &
+            n_g,n_frequencies_bin_edges,n_layers)
+            implicit none
+
+            double precision, parameter :: huge_q = sqrt(huge(0d0)), tiniest = tiny(0d0)
+
+            integer :: n_layers, n_frequencies_bin_edges, n_g, i_ng, i_freq
+            double precision :: tn(n_layers), tn1(n_layers), tn2(n_layers), &
+            tn3(n_layers), temp_buff(n_layers), &
+            source_n(n_g,n_frequencies_bin_edges-1,n_layers), &
+            source_n1(n_g,n_frequencies_bin_edges-1,n_layers), &
+            source_n2(n_g,n_frequencies_bin_edges-1,n_layers), &
+            source_n3(n_g,n_frequencies_bin_edges-1,n_layers), &
+            source(n_g,n_frequencies_bin_edges-1,n_layers), &
+            source_buff(n_g,n_frequencies_bin_edges-1,n_layers)
+            double precision :: Q1(n_layers), Q2(n_layers), Q3(n_layers)
+            double precision :: A1, A2, B1, B2, C1, C2, AB_denominator
+            double precision :: a, b
+
+            do i_freq = 1, n_frequencies_bin_edges-1
+            do i_ng = 1, n_g
+            tn = source_n(i_ng,i_freq,1:n_layers)
+            tn1 = source_n1(i_ng,i_freq,1:n_layers)
+            tn2 = source_n2(i_ng,i_freq,1:n_layers)
+            tn3 = source_n3(i_ng,i_freq,1:n_layers)
+
+            Q1 = tn - 2d0 * tn1 + tn2
+            Q2 = tn - tn1 - tn2 + tn3
+            Q3 = tn - tn1
+
+            ! test
+            Q1(1) = 0d0
+            Q2(1) = 0d0
+            Q3(1) = 0d0
+
+            A1 = min(sum(Q1 * Q1), huge_q)
+            A2 = min(sum(Q2 * Q1), huge_q)
+            B1 = min(sum(Q1 * Q2), huge_q)
+            B2 = min(sum(Q2 * Q2), huge_q)
+            C1 = min(sum(Q1 * Q3), huge_q)
+            C2 = min(sum(Q2 * Q3), huge_q)
+
+            AB_denominator = A1 * B2 - A2 * B1
+
+            ! Nan handling
+            if(AB_denominator < tiniest) then
+            return
+            end if
+
+            if (abs(A1) >= 1d-250 .and. &
+                abs(A2) >= 1d-250 .and. &
+                abs(B1) >= 1d-250 .and. &
+                abs(B2) >= 1d-250 .and. &
+                abs(C1) >= 1d-250 .and. &
+                abs(C2) >= 1d-250) then
+            a = (C1 * B2 - C2 * B1) / AB_denominator
+            b = (C2 * A1 - C1 * A2) / AB_denominator
+
+            temp_buff = max((1d0 - a - b) * tn + a * tn1 + b * tn2, 0d0)
+
+            source_buff(i_ng,i_freq,1:n_layers) = temp_buff
+            else
+            source_buff(i_ng,i_freq,1:n_layers) = source(i_ng,i_freq,1:n_layers)
+            end if
+            end do
+            end do
+
+            source = source_buff
+            end subroutine m_approximate_ng_source
 
         subroutine compute_optical_depths(reference_gravity, pressures, opacities, scattering_in_emission, &
                                           continuum_opacities_scattering, n_layers, n_frequencies, n_g, &

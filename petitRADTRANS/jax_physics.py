@@ -182,7 +182,21 @@ def _compute_planck_function_integral(temperatures, frequencies):
 
     cst_h_kt = cst_h_k / temperatures
 
-    for i in range(frequencies.shape[0] - 1):
+    nu_large = frequencies[:-1]
+    nu_small = frequencies[1:]
+    diff_nu = nu_large - nu_small
+    nu2 = nu_small + diff_nu * 0.25
+    nu3 = nu_small + diff_nu * 0.5
+    nu4 = nu_small + diff_nu * 0.75
+
+    planck_flux = (factor1
+                   * (factor2 * nu_small[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_small[None, :]) - 1.0)
+                      + factor3 * nu2[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu2[None, :]) - 1.0)
+                      + factor4 * nu3[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu3[None, :]) - 1.0)
+                      + factor3 * nu4[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu4[None, :]) - 1.0)
+                      + factor2 * nu_large[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_large[None, :]) - 1.0)))
+    
+    """for i in range(frequencies.shape[0] - 1):
         nu_large = frequencies[i]
         nu_small = frequencies[i + 1]
 
@@ -198,7 +212,7 @@ def _compute_planck_function_integral(temperatures, frequencies):
                        + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)
                        + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)
                        + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)
-                       ))
+                       ))"""
     return planck_flux
 
 
