@@ -170,6 +170,7 @@ def compute_mean_molar_masses(abundances):
 
     return 1.0 / mean_molar_masses
 
+
 def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
     """Calculate the mean molecular weight in each layer from volume mixing ratios.
 
@@ -188,6 +189,7 @@ def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
         mean_molar_masses += volume_mixing_ratio * get_species_molar_mass(spec)
 
     return mean_molar_masses
+
 
 def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict, fill_layer: int = 'all',
                     ) -> dict[str, npt.NDArray[float]]:
