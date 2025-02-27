@@ -150,11 +150,11 @@ def _compute_z_ratios(elemental_abundances: dict[int, float],
 
 
 def compute_mean_molar_masses(abundances):
-    """Calculate the mean molecular weight in each layer.
+    """Calculate the mean molecular weight in each layer, from mass fractions.
 
     Args:
         abundances : dict
-            dictionary of abundance arrays, each array must have the shape of the pressure array used in pRT,
+            dictionary of mass fraction arrays, each array must have the shape of the pressure array used in pRT,
             and contain the abundance at each layer in the atmosphere.
     """
     mean_molar_masses = (sys.float_info.min
@@ -170,6 +170,24 @@ def compute_mean_molar_masses(abundances):
 
     return 1.0 / mean_molar_masses
 
+def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
+    """Calculate the mean molecular weight in each layer from volume mixing ratios.
+
+    Args:
+        abundances : dict
+            dictionary of volume mixing ratios arrays, each array must have the shape of the pressure array used in pRT,
+            and contain the abundance at each layer in the atmosphere.
+    """
+    mean_molar_masses = np.zeros_like(list(volume_mixing_ratios.values())[0])
+
+    for species, volume_mixing_ratio in volume_mixing_ratios.items():
+        if ('(s)' in species) or ('(l)' in species):  # ignore clouds
+            continue
+
+        spec = species.split(".R")[0]
+        mean_molar_masses += volume_mixing_ratio * get_species_molar_mass(spec)
+
+    return mean_molar_masses
 
 def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict, fill_layer: int = 'all',
                     ) -> dict[str, npt.NDArray[float]]:
@@ -513,16 +531,16 @@ def simplify_species_list(species_list: list) -> list:
 
 
 def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=None):
-    """Convert mass fractions to volume mixing ratios.
+    """Convert volume mixing ratios to mass fractions.
 
     Args:
         volume_mixing_ratios : dict
             A dictionary of volume mixing ratios
         mean_molar_masses : numpy.ndarray
-            An array containing all mass fractions at each pressure level
+            An array containing the mean molecular weight at each pressure level
     """
     if mean_molar_masses is None:
-        mean_molar_masses = compute_mean_molar_masses(volume_mixing_ratios)
+        mean_molar_masses = compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios)
 
     mass_fractions = {}
 

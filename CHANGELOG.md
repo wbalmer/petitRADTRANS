@@ -4,6 +4,10 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.1.3] - 2025-02-27
+### Fixed
+- Bug in chemistry.utils.volume_mixing_ratios2mass_fractions() which calculated the mean molar mass from the volume mixing ratio array with compute_mean_molar_masses(). The latter function needs mass fractions, not volume mixing ratios as input, however. Added the function compute_mean_molar_masses_from_volume_mixing_ratios() and corrected the bug.
+
 ## [3.1.2] - 2024-10-05
 ### Fixed
 - Crash when converting DACE opacities (solves [issue 87](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/87), introduced in [3.1.0a29](https://gitlab.com/mauricemolli/petitRADTRANS/-/commit/3e7344610ec2b3ac2fbe2bad75bee0c905f6c09f)).
