@@ -148,11 +148,12 @@ def _compute_z_ratios(elemental_abundances: dict[int, float],
 
     return metal_abundances / non_metal_abundances
 
+
 def abundance_curvature_prior(press, abundance, gamma):
     """
-    Compute a curvature prior for a abundance-pressure profile.
+    Compute a curvature prior for an abundance-pressure profile.
 
-    This function calculates a curvature prior for a abundance-pressure profile,
+    This function calculates a curvature prior for an abundance-pressure profile,
     penalizing deviations from a smooth, low-curvature profile, based on Line 2015
 
     Args:
@@ -169,7 +170,7 @@ def abundance_curvature_prior(press, abundance, gamma):
     return weighted_abund_prior
 
 
-def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=None):
+def compute_pressure_nodes(pressure_array, mode='even', nnodes: int | None = 0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
 
@@ -189,6 +190,13 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=No
     Returns:
         array: an array of pressure nodes.
     """
+    if nnodes is None:
+        if mode == 'even':
+            raise ValueError(
+                "'nnodes' must be an integer, but is set to None"
+            )
+        nnodes = 0
+
     if mode == 'even':
         return np.linspace(
             np.log10(pressure_array[0]),
@@ -221,28 +229,41 @@ def compute_mean_molar_masses(abundances: dict[str, npt.NDArray], mode: str = 'm
 
     Args:
         abundances : dict
-            dictionary of mass fraction arrays, each array must have the shape of the pressure array used in pRT,
-            and contain the abundance at each layer in the atmosphere.
+            Dictionary of mass fraction or volume mixing ratio arrays, each array must have the shape of the pressure
+            array used in pRT, and contain the abundance at each layer in the atmosphere.
+        mode : str
+            Can be 'mmr' or 'vmr', to calculate the mean molar masses from mass fraction or volume mixing ratios,
+            respectively.
     """
     mean_molar_masses = (sys.float_info.min
                          * np.ones_like(abundances[list(abundances.keys())[0]]))  # prevent division by 0
 
-    for key in abundances.keys():
-        if '(s)' in key or '(l)' in key:  # ignore clouds
+    for species, abundance in abundances.items():
+        if '(s)' in species or '(l)' in species:  # ignore clouds
             continue
 
-        # exo_k resolution
-        spec = key.split(".R")[0]
-        mean_molar_masses += abundances[key] / get_species_molar_mass(spec)
+        _species = species.split(".R")[0]  # remove resolving power string (TODO import it from opacities)
 
-    return 1.0 / mean_molar_masses
+        if mode == 'mmr':
+            mean_molar_masses += abundance / get_species_molar_mass(_species)
+        elif mode == 'vmr':
+            mean_molar_masses += abundance * get_species_molar_mass(_species)
+        else:
+            raise ValueError(
+                f"'mode' can be 'mmr' or 'vmr', but was '{mode}'"
+            )
+
+    if mode == 'mmr':
+        mean_molar_masses = 1 / mean_molar_masses
+
+    return mean_molar_masses
 
 
 def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
     """Calculate the mean molecular weight in each layer from volume mixing ratios.
 
     Args:
-        abundances : dict
+        volume_mixing_ratios : dict
             dictionary of volume mixing ratios arrays, each array must have the shape of the pressure array used in pRT,
             and contain the abundance at each layer in the atmosphere.
     """
@@ -313,7 +334,7 @@ def define_abundance_node_list(species_short_name, parameters):
         # Retrieve individual relative pressure node locations
         abundance_nodes = [parameters[f"{species_short_name}_abundance_node_{i}"].value for i in range(nnodes)]
 
-    # Predifined list of pressure node locations
+    # Predefined list of pressure node locations
     elif f"{species_short_name}_abundance_nodes" in parameters.keys():
         abundance_nodes = parameters[f"{species_short_name}_abundance_nodes"].value
     return abundance_nodes
@@ -794,7 +815,7 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
             An array containing the mean molecular weight at each pressure level
     """
     if mean_molar_masses is None:
-        mean_molar_masses = compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios)
+        mean_molar_masses = compute_mean_molar_masses(volume_mixing_ratios, mode='vmr')
 
     mass_fractions = {}
 
