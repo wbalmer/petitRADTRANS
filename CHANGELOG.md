@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a17] - 2026-01-18
+## [3.2.0a18] - 2025-03-02
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
 - Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+## [3.1.3] - 2025-02-27
+### Fixed
+- Bug in chemistry.utils.volume_mixing_ratios2mass_fractions() which calculated the mean molar mass from the volume mixing ratio array with compute_mean_molar_masses(). The latter function needs mass fractions, not volume mixing ratios as input, however. Added the function compute_mean_molar_masses_from_volume_mixing_ratios() and corrected the bug.
 
 ## [3.1.2] - 2024-10-05
 ### Fixed

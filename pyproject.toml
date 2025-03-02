@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.2.0a17"
+version = "3.2.0a18"
 description = "Exoplanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
@@ -66,7 +66,7 @@ full = [
     "corner",
     "seaborn",  # only used in nice_corner
     "species>=0.8.0",  # only used in RetrievalConfig.add_photometry
-    "ultranest" # alternative to pymultinest
+    "ultranest"  # alternative to pymultinest
 ]
 test = [
     "build",
