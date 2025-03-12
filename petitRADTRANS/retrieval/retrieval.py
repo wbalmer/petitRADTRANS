@@ -2102,16 +2102,26 @@ class Retrieval:
                 if self.evaluate_sample_spectra:
                     self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
                 else:
+                    convolved = data.convolve(wavelengths_model,
+                                              spectrum_model,
+                                              data.data_resolution)
+                    binned = frebin.rebin_spectrum_bin(
+                            wavelengths_model,
+                            convolved,
+                            data.wavelengths,
+                            data.wavelength_bin_widths
+                        )
+                    data_safe_name = data_name.replace('/', '_').replace('.', '_')
                     np.savetxt(
                         os.path.join(
                             self.output_directory,
                             'evaluate_' + self.configuration.retrieval_name,
-                            'model_spec_best_fit_' + data_name.replace('/', '_').replace('.', '_') + '.dat',
+                            f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
                         ),
-                        np.column_stack((wavelengths_model, spectrum_model))
+                        np.column_stack((data.wavelengths, binned))
                     )
 
-                    self.best_fit_spectra[data_name] = [wavelengths_model, spectrum_model]
+                    self.best_fit_spectra[data_name] = [data.wavelengths, binned]
 
         if self.generate_mock_data:
             sys.exit(
@@ -2548,25 +2558,27 @@ class Retrieval:
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
                 spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
+            binned = frebin.rebin_spectrum_bin(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.wavelengths,
+                        data.wavelength_bin_widths
+                    )
 
             if self.evaluate_sample_spectra:
-                self.posterior_sample_spectra[name] = [wavelengths_model, spectrum_model]
+                self.posterior_sample_spectra[name] = [data.wavelengths, binned]
             else:
-                # TODO: This will overwrite the best fit spectrum with
-                # whatever is ran through the loglike function. Not good.
+                data_safe_name = name.replace('/', '_').replace('.', '_')
                 if not only_return_best_fit_spectra:
                     np.savetxt(
                         os.path.join(
                             self.output_directory,
                             'evaluate_' + self.configuration.retrieval_name,
-                            'model_spec_best_fit_'
-                        )
-                        + name.replace('/', '_').replace('.', '_') + '.dat',
-                        np.column_stack((wavelengths_model, spectrum_model))
+                            f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
+                        ),
+                        np.column_stack((data.wavelengths, binned))
                     )
-
-                self.best_fit_spectra[name] = [wavelengths_model, spectrum_model]
-
+                self.best_fit_spectra[name] = [data.wavelengths, binned]
         return self.best_fit_spectra
 
     def save_best_fit_outputs_external_variability(self, parameters, only_return_best_fit_spectra=False):
@@ -2614,7 +2626,18 @@ class Retrieval:
                 else:
                     wavelengths_model, spectrum_model = results
 
-                self.best_fit_spectra[name] = [wavelengths_model, spectrum_model]
+                if data.data_resolution_array_model is not None:
+                    data.initialise_data_resolution(wavelengths_model)
+                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                elif data.data_resolution is not None:
+                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                binned = frebin.rebin_spectrum_bin(
+                    wavelengths_model,
+                    spectrum_model,
+                    data.wavelengths,
+                    data.wavelength_bin_widths
+                )
+                self.best_fit_spectra[name] = [data.wavelengths, binned]
 
             for name_2, data_2 in self.configuration.data.items():
                 if data_2.external_radtrans_reference is not None:
@@ -2626,22 +2649,38 @@ class Retrieval:
                                 parameters,
                                 data_2.name
                             )
-                            self.best_fit_spectra[name_2] = [wavelengths_model, spectrum_model_2]
+                            if data.data_resolution_array_model is not None:
+                                data.initialise_data_resolution(wavelengths_model)
+                                spectrum_model_2 = data.convolve(
+                                    wavelengths_model,
+                                    spectrum_model_2,
+                                    data.data_resolution_array_model)
+                            elif data.data_resolution is not None:
+                                spectrum_model_2 = data.convolve(
+                                    wavelengths_model,
+                                    spectrum_model_2,
+                                    data.data_resolution)
+                            binned_2 = frebin.rebin_spectrum_bin(
+                                wavelengths_model,
+                                spectrum_model_2,
+                                data.wavelengths,
+                                data.wavelength_bin_widths
+                            )
+                            self.best_fit_spectra[name_2] = [data.wavelengths, binned_2]
                         else:
-                            self.best_fit_spectra[name_2] = [wavelengths_model, spectrum_model]
+                            self.best_fit_spectra[name_2] = [data.wavelengths, binned]
 
         for name, data in self.configuration.data.items():
+            data_safe_name = name.replace('/', '_').replace('.', '_')
             if not only_return_best_fit_spectra:
                 np.savetxt(
                     os.path.join(
                         self.output_directory,
                         'evaluate_' + self.configuration.retrieval_name,
-                        'model_spec_best_fit_'
-                    )
-                    + name.replace('/', '_').replace('.', '_') + '.dat',
-                    np.column_stack((wavelengths_model, self.best_fit_spectra[name]))
+                        f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
+                    ),
+                    np.column_stack((self.best_fit_spectra[name]))
                 )
-
         return self.best_fit_spectra
 
     def save_mass_fractions(self, sample_dict, parameter_dict, rets=None):
@@ -3014,13 +3053,17 @@ class Retrieval:
             pressures = self.configuration.pressures
             # Check to see if we're weighting by the emission contribution.
             if contribution:
-                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
+                best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
                     model_generating_function=model_generating_function,
                     prt_reference=prt_reference, refresh=refresh,
                     contribution=True
                 )
+                if 'emission_contribution' in additional_outputs.keys():
+                    best_fit_contribution = additional_outputs['emission_contribution']
+                elif 'transmission_contribution' in additional_outputs.keys():
+                    best_fit_contribution = additional_outputs['transmission_contribution']
                 nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
@@ -3338,7 +3381,7 @@ class Retrieval:
             else:
                 sample_use = None  # TODO prevent reference before assignment
 
-            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
+            best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
                 sample_use,
                 parameters_read,
                 model_generating_function=model_generating_function,
@@ -3347,6 +3390,10 @@ class Retrieval:
                 contribution=True,
                 mode=mode
             )
+            if 'emission_contribution' in additional_outputs.keys():
+                best_fit_contribution = additional_outputs['emission_contribution']
+            elif 'transmission_contribution' in additional_outputs.keys():
+                best_fit_contribution = additional_outputs['transmission_contribution']
             # Normalization
             index = (best_fit_contribution < 1e-16) & np.isnan(best_fit_contribution)
             best_fit_contribution[index] = 1e-16
@@ -3675,7 +3722,7 @@ class Retrieval:
                 else:
                     sample_use = None  # TODO prevent reference before assignment
 
-                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
+                best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
                     model_generating_function=model_generating_function,
@@ -3684,6 +3731,10 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
+                if 'emission_contribution' in additional_outputs.keys():
+                    best_fit_contribution = additional_outputs['emission_contribution']
+                elif 'transmission_contribution' in additional_outputs.keys():
+                    best_fit_contribution = additional_outputs['transmission_contribution']
                 nu = wavelength2frequency(best_fit_wavelengths)
 
                 mean_diff_nu = -np.diff(nu)
@@ -4028,15 +4079,97 @@ class Retrieval:
         import matplotlib.pyplot as plt
         from matplotlib.ticker import AutoMinorLocator, MultipleLocator, NullFormatter
 
+        # Defining helper functions for plotting
+        def rebin_data(resolution, wavelengths, spectrum, uncertainties, data_wavelength_bins):
+            resolution_data = np.mean(wavelengths[1:] / np.diff(wavelengths))
+            if resolution is not None and resolution < resolution_data:
+                ratio = resolution_data / resolution
+                flux, edges, _ = binned_statistic(
+                    wavelengths,
+                    spectrum,
+                    'mean',
+                    wavelengths.shape[0] / ratio)
+                error, _, _ = (
+                    binned_statistic(
+                        wavelengths,
+                        uncertainties,
+                        'mean',
+                        wavelengths.shape[0] / ratio)
+                    / np.sqrt(ratio)
+                )
+                error = np.array(error)
+                wavelengths = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
+                wavelengths_bins = np.zeros_like(wavelengths)
+                wavelengths_bins[:-1] = np.diff(wavelengths)
+                wavelengths_bins[-1] = wavelengths_bins[-2]
+            else:
+                flux = spectrum
+                error = uncertainties
+                wavelengths_bins = data_wavelength_bins
+            return wavelengths, flux, error, wavelengths_bins
+
+        def add_data_to_axis(
+                ax,
+                data,
+                wavelengths,
+                flux,
+                error,
+                wavelengths_bins,
+                marker,
+                markersize,
+                markerfacecolors,
+                ecolor,
+                y_axis_scaling,
+                label,
+                alpha):
+            """
+            Add the data used in the retrieval to the ax object
+            """
+            xerr = None
+            if data.photometry:
+                xerr = wavelengths_bins/2
+            ax.errorbar(
+                wavelengths,
+                flux * y_axis_scaling,
+                yerr=error * y_axis_scaling,
+                xerr=xerr,
+                marker=marker,
+                markersize=markersize,
+                markerfacecolor=markerfacecolors,
+                ecolor=ecolor,
+                markeredgecolor='k',
+                linewidth=0,
+                elinewidth=2,
+                label=label,
+                zorder=10,
+                alpha=alpha)
+
+        def plot_best_fit_model(
+                ax,
+                best_fit_wavelengths,
+                best_fit_spectrum,
+                y_axis_scaling,
+                chi2,
+                mode):
+            """
+            Add the model used in the retrieval to the ax object
+            """
+            spectrum_type_label = "Best fit" if mode == 'bestfit' else "Median"
+            ax.plot(
+                best_fit_wavelengths,
+                best_fit_spectrum * y_axis_scaling,
+                label=rf'{spectrum_type_label} model, $\chi^2/\nu=${chi2:.2f}',
+                linewidth=4,
+                alpha=0.5,
+                color='r')
+
+        # Start of actual function
         if marker_cmap is None:
             marker_cmap = plt.colormaps['bwr']
 
         if not self.use_mpi or rank == 0:
-            # Avoiding saving the model spectrum to the sampled spectrum dictionary.
             check = self.evaluate_sample_spectra
-
-            if self.evaluate_sample_spectra:
-                self.evaluate_sample_spectra = False
+            self.evaluate_sample_spectra = False
 
             if not self.configuration.run_mode == 'evaluate':
                 print("Not in evaluate mode. Changing run mode to evaluate.")
@@ -4045,46 +4178,42 @@ class Retrieval:
             print("\nPlotting Best-fit spectrum")
 
             fig, axes = plt.subplots(
-                nrows=2, ncols=1, sharex='col', sharey=False,
-                gridspec_kw={'height_ratios': [2.5, 1], 'hspace': 0.1},
-                figsize=(18, 9)
-            )
-            ax = axes[0]  # Normal Spectrum axis
-            ax_r = axes[1]  # residual axis
+                nrows=2,
+                ncols=1,
+                sharex='col',
+                sharey=False,
+                gridspec_kw={'height_ratios': [2.5, 1],
+                             'hspace': 0.1},
+                figsize=(18, 9))
 
-            # Get best-fit index
+            ax = axes[0]
+            ax_r = axes[1]
+
             log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
             sample_use = samples_use[:-1, best_fit_index]
 
-            # Then get the full wavelength range
-            # Generate the best fit spectrum using the set of parameters with the lowest log-likelihood
             if mode.lower() == "median":
                 med_param, sample_use = self.get_median_params(samples_use, parameters_read, return_array=True)
 
-            # Setup best fit spectrum
-            # First get the fit for each dataset for the residual plots
-            # self.log_likelihood(sample_use, 0, 0)
             if only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
                 return None, None, None
 
+            # Full resolution spectrum
             best_fit_wavelengths, best_fit_spectrum = self.get_best_fit_model(
-                sample_use,  # set of parameters with the lowest log-likelihood (best-fit)
-                parameters_read,  # name of the parameters
+                sample_use,
+                parameters_read,
                 model_generating_function=model_generating_function,
                 prt_reference=prt_reference,
                 refresh=refresh,
-                mode=mode
-            )
-
+                mode=mode)
             chi2 = self.get_reduced_chi2_from_model(
                 wlen_model=best_fit_wavelengths,
                 spectrum_model=best_fit_spectrum,
                 subtract_n_parameters=True,
                 parameters=self.best_fit_parameters,
                 verbose=True,
-                show_chi2=True
-            )
+                show_chi2=True)
 
             if not only_save_best_fit_spectra:
                 self.save_best_fit_outputs(self.best_fit_parameters)
@@ -4093,13 +4222,13 @@ class Retrieval:
             markerfacecolors = {}
 
             if marker_color_type is not None:
+                from matplotlib.colors import Normalize
+                from matplotlib.cm import ScalarMappable
                 markersize = 10
-
                 l, b, w, h = ax.get_position().bounds
                 cax = fig.add_axes([l + w + 0.015 * w, b, 0.025 * w, h])
 
                 vmin, vmax = np.inf, -np.inf
-
                 for name, data in self.configuration.data.items():
                     assert hasattr(data, marker_color_type)
 
@@ -4110,52 +4239,31 @@ class Retrieval:
                 if marker_color_type.startswith('delta_'):
                     vmax = np.max(np.abs([vmin, vmax]))
                     vmin = -1 * vmax
-
-                from matplotlib.colors import Normalize
+  
                 norm = Normalize(vmin=vmin, vmax=vmax)
-
                 for name, data in self.configuration.data.items():
                     markerfacecolors[name] = norm(markerfacecolors[name])
                     markerfacecolors[name] = marker_cmap(markerfacecolors[name])
 
-                from matplotlib.cm import ScalarMappable
                 fig.colorbar(
                     ScalarMappable(norm=norm, cmap=marker_cmap),
-                    ax=ax, cax=cax, orientation='vertical'
+                    ax=ax,
+                    cax=cax,
+                    orientation='vertical'
                 )
                 cax.set_ylabel(marker_label)
 
                 if marker_color_type == 'pareto_k':
                     cax.axhline(0.7, c='k', ls='--')
 
-            # Iterate through each dataset, plotting the data and the residuals.
             for name, data in self.configuration.data.items():
-                # If the user has specified a resolution, rebin to that
                 if not data.photometry:
-                    resolution_data = np.mean(data.wavelengths[1:] / np.diff(data.wavelengths))
-                    if self.configuration.plot_kwargs["resolution"] is not None and \
-                            self.configuration.plot_kwargs["resolution"] < resolution_data:
-                        ratio = resolution_data / self.configuration.plot_kwargs["resolution"]
-                        flux, edges, _ = binned_statistic(
-                            data.wavelengths, data.spectrum, 'mean', data.wavelengths.shape[0] / ratio
-                        )
-                        error, _, _ = (
-                            np.array(binned_statistic(
-                                data.wavelengths, data.uncertainties,
-                                'mean', data.wavelengths.shape[0] / ratio
-                            ))
-                            / np.sqrt(ratio)
-                        )
-
-                        wavelengths = np.array([(edges[i] + edges[i + 1]) / 2.0 for i in range(edges.shape[0] - 1)])
-                        wavelengths_bins = np.zeros_like(wavelengths)
-                        wavelengths_bins[:-1] = np.diff(wavelengths)
-                        wavelengths_bins[-1] = wavelengths_bins[-2]
-                    else:
-                        wavelengths = data.wavelengths
-                        error = data.uncertainties
-                        flux = data.spectrum
-                        wavelengths_bins = data.wavelength_bin_widths
+                    wavelengths, flux, error, wavelengths_bins = rebin_data(
+                        self.configuration.plot_kwargs["resolution"],
+                        data.wavelengths,
+                        data.spectrum,
+                        data.uncertainties,
+                        data.wavelength_bin_widths)
                 else:
                     wavelengths = np.mean(data.photometric_bin_edges)
                     flux = data.spectrum
@@ -4178,183 +4286,91 @@ class Retrieval:
 
                 flux = (flux * scale) - offset
                 if f"{data.name}_b" in self.configuration.parameters.keys():
-                    # TODO best_fit_parameters is not an attribute of Retrieval
                     error = np.sqrt(error**2 + 10 ** self.best_fit_parameters[f"{data.name}_b"].value)
 
                 if not data.photometry:
                     if data.external_radtrans_reference is None:
-                        spectrum_model = self.best_fit_spectra[name][1]
-
-                        if data.data_resolution_array_model is not None:
-                            data.initialise_data_resolution(self.best_fit_spectra[name][0])
-                            spectrum_model = data.convolve(
-                                self.best_fit_spectra[name][0],
-                                self.best_fit_spectra[name][1],
-                                data.data_resolution_array_model
-                            )
-                        elif data.data_resolution is not None:
-                            spectrum_model = data.convolve(
-                                self.best_fit_spectra[name][0],
-                                self.best_fit_spectra[name][1],
-                                data.data_resolution
-                            )
-                        best_fit_binned = frebin.rebin_spectrum_bin(
-                            self.best_fit_spectra[name][0],
-                            spectrum_model,
-                            wavelengths,
-                            wavelengths_bins
-                        )
+                        # Convolved and binned spectra are stored in dictionary
+                        best_fit_binned = self.best_fit_spectra[name][1]
                     else:
-                        spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
-
-                        if data.data_resolution_array_model is not None:
-                            data.initialise_data_resolution(self.best_fit_spectra[data.external_radtrans_reference][0])
-                            spectrum_model = data.convolve(
-                                self.best_fit_spectra[data.external_radtrans_reference][0],
-                                self.best_fit_spectra[data.external_radtrans_reference][1],
-                                data.data_resolution_array_model
-                            )
-                        elif data.data_resolution is not None:
-                            spectrum_model = data.convolve(
-                                self.best_fit_spectra[data.external_radtrans_reference][0],
-                                self.best_fit_spectra[data.external_radtrans_reference][1],
-                                data.data_resolution
-                            )
-                        elif data.radtrans_grid:
-                            spectrum_model = self.best_fit_spectra[data.external_radtrans_reference][1]
-
-                        best_fit_binned = frebin.rebin_spectrum_bin(
-                            self.best_fit_spectra[name][0],
-                            spectrum_model,
-                            wavelengths,
-                            wavelengths_bins
-                        )
+                        best_fit_binned = self.best_fit_spectra[data.external_radtrans_reference][1]
                 else:
                     if data.external_radtrans_reference is None:
                         best_fit_binned = data.photometric_transformation_function(
                             self.best_fit_spectra[name][0],
-                            self.best_fit_spectra[name][1]
-                        )
-
-                        # Species functions give tuples of (flux,error)
+                            self.best_fit_spectra[name][1])
                         try:
                             best_fit_binned = best_fit_binned[0]
-                        except Exception:  # TODO find exception expected here
+                        except Exception:
                             pass
-
                     else:
-                        best_fit_binned = \
-                            data.photometric_transformation_function(
-                                self.best_fit_spectra[data.external_radtrans_reference][0],
-                                self.best_fit_spectra[data.external_radtrans_reference][1]
-                            )
+                        best_fit_binned = data.photometric_transformation_function(
+                            self.best_fit_spectra[data.external_radtrans_reference][0],
+                            self.best_fit_spectra[data.external_radtrans_reference][1])
                         try:
                             best_fit_binned = best_fit_binned[0]
-                        except Exception:  # TODO find exception expected here
+                        except Exception:
                             pass
-                # Plot the data
-                marker = 'o'
 
-                if data.photometry:
-                    marker = 's'
-
-                if not data.photometry:
-                    label = data.name
-
-                    for i in range(len(flux)):
-                        color_i = 'C0'
-                        ecolor = 'C0'
-
-                        if marker_color_type is not None:
-                            color_i = markerfacecolors[name][i]
-                            ecolor = 'k'
-
-                        ax.errorbar(wavelengths[i],
-                                    (flux[i] * self.configuration.plot_kwargs["y_axis_scaling"]),
-                                    yerr=error[i] * self.configuration.plot_kwargs["y_axis_scaling"],
-                                    marker=marker,
-                                    ecolor=ecolor,
-                                    markersize=markersize,
-                                    markerfacecolor=color_i,
-                                    markeredgecolor='k',
-                                    linewidth=0,
-                                    elinewidth=2,
-                                    label=label,
-                                    zorder=10,
-                                    alpha=0.9)
-
-                        # Plot the residuals
-                        ax_r.errorbar(
-                            wavelengths[i],
-                            ((flux - best_fit_binned) / error)[i],
-                            yerr=(error / error)[i],
-                            marker=marker,
-                            ecolor=ecolor,
-                            markersize=markersize,
-                            markerfacecolor=color_i,
-                            markeredgecolor='k',
-                            linewidth=0,
-                            elinewidth=2,
-                            zorder=10,
-                            alpha=0.9
-                        )
-
+                marker = 'o' if not data.photometry else 's'
+                label = data.name
+                for i in range(len(flux)):
+                    if i > 0:
                         label = None
-                else:
-                    # Don't label photometry?
-                    for i in range(len(flux)):
+
+                    color_i = 'C0'
+                    ecolor = 'C0'
+                    alpha = 0.9
+                    if data.photometry:
                         color_i = 'grey'
                         ecolor = 'grey'
-                        if marker_color_type is not None:
-                            color_i = markerfacecolors[name][i]
-                            ecolor = 'k'
+                        label = None
+                        alpha = 0.6
 
-                        ax.errorbar(wavelengths[i],
-                                    (flux[i] * self.configuration.plot_kwargs["y_axis_scaling"]),
-                                    yerr=error[i] * self.configuration.plot_kwargs["y_axis_scaling"],
-                                    xerr=data.wlen_bins / 2.,
-                                    linewidth=0,
-                                    elinewidth=2,
-                                    marker=marker,
-                                    ecolor=ecolor,
-                                    markersize=markersize,
-                                    markerfacecolor=color_i,
-                                    markeredgecolor='k',
-                                    color='grey',
-                                    zorder=10,
-                                    label=None,
-                                    alpha=0.6)
+                    if marker_color_type is not None:
+                        color_i = markerfacecolors[name][i]
+                        ecolor = 'k'
 
-                        # Plot the residuals
-                        ax_r.errorbar(
-                            wavelengths[i],
-                            ((flux - best_fit_binned) / error)[i],
-                            yerr=(error / error)[i],
-                            xerr=data.wlen_bins / 2.,
-                            color='grey',
-                            marker=marker,
-                            ecolor=ecolor,
-                            markersize=markersize,
-                            markerfacecolor=color_i,
-                            markeredgecolor='k',
-                            linewidth=0,
-                            elinewidth=2,
-                            zorder=10,
-                            alpha=0.6
-                        )
+                    # Data to top panel
+                    add_data_to_axis(
+                        ax,
+                        data,
+                        wavelengths=wavelengths[i],
+                        flux=flux[i],
+                        error=error[i],
+                        wavelengths_bins=wavelengths_bins[i],
+                        marker=marker,
+                        markersize=markersize,
+                        markerfacecolors=color_i,
+                        ecolor=ecolor,
+                        y_axis_scaling=self.configuration.plot_kwargs["y_axis_scaling"],
+                        label=label,
+                        alpha=alpha)
 
-            # Plot the best fit model
-            spectrum_type_label = "Best fit"
-            if mode == 'median':
-                spectrum_type_label = "Median"
-            ax.plot(best_fit_wavelengths,
-                    best_fit_spectrum * self.configuration.plot_kwargs["y_axis_scaling"],
-                    label=rf'{spectrum_type_label} model, $\chi^2/\nu=${chi2:.2f}',
-                    linewidth=4,
-                    alpha=0.5,
-                    color='r')
+                    # Residuals to bottom panel
+                    add_data_to_axis(
+                        ax_r,
+                        data,
+                        wavelengths=wavelengths[i],
+                        flux=(flux[i]-best_fit_binned[i])/error[i],
+                        error=1,
+                        wavelengths_bins=wavelengths_bins[i],
+                        marker=marker,
+                        markersize=markersize,
+                        markerfacecolors=color_i,
+                        ecolor=ecolor,
+                        y_axis_scaling=1.0,
+                        label=None,
+                        alpha=alpha)
 
-            # Plot the shading in the residual plot
+            plot_best_fit_model(
+                ax,
+                best_fit_wavelengths,
+                best_fit_spectrum,
+                self.configuration.plot_kwargs["y_axis_scaling"],
+                chi2,
+                mode)
+
             yabs_max = abs(max(ax_r.get_ylim(), key=abs))
             lims = ax.get_xlim()
             lim_y = ax.get_ylim()
@@ -4365,7 +4381,6 @@ class Retrieval:
             else:
                 ax.set_ylim(lim_y)
 
-            # weird scaling to get axis to look ok on log plots
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 lims = [best_fit_wavelengths[0] * 0.98, lims[1] * 1.02]
             else:
@@ -4384,26 +4399,17 @@ class Retrieval:
             ax_r.fill_between(lims, -5, 5, color='lightgrey', alpha=0.3, zorder=-8)
             ax_r.axhline(linestyle='--', color='k', alpha=0.8, linewidth=2)
 
-            # Making the plots pretty
             if "xscale" in self.configuration.plot_kwargs.keys():
                 ax.set_xscale(self.configuration.plot_kwargs["xscale"])
             try:
                 ax.set_yscale(self.configuration.plot_kwargs["yscale"])
-            except Exception:  # TODO find exception expected here
+            except Exception:
                 pass
 
-            # Fancy ticks for upper pane
-            ax.tick_params(
-                axis="both",
-                direction="in",
-                length=10,
-                bottom=True,
-                top=True,
-                left=True,
-                right=True)
+            ax.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
             try:
                 ax.xaxis.set_major_formatter('{x:.1f}')
-            except Exception:  # TODO find exception expected here
+            except Exception:
                 warnings.warn("Please update to matplotlib 3.3.4 or greater")
                 pass
 
@@ -4423,7 +4429,6 @@ class Retrieval:
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
-                # For the minor ticks, use no labels; default NullFormatter.
                 x_major_ticks = []
                 for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
                     x_major_ticks.append(round(i_tick, 1))
@@ -4436,14 +4441,19 @@ class Retrieval:
                 ax.xaxis.set_minor_formatter(NullFormatter())
             else:
                 ax.xaxis.set_minor_locator(AutoMinorLocator())
-                ax.tick_params(axis='both', which='minor',
-                               bottom=True, top=True, left=True, right=True,
-                               direction='in', length=5)
+                ax.tick_params(
+                    axis='both',
+                    which='minor',
+                    bottom=True,
+                    top=True,
+                    left=True,
+                    right=True,
+                    direction='in',
+                    length=5)
 
             ax.yaxis.set_minor_locator(AutoMinorLocator())
             ax.set_ylabel(self.configuration.plot_kwargs["spec_ylabel"])
 
-            # Fancy ticks for lower pane
             ax_r.tick_params(
                 axis="both",
                 direction="in",
@@ -4454,7 +4464,7 @@ class Retrieval:
                 right=True)
             try:
                 ax_r.xaxis.set_major_formatter('{x:.1f}')
-            except Exception:  # TODO find exception expected here
+            except Exception:
                 warnings.warn("Please update to matplotlib 3.3.4 or greater")
                 pass
 
@@ -4468,10 +4478,8 @@ class Retrieval:
                 direction='in',
                 length=5)
             if self.configuration.plot_kwargs["xscale"] == 'log':
-                # For the minor ticks, use no labels; default NullFormatter.
                 if min_wavelength < 0:
                     min_wavelength = 0.08
-                # For the minor ticks, use no labels; default NullFormatter.
                 x_major_ticks = []
                 for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
                     x_major_ticks.append(round(i_tick, 1))
@@ -4499,10 +4507,9 @@ class Retrieval:
             ax_r.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
 
             ax.legend(loc='upper center', ncol=len(self.configuration.data.keys()) + 1).set_zorder(1002)
+            fig.align_ylabels()
             plt.tight_layout()
-            plt.savefig(
-                self.get_base_figure_name() + '_' + mode + '_spec.pdf'
-            )
+            plt.savefig(self.get_base_figure_name() + '_' + mode + '_spec.pdf')
             self.evaluate_sample_spectra = check
         else:
             fig = None

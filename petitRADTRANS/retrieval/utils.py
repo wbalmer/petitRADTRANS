@@ -102,3 +102,46 @@ def get_pymultinest_sample_dict(output_dir, name=None, add_log_likelihood=False,
         samples_dict['stats'] = parameters_read
 
     return samples_dict
+
+
+def get_calculate_flux_return_values(parameters):
+    return_contribution = False
+    return_opacities = False
+    return_photosphere_radius = False
+    return_rosseland_optical_depths = False
+    return_radius_hydrostatic_equilibrium = False
+    return_cloud_contribution = False
+    return_abundances = False
+    return_any = False
+    if "contribution" in parameters.keys():
+        return_contribution = parameters["contribution"].value
+        return_any = True
+    if "return_contribution" in parameters.keys():
+        return_contribution = parameters["return_contribution"].value
+        return_any = True
+    if "return_opacities" in parameters.keys():
+        return_opacities = parameters["return_opacities"].value
+        return_any = True
+    if "return_photosphere_radius" in parameters.keys():
+        return_photosphere_radius = parameters["return_photosphere_radius"].value
+        return_any = True
+    if "return_abundances" in parameters.keys():
+        return_abundances = parameters["return_abundances"].value
+        return_any = True
+    if "return_radius_hydrostatic_equilibrium" in parameters.keys():
+        return_radius_hydrostatic_equilibrium = parameters["return_radius_hydrostatic_equilibrium"].value
+        return_any = True
+    if "return_rosseland_optical_depths" in parameters.keys():
+        return_rosseland_optical_depths = parameters["return_rosseland_optical_depths"].value
+        return_any = True
+    if "return_cloud_contribution" in parameters.keys():
+        return_cloud_contribution = parameters["return_cloud_contribution"].value
+        return_any = True
+    return (return_contribution,
+            return_opacities,
+            return_photosphere_radius,
+            return_rosseland_optical_depths,
+            return_radius_hydrostatic_equilibrium,
+            return_cloud_contribution,
+            return_abundances,
+            return_any)

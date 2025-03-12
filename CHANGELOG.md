@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a18] - 2025-03-02
+## [3.2.0a19] - 2025-03-02
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -20,11 +20,13 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Possibility to load a custom pre-calculated chemical table file.
 - QoL function to convert a list of strings (e.g. `['H2O', 'C2H2', 'CH4']`) into a single string (e.g. `"'H2O', 'C2H2', 'CH4'"`) that can be used in console outputs.
 - An unknown opacity category.
+- Added ability to use full `return` functionality for additional_outputs in retrieval models. Users can add the `return_X` as a parameter, whose `value` should be `True`.
 
 ### Changed
 - Changed behaviour of `msum` in `chemistry.core`: now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
 - Fixed calculations of chi2 and ensured consistent opacity usage in `get_full_range_model`.
 - Tests now use more lightweights opacity files.
+- Saved best-fit spectra are now convolved and binned per-instrument.
 
 ### Deprecated
 - Module `_input_data_loader` and functions wherein, replaced with module `_input_data` and `Opacity` objects.
@@ -43,6 +45,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
 - Incorrect log-x tick labelling in spectra plots.
 - Minor typo in a warning message.
+- Fixed inhomogenous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
+- Removed warnings for `.DS_Store` files.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.

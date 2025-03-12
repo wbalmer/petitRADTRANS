@@ -42,7 +42,7 @@ from petitRADTRANS.physics import (
     temperature_profile_function_ret_model
 )
 from petitRADTRANS.planet import Planet
-
+from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 # Global constants to reduce calculations and initializations.
 PGLOBAL = np.logspace(-6, 3, 1000)
 
@@ -133,9 +133,6 @@ def emission_model_diseq(prt_object,
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     # Use this for debugging.
     # for key, val in parameters.items():
     #    print(key,val.value)
@@ -221,8 +218,7 @@ def emission_model_diseq(prt_object,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -379,20 +375,22 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     if pressures.shape[0] != prt_object.pressures.shape[0]:
         return None, None
 
-    sigma_lnorm, fseds, kzz, b_hans, \
-        radii, distribution = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, \
+        cloud_fraction, complete_coverage_clouds, distribution = cloud_properties
 
     wlen_model, flux, _ = prt_object.calculate_flux(
         temperatures=temperatures,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mmw,
-        return_contribution=contribution,
-        cloud_f_sed=fseds,
-        eddy_diffusion_coefficients=kzz,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_particle_radius_distribution_std=sigma_lnorm,
-        cloud_hansen_b=b_hans,
-        cloud_particles_mean_radii=radii,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_particles_radius_distribution=distribution
     )
 
@@ -416,7 +414,6 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         mass_fractions=abundances_clear,
         reference_gravity=gravity,
         mean_molar_masses=mmw_clear,
-        return_contribution=contribution
     )
 
     # Getting the model into correct units
@@ -503,9 +500,6 @@ def guillot_emission(prt_object,
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
@@ -561,8 +555,7 @@ def guillot_emission(prt_object,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -629,9 +622,6 @@ def guillot_emission_add_gaussian_temperature(prt_object,
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     gravity, planet_radius = _compute_gravity(parameters)
 
     temperatures = temperature_profile_function_guillot_global(
@@ -697,8 +687,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -768,9 +757,6 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     gravity, planet_radius = _compute_gravity(parameters)
 
     temp_arr = np.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
@@ -830,8 +816,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -894,9 +879,6 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     gravity, planet_radius = _compute_gravity(parameters)
 
     num_layer = parameters['N_layers'].value
@@ -966,8 +948,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1028,9 +1009,6 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     gravity, planet_radius = _compute_gravity(parameters)
 
     num_layer = parameters['N_layers'].value
@@ -1090,8 +1068,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1165,9 +1142,6 @@ def guillot_transmission(prt_object,
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1231,8 +1205,7 @@ def guillot_transmission(prt_object,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1318,9 +1291,6 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1387,8 +1357,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1465,9 +1434,6 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     # Calculate the spectrum
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1541,8 +1507,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1628,9 +1593,6 @@ def isothermal_transmission(prt_object,
     temperatures = temperature_profile_function_isothermal(p_use, parameters["temperature"].value)
     gravity, planet_radius = _compute_gravity(parameters)
 
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
     # Make the abundance profile
     abundances, mmw, small_index, p_bases = get_abundances(
         p_use,
@@ -1681,8 +1643,7 @@ def isothermal_transmission(prt_object,
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1753,9 +1714,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
         parameters['alpha'].value,
         parameters['T_0'].value
         )
-    contribution = False
-    if "contribution" in parameters.keys():
-        contribution = parameters["contribution"].value
+
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
         p_use,
@@ -1808,8 +1767,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
         cloud_hansen_b=cloud_hansen_b,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        distribution=distribution,
-        contribution=contribution
+        distribution=distribution
         )
 
 
@@ -1890,8 +1848,7 @@ def calculate_emission_spectrum(prt_object,
                                 cloud_hansen_b,
                                 cloud_fraction,
                                 complete_coverage_clouds,
-                                distribution,
-                                contribution):
+                                distribution):
     """
     Calls Radtrans.calculate_flux to compute the emission spectrum of an atmosphere.
     This function automatically checks if patchiness is included in the retrieval, and
@@ -1916,14 +1873,21 @@ def calculate_emission_spectrum(prt_object,
         cloud_fraction (float) : fraction of planet covered by clouds
         complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
         distribution (string): Which cloud particle size distribution to use
-        contribution (bool): Return the contribution function?
     """
+    (return_contribution,
+     return_opacities,
+     return_photosphere_radius,
+     return_rosseland_optical_depths,
+     return_radius_hydrostatic_equilibrium,
+     return_cloud_contribution,
+     return_abundances,
+     return_any) = get_calculate_flux_return_values(parameters)
+
     results = prt_object.calculate_flux(
         temperatures=temperatures,
         mass_fractions=abundances,
         reference_gravity=gravity,
         mean_molar_masses=mean_molar_masses,
-        return_contribution=contribution,
         cloud_f_sed=cloud_f_sed,
         eddy_diffusion_coefficients=eddy_diffusion_coefficients,
         cloud_particle_radius_distribution_std=sigma_lnorm,
@@ -1931,14 +1895,16 @@ def calculate_emission_spectrum(prt_object,
         cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
-        cloud_particles_radius_distribution=distribution
+        cloud_particles_radius_distribution=distribution,
+        return_contribution=return_contribution,
+        return_photosphere_radius=return_photosphere_radius,
+        return_rosseland_optical_depths=return_rosseland_optical_depths,
+        return_cloud_contribution=return_cloud_contribution,
+        return_abundances=return_abundances,
+        return_opacities=return_opacities
     )
 
-    if not contribution:
-        wlen_model, flux, _ = results
-        additional_outputs = None
-    else:
-        wlen_model, flux, additional_outputs = results
+    wlen_model, flux, additional_outputs = results
 
     # Getting the model into correct units
     wlen_model *= 1e4  # cm to um
@@ -1959,8 +1925,8 @@ def calculate_emission_spectrum(prt_object,
             spectrum_model,
             parameters["v_band_extinction"].value,
             parameters["v_band_reddening"].value)
-    if contribution:
-        return wlen_model, spectrum_model, additional_outputs['emission_contribution']
+    if return_any:
+        return wlen_model, spectrum_model, additional_outputs
     else:
         return wlen_model, spectrum_model
 
@@ -1984,8 +1950,7 @@ def calculate_transmission_spectrum(prt_object,
                                     cloud_hansen_b,
                                     cloud_fraction,
                                     complete_coverage_clouds,
-                                    distribution,
-                                    contribution
+                                    distribution
                                     ):
     """_summary_
 
@@ -2010,11 +1975,18 @@ def calculate_transmission_spectrum(prt_object,
         cloud_fraction (float) : fraction of planet covered by clouds
         complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
         distribution (string): Log normal or hansen particle size distribution
-        contribution (bool): return contribution function
-
     Returns:
         _type_: _description_
     """
+    (return_contribution,
+     return_opacities,
+     return_photosphere_radius,
+     return_rosseland_optical_depths,
+     return_radius_hydrostatic_equilibrium,
+     return_cloud_contribution,
+     return_abundances,
+     return_any) = get_calculate_flux_return_values(parameters)
+
     results = prt_object.calculate_transit_radii(
         temperatures=temperatures,
         mass_fractions=abundances,
@@ -2034,18 +2006,18 @@ def calculate_transmission_spectrum(prt_object,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
         cloud_particles_radius_distribution=distribution,
-        return_contribution=contribution
+        return_contribution=return_contribution,
+        return_cloud_contribution=return_cloud_contribution,
+        return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
+        return_abundances=return_abundances,
+        return_opacities=return_opacities,
     )
-    if not contribution:
-        wlen_model, transit_radii, _ = results
-        additional_output = None
-    else:
-        wlen_model, transit_radii, additional_output = results
+    wlen_model, transit_radii, additional_outputs = results
 
     wlen_model *= 1e4
     spectrum_model = (transit_radii / parameters['stellar_radius'].value) ** 2.
-    if contribution:
-        return wlen_model, spectrum_model, additional_output['transmission_contribution']
+    if return_any:
+        return wlen_model, spectrum_model, additional_outputs
     return wlen_model, spectrum_model
 
 

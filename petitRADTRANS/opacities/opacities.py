@@ -483,6 +483,8 @@ class Opacity:
                 if filename_sampling != '' or filename_range != '':
                     # First pass, try to use default resolution
                     for file in files:
+                        if file.endswith('.DS_Store'):
+                            continue
                         # Extract source and spectral info
                         _file, spectral_info = cls.split_species_spectral_info(file)
 

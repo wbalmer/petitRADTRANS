@@ -3283,7 +3283,8 @@ class Radtrans:
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
-            return_opacities: bool = False
+            return_opacities: bool = False,
+            return_abundances: bool = False
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -3655,7 +3656,8 @@ class Radtrans:
             additional_outputs['cloud_absorption_opacities'] = cloud_absorption_opacities
             additional_outputs['cloud_anisotropic_scattering_opacities'] = cloud_anisotropic_scattering_opacities
             additional_outputs['optical_depths'] = optical_depths
-
+        if return_abundances:
+            additional_outputs['abundances'] = mass_fractions
         if relative_cloud_scaling_factor is not None:
             additional_outputs['relative_cloud_scaling_factor'] = relative_cloud_scaling_factor
 
