@@ -4239,7 +4239,7 @@ class Retrieval:
                 if marker_color_type.startswith('delta_'):
                     vmax = np.max(np.abs([vmin, vmax]))
                     vmin = -1 * vmax
-  
+
                 norm = Normalize(vmin=vmin, vmax=vmax)
                 for name, data in self.configuration.data.items():
                     markerfacecolors[name] = norm(markerfacecolors[name])
