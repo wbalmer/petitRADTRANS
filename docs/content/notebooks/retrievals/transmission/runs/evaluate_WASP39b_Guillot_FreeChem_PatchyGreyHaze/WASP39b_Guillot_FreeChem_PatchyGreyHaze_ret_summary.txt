@@ -1,0 +1,55 @@
+WASP39b_Guillot_FreeChem_PatchyGreyHaze
+2025-03-18, 13:20:41
+pRT v3.2.0a17
+retrievals/transmission/runs/
+Live points: None
+
+Fixed Parameters
+    stellar_radius = 64867068000.000
+    reference_pressure = 0.010
+    line_species = ['H2O__POKAZATEL.R400', 'CO-NatAbund.R400', 'CO2.R400', 'CH4__MM.R400', 'SO2.R400']
+    cloud_species = []
+Free Parameters, Prior^-1(0), Prior^-1(1)
+    log_g = 2.000000, 5.500000
+    planet_radius = 5592880559.288000, 11185759440.712002
+    T_int = 100.000350, 3599.999650
+    T_equ = 100.000350, 3599.999650
+    gamma = 1.000000, 0.749894
+    log_kappa_IR = -3.999999, 1.999999
+    log_Pcloud = -7.999999, 2.999999
+    haze_factor = -3.999999, 9.999999
+    power_law_opacity_350nm = 0.000000, 99999078970204995584.000000
+    power_law_opacity_coefficient = -19.999998, 1.999998
+    cloud_fraction = 0.000000, 1.000000
+    JWST/NIRSPEC/PRISM_offset = -0.000520, 0.000520
+    JWST/NIRISSSOSS/O2_offset = -0.000520, 0.000520
+    H2O__POKAZATEL = -7.999999, -0.000001
+    CO-NatAbund = -7.999999, -0.000001
+    CO2 = -7.999999, -0.000001
+    CH4__MM = -7.999999, -0.000001
+    SO2 = -7.999999, -0.000001
+
+Data
+JWST/NIRSPEC/PRISM
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRSpec_PRISM_bins_scale1.dat
+    Model Function = guillot_transmission
+    offset = True
+    distance = 3.0856775814913675e+19
+    data resolution = 100
+    model resolution = 400
+JWST/NIRISSSOSS/O1
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRISS_SOSS_Order1_R100.dat
+    Model Function = guillot_transmission
+    distance = 3.0856775814913675e+19
+    data resolution = 700
+    model resolution = 400
+    external_pRT_reference = JWST/NIRSPEC/PRISM
+JWST/NIRISSSOSS/O2
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRISS_SOSS_Order2_R100.dat
+    Model Function = guillot_transmission
+    offset = True
+    distance = 3.0856775814913675e+19
+    data resolution = 700
+    model resolution = 400
+    external_pRT_reference = JWST/NIRSPEC/PRISM
+

@@ -3937,7 +3937,8 @@ class Radtrans:
             return_clear_spectrum: bool = False,
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
-            return_opacities: bool = False
+            return_opacities: bool = False,
+            return_abundances: bool = False
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's transmission radius
         (for the transmission spectrum).
@@ -4178,6 +4179,9 @@ class Radtrans:
         if return_radius_hydrostatic_equilibrium:
             additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium
 
+        if return_abundances:
+            additional_outputs['abundances'] = mass_fractions
+            
         if frequencies_to_wavelengths:
             return (
                 frequency2wavelength(self._frequencies),
