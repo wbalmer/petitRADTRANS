@@ -1,8 +1,8 @@
 WASP39b_Guillot_FreeChem_PatchyGreyHaze
-2025-03-18, 13:20:41
-pRT v3.2.0a17
+2025-03-19, 14:20:33
+pRT v3.2.0a19
 retrievals/transmission/runs/
-Live points: None
+Live points: 400
 
 Fixed Parameters
     stellar_radius = 64867068000.000
@@ -11,7 +11,7 @@ Fixed Parameters
     cloud_species = []
 Free Parameters, Prior^-1(0), Prior^-1(1)
     log_g = 2.000000, 5.500000
-    planet_radius = 5592880559.288000, 11185759440.712002
+    planet_radius = 0.800000, 1.600000
     T_int = 100.000350, 3599.999650
     T_equ = 100.000350, 3599.999650
     gamma = 1.000000, 0.749894
@@ -53,3 +53,50 @@ JWST/NIRISSSOSS/O2
     model resolution = 400
     external_pRT_reference = JWST/NIRSPEC/PRISM
 
+Multinest Outputs
+  marginal evidence:
+    log Z = -334507500.3 +- 0.1
+    ln Z = -770231983.6 +- 0.1
+  Statistical Fit Parameters
+    log_g          2.35441711 +- 0.00000012
+    planet_radius  1.245311808 +- 0.000000021
+    T_int          705.40526 +- 0.00086
+    T_equ          786.0524 +- 0.0012
+    gamma          0.815532 +- 0.000012
+    log_kappa_IR   -0.3716869 +- 0.0000038
+    log_Pcloud     -3.9525938 +- 0.0000013
+    haze_factor    4.403566 +- 0.000015
+    power_law_opacity_350nm0.4240583 +- 0.0000014
+    power_law_opacity_coefficient-2.9644335 +- 0.0000021
+    cloud_fraction 0.881688600 +- 0.000000070
+    JWST/NIRSPEC/PRISM_offset0.00003165361 +- 0.00000000054
+    JWST/NIRISSSOSS/O2_offset-0.0001539717 +- 0.0000000015
+    H2O__POKAZATEL -2.10214879 +- 0.00000098
+    CO-NatAbund    -1.4491061 +- 0.0000026
+    CO2            -3.71483516 +- 0.00000047
+    CH4__MM        -5.5193323 +- 0.0000024
+    SO2            -3.7443950 +- 0.0000030
+
+Best Fit Parameters
+    𝛘^2/n_wlen = 5462666.66
+    𝛘^2/DoF = 5835121.21
+    stellar_radius = 6.487e+10
+    reference_pressure = 1.000e-02
+    log_g = 2.354e+00
+    planet_radius = 1.245e+00
+    T_int = 7.054e+02
+    T_equ = 7.861e+02
+    gamma = 8.155e-01
+    log_kappa_IR = -3.717e-01
+    log_Pcloud = -3.953e+00
+    haze_factor = 4.404e+00
+    power_law_opacity_350nm = 4.241e-01
+    power_law_opacity_coefficient = -2.964e+00
+    cloud_fraction = 8.817e-01
+    JWST/NIRSPEC/PRISM_offset = 3.165e-05
+    JWST/NIRISSSOSS/O2_offset = -1.540e-04
+    H2O__POKAZATEL = -2.102e+00
+    CO-NatAbund = -1.449e+00
+    CO2 = -3.715e+00
+    CH4__MM = -5.519e+00
+    SO2 = -3.744e+00

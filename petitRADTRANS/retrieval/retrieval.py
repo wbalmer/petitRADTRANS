@@ -1814,7 +1814,10 @@ class Retrieval:
                 The mean molecular weight at each pressure level in the atmosphere.
         """
         mass_fractions, mean_molar_masses = self.get_mass_fractions(sample, parameters_read)
-        volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions)
+        mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
+        for cloud in self.configuration.cloud_species:
+            del mass_fractions_no_clouds[cloud.split('.')[0].split('_')[0]]
+        volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
 
         return volume_mixing_ratios, mean_molar_masses
 
@@ -2493,7 +2496,7 @@ class Retrieval:
                 temperature_fits.append(temperature_fit)
 
             temperature_dict[name] = np.array(temperature_fits)
-            np.save(f"{self.output_directory}evaluate_{name}/{name}_sampled_teff", np.array(temperature_fits))
+            np.save(f"{self.output_directory}/evaluate_{name}/{name}_sampled_teff", np.array(temperature_fits))
 
         return temperature_dict
 
