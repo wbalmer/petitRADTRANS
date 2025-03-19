@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a19] - 2025-03-02
+## [3.2.0a20] - 2025-03-19
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Fixed calculations of chi2 and ensured consistent opacity usage in `get_full_range_model`.
 - Tests now use more lightweights opacity files.
 - Saved best-fit spectra are now convolved and binned per-instrument.
+- Updated multiple dataset retrieval tutorial.
 
 ### Deprecated
 - Module `_input_data_loader` and functions wherein, replaced with module `_input_data` and `Opacity` objects.
@@ -47,6 +48,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Minor typo in a warning message.
 - Fixed inhomogenous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
 - Removed warnings for `.DS_Store` files.
+- Resolved issues 100 and 101 for corner plotting.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.

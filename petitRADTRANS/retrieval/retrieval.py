@@ -3513,7 +3513,7 @@ class Retrieval:
                     i_p += 1
 
                 p_plot_inds[name] = np.array(parameter_plot_indices)
-                p_ranges[name] = np.array(parameter_ranges)
+                p_ranges[name] = parameter_ranges
                 p_use_dict[name] = parameters_use
                 sample_use_dict[name] = copy.copy(samples_use)
 

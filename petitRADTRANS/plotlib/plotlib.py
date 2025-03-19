@@ -483,6 +483,7 @@ def contour_corner(
         color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
 
     handles = []
+    range_list = []
     count = 0
 
     for key, samples in sampledict.items():
@@ -511,8 +512,6 @@ def contour_corner(
 
             for i in parameter_plot_indices[key]:
                 best_fit.append(samples[best_fit_ind][i])
-
-        range_list = []
 
         for range_i, i in enumerate(parameter_plot_indices[key]):
             data_list.append(samples[len(samples) - s:, i])
@@ -571,6 +570,13 @@ def contour_corner(
 
         if "contour_kwargs" in kwargs.keys():
             contour_kwargs = kwargs["contour_kwargs"]
+
+        if short_name is None:
+            label = key
+        else:
+            label = short_name[key]
+
+        handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
 
         if count == 0:
             fig = _corner_wrap(
@@ -642,13 +648,6 @@ def contour_corner(
                 **hist2d_kwargs,
             )
             count += 1
-
-        if short_name is None:
-            label = key
-        else:
-            label = short_name[key]
-
-        handles.append(Line2D([0], [0], marker='o', color=color_list[count], label=label, markersize=15))
 
     if legend:
         fig.get_axes()[2].legend(handles=handles,
