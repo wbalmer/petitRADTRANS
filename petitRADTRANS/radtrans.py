@@ -4181,7 +4181,7 @@ class Radtrans:
 
         if return_abundances:
             additional_outputs['abundances'] = mass_fractions
-            
+
         if frequencies_to_wavelengths:
             return (
                 frequency2wavelength(self._frequencies),
