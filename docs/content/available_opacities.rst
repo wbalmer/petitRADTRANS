@@ -73,6 +73,11 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 10.1016/j.jqsrt.2013.07.002
       - --
     * - CH4
+      - 12C-1H4__MM
+      - 12C-1H4__MM.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stae148
+      - --
+    * - CH4
       - 12C-1H4__HITEMP
       - 12C-1H4__HITEMP.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.3847/1538-4365/ab7a1a
