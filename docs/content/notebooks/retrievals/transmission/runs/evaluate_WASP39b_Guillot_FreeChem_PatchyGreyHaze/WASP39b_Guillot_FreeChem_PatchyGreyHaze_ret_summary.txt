@@ -1,5 +1,5 @@
 WASP39b_Guillot_FreeChem_PatchyGreyHaze
-2025-03-20, 11:14:12
+2025-03-20, 10:18:15
 pRT v3.2.0a20
 retrievals/transmission/runs/
 Live points: 400
