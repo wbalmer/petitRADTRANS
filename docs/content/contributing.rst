@@ -105,7 +105,7 @@ When you estimate that your work is done, you can think about pushing to the ``d
 1. Check that you respect the :ref:`stylistic guidelines<stylistic_guidelines>`.
 2. Check the :ref:`merge request guidelines<merge_guidelines>`.
 3. Update the ``dev`` version number (see :ref:`versioning`) in the following files:
-    - ``project.toml``
+    - ``pyproject.toml``
     - ``meson.build``
     - ``CHANGELOG.md``
     - ``docs/conf.py``

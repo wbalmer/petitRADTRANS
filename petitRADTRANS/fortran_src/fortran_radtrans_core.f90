@@ -2839,8 +2839,13 @@ module fortran_radtrans_core
                             s_1 = s_2
                         end if
                        
-                        s_2 = sqrt(radius_hydrostatic_equilibrium(j_str + 1) ** 2d0 &
-                            - radius_hydrostatic_equilibrium(i_str) ** 2d0)
+                        if ((j_str+1) == i_str) then
+                            s_2 = 0d0
+                        else
+                            s_2 = sqrt(max(radius_hydrostatic_equilibrium(j_str + 1) ** 2d0 &
+                                    - radius_hydrostatic_equilibrium(i_str) ** 2d0, 0d0))
+                        end if
+
                         t_graze(:, :, :, i_str) = t_graze(:, :, :, i_str) + alpha_t2(:, :, :, j_str) * (s_1 - s_2)
                     end do
                 end do
@@ -2854,9 +2859,14 @@ module fortran_radtrans_core
                             if (j_str > 1) then
                                 s_1 = s_2
                             end if
-                        
-                            s_2 = sqrt(radius_hydrostatic_equilibrium(j_str + 1) ** 2d0 &
+
+                            if ((j_str+1) == i_str) then
+                                s_2 = 0d0
+                            else
+                                s_2 = sqrt(radius_hydrostatic_equilibrium(j_str + 1) ** 2d0 &
                                 - radius_hydrostatic_equilibrium(i_str) ** 2d0)
+                            end if
+
                             t_graze_scat(:, i_str) = t_graze_scat(:, i_str) + alpha_t2_scat(:, j_str) * (s_1 - s_2)
                         end do
                     end do

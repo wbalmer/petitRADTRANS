@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a20] - 2025-03-19
+## [3.2.0a21] - 2025-03-19
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Power law temperature profile and retrieval models.
@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Fixed inhomogenous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
 - Removed warnings for `.DS_Store` files.
 - Resolved issues 100 and 101 for corner plotting.
+- Numerical cancellation error that occurred on some systems when calculating transmission contribution functions.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
