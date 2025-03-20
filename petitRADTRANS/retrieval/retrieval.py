@@ -1816,7 +1816,7 @@ class Retrieval:
         mass_fractions, mean_molar_masses = self.get_mass_fractions(sample, parameters_read)
         mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
         for cloud in self.configuration.cloud_species:
-            del mass_fractions_no_clouds[cloud.split('.')[0].split('_')[0]]
+            del mass_fractions_no_clouds[cloud]
         volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
 
         return volume_mixing_ratios, mean_molar_masses
