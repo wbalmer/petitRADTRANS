@@ -3078,7 +3078,7 @@ class Retrieval:
                     prt_reference=prt_reference, refresh=refresh,
                     contribution=True
                 )
-                
+
                 nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
