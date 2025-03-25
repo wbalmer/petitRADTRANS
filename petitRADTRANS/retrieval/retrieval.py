@@ -1445,7 +1445,6 @@ class Retrieval:
             contribution = additional_outputs['transmission_contribution']
         return wavelength, spectrum, contribution
 
-
     def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[float], ret_name: str = None):
         if ret_name is None:
             ret_name = self.configuration.retrieval_name
