@@ -1428,7 +1428,20 @@ class Retrieval:
             mg_func = model_generating_function
 
         # get the spectrum
-        return mg_func(atmosphere, parameters, pt_plot_mode=False, amr=self.configuration.amr)
+        results = mg_func(
+            atmosphere,
+            parameters,
+            pt_plot_mode=False,
+            amr=self.configuration.amr)
+        if len(results) == 2:
+            return results
+        
+        wavelength, spectrum, additional_outputs = results
+        if 'emission_contribution' in additional_outputs.keys():
+            contribution = additional_outputs['emission_contribution']
+        elif 'transmission_contribution' in additional_outputs.keys():
+            contribution = additional_outputs['transmission_contribution']
+        return wavelength, spectrum, contribution
 
     def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[float], ret_name: str = None):
         if ret_name is None:
