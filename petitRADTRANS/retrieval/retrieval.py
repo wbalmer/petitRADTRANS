@@ -1423,7 +1423,9 @@ class Retrieval:
 
         # Check what model function we're using
         if model_generating_function is None:
-            mg_func = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].model_generating_function
+            mg_func = self.configuration.data[
+                self.configuration.plot_kwargs["take_PTs_from"]
+                ].model_generating_function
         else:
             mg_func = model_generating_function
 
@@ -1435,13 +1437,14 @@ class Retrieval:
             amr=self.configuration.amr)
         if len(results) == 2:
             return results
-        
+
         wavelength, spectrum, additional_outputs = results
         if 'emission_contribution' in additional_outputs.keys():
             contribution = additional_outputs['emission_contribution']
         elif 'transmission_contribution' in additional_outputs.keys():
             contribution = additional_outputs['transmission_contribution']
         return wavelength, spectrum, contribution
+
 
     def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[float], ret_name: str = None):
         if ret_name is None:
