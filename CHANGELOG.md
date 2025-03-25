@@ -4,29 +4,29 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a22] - 2025-03-25
+## [3.2.0a23] - 2025-03-25
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
+- Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
 - Power law temperature profile and retrieval models.
+- Ability to retrieve extinction (`"v_band_extinction"`) and reddening (`"v_band_reddening"`). Must be used together.
+- Ability to use full `return` functionality for additional_outputs in retrieval models. Users can add the `return_X` as a parameter, whose `value` should be `True`.
+- Argument `return_abundances` to `Radtrans`, to return the mass fractions of the model.
+- Possibility to load a custom pre-calculated chemical table file.
+- Possibility to save `retrieval.configuration` to a pickle file.
 - Module `opacities`, that will replace `_input_data_loader` in next major version.
 - Module `_input_data`, that will replace `_input_data_loader` in next major version.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
-- Added `dill` package as a requirement in order to serialize `RetrievalConfig` objects.
-- Can now save `retrieval.configuration` to a pickle file.
-- Write out pRT version in retrieval summary files.
-- Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
-- Ability to retrieve extinction (`"v_band_extinction"`) and reddening (`"v_band_reddening"`). Must be used together.
-- Possibility to load a custom pre-calculated chemical table file.
+- Package `dill` as a requirement in order to serialize `RetrievalConfig` objects.
+- The pRT version in retrieval summary files.
 - QoL function to convert a list of strings (e.g. `['H2O', 'C2H2', 'CH4']`) into a single string (e.g. `"'H2O', 'C2H2', 'CH4'"`) that can be used in console outputs.
 - An unknown opacity category.
-- Added ability to use full `return` functionality for additional_outputs in retrieval models. Users can add the `return_X` as a parameter, whose `value` should be `True`.
 
 ### Changed
-- Changed behaviour of `msum` in `chemistry.core`: now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
-- Fixed calculations of chi2 and ensured consistent opacity usage in `get_full_range_model`.
-- Tests now use more lightweights opacity files.
+- Function `msum` in `chemistry.core` now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
 - Saved best-fit spectra are now convolved and binned per-instrument.
+- Tests now use more lightweights opacity files.
 - Updated multiple dataset retrieval tutorial.
 
 ### Deprecated
@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Fixed
 - Incorrect stellar spectrum calculation in `SpectralModel` when calculating scaled emission spectra of irradiated planets.
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
+- Incorrect calculations of chi2 and inconsistent opacity usage in `get_full_range_model`.
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name.
 - Incorrect `SpectralModel` behaviour: filling species dict is overridden if only H2 and He are set as filling species and equilibrium chemistry is activated.
@@ -59,7 +60,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.1.3] - 2025-02-27
 ### Fixed
-- Bug in chemistry.utils.volume_mixing_ratios2mass_fractions() which calculated the mean molar mass from the volume mixing ratio array with compute_mean_molar_masses(). The latter function needs mass fractions, not volume mixing ratios as input, however. Added the function compute_mean_molar_masses_from_volume_mixing_ratios() and corrected the bug.
+- Function `chemistry.utils.volume_mixing_ratios2mass_fractions()` calculates the mean molar mass from volume mixing ratios, using a function requiring mass fractions.
 
 ## [3.1.2] - 2024-10-05
 ### Fixed

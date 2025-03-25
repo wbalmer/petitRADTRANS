@@ -169,9 +169,9 @@ class Opacity:
     # Default resolving powers
     _default_cia_resolving_power: float = 831.0
     _default_cloud_resolving_power: float = 39.0
-    _default_correlated_k_resolving_power: float = 1000.0
+    _default_correlated_k_resolving_power: int = 1000
     _default_line_by_line_resolving_power: float = 1e6
-    _default_resolving_power: float = 1000.0
+    _default_resolving_power: int = 1000
 
     def __init__(
             self,
@@ -1233,12 +1233,12 @@ class Opacity:
 
     @classmethod
     def get_resolving_power_string(cls, resolving_power: [int, float, str]) -> str:
-        if isinstance(resolving_power, int) or isinstance(resolving_power, str):
-            return f"{cls._constant_resolving_power}{resolving_power}"
-        elif isinstance(resolving_power, float):
+        if isinstance(resolving_power, float):
             return f"{cls._constant_resolving_power}{resolving_power:.0e}".replace(
                 'e+', 'e'
             ).replace('e0', 'e')
+
+        return f"{cls._constant_resolving_power}{resolving_power}"
 
     @classmethod
     def get_species_base_name(cls, species_full_name: str, join: bool = False) -> str:
@@ -2511,7 +2511,7 @@ class CorrelatedKOpacity(Opacity):
     _default_category: str = 'correlated_k_opacities'
     _default_extension: str = 'ktable'
     _default_rebinning_wavelength_range: tuple[float, float] = (0.1, 251.0)  # microns
-    _default_resolving_power: float = Opacity._default_correlated_k_resolving_power
+    _default_resolving_power: int = Opacity._default_correlated_k_resolving_power
     _default_wavelength_range: tuple[float, float] = (0.1, 250.0)  # microns
 
     def __init__(
@@ -2791,6 +2791,10 @@ class CorrelatedKOpacity(Opacity):
         )
 
         return new_opacity
+
+    @classmethod
+    def get_default_resolving_power(cls) -> int:
+        return cls._default_resolving_power
 
     @classmethod
     def write(

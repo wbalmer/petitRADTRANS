@@ -982,7 +982,7 @@ class Radtrans:
 
         if category == CorrelatedKOpacity.get_default_category():
             default_species, spectral_info = Opacity.split_species_spectral_info(species)
-            target_resolving_power, range_filename = Opacity.find_spectral_information(spectral_info)
+            target_resolving_power, range_filename = Opacity.find_spectral_information(species)
 
             if 'R' in target_resolving_power:
                 target_resolving_power = CorrelatedKOpacity.get_resolving_power_from_string(target_resolving_power)
