@@ -1423,7 +1423,9 @@ class Retrieval:
 
         # Check what model function we're using
         if model_generating_function is None:
-            mg_func = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].model_generating_function
+            mg_func = self.configuration.data[
+                self.configuration.plot_kwargs["take_PTs_from"]
+                ].model_generating_function
         else:
             mg_func = model_generating_function
 
@@ -1435,7 +1437,7 @@ class Retrieval:
             amr=self.configuration.amr)
         if len(results) == 2:
             return results
-        
+
         wavelength, spectrum, additional_outputs = results
         if 'emission_contribution' in additional_outputs.keys():
             contribution = additional_outputs['emission_contribution']
@@ -3069,17 +3071,14 @@ class Retrieval:
             pressures = self.configuration.pressures
             # Check to see if we're weighting by the emission contribution.
             if contribution:
-                best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
+                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
                     model_generating_function=model_generating_function,
                     prt_reference=prt_reference, refresh=refresh,
                     contribution=True
                 )
-                if 'emission_contribution' in additional_outputs.keys():
-                    best_fit_contribution = additional_outputs['emission_contribution']
-                elif 'transmission_contribution' in additional_outputs.keys():
-                    best_fit_contribution = additional_outputs['transmission_contribution']
+                
                 nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
@@ -3397,7 +3396,7 @@ class Retrieval:
             else:
                 sample_use = None  # TODO prevent reference before assignment
 
-            best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
+            best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
                 sample_use,
                 parameters_read,
                 model_generating_function=model_generating_function,
@@ -3406,10 +3405,7 @@ class Retrieval:
                 contribution=True,
                 mode=mode
             )
-            if 'emission_contribution' in additional_outputs.keys():
-                best_fit_contribution = additional_outputs['emission_contribution']
-            elif 'transmission_contribution' in additional_outputs.keys():
-                best_fit_contribution = additional_outputs['transmission_contribution']
+
             # Normalization
             index = (best_fit_contribution < 1e-16) & np.isnan(best_fit_contribution)
             best_fit_contribution[index] = 1e-16
@@ -3738,7 +3734,7 @@ class Retrieval:
                 else:
                     sample_use = None  # TODO prevent reference before assignment
 
-                best_fit_wavelengths, best_fit_spectrum, additional_outputs = self.get_best_fit_model(
+                best_fit_wavelengths, best_fit_spectrum, best_fit_contribution = self.get_best_fit_model(
                     sample_use,
                     parameters_read,
                     model_generating_function=model_generating_function,
@@ -3747,10 +3743,6 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                if 'emission_contribution' in additional_outputs.keys():
-                    best_fit_contribution = additional_outputs['emission_contribution']
-                elif 'transmission_contribution' in additional_outputs.keys():
-                    best_fit_contribution = additional_outputs['transmission_contribution']
                 nu = wavelength2frequency(best_fit_wavelengths)
 
                 mean_diff_nu = -np.diff(nu)
