@@ -3832,7 +3832,9 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
         output_file = input_file.replace(
             CorrelatedKOpacity.join_species_all_info(
                 '',
-                spectral_info=CorrelatedKOpacity.get_default_resolving_power()
+                spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                    CorrelatedKOpacity.get_default_resolving_power()
+                )
             ),
             CorrelatedKOpacity.join_species_all_info(
                 '', spectral_info=CorrelatedKOpacity.get_resolving_power_string(target_resolving_power)
