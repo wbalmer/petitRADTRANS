@@ -421,6 +421,9 @@ class Opacity:
             )
 
         if len(charge) > 0:
+            if len(charge) == 1:  # handle the case where only "p", "m", "+", "-" is given
+                charge = "1" + charge
+
             if charge[-1] in {cls._minus_symbol, cls._minus_char}:
                 charge = -int(charge[:-1])
             elif charge[-1] in {cls._plus_symbol, cls._plus_char}:
@@ -837,20 +840,6 @@ class Opacity:
             )
         )
 
-        species_filename = cls.join_species_all_info(
-            species_name=istopologue_name,
-            natural_abundance='',  # no need to add the natural abundance
-            charge=charge,
-            cloud_info=cloud_info,
-            source=source,
-            spectral_info=spectral_info,
-            spectral_sampling=None,
-            wavelength_range=None
-        )
-
-        for charge_symbol in cls._charge_symbols:
-            charge = charge.replace(charge_symbol, cls._charges[charge_symbol])
-
         species_directory = cls.join_species_all_info(
             species_name=istopologue_name,
             natural_abundance='',  # no need to add the natural abundance
@@ -858,6 +847,20 @@ class Opacity:
             cloud_info=cloud_info,
             source='',
             spectral_info='',
+            spectral_sampling=None,
+            wavelength_range=None
+        )
+
+        for charge_symbol in cls._charge_symbols:
+            charge = charge.replace(charge_symbol, cls._charges[charge_symbol])
+
+        species_filename = cls.join_species_all_info(
+            species_name=istopologue_name,
+            natural_abundance='',  # no need to add the natural abundance
+            charge=charge,
+            cloud_info=cloud_info,
+            source=source,
+            spectral_info=spectral_info,
             spectral_sampling=None,
             wavelength_range=None
         )
