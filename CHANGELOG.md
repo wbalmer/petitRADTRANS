@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a25] - 2025-03-29
+## [3.2.0a26] - 2025-03-29
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect stellar spectrum calculation in `SpectralModel` when calculating scaled emission spectra of irradiated planets.
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
 - Incorrect calculations of chi2 and inconsistent opacity usage in `get_full_range_model`.
+- Crash when using correlated-k opacities imported from the DACE database.
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name.
 - Incorrect `SpectralModel` behaviour: filling species dict is overridden if only H2 and He are set as filling species and equilibrium chemistry is activated.
@@ -48,11 +49,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
 - Incorrect log-x tick labelling in spectra plots.
 - Minor typo in a warning message.
-- Fixed inhomogeneous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
+- Inhomogeneous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
 - Removed warnings for `.DS_Store` files.
 - Resolved issues 100 and 101 for corner plotting.
 - Numerical cancellation error that occurred on some systems when calculating transmission contribution functions.
-- Fixed reading contribution function in `retrieval` class.
+- Crash when reading contribution function in `retrieval` class.
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
