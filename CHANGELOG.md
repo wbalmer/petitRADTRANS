@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a24] - 2025-03-27
+## [3.2.0a25] - 2025-03-29
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Argument `return_abundances` to `Radtrans`, to return the mass fractions of the model.
 - Possibility to load a custom pre-calculated chemical table file.
 - Possibility to save `retrieval.configuration` to a pickle file.
+- Possibility to select the wavelength range for the calculation of the median optical depth of photospheric clouds.
 - Module `opacities`, that will replace `_input_data_loader` in next major version.
 - Module `_input_data`, that will replace `_input_data_loader` in next major version.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
@@ -47,7 +48,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
 - Incorrect log-x tick labelling in spectra plots.
 - Minor typo in a warning message.
-- Fixed inhomogenous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
+- Fixed inhomogeneous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
 - Removed warnings for `.DS_Store` files.
 - Resolved issues 100 and 101 for corner plotting.
 - Numerical cancellation error that occurred on some systems when calculating transmission contribution functions.
