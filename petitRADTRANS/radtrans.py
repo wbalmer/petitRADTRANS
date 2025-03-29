@@ -1885,7 +1885,7 @@ class Radtrans:
 
         # Initialize Hansen's b coefficient
         if "hansen" in cloud_particles_radius_distribution.lower():
-            if isinstance(cloud_hansen_b, npt.NDArray):
+            if isinstance(cloud_hansen_b, np.ndarray):
                 if not cloud_hansen_b.shape == (pressures.size, n_clouds):
                     raise ValueError(
                         "cloud_hansen_b must be a float, a dictionary with arrays for each cloud species, "
@@ -3578,6 +3578,7 @@ class Radtrans:
                 return_contribution=return_contribution,
                 cloud_f_sed=cloud_f_sed,
                 photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
+                cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
                 cloud_anisotropic_scattering_opacities=_cloud_anisotropic_scattering_opacities,
                 cloud_absorption_opacities=_cloud_absorption_opacities,
                 return_rosseland_opacities=return_rosseland_optical_depths
@@ -3649,6 +3650,7 @@ class Radtrans:
                 continuum_opacities_scattering=_continuum_opacities_scattering,
                 cloud_f_sed=cloud_f_sed,
                 cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+                cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
                 cloud_anisotropic_scattering_opacities=_cloud_anisotropic_scattering_opacities,
                 cloud_absorption_opacities=_cloud_absorption_opacities,
                 optical_depths=optical_depths
@@ -3733,11 +3735,11 @@ class Radtrans:
         opacities: npt.NDArray[float],
         continuum_opacities_scattering: npt.NDArray[float],
         cloud_f_sed: float,
-        cloud_photosphere_wavelength_boundaries: npt.NDArray[float],
         cloud_photosphere_median_optical_depth: float,
         cloud_anisotropic_scattering_opacities: npt.NDArray[float],
         cloud_absorption_opacities: npt.NDArray[float],
-        optical_depths: npt.NDArray[float] = None
+        optical_depths: npt.NDArray[float] = None,
+        cloud_photosphere_wavelength_boundaries: npt.NDArray[float] = None,
     ) -> npt.NDArray[float]:
         """Calculate the photosphere radius.
         TODO complete docstring
@@ -3770,7 +3772,7 @@ class Radtrans:
 
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
 
-        photosphere_radius = np.zeros(self._frequencies.size)
+        photosphere_radius = np.zeros(self._frequencies.size, dtype=float)
 
         if self.__sum_opacities:
             if optical_depths is None:
