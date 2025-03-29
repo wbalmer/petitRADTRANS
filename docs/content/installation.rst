@@ -128,7 +128,7 @@ To be able to use the retrieval module, execute:
 
 .. code-block:: bash
 
-    pip install petitRADTRANS[retrieval] --no-build-isolation
+    pip install "petitRADTRANS[retrieval]" --no-build-isolation
 
 Compiling pRT from source
 =========================
@@ -147,7 +147,7 @@ Compiling pRT from source
 
     .. code-block:: bash
 
-        pip install .[retrieval] --no-build-isolation
+        pip install ".[retrieval]" --no-build-isolation
 
 Setting up the input_data directory
 ===================================
