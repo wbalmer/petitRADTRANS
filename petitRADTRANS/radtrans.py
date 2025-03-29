@@ -3285,6 +3285,7 @@ class Radtrans:
             return_cloud_contribution: bool = False,
             return_opacities: bool = False,
             return_abundances: bool = False
+        cloud_photosphere_wavelength_boundaries: npt.NDArray[float] = None,
     ) -> tuple[npt.NDArray[float], npt.NDArray[float], dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -3345,6 +3346,9 @@ class Radtrans:
                     Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
                     atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
                     of clouds in the photospheric region.
+                cloud_photosphere_wavelength_boundaries (Optional[NDArray]):
+                    Min and max wavelength boundaries when calculating the median of the photospheric cloud optical
+                    depth. By default, the whole spectral range is used.
                 cloud_fraction:
                     Mix a column without cloud with a column with cloud to the requested fraction
                     (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
@@ -3686,6 +3690,7 @@ class Radtrans:
             cloud_anisotropic_scattering_opacities: npt.NDArray[float],
             cloud_absorption_opacities: npt.NDArray[float],
             optical_depths: npt.NDArray[float] = None
+        cloud_photosphere_wavelength_boundaries: npt.NDArray[float],
     ) -> npt.NDArray[float]:
         """Calculate the photosphere radius.
         TODO complete docstring
@@ -3697,6 +3702,7 @@ class Radtrans:
             opacities:
             continuum_opacities_scattering:
             cloud_f_sed:
+            cloud_photosphere_wavelength_boundaries:
             cloud_photosphere_median_optical_depth:
             cloud_anisotropic_scattering_opacities:
             cloud_absorption_opacities:
@@ -3732,7 +3738,7 @@ class Radtrans:
                     # Custom cloud parameters
                     frequencies=self._frequencies,
                     weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                    cloud_wavelengths=self._clouds_loaded_opacities['wavelengths'],
+                    cloud_wavelengths=cloud_photosphere_wavelength_boundaries,
                     cloud_f_sed=cloud_f_sed,
                     cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
                     cloud_absorption_opacities=cloud_absorption_opacities,
