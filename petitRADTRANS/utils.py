@@ -7,6 +7,7 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 
 class LockedDict(dict):
@@ -307,7 +308,7 @@ def hdf52dict(hdf5_file):
     return dictionary
 
 
-def intersection_indices(array1, array2):
+def intersection_indices(array1: npt.NDArray, array2: npt.NDArray):
     """Get the indices of the intersection between two sorted arrays in increasing order.
 
     For example, if array1 is [0.1, ..., 0.3, ..., 3] and array2 is interval [0.3, ..., 3, ..., 28], then the output

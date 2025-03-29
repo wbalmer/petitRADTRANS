@@ -959,7 +959,11 @@ class Radtrans:
         return name
 
     @staticmethod
-    def __get_frequency_grids_intersection_indices(frequencies, file_frequencies):
+    def __get_frequency_grids_intersection_indices(
+        frequencies: npt.NDArray[float],
+        file_frequencies: npt.NDArray[float],
+        tolerate_grid_misalignment: bool = False
+    ) -> tuple[npt.NDArray[bool], npt.NDArray[bool]]:
         """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
 
         For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3] and some loaded opacity frequency grid
@@ -969,6 +973,8 @@ class Radtrans:
         Args:
             frequencies: the Radtrans frequency grid
             file_frequencies: the file frequency grid
+            tolerate_grid_misalignment: if True, do not raise an error if the intersection indices sizes differ by at
+            most 1.
 
         Returns:
             The indices of the intersection between both grids, for the Radtrans grid and the file grid0
@@ -979,10 +985,14 @@ class Radtrans:
         )
 
         if np.nonzero(indices_opacities)[0].size != np.nonzero(indices_file)[0].size:
-            raise ValueError(
-                f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
-                f"cannot be broadcast to indexing result of size {np.nonzero(indices_file)[0].size}\n"
-                f"This may be caused by loading opacities of different resolving power")
+            if (
+                not tolerate_grid_misalignment
+                or np.nonzero(indices_opacities)[0].size - np.nonzero(indices_file)[0].size != 1
+            ):
+                raise ValueError(
+                    f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
+                    f"cannot be broadcast to indexing result of size {np.nonzero(indices_file)[0].size}\n"
+                    f"This may be caused by loading opacities of different resolving power")
 
         return indices_opacities, indices_file
 
@@ -4564,8 +4574,38 @@ class Radtrans:
 
             indices_opacities, indices_file = Radtrans.__get_frequency_grids_intersection_indices(
                 frequencies=frequencies,
-                file_frequencies=_frequencies
+                file_frequencies=_frequencies,
+                tolerate_grid_misalignment=True
             )
+
+            # Handle grid misalignment
+            if np.nonzero(indices_file)[0].size == frequencies.size - 1:
+                _indices_file = np.nonzero(indices_file)[0]
+
+                if (
+                    np.abs(_frequencies[indices_file][0] - frequencies[0])
+                    < np.abs(_frequencies[indices_file][0] - frequencies[1])
+                ):
+                    index_include = _indices_file[-1] + 1
+                else:
+                    index_include = _indices_file[0] - 1
+
+                if index_include < 0 or index_include == _frequencies.size:
+                    _wavelengths = 1e4 / _frequencies
+                    wavelengths = 1e4 / frequencies
+
+                    raise ValueError(
+                        f"unrecoverable frequency grid misalignment: "
+                        f"reference frequency array is of size {frequencies.size}, "
+                        f"but corresponding frequency array in file '{file_path_hdf5}' "
+                        f"is of size {_indices_file.size}; "
+                        f"a grid realignment was attempted, but required a frequency interval larger than stored in "
+                        f"the opacity file ({_wavelengths[0]} -- {_wavelengths[-1]} um in file, "
+                        f"{wavelengths[0]} -- {wavelengths[-1]} um in model)\n"
+                        f"Use a slightly smaller wavelength range, or use different opacity files"
+                    )
+
+                indices_file[index_include] = True
 
             # Fill opacity array
             opacities = np.zeros((g_size, frequencies.size, 1, temperature_pressure_grid_size))
@@ -4634,7 +4674,8 @@ class Radtrans:
 
             indices_opacities, indices_file = Radtrans.__get_frequency_grids_intersection_indices(
                 frequencies=frequencies,
-                file_frequencies=frequency_grid
+                file_frequencies=frequency_grid,
+                tolerate_grid_misalignment=False
             )
 
             # Fill opacity array

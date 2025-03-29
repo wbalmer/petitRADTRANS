@@ -3480,7 +3480,7 @@ def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopo
     spectral_info = spectral_info.replace('.0-', '-').replace('.0mu', 'mu')
 
     return Opacity.join_species_all_info(
-        name=species_isotopologue_name.replace('-NatAbund', ''),
+        species_name=species_isotopologue_name.replace('-NatAbund', ''),
         natural_abundance=natural_abundance,
         charge=charge,
         cloud_info=cloud_info,
@@ -3713,9 +3713,26 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
         )
         cross_sections = np.concatenate([cross_sections, [0, 0]])
 
-    # Interpolate the Dace calculation to that grid
+    # Interpolate the Dace cross-sections to pRT's line-by-line grid
     sig_interp = interp1d(wavenumbers, cross_sections)
     sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
+
+    # Start of interpolation of the Dace cross-sections so that they have constant resolving power (used for c-k)
+    max_resolving_power = min(  # no need to have a higher resolving power than pRT's line-by-line resolving power
+        int(np.ceil(np.max(wavenumbers[:-1] / np.diff(wavenumbers)))),
+        LineByLineOpacity.get_default_resolving_power()
+    )
+
+    # Avoid potential division by 0
+    wavenumber_start = np.max([
+        wavenumbers[0],
+        40.0  # (cm-1) 250 microns, it is impractical to calculate opacities in pRT at lower wavenumbers
+    ])
+
+    # Interpolate the cross-sections with constant resolving power sampling
+    # Do not keep the last value as it is above the interpolation range
+    wavenumbers = prt_resolving_space(wavenumber_start, wavenumbers[-1], max_resolving_power)[:-1]
+    cross_sections = sig_interp(wavenumbers)
 
     # Check if interp values are below 0 or NaN
     if np.any(np.less(sigmas_prt, 0)):
