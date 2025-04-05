@@ -1,10 +1,11 @@
 """Stores useful mathematical functions.
 """
 import numpy as np
+import numpy.typing as npt
 from scipy.special import erf, erfinv, lambertw
 
 
-def bayes_factor2sigma(bayes_factor: float) -> float:
+def bayes_factor2sigma(bayes_factor: float) -> float | npt.NDArray[np.floating]:
     """
     Convert a Bayes factor, or "evidence", into a sigma significance. For Bayes factor higher than exp(25), the function
     is approximated with a square root function.
@@ -77,7 +78,7 @@ def calculate_reduced_chi2(data: [float, np.ndarray], model: [float, np.ndarray]
 
 def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
                           covariance_matrix: np.ndarray = None
-                          ) -> np.ndarray:
+                          ) -> np.ndarray | None:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
     coefficients between x, y, ...
@@ -92,7 +93,7 @@ def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
         3. http://math.jacobs-university.de/oliver/teaching/jacobs/fall2015/esm106/handouts/error-propagation.pdf
     Args:
         derivatives:
-            Partial derivatives of the function with respect to each variables (df/dx, df/dy, ...)
+            Partial derivatives of the function with respect to each variable (df/dx, df/dy, ...)
         uncertainties:
             Uncertainties of each variable (either a 1D-array or a 2D-array containing - and + unc.)
         covariance_matrix:
@@ -116,6 +117,22 @@ def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
             np.matmul(sigma_less, np.matmul(covariance_matrix, np.transpose(sigma_less))),
             np.matmul(sigma_more, np.matmul(covariance_matrix, np.transpose(sigma_more)))
         ]))
+
+
+def compute_resolving_power(array: npt.NDArray[float]) -> float:
+    """Compute the mean resolving power of an array.
+
+    Args:
+        array:
+            A 1-D array.
+
+    Returns:
+        The mean resolving power of the array.
+    """
+    return np.mean(
+        array[:-1] / np.diff(array) + 0.5,
+        dtype=float
+    )
 
 
 def feature_scaling(array: np.ndarray, min_value: float = 0.0, max_value: float = 1.0) -> np.ndarray:
