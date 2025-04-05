@@ -90,6 +90,8 @@ class Radtrans:
         "or re-do all the setup steps necessary for the modification to be taken into account"
     )
 
+    _frequency_grid_misalignment_tolerance: float = 2e-3
+
     def __init__(
         self,
         pressures: npt.NDArray[float] = None,
@@ -987,7 +989,7 @@ class Radtrans:
         if np.nonzero(indices_opacities)[0].size != np.nonzero(indices_file)[0].size:
             if (
                 not tolerate_grid_misalignment
-                or np.nonzero(indices_opacities)[0].size - np.nonzero(indices_file)[0].size != 1
+                or np.abs(np.nonzero(indices_opacities)[0].size - np.nonzero(indices_file)[0].size) != 1
             ):
                 raise ValueError(
                     f"frequencies size mismatch: value frequency array of size {np.nonzero(indices_opacities)[0].size} "
@@ -2773,6 +2775,62 @@ class Radtrans:
         return transmission_contribution, radius_hydrostatic_equilibrium
 
     @staticmethod
+    def _handle_grid_misalignment(
+        indices: npt.NDArray[bool],
+        frequencies_reference: npt.NDArray[float],
+        frequencies_test: npt.NDArray[float]
+    ) -> npt.NDArray[bool]:
+        _indices: npt.NDArray[np.signedinteger] = np.nonzero(indices)[0]
+
+        if (
+                np.abs(frequencies_test[indices][0] - frequencies_reference[0])
+                < np.abs(frequencies_test[indices][0] - frequencies_reference[1])
+        ):  # right misalignment
+            # Situation is as follows:
+            # 0   1   2   3
+            # |...|...|...|  (ref.)
+            #  |...|...|     (test)
+            #  0   1   2
+            # Include one more frequency to the right
+            # 0   1   2   3
+            # |...|...|...|  (ref.)
+            #  |...|...|...| (test)
+            #  0   1   2   3
+            index_include = _indices[-1] + 1
+
+        else:  # left misalignment
+            # Situation is as follows:
+            #  0   1   2   3
+            #  |...|...|...|  (ref.)
+            #     |...|...|   (test)
+            #     1   2   3
+            # Include one more frequency to the right
+            #  0   1   2   3
+            #  |...|...|...|  (ref.)
+            # |...|...|...|   (test)
+            # 0   1   2   3
+            index_include = _indices[0] - 1
+
+        if index_include < 0 or index_include == frequencies_test.size:  # handle out-of-bounds corrections
+            _wavelengths = 1e4 / frequencies_test
+            wavelengths = 1e4 / frequencies_reference
+
+            raise ValueError(
+                f"unrecoverable frequency grid misalignment: "
+                f"reference frequency array is of size {frequencies_reference.size}, "
+                f"but corresponding frequency array "
+                f"is of size {_indices.size}; "
+                f"a grid realignment was attempted, but required a frequency interval larger than stored in "
+                f"the opacity file ({_wavelengths[0]} -- {_wavelengths[-1]} um in file, "
+                f"{wavelengths[0]} -- {wavelengths[-1]} um in model)\n"
+                f"Use a slightly smaller wavelength range, or use different opacity files"
+            )
+
+        indices[index_include] = True
+
+        return indices
+
+    @staticmethod
     def _init_cia_loaded_opacities(cia_contributors):
         tmp_collision_dict = LockedDict.build_and_lock({
             'molecules': None,
@@ -4539,9 +4597,9 @@ class Radtrans:
                 f['asymmetry_parameters'][:]
             )
 
-    @staticmethod
+    @classmethod
     def load_hdf5_ktables(
-        file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size, return_radtrans_opacities=True
+        cls, file_path_hdf5, frequencies, g_size, temperature_pressure_grid_size, return_radtrans_opacities=True
     ):
         """Load k-coefficient tables in HDF5 format, based on the ExoMol setup."""
         with h5py.File(file_path_hdf5, 'r') as f:
@@ -4578,34 +4636,40 @@ class Radtrans:
                 tolerate_grid_misalignment=True
             )
 
-            # Handle grid misalignment
+            grid_misalignment: bool = False
+
             if np.nonzero(indices_file)[0].size == frequencies.size - 1:
-                _indices_file = np.nonzero(indices_file)[0]
+                indices_file = cls._handle_grid_misalignment(
+                    indices=indices_file,
+                    frequencies_reference=frequencies,
+                    frequencies_test=_frequencies
+                )
+                grid_misalignment = True
+            elif np.nonzero(indices_opacities)[0].size == np.nonzero(indices_file)[0].size - 1:
+                indices_opacities = cls._handle_grid_misalignment(
+                    indices=indices_opacities,
+                    frequencies_reference=_frequencies,
+                    frequencies_test=frequencies
+                )
+                grid_misalignment = True
 
-                if (
-                    np.abs(_frequencies[indices_file][0] - frequencies[0])
-                    < np.abs(_frequencies[indices_file][0] - frequencies[1])
-                ):
-                    index_include = _indices_file[-1] + 1
-                else:
-                    index_include = _indices_file[0] - 1
+            if grid_misalignment:
+                max_relative_difference: npt.NDArray[float] = np.max(
+                    np.abs(frequencies[indices_opacities] / _frequencies[indices_file] - 1)
+                )
+                spectral_info = Opacity.split_species_spectral_info(os.path.basename(file_path_hdf5))[1]
+                resolving_power = Opacity.split_spectral_info(spectral_info)[0]
+                resolving_power = Opacity.get_resolving_power_from_string(resolving_power)
 
-                if index_include < 0 or index_include == _frequencies.size:
-                    _wavelengths = 1e4 / _frequencies
-                    wavelengths = 1e4 / frequencies
-
-                    raise ValueError(
-                        f"unrecoverable frequency grid misalignment: "
-                        f"reference frequency array is of size {frequencies.size}, "
-                        f"but corresponding frequency array in file '{file_path_hdf5}' "
-                        f"is of size {_indices_file.size}; "
-                        f"a grid realignment was attempted, but required a frequency interval larger than stored in "
-                        f"the opacity file ({_wavelengths[0]} -- {_wavelengths[-1]} um in file, "
-                        f"{wavelengths[0]} -- {wavelengths[-1]} um in model)\n"
-                        f"Use a slightly smaller wavelength range, or use different opacity files"
+                if max_relative_difference > cls._frequency_grid_misalignment_tolerance / resolving_power:
+                    warnings.warn(
+                        f"maximum frequency grid misalignment from file ({max_relative_difference}) "
+                        f"is larger than tolerated "
+                        f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
+                        f"expect inaccuracies in spectral features location\n"
+                        f"To remove this warning, ensure that your correlated-k opacity files "
+                        f"have a similar wavenumber grids"
                     )
-
-                indices_file[index_include] = True
 
             # Fill opacity array
             opacities = np.zeros((g_size, frequencies.size, 1, temperature_pressure_grid_size))

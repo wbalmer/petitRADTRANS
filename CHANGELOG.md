@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a26] - 2025-03-29
+## [3.2.0a27] - 2025-04-05
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
@@ -19,10 +19,11 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Module `_input_data`, that will replace `_input_data_loader` in next major version.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
+- Function `math.compute_resolving_power`.
 - Package `dill` as a requirement in order to serialize `RetrievalConfig` objects.
 - The pRT version in retrieval summary files.
 - QoL function to convert a list of strings (e.g. `['H2O', 'C2H2', 'CH4']`) into a single string (e.g. `"'H2O', 'C2H2', 'CH4'"`) that can be used in console outputs.
-- An unknown opacity category.
+- An "unknown" opacity category.
 
 ### Changed
 - Function `msum` in `chemistry.core` now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.

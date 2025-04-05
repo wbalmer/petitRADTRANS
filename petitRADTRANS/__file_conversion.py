@@ -12,6 +12,7 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 import petitRADTRANS
@@ -3207,6 +3208,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          f"Unique pressures found: {unique_pressures.size}")
 
     pressure_temperature_grid_sorted_id = np.lexsort((temperatures, pressures))
+    resolving_power_line_by_line: float | None = None
 
     print("Preparation successful")
 
@@ -3223,12 +3225,14 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             path_input_data=path_input_data
         )
 
-        resolving_power = np.mean(
-            wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5
-        )
+        if resolving_power_line_by_line is None:
+            resolving_power_line_by_line = np.mean(
+                wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5,
+                dtype=float
+            )
 
         filename = get_opacity_filename(
-            resolving_power=resolving_power,
+            resolving_power=resolving_power_line_by_line,
             wavelength_boundaries=line_by_line_wavelength_boundaries,
             species_isotopologue_name=species_isotopologue_name,
             source=source,
@@ -3320,10 +3324,6 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             (unique_pressures.size, unique_temperatures.size, wavenumbers.size)
         )
 
-        # Revert order to match wavelength ordering
-        if wavenumbers[0] < wavenumbers[1]:
-            wavenumbers = wavenumbers[::-1]
-
         print(" Initializing correlated-k parameters...")
         samples_edges = np.zeros(samples.size + 1)
         samples_edges[-1] = 1.0
@@ -3331,28 +3331,32 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         for i in range(samples.size - 1):
             samples_edges[i + 1] = (samples[i + 1] + samples[i]) / 2
 
-        resolving_power = -np.mean(wavenumbers[:-1] / np.diff(wavenumbers) + 0.5)
-        downsampling = int(resolving_power / correlated_k_resolving_power)
+        if resolving_power_line_by_line is None:
+            resolving_power_line_by_line = np.mean(
+                wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5,
+                dtype=float
+            )
+
+        downsampling = int(resolving_power_line_by_line / correlated_k_resolving_power)
 
         if downsampling > wavenumbers.size:
             raise ValueError(f"unable to make correlate-k resolving power {correlated_k_resolving_power}"
-                             f"from source with resolving power {resolving_power}")
+                             f"from source with resolving power {resolving_power_line_by_line}")
 
         if use_legacy_correlated_k_wavenumbers_sampling:
             starting_index = 999
         else:
             starting_index = 0
 
-        bin_edges = wavenumbers[starting_index::downsampling][::-1]  # revert back to increasing wavenumber order
-        wavenumbers = wavenumbers[::-1]
+        bin_edges: npt.NDArray[float] = wavenumbers_petitradtrans_line_by_line[::-1][starting_index::downsampling][::-1]
 
         if use_legacy_correlated_k_wavenumbers_sampling:
             max_extra_edges = 2
 
             # Append an extra edge until the source maximum wavenumber is reached
             for i in range(max_extra_edges):
-                resolving_power = bin_edges[-1] / np.diff(bin_edges[-2:]) - 1
-                bin_edges = np.append(bin_edges, bin_edges[-1] * (1 + 1 / resolving_power))
+                resolving_power_line_by_line = bin_edges[-1] / np.diff(bin_edges[-2:]) - 1
+                bin_edges = np.append(bin_edges, bin_edges[-1] * (1 + 1 / resolving_power_line_by_line))
 
                 if bin_edges[-1] > wavenumbers[-1]:
                     warnings.warn(f"legacy maximum bin edges ({bin_edges[-1]} cm-1) "
@@ -3379,6 +3383,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             samples.size
         ))
 
+        min_selection_size: int = int(np.ceil(1 / np.min(np.diff(samples)))) * 2
+
         for i in range(bin_edges.size - 1):
             print(f" Calculating correlated-k ({i + 1}/{bin_edges.size - 1})...", end='\r')
             selection = np.nonzero(
@@ -3388,11 +3394,51 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                 )
             )[0]
 
+            if selection.size < 2:  # happens when resolving power is too small
+                selection_low = np.nonzero(np.less(wavenumbers, bin_edges[i + 1]))[0]
+                selection_high = np.nonzero(np.greater_equal(wavenumbers, bin_edges[i]))[0]
+
+                if selection_low.size == 0:
+                    selection_low = 0
+                else:
+                    selection_low = selection_low[-1]
+
+                if selection_high.size == 0:
+                    selection_high = wavenumbers.size - 1
+                else:
+                    selection_high = selection_high[0]
+
+                if selection_low == selection_high:
+                    selection_low = max((selection_low - 1, 0))
+                    selection_high = min((selection_high + 1, wavenumbers.size - 1))
+
+                if selection_low > wavenumbers.size - 2:
+                    selection_low = wavenumbers.size - 2
+
+                if selection_high < 1:
+                    selection_high = 1
+                elif selection_high == wavenumbers.size - 1:
+                    selection_high = None
+
+                selection = [selection_low, selection_high]
+
             _sigmas = sigmas[:, :, selection[0]:selection[-1]]
+
+            # If selection size is too small, interpolate the cross-sections so that there is enough samples for c-k
+            if np.size(selection) < min_selection_size:
+                _wavenumbers = wavenumbers[selection[0]:selection[-1]]
+                _wavenumbers = np.linspace(_wavenumbers[0], _wavenumbers[-1], min_selection_size)
+                _sigmas = interp1d(wavenumbers[selection[0]:selection[-1]], _sigmas, axis=-1)
+                _sigmas = _sigmas(_wavenumbers)
+
+                selection_size = min_selection_size
+            else:
+                selection_size = selection.size
+
             _sigmas = np.sort(_sigmas, axis=-1)
             sigmas_g_mean = np.zeros((unique_pressures.size, unique_temperatures.size, samples.size))
 
-            g_sort = np.linspace(0, 1, selection.size)
+            g_sort = np.linspace(0, 1, selection_size)
 
             for j in range(samples.size):
                 g_selection = np.nonzero(
@@ -3716,23 +3762,6 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     # Interpolate the Dace cross-sections to pRT's line-by-line grid
     sig_interp = interp1d(wavenumbers, cross_sections)
     sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
-
-    # Start of interpolation of the Dace cross-sections so that they have constant resolving power (used for c-k)
-    max_resolving_power = min(  # no need to have a higher resolving power than pRT's line-by-line resolving power
-        int(np.ceil(np.max(wavenumbers[:-1] / np.diff(wavenumbers)))),
-        LineByLineOpacity.get_default_resolving_power()
-    )
-
-    # Avoid potential division by 0
-    wavenumber_start = np.max([
-        wavenumbers[0],
-        40.0  # (cm-1) 250 microns, it is impractical to calculate opacities in pRT at lower wavenumbers
-    ])
-
-    # Interpolate the cross-sections with constant resolving power sampling
-    # Do not keep the last value as it is above the interpolation range
-    wavenumbers = prt_resolving_space(wavenumber_start, wavenumbers[-1], max_resolving_power)[:-1]
-    cross_sections = sig_interp(wavenumbers)
 
     # Check if interp values are below 0 or NaN
     if np.any(np.less(sigmas_prt, 0)):
