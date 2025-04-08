@@ -4668,7 +4668,7 @@ class Radtrans:
                         f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
                         f"expect inaccuracies in spectral features location\n"
                         f"To remove this warning, ensure that your correlated-k opacity files "
-                        f"have a similar wavenumber grids"
+                        f"have similar wavenumber grids"
                     )
 
             # Fill opacity array
