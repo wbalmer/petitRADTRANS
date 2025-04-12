@@ -4635,40 +4635,41 @@ class Radtrans:
                 tolerate_grid_misalignment=True
             )
 
-            grid_misalignment: bool = False
+            if np.nonzero(indices_file)[0].size != np.nonzero(indices_opacities)[0].size:
+                grid_misalignment: bool = False
 
-            if np.nonzero(indices_file)[0].size == frequencies.size - 1:
-                indices_file = cls._handle_grid_misalignment(
-                    indices=indices_file,
-                    frequencies_reference=frequencies,
-                    frequencies_test=_frequencies
-                )
-                grid_misalignment = True
-            elif np.nonzero(indices_opacities)[0].size == np.nonzero(indices_file)[0].size - 1:
-                indices_opacities = cls._handle_grid_misalignment(
-                    indices=indices_opacities,
-                    frequencies_reference=_frequencies,
-                    frequencies_test=frequencies
-                )
-                grid_misalignment = True
-
-            if grid_misalignment:
-                max_relative_difference: npt.NDArray[float] = np.max(
-                    np.abs(frequencies[indices_opacities] / _frequencies[indices_file] - 1)
-                )
-                spectral_info = Opacity.split_species_spectral_info(os.path.basename(file_path_hdf5))[1]
-                resolving_power = Opacity.split_spectral_info(spectral_info)[0]
-                resolving_power = Opacity.get_resolving_power_from_string(resolving_power)
-
-                if max_relative_difference > cls._frequency_grid_misalignment_tolerance / resolving_power:
-                    warnings.warn(
-                        f"maximum frequency grid misalignment from file ({max_relative_difference}) "
-                        f"is larger than tolerated "
-                        f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
-                        f"expect inaccuracies in spectral features location\n"
-                        f"To remove this warning, ensure that your correlated-k opacity files "
-                        f"have similar wavenumber grids"
+                if np.nonzero(indices_file)[0].size == frequencies.size - 1:
+                    indices_file = cls._handle_grid_misalignment(
+                        indices=indices_file,
+                        frequencies_reference=frequencies,
+                        frequencies_test=_frequencies
                     )
+                    grid_misalignment = True
+                elif np.nonzero(indices_opacities)[0].size == np.nonzero(indices_file)[0].size - 1:
+                    indices_opacities = cls._handle_grid_misalignment(
+                        indices=indices_opacities,
+                        frequencies_reference=_frequencies,
+                        frequencies_test=frequencies
+                    )
+                    grid_misalignment = True
+
+                if grid_misalignment:
+                    max_relative_difference: npt.NDArray[float] = np.max(
+                        np.abs(frequencies[indices_opacities] / _frequencies[indices_file] - 1)
+                    )
+                    spectral_info = Opacity.split_species_spectral_info(os.path.basename(file_path_hdf5))[1]
+                    resolving_power = Opacity.split_spectral_info(spectral_info)[0]
+                    resolving_power = Opacity.get_resolving_power_from_string(resolving_power)
+
+                    if max_relative_difference > cls._frequency_grid_misalignment_tolerance / resolving_power:
+                        warnings.warn(
+                            f"maximum frequency grid misalignment from file ({max_relative_difference}) "
+                            f"is larger than tolerated "
+                            f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
+                            f"expect inaccuracies in spectral features location\n"
+                            f"To remove this warning, ensure that your correlated-k opacity files "
+                            f"have similar wavenumber grids"
+                        )
 
             # Fill opacity array
             opacities = np.zeros((g_size, frequencies.size, 1, temperature_pressure_grid_size))
