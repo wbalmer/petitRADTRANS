@@ -2797,7 +2797,6 @@ class Radtrans:
             #  |...|...|...| (test)
             #  0   1   2   3
             index_include = _indices[-1] + 1
-
         else:  # left misalignment
             # Situation is as follows:
             #  0   1   2   3
@@ -2812,8 +2811,8 @@ class Radtrans:
             index_include = _indices[0] - 1
 
         if index_include < 0 or index_include == frequencies_test.size:  # handle out-of-bounds corrections
-            _wavelengths = 1e4 / frequencies_test
-            wavelengths = 1e4 / frequencies_reference
+            _wavelengths = 1e4 * cst.c / frequencies_test
+            wavelengths = 1e4 * cst.c / frequencies_reference
 
             raise ValueError(
                 f"unrecoverable frequency grid misalignment: "

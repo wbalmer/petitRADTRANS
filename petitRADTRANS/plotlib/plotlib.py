@@ -1084,28 +1084,30 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
 
 
-def plot_opacity_contributions(radtrans_object: Radtrans,
-                               mode: str,
-                               include: list = 'all',
-                               exclude: list = None,
-                               opacity_contributions: dict = None,
-                               colors: dict = None,
-                               line_styles: dict = None,
-                               fill_below: bool = False,
-                               fill_alpha: float = 0.5,
-                               x_axis_scale: str = 'linear',
-                               y_axis_scale: str = 'linear',
-                               fig_size: tuple = (12.8, 4.8),
-                               opaque_cloud_top_pressure: float = None,
-                               power_law_opacity_350nm: float = None,
-                               power_law_opacity_coefficient: float = None,
-                               gray_opacity: float = None,
-                               cloud_photosphere_median_optical_depth: float = None,
-                               additional_absorption_opacities_function: callable = None,
-                               additional_scattering_opacities_function: callable = None,
-                               stellar_intensities: npt.NDArray[float] = None,
-                               star_radius: float = None,
-                               **kwargs):
+def plot_opacity_contributions(
+    radtrans_object: Radtrans,
+    mode: str,
+    include: list = 'all',
+    exclude: list = None,
+    opacity_contributions: dict = None,
+    colors: dict = None,
+    line_styles: dict = None,
+    fill_below: bool = False,
+    fill_alpha: float = 0.5,
+    x_axis_scale: str = 'linear',
+    y_axis_scale: str = 'linear',
+    fig_size: tuple = (12.8, 4.8),
+    opaque_cloud_top_pressure: float = None,
+    power_law_opacity_350nm: float = None,
+    power_law_opacity_coefficient: float = None,
+    gray_opacity: float = None,
+    cloud_photosphere_median_optical_depth: float = None,
+    additional_absorption_opacities_function: callable = None,
+    additional_scattering_opacities_function: callable = None,
+    stellar_intensities: npt.NDArray[float] = None,
+    star_radius: float = None,
+    **kwargs
+) -> dict[str, npt.NDArray[float]]:
     if exclude is None:
         exclude = []
 
