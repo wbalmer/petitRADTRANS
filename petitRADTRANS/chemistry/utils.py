@@ -236,7 +236,7 @@ def compute_mean_molar_masses(abundances: dict[str, npt.NDArray], mode: str = 'm
             respectively.
     """
     if not abundances:
-        raise ValueError(f"abundance dictionary must contains at least one species, but is empty")
+        raise ValueError("abundance dictionary must contains at least one species, but is empty")
 
     mean_molar_masses = np.zeros(len(list(abundances.values())[0]))
 
@@ -263,9 +263,9 @@ def compute_mean_molar_masses(abundances: dict[str, npt.NDArray], mode: str = 'm
             )
         elif np.all(mean_molar_masses == 0):
             raise ValueError(
-                f"mean molar mass is always 0; "
-                f"ensure that the abundance dictionary contains at least one gaseous species "
-                f"with a strictly positive abundance"
+                "mean molar mass is always 0; "
+                "ensure that the abundance dictionary contains at least one gaseous species "
+                "with a strictly positive abundance"
             )
         else:
             mean_molar_masses[mean_molar_masses == 0] = sys.float_info.min  # prevent division by 0
