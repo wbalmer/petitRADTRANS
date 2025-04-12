@@ -471,7 +471,10 @@ class Opacity:
         full_path = str(os.path.join(path_input_data, sub_path))
 
         if files is None:
-            files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
+            files = [
+                f for f in os.listdir(full_path)
+                if os.path.isfile(os.path.join(full_path, f)) and f.endswith('.h5')
+            ]
 
         if len(files) == 0:  # no file in path, return empty list
             return []
@@ -486,8 +489,6 @@ class Opacity:
                 if filename_sampling != '' or filename_range != '':
                     # First pass, try to use default resolution
                     for file in files:
-                        if file.endswith('.DS_Store'):
-                            continue
                         # Extract source and spectral info
                         _file, spectral_info = cls.split_species_spectral_info(file)
 

@@ -49,9 +49,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Bug fix in stepped abundance profile.
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
 - Incorrect log-x tick labelling in spectra plots.
+- Incorrect behaviour: warnings for opacity files (.h5) are raised for non-opacity files.
 - Minor typo in a warning message.
 - Inhomogeneous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
-- Removed warnings for `.DS_Store` files.
 - Resolved issues 100 and 101 for corner plotting.
 - Numerical cancellation error that occurred on some systems when calculating transmission contribution functions.
 - Crash when reading contribution function in `retrieval` class.
