@@ -331,7 +331,7 @@ Tox will automatically execute any function in any module across all the project
         |   └── test_stats.json            <- results of the last validated retrieval test
         ├── errors                         <- if an AssertionError is raised, results will be sent here for diagnostic
         ├── references                     <- contains the test reference files, storing results from the last validated test
-        |   └── <numerous .h5 files>       <- results of the last validated retrieval test
+        |   └── <numerous .h5 files>       <- results of the last validated tests
         ├── results                        <- results of the last retrieval test
         ├── __init__.py                    <- init file (empty)
         ├── benchmark.py                   <- module containing the Benchmark class, used to compare the results
