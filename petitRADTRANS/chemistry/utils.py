@@ -235,8 +235,10 @@ def compute_mean_molar_masses(abundances: dict[str, npt.NDArray], mode: str = 'm
             Can be 'mmr' or 'vmr', to calculate the mean molar masses from mass fraction or volume mixing ratios,
             respectively.
     """
-    mean_molar_masses = (sys.float_info.min
-                         * np.ones_like(abundances[list(abundances.keys())[0]]))  # prevent division by 0
+    if not abundances:
+        raise ValueError(f"abundance dictionary must contains at least one species, but is empty")
+
+    mean_molar_masses = np.zeros(len(list(abundances.values())[0]))
 
     for species, abundance in abundances.items():
         if '(s)' in species or '(l)' in species:  # ignore clouds
@@ -252,6 +254,21 @@ def compute_mean_molar_masses(abundances: dict[str, npt.NDArray], mode: str = 'm
             raise ValueError(
                 f"'mode' can be 'mmr' or 'vmr', but was '{mode}'"
             )
+
+    if np.any(mean_molar_masses <= 0):
+        if np.any(mean_molar_masses < 0):
+            raise ValueError(
+                f"negative value in mean molar mass detected in at least one level ({mean_molar_masses}); "
+                f"this may happen due to the presence of negative values in the abundance dictionary"
+            )
+        elif np.all(mean_molar_masses == 0):
+            raise ValueError(
+                f"mean molar mass is always 0; "
+                f"ensure that the abundance dictionary contains at least one gaseous species "
+                f"with a strictly positive abundance"
+            )
+        else:
+            mean_molar_masses[mean_molar_masses == 0] = sys.float_info.min  # prevent division by 0
 
     if mode == 'mmr':
         mean_molar_masses = 1 / mean_molar_masses

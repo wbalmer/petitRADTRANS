@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Deprecated
 - Module `_input_data_loader` and functions wherein, replaced with module `_input_data` and `Opacity` objects.
 - Possibility to use CIA aliases (e.g. 'He--H2' or 'H2He' instead of 'H2--He').
+- More helpful error message when trying to calculate mean molar masses with 0 gaseous abundances.
 - Warning message about the use pRT2 names for `Radtrans` functions `calculate_flux` and `calculate_transit_radii`.
 
 ### Fixed
