@@ -1309,6 +1309,8 @@ class SpectralModel(Radtrans):
             if parameter in self.model_parameters:
                 parameters[parameter] = copy.deepcopy(self.model_parameters[parameter])
 
+        self.update_spectral_calculation_parameters(mode=mode, **self.model_parameters)
+
         return super().calculate_contribution_spectra(
             mode=mode,
             temperatures=self.temperatures,

@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
 - Incorrect calculations of chi2 and inconsistent opacity usage in `get_full_range_model`.
 - Crash when using correlated-k opacities imported from the DACE database.
+- Incorrect behaviour: `SpectralModel` parameters are not updated when calculating contribution spectra.
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name.
 - Incorrect `SpectralModel` behaviour: filling species dict is overridden if only H2 and He are set as filling species and equilibrium chemistry is activated.
