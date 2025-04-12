@@ -3299,11 +3299,12 @@ class Radtrans:
 
                         # Update the user's cloud name to the full one everywhere it is needed to prevent crashes
                         if opacity == 'cloud_species':
-                            for _key, _value in spectral_parameters.items():
-                                if isinstance(_value, dict):
-                                    if _user_cloud_species in _value:
-                                        _value[species] = copy.deepcopy(_value[_user_cloud_species])
-                                        del _value[_user_cloud_species]
+                            if _user_cloud_species != species:
+                                for _key, _value in spectral_parameters.items():
+                                    if isinstance(_value, dict):
+                                        if _user_cloud_species in _value:
+                                            _value[species] = copy.deepcopy(_value[_user_cloud_species])
+                                            del _value[_user_cloud_species]
 
                         opacity_contributions[opacity][species] = _radtrans.__getattr__(spectral_function)(
                             **spectral_parameters
