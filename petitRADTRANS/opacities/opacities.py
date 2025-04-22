@@ -1555,17 +1555,25 @@ class Opacity:
 
     @classmethod
     def split_cloud_info(cls, cloud_info: str) -> (str, str, str):
-        matter_state_string: str = cloud_info[:3]  # "(s)" or "(l)"
+        if ')' not in cloud_info:
+            raise ValueError(
+                f"no matter state found in cloud info '{cloud_info}'; "
+                f"available matter states for clouds are {list_str2str(cls._condensed_matter_states)}"
+            )
 
-        matter_state: str = ''
+        matter_state: str = cloud_info[:cloud_info.index(')') + 1]  # "(s)" or "(l)"
+
         solid_structure: str = ''
         solid_structure_id: str = ''
 
-        for _matter_state in cls._condensed_matter_states:
-            if _matter_state == matter_state_string:
-                _, solid_structure = cloud_info.split(cls._solid_structure_separator, 1)
-                matter_state = _matter_state
-                break
+        if matter_state in cls._condensed_matter_states:
+            if matter_state == cls._solid_matter_state:
+                solid_structure = cloud_info.split(cls._solid_structure_separator, 1)[1]
+        else:
+            raise NotImplementedError(
+                f"matter state '{matter_state}' is not implemented for cloud species; "
+                f"available matter states for clouds are {list_str2str(cls._condensed_matter_states)}"
+            )
 
         if cls._solid_structure_separator in solid_structure:
             solid_structure, solid_structure_id = solid_structure.split(cls._solid_structure_separator)
