@@ -1007,8 +1007,10 @@ class Radtrans:
     def __get_line_opacity_file(path_input_data, species, category):
         hdf5_file = None
 
+        # Handle bin-down of correlated-k opacities
         if category == CorrelatedKOpacity.get_default_category():
-            default_species, spectral_info = Opacity.split_species_spectral_info(species)
+            # Get the targeted resolving power
+            _species, _ = Opacity.split_species_spectral_info(species)
             target_resolving_power, range_filename = Opacity.find_spectral_information(species)
 
             if 'R' in target_resolving_power:
@@ -1016,34 +1018,6 @@ class Radtrans:
 
             if target_resolving_power == '':
                 target_resolving_power = int(CorrelatedKOpacity.get_default_resolving_power())
-
-            if range_filename == '':
-                resolution_filename = None
-                range_filename = None
-            else:
-                spectral_info = ''
-                resolution_filename = CorrelatedKOpacity.get_resolving_power_string(
-                    resolving_power=int(CorrelatedKOpacity.get_default_resolving_power())
-                )
-
-            default_species = Opacity.join_species_all_info(
-                species_name=default_species,  # contains already all non-spectral info
-                natural_abundance='',
-                charge='',
-                cloud_info='',
-                source='',
-                spectral_info=spectral_info,
-                spectral_sampling=resolution_filename,
-                wavelength_range=range_filename
-            )
-
-            hdf5_file = CorrelatedKOpacity.find(
-                path_input_data=path_input_data,
-                category=category,
-                species=default_species,
-                find_all=False,
-                search_online=True
-            )
 
             # Bin down the opacities if necessary
             if target_resolving_power < int(CorrelatedKOpacity.get_default_resolving_power()):
@@ -1057,8 +1031,43 @@ class Radtrans:
                 )
 
                 if len(_hdf5_file) == 0:  # no matching file found, make the file using exo_k, then find it
+                    print("Binned-down file not found, starting rebinning...")
+
+                    # Rebin from the file with the default resolving power, which should always exist
+                    default_spectral_sampling = CorrelatedKOpacity.get_resolving_power_string(
+                        resolving_power=int(CorrelatedKOpacity.get_default_resolving_power())
+                    )
+
+                    # Build a "default" species using the provided information and the default spectral sampling
+                    default_species = Opacity.join_species_all_info(
+                        species_name=_species,  # contains already all non-spectral info
+                        natural_abundance='',
+                        charge='',
+                        cloud_info='',
+                        source='',
+                        spectral_info='',
+                        spectral_sampling=default_spectral_sampling,
+                        wavelength_range=range_filename
+                    )
+
+                    # Find the HDF5 file of the species with the default spectral sampling
+                    print(
+                        f"Searching for the file of species '{default_species}'"
+                        f"with default spectral sampling ({default_spectral_sampling})...",
+                    )
+                    default_hdf5_file = CorrelatedKOpacity.find(
+                        path_input_data=path_input_data,
+                        category=category,
+                        species=default_species,
+                        find_all=False,
+                        search_online=True
+                    )
+                    print(
+                        " File found.",
+                    )
+
                     state = rebin_ck_line_opacities(
-                        input_file=hdf5_file,
+                        input_file=default_hdf5_file,
                         target_resolving_power=target_resolving_power,
                         wavenumber_grid=None,
                         rewrite=False
