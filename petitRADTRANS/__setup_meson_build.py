@@ -26,6 +26,8 @@ def _build_python_files_hierarchy(parent):
     if len(python_files) > 0:
         return python_files
 
+    return None
+
 
 def _get_directories_dict(files, paths=None):
     if paths is None:

@@ -32,15 +32,15 @@ def malloc_top_lines_snapshot(label: str = '', n_lines: int = 3) -> None:
         label: label to be printed next to the display.
         n_lines: number of lines to show.
     """
-    def display_top(_snapshot, key_type='lineno', n_lines=n_lines):
+    def __display_top(_snapshot, key_type='lineno', _n_lines=n_lines):
         _snapshot = _snapshot.filter_traces((
             tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
             tracemalloc.Filter(False, "<unknown>"),
         ))
         top_stats = _snapshot.statistics(key_type)
 
-        print("Top %s lines" % n_lines)
-        for index, stat in enumerate(top_stats[:n_lines], 1):
+        print("Top %s lines" % _n_lines)
+        for index, stat in enumerate(top_stats[:_n_lines], 1):
             frame = stat.traceback[0]
             # replace "/path/to/module/file.py" with "module/file.py"
             filename = os.sep.join(frame.filename.split(os.sep)[-2:])
@@ -50,14 +50,16 @@ def malloc_top_lines_snapshot(label: str = '', n_lines: int = 3) -> None:
             if line:
                 print('    %s' % line)
 
-        other = top_stats[n_lines:]
+        other = top_stats[_n_lines:]
+
         if other:
             size = sum(stat.size for stat in other)
             print("%s other: %.3f MiB" % (len(other), size / __megabyte))
+
         total = sum(stat.size for stat in top_stats)
         print("Total allocated size: %.3f MiB" % (total / __megabyte))
 
     snapshot = tracemalloc.take_snapshot()
     print(f'\n{label}')
-    display_top(snapshot)
+    __display_top(snapshot)
     print('\n')

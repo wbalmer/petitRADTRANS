@@ -152,7 +152,9 @@ def set_petitradtrans_plot_style():
     xmaj = {'size': 10}
     ymaj = {'size': 10}
     axes = {'labelsize': 26,
-            'prop_cycle': matplotlib.cycler(color=prt_colours),
+            'prop_cycle': matplotlib.cycler(  # type: ignore
+                color=prt_colours
+            ),
             'titlesize': 32,
             'linewidth': 3}
     figure = {'titlesize': 32,

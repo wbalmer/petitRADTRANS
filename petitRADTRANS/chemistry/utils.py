@@ -6,8 +6,11 @@ import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import PchipInterpolator
 
-from petitRADTRANS.chemistry.prt_molmass import (element_symbol2element_number, get_species_molar_mass,
-                                                 get_species_elements)
+from petitRADTRANS.chemistry.prt_molmass import (
+    element_symbol2element_number,
+    get_species_elements,
+    get_species_molar_mass
+)
 from petitRADTRANS.opacities.opacities import Opacity
 
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844

@@ -15,7 +15,7 @@ from petitRADTRANS import __version__ as prt_version
 from petitRADTRANS._input_data import default_file_selection, find_input_file
 from petitRADTRANS.cli.prt_cli import get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.utils import list_str2str, LockedDict
+from petitRADTRANS.utils import LockedDict, list_str2str
 
 if os.environ.get("pRT_emcee_mode") == 'True':  # TODO make use of config_parser instead
     pass
@@ -1236,7 +1236,7 @@ class Opacity:
         return int(string.split(cls._constant_resolving_power, 1)[1])
 
     @classmethod
-    def get_resolving_power_string(cls, resolving_power: [int, float, str]) -> str:
+    def get_resolving_power_string(cls, resolving_power: int | float | str) -> str:
         if isinstance(resolving_power, float):
             return f"{cls._constant_resolving_power}{resolving_power:.0e}".replace(
                 'e+', 'e'
