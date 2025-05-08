@@ -4,8 +4,9 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a29] - 2025-04-22
+## [3.2.0a30] - 2025-04-22
 ### Added
+- Option for `adaptive_feautrier_iterations` in the emission spectrum scattering-convergence.
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
 - Power law temperature profile and retrieval models.

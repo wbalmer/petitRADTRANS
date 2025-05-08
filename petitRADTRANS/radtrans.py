@@ -1197,7 +1197,7 @@ class Radtrans:
         cloud_f_sed,
         photospheric_cloud_optical_depths, cloud_photosphere_wavelength_boundaries,
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-        return_contribution=False, return_rosseland_opacities=False
+        adaptive_feautrier_iterations, return_contribution=False, return_rosseland_opacities=False
     ):
         """Calculate the flux.
         TODO complete docstring
@@ -1217,6 +1217,7 @@ class Radtrans:
             cloud_photosphere_wavelength_boundaries:
             cloud_anisotropic_scattering_opacities:
             cloud_absorption_opacities:
+            adaptive_feautrier_iterations:
             return_contribution:
             return_rosseland_opacities:
 
@@ -1262,6 +1263,7 @@ class Radtrans:
                 star_irradiation_cos_angle=star_irradiation_cos_angle,
                 reflectances=reflectances,
                 emissivities=emissivities,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 return_contribution=return_contribution
             )
 
@@ -2109,7 +2111,7 @@ class Radtrans:
         emission_cos_angle_grid, emission_cos_angle_grid_weights,
         optical_depths, photon_destruction_probabilities,
         emission_geometry, stellar_intensity, star_irradiation_cos_angle,
-        reflectances, emissivities, return_contribution
+        reflectances, emissivities, adaptive_feautrier_iterations, return_contribution
     ):
         flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
             frequency_bins_edges,
@@ -2124,6 +2126,7 @@ class Radtrans:
             star_irradiation_cos_angle,
             reflectances,
             emissivities,
+            adaptive_feautrier_iterations,
             return_contribution
         )
 
@@ -3392,6 +3395,7 @@ class Radtrans:
         emissivities: npt.NDArray[float] = None,
         additional_absorption_opacities_function: callable = None,
         additional_scattering_opacities_function: callable = None,
+        adaptive_feautrier_iterations: bool = False,
         frequencies_to_wavelengths: bool = True,
         return_contribution: bool = False,
         return_clear_spectrum: bool = False,
@@ -3510,6 +3514,9 @@ class Radtrans:
                     It may be used to add simple cloud absorption laws, for example, which
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
+                adaptive_feautrier_iterations (Optional[bool]):
+                    If True, the number of iterations of the Feautrier scattering-method
+                    (scattering_in_emission=True) is adapted based on the photon destruction probability.
                 frequencies_to_wavelengths (Optional[bool]):
                     if True, convert the frequencies (Hz) output to wavelengths (cm),
                     and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
@@ -3649,6 +3656,7 @@ class Radtrans:
                 cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
                 cloud_anisotropic_scattering_opacities=_cloud_anisotropic_scattering_opacities,
                 cloud_absorption_opacities=_cloud_absorption_opacities,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                 return_rosseland_opacities=return_rosseland_optical_depths
             )
         )
@@ -3686,6 +3694,7 @@ class Radtrans:
                     photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
                     cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
                     cloud_absorption_opacities=cloud_absorption_opacities,
+                    adaptive_feautrier_iterations=adaptive_feautrier_iterations,
                     return_rosseland_opacities=return_rosseland_optical_depths
                 )
             )

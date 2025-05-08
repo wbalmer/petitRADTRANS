@@ -1411,7 +1411,7 @@ module fortran_radtrans_core
                                                         emission_geometry, &
                                                         stellar_intensity, star_irradiation_cos_angle, &
                                                         reflectances, emissivities, &
-                                                        return_contribution, &
+                                                        adaptive_feautrier_iterations, return_contribution, &
                                                         n_frequencies_bin_edges, n_layers, n_angles, n_g, &
                                                         flux, emission_contribution)
             use math, only: solve_tridiagonal_system, cst_pi
@@ -1423,6 +1423,7 @@ module fortran_radtrans_core
             double precision, parameter :: tiniest = tiny(0d0), pi_4 = 4d0 * cst_pi
 
             character(len=*), intent(in)  :: emission_geometry
+            logical, intent(in)           :: adaptive_feautrier_iterations
             logical, intent(in)           :: return_contribution
             integer, intent(in)           :: n_frequencies_bin_edges, n_layers, n_angles, n_g
             double precision, intent(in)  :: frequencies_bin_edges(n_frequencies_bin_edges)
@@ -1439,7 +1440,9 @@ module fortran_radtrans_core
             double precision, intent(out) :: flux(n_frequencies_bin_edges-1)
             double precision, intent(out) :: emission_contribution(n_layers, n_frequencies_bin_edges-1)
 
-            integer, parameter            :: n_iterations_min = 9
+            integer                       :: n_iterations_min(n_frequencies_bin_edges-1)
+            ! integer                       :: adaptive_n_iterations_min(n_frequencies_bin_edges-1)
+            ! integer, parameter            :: n_iterations_min = 9
             double precision, parameter   :: convergence_threshold = 1d-3
 
             integer                       :: i, j, k, l
@@ -1563,6 +1566,24 @@ module fortran_radtrans_core
                         end if
                     end do
                 end do
+
+                if (adaptive_feautrier_iterations) then
+                    ! Calculate the minimum number of iterations for the current frequency
+                    ! based on the photon destruction probabilities
+                    n_iterations_min(i) = &
+                        1 + int(maxval(1d0/photon_destruction_probabilities_(:,:,i)))
+
+                    if (n_iterations_min(i) < 4) then
+                        ! Run the Ng acceleration at least once
+                        n_iterations_min(i) = 4
+                    else if (n_iterations_min(i) > 9) then
+                        ! In case the number of iterations exceeds the maximum
+                        n_iterations_min(i) = 9
+                    end if
+                else
+                    ! Use the default
+                    n_iterations_min(i) = 9
+                end if
             end do
 
             ! Initialize the parameters that will be constant through the iterations
@@ -1723,7 +1744,7 @@ module fortran_radtrans_core
 
                         conv_val = abs(1d0 - flux_tmp_old / flux_tmp)
 
-                        if ((conv_val < convergence_threshold) .and. (i_iter_scat > n_iterations_min)) then
+                        if ((conv_val < convergence_threshold) .and. (i_iter_scat > n_iterations_min(i))) then
                             exit
                         end if
 
