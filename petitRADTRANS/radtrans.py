@@ -1052,7 +1052,7 @@ class Radtrans:
 
                     # Find the HDF5 file of the species with the default spectral sampling
                     print(
-                        f"Searching for the file of species '{default_species}'"
+                        f"Searching for the file of species '{_species}' "
                         f"with default spectral sampling ({default_spectral_sampling})...",
                     )
                     default_hdf5_file = CorrelatedKOpacity.find(
