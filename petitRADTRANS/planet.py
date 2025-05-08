@@ -1695,14 +1695,14 @@ class Planet:
             observer_location = EarthLocation.of_site(site_name)
         else:
             observer_location = EarthLocation.from_geodetic(
-                lat=latitude * u.deg,
-                lon=longitude * u.deg,
-                height=height * u.m
+                lat=latitude * u.deg,  # type: ignore
+                lon=longitude * u.deg,  # type: ignore
+                height=height * u.m  # type: ignore
             )
 
         target_coordinates = SkyCoord(
-            ra=ra * u.deg,
-            dec=dec * u.deg
+            ra=ra * u.deg,  # type: ignore
+            dec=dec * u.deg  # type: ignore
         )
 
         return observer_location, target_coordinates

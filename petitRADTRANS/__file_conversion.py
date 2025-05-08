@@ -16,12 +16,13 @@ import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 import petitRADTRANS
+# noinspection PyUnresolvedReferences
+from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.math import prt_resolving_space
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
-import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.utils import LockedDict
 
 # MPI Multiprocessing
@@ -3855,7 +3856,7 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
     try:
         import exo_k
     except ImportError:
-        # Only raise a warning to give a chance to download the binned
+        # Only raise a warning to give a chance to download the binned-down file
         warnings.warn("binning down of opacities requires exo_k to be installed, no binning down has been performed")
         return -1
 
@@ -3890,20 +3891,22 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
         if os.path.isfile(output_file) and not rewrite:
             print(f"File '{output_file}' already exists, skipping re-binning...")
         else:
-            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
+            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}...")
             # Use Exo-k to rebin to low-res
             tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
             tab.bin_down(wavenumber_grid)
-            print('Done.')
+            print(" Done.")
 
-            print(f" Writing binned down file '{output_file}'... ", end=' ')
+            print(f" Writing binned down file '{output_file}'...", end=' ')
             tab.write_hdf5(output_file)
-            print('Done.')
+            print("Done.")
 
             print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
 
     if comm is not None:  # wait for the main process to finish the binning down
         comm.barrier()
+
+    return 0  # execution without error
 
 
 def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species=None, rewrite=False):
