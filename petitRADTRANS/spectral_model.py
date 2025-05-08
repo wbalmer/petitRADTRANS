@@ -739,7 +739,7 @@ class SpectralModel(Radtrans):
             orbital_period: period of the planet orbit
         """
         _ = kwargs  # kwargs is not used in this function, this is intended
-        
+
         impact_parameter_squared = Planet.compute_impact_parameter(
             orbit_semi_major_axis=orbit_semi_major_axis,
             orbital_inclination=orbital_inclination,
@@ -1798,7 +1798,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_cloud_particles_mean_radii(
-        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None, 
+        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
         **kwargs
     ):
         """Get the cloud_particles_mean_radii parameter. No calculation performed."""
@@ -3153,7 +3153,7 @@ class SpectralModel(Radtrans):
             model_parameters:
                 Model parameters to use. Should be None by default.
             fixed_special_parameters:
-                In the context of retrieving multiple Data objects, special parameters to be fixed for this Data object, 
+                In the context of retrieving multiple Data objects, special parameters to be fixed for this Data object,
                 while it may be retrieved for other Data objects of the same retrieval.
             mode:
                 Radtrans spectral mode. Can be "emission" or "transmission".
@@ -3450,23 +3450,21 @@ class SpectralModel(Radtrans):
                     )
             elif loaded_parameters is None:
                 return
-            elif isinstance(loaded_parameters, np.ndarray):
-                if loaded_parameters.dtype == '<U2':
-                    return
-
-            if not np.allclose(
+            elif np.array(loaded_parameters).dtype == '<U2':
+                return
+            elif not np.allclose(
                 loaded_parameters,
                 new_parameters,
                 atol=0,
-                rtol=10**-(sys.float_info.dig + 1)
+                rtol=10 ** -(sys.float_info.dig + 1)
             ):
-                warnings.warn(f"parameter '{dataset}' in loaded SpectralModel is different from the re-generated "
-                              f"parameter\n"
-                              f"This may be due to the use of different (default) opacities"
-                              )
-                return
+                warnings.warn(
+                    f"parameter '{dataset}' in loaded SpectralModel is different from the re-generated "
+                    f"parameter\n"
+                    f"This may be due to the use of different (default) opacities"
+                )
 
-            return
+                return
 
         for parameter in discarded_radtrans_attributes:
             if not overwrite:
