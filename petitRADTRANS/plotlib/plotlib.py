@@ -343,6 +343,11 @@ def contour_corner(
         reverse: bool = False,
         labelpad: float = 0.0,
         plot_contours: bool = True,
+        label_kwargs: dict = None,
+        title_kwargs: dict = None,
+        hist_kwargs: dict = None,
+        hist2d_kwargs: dict = {},
+        contour_kwargs: dict = None,
         **kwargs
 ):
     """
@@ -550,27 +555,6 @@ def contour_corner(
         else:
             truths_list = None
 
-        label_kwargs = None
-        title_kwargs = None
-        hist_kwargs = None
-        hist2d_kwargs = {}
-        contour_kwargs = None
-
-        if "label_kwargs" in kwargs.keys():
-            label_kwargs = kwargs["label_kwargs"]
-
-        if "title_kwargs" in kwargs.keys():
-            title_kwargs = kwargs["title_kwargs"]
-
-        if "hist_kwargs" in kwargs.keys():
-            hist_kwargs = kwargs["hist_kwargs"]
-
-        if "hist2d_kwargs" in kwargs.keys():
-            hist2d_kwargs = kwargs["hist2d_kwargs"]
-
-        if "contour_kwargs" in kwargs.keys():
-            contour_kwargs = kwargs["contour_kwargs"]
-
         if short_name is None:
             label = key
         else:
@@ -585,7 +569,7 @@ def contour_corner(
                 labels_list=labels_list,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
-                color_list=color_list[count],
+                color=color_list[count],
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
                 hist_kwargs=hist_kwargs,
@@ -612,7 +596,6 @@ def contour_corner(
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
             )
-            count += 1
         else:
             _ = _corner_wrap(
                 data_list=data_list,
@@ -620,7 +603,7 @@ def contour_corner(
                 labels_list=labels_list,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
-                color_list=color_list[count],
+                color=color_list[count],
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
                 hist_kwargs=hist_kwargs,
@@ -647,7 +630,7 @@ def contour_corner(
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
             )
-            count += 1
+        count += 1
 
     if legend:
         fig.get_axes()[2].legend(handles=handles,
