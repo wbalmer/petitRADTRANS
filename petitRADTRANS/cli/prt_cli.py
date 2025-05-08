@@ -301,7 +301,7 @@ def get_keeper_files_url_paths(path, ext='h5', timeout=3, path_input_data=None, 
     print("Done.")
 
     # Only keep the table's content to speed up Beautiful soup finding
-    table = html.split('<table class="table-hover">', 1)[1].rsplit('</table>', 1)[0]
+    table = html.split('<table', 1)[1].rsplit('</table>', 1)[0]
 
     # Parse the table
     soup = BeautifulSoup(table, 'html.parser')

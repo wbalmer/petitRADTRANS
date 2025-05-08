@@ -8,12 +8,13 @@ import warnings
 import dill
 import numpy as np
 import numpy.typing as npt
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.stats import binned_statistic
 
 import petitRADTRANS
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
+# noinspection PyUnresolvedReferences
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency

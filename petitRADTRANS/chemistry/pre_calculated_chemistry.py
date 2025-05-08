@@ -7,7 +7,8 @@ import numpy as np
 import numpy.typing as npt
 
 from petitRADTRANS._input_data import find_input_file
-from petitRADTRANS.config.configuration import petitradtrans_config_parser, get_input_data_subpaths
+from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
+# noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
 
 
