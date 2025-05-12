@@ -1411,8 +1411,7 @@ module fortran_radtrans_core
                                                         emission_geometry, &
                                                         stellar_intensity, star_irradiation_cos_angle, &
                                                         reflectances, emissivities, &
-                                                        adaptive_feautrier_iterations, adaptive_feautrier_iterations_n_g, &
-                                                        return_contribution, &
+                                                        adaptive_feautrier_iterations, return_contribution, &
                                                         n_frequencies_bin_edges, n_layers, n_angles, n_g, &
                                                         flux, emission_contribution)
             use math, only: solve_tridiagonal_system, cst_pi
@@ -1425,7 +1424,6 @@ module fortran_radtrans_core
 
             character(len=*), intent(in)  :: emission_geometry
             logical, intent(in)           :: adaptive_feautrier_iterations
-            logical, intent(in)           :: adaptive_feautrier_iterations_n_g
             logical, intent(in)           :: return_contribution
             integer, intent(in)           :: n_frequencies_bin_edges, n_layers, n_angles, n_g
             double precision, intent(in)  :: frequencies_bin_edges(n_frequencies_bin_edges)
@@ -1569,15 +1567,8 @@ module fortran_radtrans_core
                     if (adaptive_feautrier_iterations) then
                         ! Minimum number of iterations per frequency based 
                         ! on the photon destruction probabilities
-                        if (adaptive_feautrier_iterations_n_g) then
-                            ! Collapse over n_layers
-                            n_iterations_min(l, i) = &
-                                1 + int(maxval(1d0/photon_destruction_probabilities_(:, l, i)))
-                        else
-                            ! Collapse over n_g and n_layers
-                            n_iterations_min(l, i) = &
-                                1 + int(maxval(1d0/photon_destruction_probabilities_(:, :, i)))
-                        end if
+                        n_iterations_min(l, i) = &
+                            1 + int(maxval(1d0/photon_destruction_probabilities_(:, l, i)))
 
                         if (n_iterations_min(l, i) < 4) then
                             ! Run the Ng acceleration at least once
