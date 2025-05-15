@@ -3100,12 +3100,9 @@ class Retrieval:
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
 
-                contr_em = best_fit_contribution / weights
-
                 # This probably doesn't need to be in a loop
-                for i_str in range(best_fit_contribution.shape[0]):
-                    contr_em[i_str, :] = best_fit_contribution[i_str, :] * spectral_weights
-
+                contr_em = best_fit_contribution / weights
+                contr_em = contr_em * spectral_weights[None, :]
                 contr_em = np.sum(best_fit_contribution, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 
@@ -3744,8 +3741,8 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                nu = wavelength2frequency(best_fit_wavelengths)
 
+                nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
                 diff_nu[:-1] = mean_diff_nu
@@ -3765,12 +3762,9 @@ class Retrieval:
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
 
-                contr_em = best_fit_contribution / weights
-
                 # This probably doesn't need to be in a loop
-                for i_str in range(best_fit_contribution.shape[0]):
-                    contr_em[i_str, :] = best_fit_contribution[i_str, :] * spectral_weights
-
+                contr_em = best_fit_contribution / weights
+                contr_em = contr_em * spectral_weights[None, :]
                 contr_em = np.sum(best_fit_contribution, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 
