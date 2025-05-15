@@ -3099,7 +3099,7 @@ class Retrieval:
                 weights[-1] = weights[-2]
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
-                
+
                 # This probably doesn't need to be in a loop
                 contr_em = best_fit_contribution / weights
                 contr_em = contr_em * spectral_weights[None, :]
@@ -3741,7 +3741,7 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                
+
                 nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
@@ -3761,7 +3761,7 @@ class Retrieval:
                 weights[-1] = weights[-2]
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
-                
+
                 # This probably doesn't need to be in a loop
                 contr_em = best_fit_contribution / weights
                 contr_em = contr_em * spectral_weights[None, :]
