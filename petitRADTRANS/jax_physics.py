@@ -160,12 +160,12 @@ def compute_planck_function_integral(temperatures, frequencies):
     Compute mean using Boole's method
     TODO: possibly a faster integration method?
     """
-
-    if frequencies[1] > frequencies[0]:
-        warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
-        return None
-    else:
-        return _compute_planck_function_integral(temperatures, frequencies)
+    return _compute_planck_function_integral(temperatures, frequencies)
+    #if frequencies[1] > frequencies[0]:
+    #    warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
+    #    return None
+    #else:
+    #    return _compute_planck_function_integral(temperatures, frequencies)
 
 
 @jit

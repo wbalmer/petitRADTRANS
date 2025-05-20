@@ -1,9 +1,13 @@
-import numpy as np
+from jax import config
+config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-from numba import njit
-from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
+from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
+
+
+import numpy as np
+from functools import partial
 import petitRADTRANS.physical_constants as cst
-#import petitRADTRANS.fortran_radtrans_core import math as fmath
+from petitRADTRANS.fortran_radtrans_core import math as fmath
 import petitRADTRANS.jax_physics as jphys
 import petitRADTRANS.jax_math as jmath
 
@@ -11,6 +15,10 @@ import petitRADTRANS.jax_math as jmath
 JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
+
+CST_PI = jnp.pi # Or the specific precision from Fortran
+TINIEST = jnp.finfo(jnp.float64).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 # Testing arrays
 #pressures = 1e6*np.logspace(-6,3,20)
@@ -167,525 +175,404 @@ def compute_cloud_particles_mean_radius_hansen():
     return
 
 
-@jit
-def NG_source_approx(source_n,source_n1,source_n2,source_n3,source):
-    #source_buff = jnp.zeros((freq_len_p_1,struc_len,N_g))
-    Q1 = source_n - (2.0*source_n1) + source_n2
-    Q2 = source_n - source_n1 - source_n2 + source_n3
-    Q3 = source_n - source_n1
-    Q1 = Q1.at[:,0,:].set(0.0)
-    Q2 = Q2.at[:,0,:].set(0.0)
-    Q3 = Q3.at[:,0,:].set(0.0)
-    A1 = jnp.sum(Q1*Q1,axis = 1)
-    A2 = jnp.sum(Q2*Q1,axis = 1)
-    B1 = jnp.sum(Q1*Q2,axis = 1)
-    B2 = jnp.sum(Q2*Q2,axis = 1)
-    C1 = jnp.sum(Q1*Q3,axis = 1)
-    C2 = jnp.sum(Q2*Q3,axis = 1)
+# --- Placeholder JAX helper functions (to be fully implemented) ---
 
-    a = (C1*B2-C2*B1)/(A1*B2-A2*B1)
-    b = (C2*A1-C1*A2)/(A1*B2-A2*B1)
+def solve_tridiagonal_fortran(a, b, c, d):
+    result_shape = ShapeDtypeStruct(d.shape, d.dtype)
+    return pure_callback(fmath.solve_tridiagonal_system, result_shape, a, b, c, d)
 
-    temp_buff = (1.0-a[:,None,:]-b[:,None,:])*source_n + a[:,None,:]*source_n1 + b[:,None,:]*source_n2
-    temp_buff = jnp.where(temp_buff <= 0.0, 0.0, temp_buff)
-    source = temp_buff
-    return source
 
 @jit
-def m_approximate_ng_source(source_n,
-                            source_n1,
-                            source_n2,
-                            source_n3):
-    """Approximates the source term."""
+def solve_tridiagonal_system_jax(a_lower_diag, b_main_diag, c_upper_diag, r_rhs):
+    """
+    Solves a tridiagonal system Ax = r_rhs using Thomas algorithm or jax.scipy.
+    Args:
+        a_lower_diag (jax.Array): Lower diagonal, shape (N-1,). a[i] is coeff of x_i for eq i+1.
+        b_main_diag (jax.Array): Main diagonal, shape (N,).
+        c_upper_diag (jax.Array): Upper diagonal, shape (N-1,). c[i] is coeff of x_{i+2} for eq i+1.
+        r_rhs (jax.Array): Right-hand side, shape (N,).
+    Returns:
+        jax.Array: Solution x, shape (N,).
+    """
+    
 
-    n_g,n_frequencies_bin_edges,n_layers = source_n.shape
-    n_frequencies_bin_edges += 1
-    source = jnp.zeros((n_g,n_frequencies_bin_edges,n_layers))
-    huge_q = jnp.sqrt(jnp.finfo(jnp.float64).max)
-    tiniest = jnp.finfo(jnp.float64).tiny
-
-    def freq_loop(i_freq, carry):
-        source = carry
-
-        def ng_loop(i_ng, carry):
-            source = carry
-
-            tn = source_n[i_ng, i_freq, :]
-            tn1 = source_n1[i_ng, i_freq, :]
-            tn2 = source_n2[i_ng, i_freq, :]
-            tn3 = source_n3[i_ng, i_freq, :]
-
-            Q1 = tn - 2.0 * tn1 + tn2
-            Q2 = tn - tn1 - tn2 + tn3
-            Q3 = tn - tn1
-
-            Q1 = Q1.at[0].set(0.0)  # equivalent to Q1(1) = 0d0
-            Q2 = Q2.at[0].set(0.0)  # equivalent to Q2(1) = 0d0
-            Q3 = Q3.at[0].set(0.0)  # equivalent to Q3(1) = 0d0
-
-            A1 = jnp.minimum(jnp.sum(Q1 * Q1), huge_q)
-            A2 = jnp.minimum(jnp.sum(Q2 * Q1), huge_q)
-            B1 = jnp.minimum(jnp.sum(Q1 * Q2), huge_q)
-            B2 = jnp.minimum(jnp.sum(Q2 * Q2), huge_q)
-            C1 = jnp.minimum(jnp.sum(Q1 * Q3), huge_q)
-            C2 = jnp.minimum(jnp.sum(Q2 * Q3), huge_q)
-
-            AB_denominator = A1 * B2 - A2 * B1
-
-            def calculate_source(carry):
-                a, b, source = carry
-                temp_buff = jnp.maximum((1.0 - a - b) * tn + a * tn1 + b * tn2, 0.0)
-                source = source.at[i_ng, i_freq, :].set(temp_buff)
-                return a, b, source
-
-            def use_original_source(carry):
-                a, b, source = carry
-                source = source.at[i_ng, i_freq, :].set(source[i_ng, i_freq, :])
-                return a, b, source
-
-            a = (C1 * B2 - C2 * B1) / AB_denominator
-            b = (C2 * A1 - C1 * A2) / AB_denominator
-
-            calculate_condition = ((jnp.abs(A1) >= 1e-250) &
-                                   (jnp.abs(A2) >= 1e-250) &
-                                   (jnp.abs(B1) >= 1e-250) &
-                                   (jnp.abs(B2) >= 1e-250) &
-                                   (jnp.abs(C1) >= 1e-250) &
-                                   (jnp.abs(C2) >= 1e-250))
-
-            a, b, source = lax.cond(AB_denominator >= tiniest and calculate_condition,
-                                    calculate_source,
-                                    use_original_source,
-                                    (a, b, source))
-
-            return source
-
-        source = lax.fori_loop(0, n_g, ng_loop, source)
-
-        return source
-
-    source = lax.fori_loop(0, n_frequencies_bin_edges - 1, freq_loop, source)
-
-    return source
+    # Option 2: Implement Thomas algorithm with lax.scan (more complex)
+    # This would replicate the Fortran logic more closely, including any specific numerical handling.
+    # Dummy implementation for structure
+    #return solve_tridiagonal_fortran(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
+    return solve_tridiagonal_fortran(jnp.concatenate([jnp.array([0]), a_lower_diag]),
+                                        b_main_diag,
+                                        jnp.concatenate([c_upper_diag, jnp.array([0])]),
+                                        r_rhs)
 
 
+@partial(jit)
+def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
+    """
+    Ng acceleration for a single layer's source function history.
+    Inputs are all shape (n_layers,).
+    """
+    Q1 = tn - 2.0 * tn1 + tn2
+    Q2 = tn - tn1 - tn2 + tn3
+    Q3 = tn - tn1
+
+    # Boundary condition from Fortran (Q1[0]=0 etc.)
+    Q1 = Q1.at[0].set(0.0)
+    Q2 = Q2.at[0].set(0.0)
+    Q3 = Q3.at[0].set(0.0)
+
+    A1 = jnp.minimum(jnp.sum(Q1 * Q1), HUGE_SQRT)
+    A2 = jnp.minimum(jnp.sum(Q2 * Q1), HUGE_SQRT)
+    B1 = jnp.minimum(jnp.sum(Q1 * Q2), HUGE_SQRT)
+    B2 = jnp.minimum(jnp.sum(Q2 * Q2), HUGE_SQRT)
+    C1 = jnp.minimum(jnp.sum(Q1 * Q3), HUGE_SQRT)
+    C2 = jnp.minimum(jnp.sum(Q2 * Q3), HUGE_SQRT)
+
+    AB_denominator = A1 * B2 - A2 * B1
+
+    cond_skip_ng = (AB_denominator < TINIEST) | \
+                   (jnp.abs(A1) < 1e-250) | (jnp.abs(A2) < 1e-250) | \
+                   (jnp.abs(B1) < 1e-250) | (jnp.abs(B2) < 1e-250) | \
+                   (jnp.abs(C1) < 1e-250) | (jnp.abs(C2) < 1e-250)
+
+    def ng_update_func():
+        a_ng = (C1 * B2 - C2 * B1) / AB_denominator
+        b_ng = (C2 * A1 - C1 * A2) / AB_denominator
+        return jnp.maximum((1.0 - a_ng - b_ng) * tn + a_ng * tn1 + b_ng * tn2, 0.0)
+
+    def no_ng_update_func():
+        return current_source_layer  # Or tn, depending on Fortran logic for `source`
+
+    return lax.cond(cond_skip_ng, no_ng_update_func, ng_update_func)
+
+# Vmap over (g, freq) dimensions
+# Input source arrays will be (n_g, n_freq, n_layers)
+vmapped_m_approximate_ng_source = vmap(vmap(m_approximate_ng_source_layer_jax,
+                                                    in_axes=(0,0,0,0,0)), # vmap over freq
+                                           in_axes=(0,0,0,0,0))          # vmap over g
+
+
+# --- Main Feautrier Radiative Transfer JAX Function ---
+@partial(jit, static_argnames=(
+    "emission_geometry_str", "return_contribution",
+    "iter_scat_max", "n_iterations_min_convergence"
+))
 def compute_feautrier_radiative_transfer(
-        frequencies_bin_edges,
-        temperatures,
-        weights_gauss,
-        emission_cos_angles,
-        emission_cos_angles_weights,
-        optical_depths,
-        photon_destruction_probabilities,
-        emission_geometry,
-        stellar_intensity,
-        star_irradiation_cos_angle,
-        reflectances,
-        emissivities,
-        return_contribution):
-
-    n_frequencies_bin_edges = frequencies_bin_edges.shape[0]
-    n_layers = temperatures.shape[0]
+    frequencies_bin_edges,  # (n_frequencies_bin_edges,)
+    temperatures,           # (n_layers,)
+    weights_gauss,          # (n_g,)
+    emission_cos_angles,    # (n_angles,)
+    emission_cos_angles_weights,  # (n_angles,)
+    optical_depths_in,      # (n_g, n_freq_bins, n_layers)
+    photon_destruction_probabilities_in,  # (n_g, n_freq_bins, n_layers)
+    stellar_intensity,      # (n_freq_bins,)
+    star_irradiation_cos_angle,  # scalar
+    reflectances,           # (n_freq_bins,)
+    emissivities,           # (n_freq_bins,)
+    # Static parameters for JIT compilation
+    emission_geometry_str: str,
+    return_contribution: bool,
+    iter_scat_max: int = 1000,
+    n_iterations_min_convergence: int = 9,  # Renamed from n_iterations_min
+    convergence_threshold: float = 1e-3
+):
+    # --- Constants and Precomputations ---
+    n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
     n_angles = emission_cos_angles.shape[0]
-    n_g = weights_gauss.shape[0]
-
-    iter_scat = 1000
-    tiniest = jnp.finfo(jnp.float64).tiny
-    pi_4 = 4.0 * jnp.pi
-
-    n_iterations_min = 9
-    convergence_threshold = 1e-3
-
-    inv_del_tau_min = 1e10
+    pi_4 = 4.0 * CST_PI
+    inv_del_tau_min = 1e10  # From Fortran
     inv_del_tau_min_half = inv_del_tau_min * 0.5
 
-    I_plus_surface = jnp.zeros((n_angles, n_g, n_frequencies_bin_edges-1))
-    I_minus = 0.0
+    # Reshape photon_destruction_probabilities: (n_g, n_freq, n_layers) -> (n_layers, n_g, n_freq)
+    photon_destruction_probabilities_gfl = photon_destruction_probabilities_in  # (g,f,l)
 
-    I_J = jnp.zeros((n_layers, n_angles))
-    I_H = jnp.zeros((n_layers, n_angles))
-    source = jnp.zeros((n_layers, n_g, n_frequencies_bin_edges - 1))
-    J_planet_scat = jnp.zeros((n_layers, n_g, n_frequencies_bin_edges - 1))
-    photon_destruction_probabilities_ = jnp.transpose(photon_destruction_probabilities, (1, 2, 0))
-    J_star_ini = jnp.zeros((n_g, n_layers, n_frequencies_bin_edges-1))
-    I_star_calc = jnp.zeros((n_g, n_layers, n_angles, n_frequencies_bin_edges-1))
-    I_surface_no_scattering = jnp.zeros((n_g, n_frequencies_bin_edges - 1))
-    surf_refl_2 = 2.0 * reflectances
-    mu_weight = emission_cos_angles * emission_cos_angles_weights
-
-    b = jnp.ones((n_layers, n_angles))
-    c = jnp.zeros((n_layers, n_angles))
-    a = jnp.zeros((n_layers, n_angles))
-    lambda_loc = jnp.zeros((n_layers, n_g, n_frequencies_bin_edges - 1))
-
-    source_planet_scat_n = jnp.zeros(n_layers)
-    source_planet_scat_n1 = jnp.zeros(n_layers)
-    source_planet_scat_n2 = jnp.zeros(n_layers)
-    source_planet_scat_n3 = jnp.zeros(n_layers)
     mu_double = emission_cos_angles * 2.0
+    surf_refl_2 = 2.0 * reflectances
+    mu_weight_a = emission_cos_angles * emission_cos_angles_weights  # Renamed for clarity (a,)
 
-    flux = jnp.zeros(n_frequencies_bin_edges - 1)
-    emission_contribution = jnp.zeros((n_layers, n_frequencies_bin_edges - 1))
-    #planck = jnp.zeros((n_layers, n_frequencies_bin_edges - 1))
-
-    planck = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
-
-    # Main radiative transfer loop (simplified structure)
-    for i_freq in range(n_frequencies_bin_edges - 1):
-        for i_g in range(n_g):
-            for i_lay in range(n_layers):
-                source = source.at[i_lay, i_g, i_freq].set(photon_destruction_probabilities_[i_freq, i_lay, i_g] *
-                                                           planck[i_lay, i_freq])
-
-    geometry_coefficient = 0.0
-    if emission_geometry == "dayside_ave":
-        geometry_coefficient = 0.5
-    if emission_geometry == "planetary_ave":
-        geometry_coefficient = 0.25
-    if emission_geometry == "non-isotropic":
-        geometry_coefficient = -1.5
+    # --- 1. Stellar Attenuation (J_star_ini) ---
+    # J_star_ini: (n_g, n_freq_bins, n_layers)
+    if emission_geometry_str == 'dayside_ave': geometry_coefficient = 0.5
+    elif emission_geometry_str == 'planetary_ave': geometry_coefficient = 0.25
+    elif emission_geometry_str == 'non-isotropic': geometry_coefficient = -1.0  # Special flag
+    else: raise ValueError(f"Unknown emission_geometry: {emission_geometry_str}")
 
     if geometry_coefficient > 0:
-        def inner_loop(i, J_star_ini_i):
-            def inner_inner_loop(i_mu, J_star_ini_i_mu):
-                I_star_calc_i_mu = (geometry_coefficient *
-                                    jnp.abs(stellar_intensity[i]) *
-                                    jnp.exp(-optical_depths[:, i, :] /
-                                            emission_cos_angles[i_mu]))
-                return J_star_ini_i_mu + 0.5 * I_star_calc_i_mu * emission_cos_angles_weights[i_mu]
-            J_star_ini_i = lax.fori_loop(0, n_angles, inner_inner_loop, J_star_ini_i)
-            return J_star_ini_i
-        J_star_ini = lax.fori_loop(0, n_frequencies_bin_edges - 1, inner_loop, J_star_ini)
+        # optical_depths_in: (g, f, l), emission_cos_angles: (a)
+        # stellar_intensity: (f)
+        # exp_term: (g, f, a, l) = exp(- opt_depths(g,f,l) / mu(a) )
+        exp_term_gfal = jnp.exp(-optical_depths_in[:, :, None, :] / emission_cos_angles[None, None, :, None])
+        I_star_calc_gfal = geometry_coefficient * jnp.abs(stellar_intensity[None, :, None, None]) * exp_term_gfal
+        # J_star_ini (g,f,l) = 0.5 * sum_a (I_star_calc_gfal * mu_weight(a))
+        J_star_ini_gfl = 0.5 * jnp.sum(I_star_calc_gfal * emission_cos_angles_weights[None, None, :, None], axis=2)
+    else: # non-isotropic
+        exp_term_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
+        J_star_ini_gfl = jnp.abs(stellar_intensity[None, :, None] / 4.0 * exp_term_gfl)
 
-    else:
-        def inner_loop(i, J_star_ini_i):
-            return jnp.abs(stellar_intensity[i] /
-                           4.0 *
-                           jnp.exp(-optical_depths[:, i, :] /
-                                   star_irradiation_cos_angle))
-     
-        def update_J_star_ini(i, J_star_ini):
-            J_star_ini = J_star_ini.at[:, :, i].set(inner_loop(i, J_star_ini[:, :, i]))
-            return J_star_ini
+    # Clamp photon destruction probabilities
+    photon_destruction_probabilities_gfl = jnp.maximum(photon_destruction_probabilities_gfl, 1e-10)
 
-        J_star_ini = lax.fori_loop(0, n_frequencies_bin_edges - 1, update_J_star_ini, J_star_ini)
+    # --- 2. Planck Function Integral ---
+    # planck_integral_lf: (n_layers, n_freq_bins)
+    planck_integral_lf = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
+    planck_integral_fl = jnp.transpose(planck_integral_lf, (1, 0))  # (f,l) for easier broadcast with (g,f,l)
 
-    planck = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
-
-    def update_surface_intensity(i, I_surface_no_scattering):
-        I_surface_emission = emissivities[i] * planck[n_layers - 1, i]
-
-        def update_scattering(l, I_surface_no_scattering_l):
-            if emission_geometry.strip().lower() != 'non-isotropic':
-                I_surface_reflection = surf_refl_2[i] * jnp.sum(I_star_calc[l, n_layers - 1, :, i] * mu_weight)
-            else:
-                I_surface_reflection = (reflectances[i] *
-                                        J_star_ini[l, n_layers - 1, i] *
-                                        4.0 *
-                                        star_irradiation_cos_angle)
-
-            return I_surface_no_scattering_l.at[l].set(I_surface_emission + I_surface_reflection)
-
-        I_surface_no_scattering_i = lax.fori_loop(0, n_g, update_scattering, jnp.zeros(n_g))
-        return I_surface_no_scattering.at[i].set(I_surface_no_scattering_i)
+    # --- 3. Surface Terms ---
+    # I_surface_no_scattering_gf: (n_g, n_freq_bins)
+    I_surface_emission_f = emissivities * planck_integral_lf[n_layers-1, :]  # (f,)
     
-    I_surface_no_scattering = \
-        lax.fori_loop(0, n_frequencies_bin_edges - 1, update_surface_intensity, I_surface_no_scattering)
+    if geometry_coefficient > 0:
+        # I_star_calc_gfal was (g,f,a,l). Need I_star_calc at surface: I_star_calc_gfa_surf (g,f,a)
+        I_star_calc_gfa_surf = I_star_calc_gfal[:, :, :, n_layers-1]
+        I_surface_reflection_gf = surf_refl_2[None, :] * jnp.sum(  # sum over angles
+            I_star_calc_gfa_surf * mu_weight_a[None, None, :], axis=2
+        )
+    else:  # non-isotropic
+        I_surface_reflection_gf = (
+            reflectances[None, :]
+            * J_star_ini_gfl[:, :, n_layers-1]
+            * 4.0 * star_irradiation_cos_angle
+            )
     
-    source = (photon_destruction_probabilities_ *
-              planck +
-              (1.0 - photon_destruction_probabilities_) *
-              J_star_ini)
-    dtau_1_level = jnp.zeros(n_layers - 1)
-    dtau_2_level = jnp.zeros(n_layers - 2)
-    dtau_1_level = dtau_1_level.at[:, 0].set(optical_depths[:, i, 1] - optical_depths[:, i, 0])
-    dtau_1_level = jnp.where(jnp.abs(dtau_1_level[0]) < tiniest, tiniest, dtau_1_level.at[0].get())
+    I_surface_no_scattering_gf = I_surface_emission_f[None, :] + I_surface_reflection_gf
 
-    # Main loop starts here
-    for i in range(1, n_frequencies_bin_edges):
-        def process_g(l, results_g):
-            flux_tmp = 0.0
+    # --- 4. Initial Source Function & Precompute Feautrier Coefficients ---
+    # S_gfl: (g, f, l)
+    # planck_integral_fl is (f,l), broadcast to (g,f,l) using [None, :, :]
+    # photon_destruction_probabilities_gfl is (g,f,l)
+    initial_source_gfl = photon_destruction_probabilities_gfl * planck_integral_fl[None, :, :] + \
+        (1.0 - photon_destruction_probabilities_gfl) * J_star_ini_gfl
 
-            def process_k(k, dtau_arrays):
-                dtau_1_level, dtau_2_level = dtau_arrays
-                dtau_1_level = dtau_1_level.at[l, k].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k])
-                dtau_1_level = jnp.where(jnp.abs(dtau_1_level[l, k]) < tiniest,
-                                         tiniest,
-                                         dtau_1_level.at[l, k].get())
+    # Delta taus for Feautrier coefficients
+    # dtau1_gfl: (n_g, n_freq, n_layers-1), optical_depths_in(g,f,l)
+    dtau1_gfl = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]
+    dtau1_gfl = jnp.where((jnp.abs(dtau1_gfl) < TINIEST), TINIEST, dtau1_gfl)
+    
+    # dtau2_gfl: (n_g, n_freq, n_layers-2)
+    dtau2_gfl = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]
+    dtau2_gfl = jnp.where((jnp.abs(dtau2_gfl) < TINIEST), TINIEST, dtau2_gfl)
+    
+    # Feautrier coefficients (b_main_diags_gfal, a_lower_diags_gfalm1, c_upper_diags_gfalm1)
+    # Shapes: (g, f, a, l) for main, (g, f, a, l-1) for off-diagonals
+    
+    # Top layer (l=0)
+    f1_top_gfa = jnp.clip(emission_cos_angles[None, None, :, None] /
+                          dtau1_gfl[:, :, None, 0, None],
+                          -inv_del_tau_min,
+                          inv_del_tau_min)
+    b_gfal_0 = 1.0 + 2.0 * f1_top_gfa * (1.0 + f1_top_gfa)
+    c_gfal_0 = -2.0 * f1_top_gfa**2
+    # a_gfal_0 is 0
 
-                dtau_2_level = dtau_2_level.at[l, k - 1].set(optical_depths[l, i, k + 1] - optical_depths[l, i, k - 1])
-                dtau_2_level =\
-                    jnp.where(jnp.abs(dtau_2_level[l, k - 1]) < tiniest,
-                              tiniest,
-                              dtau_2_level.at[l, k - 1].get())
-                return dtau_1_level, dtau_2_level
+    # Mid layers (l=1 to n_layers-2)
+    # f1_mid_gfalm1: (g,f,a,l-2), using dtau2 for layers 1 to n_layers-2
+    f1_mid_gfalm1 = jnp.clip(mu_double[None, None, :, None] /
+                             dtau2_gfl[:, :, None, :],
+                             - inv_del_tau_min_half,
+                             inv_del_tau_min_half)
+    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2 (dtau1 indices 1 to n_layers-2)
+    f2_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
+                             dtau1_gfl[:, :, None, 1:],
+                             -inv_del_tau_min,
+                             inv_del_tau_min)
+    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3 (dtau1 indices 0 to n_layers-3)
+    f3_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
+                             dtau1_gfl[:, :, None, :-1],
+                             -inv_del_tau_min,
+                             inv_del_tau_min)
 
-            dtau_1_level, dtau_2_level = lax.fori_loop(1, n_layers - 1, process_k, (dtau_1_level, dtau_2_level))
+    b_gfal_mid = 1.0 + f1_mid_gfalm1 * (f2_mid_gfalm1 + f3_mid_gfalm1)
+    c_gfal_mid = -f1_mid_gfalm1 * f2_mid_gfalm1  # Upper diagonal part
+    a_gfal_mid = -f1_mid_gfalm1 * f3_mid_gfalm1  # Lower diagonal part
 
-            def process_j(j, results_j):
-                b, c, a, lambda_loc, f2_struct, f3_struct = results_j
+    # Assemble full diagonal arrays for tridiagonal solver
+    # b_main_diags_gfal: (g,f,a,l)
+    _b = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
+    _b = _b.at[:, :, :, 0].set(b_gfal_0[..., 0])
+    _b = _b.at[:, :, :, 1:n_layers-1].set(b_gfal_mid)
+    _b = _b.at[:, :, :, n_layers-1].set(1.0)  # Surface b=1
+    b_main_diags_gfal = _b
 
-                # First level (top)
-                f1 = emission_cos_angles[j] / dtau_1_level[l, 0]
-                f1 = jnp.where(f1 > inv_del_tau_min, inv_del_tau_min, f1)
+    # c_upper_diags_gfalm1: (g,f,a,l-1)
+    _c = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers - 1))
+    _c = _c.at[:, :, :, 0].set(c_gfal_0[..., 0])
+    _c = _c.at[:, :, :, 1:n_layers-1].set(c_gfal_mid)  # c_gfal_mid is shape (g,f,a,l-2)
+    # This covers upper diags for rows 1 to n_layers-2
+    c_upper_diags_gfalm1 = _c
+    
+    # a_lower_diags_gfalm1: (g,f,a,l-1)
+    _a = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers - 1))
+    # a_gfal_mid is shape (g,f,a,l-2), covers lower diags for rows 1 to n_layers-2
+    _a = _a.at[:, :, :, :n_layers-2].set(a_gfal_mid)
+    a_lower_diags_gfalm1 = _a
 
-                b = b.at[0, j].set(1.0 + 2.0 * f1 * (1.0 + f1))
-                c = c.at[0, j].set(-2.0 * f1**2.0)
-                a = a.at[0, j].set(0.0)
+    # Lambda_loc for ALI (Accelerated Lambda Iteration)
+    # lambda_loc_gfl: (n_g, n_freq_bins, n_layers)
+    lambda_loc_contrib_top_gfa = mu_weight_a[None, None, :, None] / b_gfal_0
+    lambda_loc_top_gf = jnp.sum(lambda_loc_contrib_top_gfa, axis=2)  # sum over angles
 
-                lambda_loc = lambda_loc.at[0, l, i].set(lambda_loc[0, l, i] +
-                                                        emission_cos_angles_weights[j] /
-                                                        (1.0 + 2.0 * f1 * (1.0 + f1))
-                                                        )
+    lambda_loc_contrib_mid_gfalm1 = mu_weight_a[None, None, :, None] / b_gfal_mid
+    lambda_loc_mid_gflm2 = jnp.sum(lambda_loc_contrib_mid_gfalm1, axis=2)
 
-                # Mid levels
-                def process_k_inner(k, results_k):
-                    b, c, a, lambda_loc, f2_struct, f3_struct = results_k
-                    f1 = mu_double[j] / dtau_2_level[l, k - 1]
-                    f2 = emission_cos_angles[j] / dtau_1_level[l, k]
-                    f3 = emission_cos_angles[j] / dtau_1_level[l, k - 1]
+    f1_surf_gfa = jnp.clip(emission_cos_angles[None, None, :, None] / dtau1_gfl[:, :, None, n_layers-2, None],
+                           -inv_del_tau_min,
+                           inv_del_tau_min)
+    lambda_loc_contrib_surf_gfa = mu_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf_gfa**2)
+    lambda_loc_surf_gf = jnp.sum(lambda_loc_contrib_surf_gfa, axis=2)
 
-                    f1 = jnp.where(f1 > inv_del_tau_min_half, inv_del_tau_min_half, f1)
-                    f2 = jnp.where(f2 > inv_del_tau_min, inv_del_tau_min, f2)
-                    f3 = jnp.where(f3 > inv_del_tau_min, inv_del_tau_min, f3)
+    _l = jnp.zeros((n_g, n_freq_bins, n_layers))
+    _l = _l.at[:, :, 0].set(lambda_loc_top_gf[..., 0])
+    _l = _l.at[:, :, 1:n_layers-1].set(lambda_loc_mid_gflm2)
+    _l = _l.at[:, :, n_layers-1].set(lambda_loc_surf_gf[..., 0])
+    lambda_loc_gfl = _l  # (g,f,l)
 
-                    b = b.at[k, j].set(1.0 + f1 * (f2 + f3))
-                    c = c.at[k, j].set(-f1 * f2)
-                    a = a.at[k, j].set(-f1 * f3)
+    # --- 5. Scattering Iteration Loop ---
+    # State: (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev, J_planet_scat_gfl_prev,
+    #         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag)
+    # current_I_plus_surface_gfa: (n_g, n_freq_bins, n_angles)
 
-                    f2_struct = f2_struct.at[k, j].set(f2)
-                    f3_struct = f3_struct.at[k, j].set(f3)
+    @jit
+    def scattering_loop_body_func(loop_state_prev):
+        (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev,
+         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag) = loop_state_prev
 
-                    lambda_loc = lambda_loc.at[k, l, i].set(lambda_loc[k, l, i] +
-                                                            emission_cos_angles_weights[j] /
-                                                            (1.0 + f1 * (f2 + f3)))
-                    return b, c, a, lambda_loc, f2_struct, f3_struct
+        # --- 5a. Solve Feautrier System for each (g,f,a) ---
+        # RHS for tridiagonal system: r_gfal (g,f,a,l)
+        # Source part: current_source_gfl (g,f,l)
+        r_gfal = jnp.repeat(current_source_gfl[:, :, None, :], n_angles, axis=2)  # (g,f,a,l)
 
-                b, c, a, lambda_loc, f2_struct, f3_struct = \
-                    lax.fori_loop(1, n_layers - 1, process_k_inner, (b, c, a, lambda_loc, f2_struct, f3_struct))
+        # Surface boundary for r_gfal at n_layers-1
+        # I_minus_boundary_gf (g,f) = I_surf_no_scat_gf + refl_const_f * sum_a(I_plus_surf_gfa * mu_w_a)
+        # current_I_plus_surface_gfa (g,f,a)
+        
+        reflection_term_gf = surf_refl_2[None, :] *\
+            jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2) # sum over angles
+        I_minus_boundary_gf = I_surface_no_scattering_gf + reflection_term_gf
+        
+        r_gfal_surface = 0.5 * (current_I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])  # (g,f,a)
+        r_gfal = r_gfal.at[:, :, :, n_layers-1].set(r_gfal_surface)
 
-                # Last level (surface)
-                f1 = emission_cos_angles[j] / dtau_1_level[l,n_layers - 2]  # Corrected index here
-                f1 = jnp.where(f1 > inv_del_tau_min, inv_del_tau_min, f1)
-                lambda_loc = lambda_loc.at[n_layers - 1, l, i].set(lambda_loc[n_layers - 1, l, i] +
-                                                                   emission_cos_angles_weights[j] /
-                                                                   (1.0 + 2.0 * f1**2.0))  # Corrected index here
+        # Vectorize solver: solve_tridiagonal_system_jax(a_lower(l-1), b_main(l), c_upper(l-1), r_rhs(l))
+        # Inputs are (g,f,a,dims). Vmap over (g,f,a).
+        # I_J_gfal: (g,f,a,l)
+        I_J_gfal = vmap(vmap(vmap(solve_tridiagonal_system_jax, in_axes=(0, 0, 0, 0))))(
+            a_lower_diags_gfalm1, b_main_diags_gfal, c_upper_diags_gfalm1, r_gfal
+        )
 
-                return b, c, a, lambda_loc, f2_struct, f3_struct
-            b, c, a, lambda_loc, f2_struct, f3_struct =\
-                lax.fori_loop(0, n_angles, process_j, (b, c, a, lambda_loc, f2_struct, f3_struct))
+        # --- 5b. Calculate I_H_gfal_current and new I_plus_surface_gfa ---
+        I_H_gfal_current = jnp.zeros_like(I_J_gfal) # Renamed
+        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 0].set(-I_J_gfal[:, :, :, 0])  # Top layer
 
-            def scattering_iteration(i_iter_scat, results_iter):
-                (i_iter_scat,
-                 conv_val,
-                 r,
-                 b,
-                 c,
-                 a,
-                 I_plus_surface,
-                 I_H,
-                 I_J,
-                 source,
-                 J_planet_scat,
-                 flux_tmp,
-                 flux_tmp_old,
-                 source_planet_scat_n,
-                 source_planet_scat_n1,
-                 source_planet_scat_n2,
-                 source_planet_scat_n3) = results_iter
+        # Mid layers for I_H
+        # deriv1_gfalm1: (g,f,a,l-2) using f2_mid and I_J for layers 1 to n_layers-2
+        deriv1_gfalm1 = f2_mid_gfalm1 * (I_J_gfal[:, :, :, 2:n_layers] - I_J_gfal[:, :, :, 1:n_layers-1])
+        # deriv2_gfalm1: (g,f,a,l-2) using f3_mid and I_J for layers 0 to n_layers-3
+        deriv2_gfalm1 = f3_mid_gfalm1 * (I_J_gfal[:, :, :, 1:n_layers-1] - I_J_gfal[:, :, :, 0:n_layers-2])
+        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 1:n_layers-1].set(-(deriv1_gfalm1 + deriv2_gfalm1) * 0.5)
+        
+        # New I_plus_surface_gfa (g,f,a) for next iteration
+        # I_plus_surface = I_J_surface - deriv1_surface 
+        #   (deriv1 for k=n_layers-1, which is last element of deriv1_gfalm1)
+        new_I_plus_surface_gfa = I_J_gfal[:, :, :, n_layers-1] - deriv1_gfalm1[:, :, :, n_layers-2]
 
-                def angle_loop(j, results_angle):
-                    r, b, c, a, I_plus_surface, I_J, I_H = results_angle
-                    I_minus = (I_surface_no_scattering[l, i] +
-                               surf_refl_2[i] *
-                               jnp.sum(I_plus_surface[:, l, i] * mu_weight))
-                    r = r.at[n_layers-1].set(0.5 * (I_plus_surface[j, l, i] + I_minus))
-                    I_J = I_J.at[:, j].set(jmath.solve_tridiagonal_system(a[:, j], b[:, j], c[:, j], r))
-                    I_H = I_H.at[0, j].set(-I_J[0, j])
+        # --- 5c. Update Source Function (ALI + Ng) ---
+        # J_bol_g_gfl (g,f,l) = sum_a (I_J_gfal * mu_w_a)
+        J_bol_g_gfl = jnp.sum(I_J_gfal * mu_weight_a[None, None, :, None], axis=2)
+        J_planet_scat_gfl_current = J_bol_g_gfl  # (g,f,l)
 
-                    def k_loop(k, results_k):
-                        I_H, I_J, I_plus_surface = results_k
-                        deriv1 = f2_struct[k, j] * (I_J[k + 1, j] - I_J[k, j])
-                        deriv2 = f3_struct[k, j] * (I_J[k, j] - I_J[k - 1, j])
-                        I_H = I_H.at[k, j].set(-(deriv1 + deriv2) * 0.5)
+        # ALI update for source_lgf
+        # photon_destruction_probabilities_gfl (g,f,l), planck_integral_fl (f,l)
+        # J_star_ini_gfl (g,f,l), lambda_loc_gfl (g,f,l), current_source_gfl (g,f,l)
+        num_gfl = photon_destruction_probabilities_gfl * planck_integral_fl[None, :, :] + \
+            (1.0 - photon_destruction_probabilities_gfl) * \
+            (J_star_ini_gfl + J_planet_scat_gfl_current - lambda_loc_gfl * current_source_gfl)
+        den_gfl = 1.0 - (1.0 - photon_destruction_probabilities_gfl) * lambda_loc_gfl
+        source_after_ali_gfl = num_gfl / jnp.maximum(den_gfl, TINIEST)
+        
+        # Ng Acceleration History Update
+        next_s_n3_gfl, next_s_n2_gfl, next_s_n1_gfl = s_n2_gfl, s_n1_gfl, s_n_gfl
+        next_s_n_gfl = source_after_ali_gfl  # Store pre-Ng source for history
+        
+        # Apply Ng (iter_idx is 0-based)
+        # Fortran: mod(i_iter_scat, 4) == 0. Here: (iter_idx + 1) % 4 == 0
+        def ng_accel_func():
+            # vmapped_m_approximate_ng_source expects (g,f,l) inputs
+            accelerated_s_gfl = vmapped_m_approximate_ng_source(
+                next_s_n_gfl, next_s_n1_gfl, next_s_n2_gfl, next_s_n3_gfl, source_after_ali_gfl
+            )
+            return accelerated_s_gfl
 
-                        I_plus_surface = jnp.where(k == n_layers - 2, 
-                                                   I_plus_surface.at[j,l,i].set(I_J[n_layers - 1, j] - deriv1), 
-                                                   I_plus_surface)
-                        return I_H, I_J, I_plus_surface
-                    
-                    I_H, I_J, I_plus_surface = lax.fori_loop(1, n_layers - 1, k_loop, (I_H, I_J, I_plus_surface))
-                    I_H = I_H.at[n_layers-1, j].set(0.0)
-                    return r, b, c, a, I_plus_surface, I_J, I_H
-                r, b, c, a, I_plus_surface, I_J, I_H =\
-                    lax.fori_loop(0, n_angles, angle_loop, (r, b, c, a, I_plus_surface, I_J, I_H))
-                
-                flux_tmp_old = flux_tmp
-                flux_tmp = 0.0
+        final_updated_source_gfl = lax.cond(
+            (iter_idx > 0) & ((iter_idx + 1) % 4 == 0),  # iter_idx is 0 to iter_scat_max-1
+            ng_accel_func,
+            lambda: source_after_ali_gfl  # No Ng
+        )
+        
+        # Convergence check based on relative change in total I_H at the top boundary
+        total_I_H_top_prev = jnp.sum(I_H_gfal_prev[:, :, :, 0], axis=(0, 2)) # Sum over g and angles
+        total_I_H_top_current = jnp.sum(I_H_gfal_current[:, :, :, 0], axis=(0, 2))
+        max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
+        new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
+            (max_rel_change < convergence_threshold)
+        
+        # Update loop state
+        next_loop_state = (final_updated_source_gfl, new_I_plus_surface_gfa, I_H_gfal_current,
+                           next_s_n_gfl, next_s_n1_gfl, next_s_n2_gfl, next_s_n3_gfl,
+                           iter_idx + 1, new_converged_flag)
 
-                def flux_loop(j, flux_tmp):
-                    return flux_tmp - I_H[0, j] * mu_weight[j]
-                
-                flux_tmp = lax.fori_loop(0, n_angles, flux_loop, flux_tmp)
+        return next_loop_state  # keep returning I_H for final flux
 
-                conv_val = jnp.abs(1.0 - flux_tmp_old / flux_tmp)
+    def convergence_condition_func(loop_state):
+        # Note: the requested condition had iter_idx > iter_scat_max for *continuation*.  
+        # Here we want the loop to *stop* when converged OR max iterations reached.
+        _, _, _, _, _, _, _, iter_idx, converged_flag = loop_state
+        return (iter_idx <= iter_scat_max) & (jnp.logical_not(converged_flag))
+        # Stopping condition: loop runs WHILE (not converged AND iter_idx <= iter_scat_max)
 
-                def cond_fun(loop_carry_over):
-                    i_iter_scat, conv_val = loop_carry_over
-                    return (conv_val >= convergence_threshold) | (i_iter_scat <= n_iterations_min)
+    # Initial state for while_loop (using (g,f,l) and (g,f,a) layouts)
+    initial_iter_state = (initial_source_gfl,                       # current_source_gfl
+                          jnp.zeros((n_g, n_freq_bins, n_angles)),  # current_I_plus_surface_gfa
+                          jnp.zeros((n_g, n_freq_bins, n_angles, n_layers)),  # I_H_gfal_prev
+                          jnp.zeros_like(initial_source_gfl),       # s_n_gfl
+                          jnp.zeros_like(initial_source_gfl),       # s_n1_gfl
+                          jnp.zeros_like(initial_source_gfl),       # s_n2_gfl
+                          jnp.zeros_like(initial_source_gfl),       # s_n3_gfl
+                          0,                                       # iter_idx
+                          False)                                   # converged_flag
 
-                def body_fun(loop_carry_over):
-                    i_iter_scat, conv_val, r, I_H, I_J, source, J_planet_scat, flux_tmp, flux_tmp_old, source_planet_scat_n, source_planet_scat_n1, source_planet_scat_n2, source_planet_scat_n3 = loop_carry_over
+    final_loop_state = lax.while_loop(convergence_condition_func,
+                                      scattering_loop_body_func,
+                                      initial_iter_state)
+    
+    # Extract final values from the loop state.
+    # The I_H_gfal_prev and J_planet_scat_gfl_prev in the final_loop_state
+    # are the I_H_gfal_current and J_planet_scat_gfl_current from the last completed iteration.
+    _, _, I_H_gfal_final, _, _, _, _, _, _ = final_loop_state
 
-                    J_bol_g = 0.0
+    # --- 6. Calculate Flux ---
+    # flux_f (n_freq_bins) = sum_g sum_a (-I_H_gfal(g,f,a,l=0) * pi_4 * w_gauss_g * mu_w_a)
+    # I_H_gfal_final is (g,f,a,l). We need I_H at top (l=0).
+    I_H_top_gfa = I_H_gfal_final[:, :, :, 0]  # (g,f,a)
+    flux_f = jnp.sum(
+        -I_H_top_gfa * pi_4 * weights_gauss[:, None, None] * mu_weight_a[None, None, :],
+        axis=(0, 2)  # Sum over g and angles
+    )
 
-                    def j_bol_loop(j, J_bol_g):
-                        return J_bol_g + I_J[:, j] * emission_cos_angles_weights[j]
-                    
-                    J_bol_g = lax.fori_loop(0, n_angles, j_bol_loop, J_bol_g)
+    # --- 7. Contribution Function (if return_contribution) ---
+    emission_contribution_lf = jnp.zeros((n_layers, n_freq_bins))
+    if return_contribution:
+        # Logic similar to Fortran:
+        # transm_mu_gfl = exp(-optical_depths_in / emission_cos_angles)
+        # transm_all_fl = sum_g (transm_mu_gfl * weights_gauss_g)
+        # r_source_fl = sum_g (final_source_lgf (transposed to g,f,l) * weights_gauss_g)
+        # Loop over angles i_mu:
+        #   contrib_lf += (r_source_fl(l) + r_source_fl(l+1)) * (transm_all_fl(l) - transm_all_fl(l+1)) * mu * mu_w
+        #   Handle surface term carefully.
+        # Normalize contrib_lf.
+        # This part needs careful translation of the loops and sums.
+        pass  # Placeholder for detailed implementation
 
-                    J_planet_scat = J_planet_scat.at[:, l, i].set(J_bol_g)
-
-                    source = source.at[:, l, i].set(
-                        (photon_destruction_probabilities_[:, l, i] * planck[:, i] +
-                        (1.0 - photon_destruction_probabilities_[:, l, i]) *
-                        (J_star_ini[l, :, i] + J_planet_scat[:, l, i] - lambda_loc[:, l, i] * source[:, l, i])) /
-                        (1.0 - (1.0 - photon_destruction_probabilities_[:, l, i]) * lambda_loc[:, l, i])
-                    )
-
-                    source_planet_scat_n3 = source_planet_scat_n2
-                    source_planet_scat_n2 = source_planet_scat_n1
-                    source_planet_scat_n1 = source_planet_scat_n
-
-                    source_planet_scat_n = jnp.where(i_iter_scat % 4 == 0, source[:, l, i], source_planet_scat_n)
-
-                    source = jnp.where(i_iter_scat % 4 == 0, 
-                                       m_approximate_ng_source(source_planet_scat_n,
-                                                               source_planet_scat_n1,
-                                                               source_planet_scat_n2,
-                                                               source_planet_scat_n3,
-                                                               source[:, l, i]),
-                                       source[:, l, i])
-
-                    r = r.at[:].set(source[:, l, i])
-
-                    return (i_iter_scat + 1,
-                            conv_val,
-                            r,
-                            I_H,
-                            I_J,
-                            source,
-                            J_planet_scat,
-                            flux_tmp,
-                            flux_tmp_old,
-                            source_planet_scat_n,
-                            source_planet_scat_n1,
-                            source_planet_scat_n2,
-                            source_planet_scat_n3)
-                
-                (i_iter_scat,
-                 conv_val,
-                 r,
-                 b,
-                 c,
-                 a,
-                 I_plus_surface,
-                 I_H,
-                 I_J,
-                 source,
-                 J_planet_scat,
-                 flux_tmp,
-                 flux_tmp_old,
-                 source_planet_scat_n,
-                 source_planet_scat_n1,
-                 source_planet_scat_n2,
-                 source_planet_scat_n3) = lax.while_loop(cond_fun,
-                                                             body_fun,
-                                                             (i_iter_scat,
-                                                              conv_val,
-                                                              r,
-                                                              I_H,
-                                                              I_J,
-                                                              source,
-                                                              J_planet_scat,
-                                                              flux_tmp,
-                                                              flux_tmp_old,
-                                                              source_planet_scat_n,
-                                                              source_planet_scat_n1,
-                                                              source_planet_scat_n2,
-                                                              source_planet_scat_n3))
-
-                return (i_iter_scat,
-                        conv_val,
-                        r,
-                        b,
-                        c,
-                        a,
-                        I_plus_surface,
-                        I_H,
-                        I_J,
-                        source,
-                        J_planet_scat,
-                        flux_tmp,
-                        flux_tmp_old,
-                        source_planet_scat_n,
-                        source_planet_scat_n1,
-                        source_planet_scat_n2,
-                        source_planet_scat_n3)
-            
-            (i_iter_scat,
-             conv_val,
-             r,
-             b,
-             c,
-             a,
-             I_plus_surface,
-             I_H,
-             I_J,
-             source,
-             J_planet_scat,
-             flux_tmp,
-             flux_tmp_old,
-             source_planet_scat_n,
-             source_planet_scat_n1,
-             source_planet_scat_n2,
-             source_planet_scat_n3) = \
-                lax.fori_loop(0,
-                                  iter_scat,
-                                  scattering_iteration,
-                                  (i_iter_scat,
-                                   conv_val,
-                                   r,
-                                   b,
-                                   c,
-                                   a,
-                                   I_plus_surface,
-                                   I_H,
-                                   I_J,
-                                   source,
-                                   J_planet_scat,
-                                   flux_tmp,
-                                   flux_tmp_old,
-                                   source_planet_scat_n,
-                                   source_planet_scat_n1,
-                                   source_planet_scat_n2,
-                                   source_planet_scat_n3))
-            
-            def flux_calculation(results_flux):
-                flux = results_flux
-
-                def flux_loop(j, flux):
-                    return flux - I_H[0, j] * pi_4 * weights_gauss[l] * mu_weight[j]
-
-                flux = lax.fori_loop(0, n_angles, flux_loop, flux)
-                return flux
-
-            # Example usage (inside the larger function, after the scattering iteration):
-            flux = flux.at[i].set(flux_calculation(flux[i]))
-
-            return flux
-
-        flux = lax.fori_loop(0, n_g, process_g, (flux))
+    return flux_f, emission_contribution_lf
 
 
 

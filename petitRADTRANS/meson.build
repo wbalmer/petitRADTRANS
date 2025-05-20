@@ -18,6 +18,7 @@ py.install_sources([
     'utils.py',
     'jax_radtrans.py',
     'jax_physics.py',
+    'jax_test_feautrier.py',
     'jax_math.py',
     'jax_cloud_utils.py',
     'jax_rayleigh_scattering.py',

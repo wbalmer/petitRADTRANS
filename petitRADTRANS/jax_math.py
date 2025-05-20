@@ -28,7 +28,7 @@ def wrap_callback(a, b, c, r):
     return pure_callback(fmath.tridag_own, result_shape, a,b,c,r)
 
 @jit 
-def tridag_own(a, b, c, d):
+def solve_tridiagonal_system(a, b, c, d):
     '''
     TDMA solver, a b c d can be NumPy array type or Python list type.
     refer to http://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
