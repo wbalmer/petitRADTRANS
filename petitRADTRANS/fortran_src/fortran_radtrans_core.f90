@@ -1569,6 +1569,9 @@ module fortran_radtrans_core
                 temperatures, frequencies_bin_edges, n_layers, n_frequencies_bin_edges, planck &
             )
 
+            !write(*,*) "PLANCK"
+            !write(*,*) planck(:,:)
+
             do i = 1, n_frequencies_bin_edges - 1
                 I_surface_emission = emissivities(i) * planck(n_layers, i)
 
@@ -1596,6 +1599,8 @@ module fortran_radtrans_core
                     source(:, l, i) = photon_destruction_probabilities_(:, l, i) * planck(:, i) &
                         + (1d0 - photon_destruction_probabilities_(:, l, i)) * J_star_ini(l, :, i)
 
+                    !write(*,*) "SOURCE"
+                    !write(*,*) source(:, l, i)
                     flux_tmp = 0d0
 
                     ! Calculate tau derivative
@@ -1680,6 +1685,8 @@ module fortran_radtrans_core
                             + emission_cos_angles_weights(j) / (1d0 + 2d0 * f1 ** 2d0)
                     end do
 
+                    !write(*,*) "LAMBDA LOC"
+                    !write(*,*) lambda_loc(:, l, i)
                     ! Iterate flux calculation until it has converged
                     do i_iter_scat = 1, iter_scat
                         do j = 1, n_angles
@@ -1740,7 +1747,9 @@ module fortran_radtrans_core
                             + (1d0 - photon_destruction_probabilities_(:, l, i)) &
                             * (J_star_ini(l, :, i)+J_planet_scat(:, l, i)-lambda_loc(:, l, i) * source(:, l, i))&
                         ) / (1d0 - (1d0 - photon_destruction_probabilities_(:, l, i)) * lambda_loc(:, l, i))
-                        
+                        !write(*,*) "SOURCE SCAT"
+                        !write(*,*) source(:, l, i)
+                        !return
                         ! Accelerate the source function convergence with Ng acceleration
                         source_planet_scat_n3 = source_planet_scat_n2
                         source_planet_scat_n2 = source_planet_scat_n1

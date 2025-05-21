@@ -21,7 +21,7 @@ from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
-from petitRADTRANS.utils import intersection_indices,LockedDict
+from petitRADTRANS.utils import intersection_indices, LockedDict
 import petitRADTRANS.jax_radtrans as jrt
 import petitRADTRANS.jax_physics as jphys
 from petitRADTRANS.jax_rayleigh_scattering import compute_rayleigh_scattering_opacities
@@ -2080,7 +2080,7 @@ class Radtrans:
                                               emission_geometry, stellar_intensity, star_irradiation_cos_angle,
                                               reflectances, emissivities, return_contribution):
         # TODO: finish JAX implementation
-        flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
+        flux, emission_contribution = jrt.compute_feautrier_radiative_transfer(
             frequency_bins_edges,
             temperatures,
             weights_gauss,
