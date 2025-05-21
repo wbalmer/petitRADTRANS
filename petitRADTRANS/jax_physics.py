@@ -1,35 +1,36 @@
-import numpy as np
-import jax.numpy as jnp
-from numba import njit
-import warnings
-from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
-import petitRADTRANS.physical_constants as cst
-#import petitRADTRANS.fortran_radtrans_core import math as fmath
-
 """
 JAX implementation of fortran_core.physics
 """
+import numpy as np
+import jax.numpy as jnp
+import warnings
+from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
+from functools import partial
+
+import petitRADTRANS.physical_constants as cst
+# import petitRADTRANS.fortran_radtrans_core import math as fmath
+
 
 @jit
-def planck_f_lr(T,nul,nur):
+def planck_f_lr(T, nul, nur):
     # TODO this might not be used anymore.
     # calculate planck function between two frequencies
     B_nu = 0.0
     # Take mean using Boole's method
-    nu_large = jnp.maximum(nul,nur)
-    nu_small = jnp.minimum(nul,nur)
+    nu_large = jnp.maximum(nul, nur)
+    nu_small = jnp.minimum(nul, nur)
     nu1 = nu_small
     nu2 = nu_small+1.0*(nu_large-nu_small)/4.0
     nu3 = nu_small+2.0*(nu_large-nu_small)/4.0
     nu4 = nu_small+3.0*(nu_large-nu_small)/4.0
     nu5 = nu_large
     diff_nu = nu2-nu1
-    B_nu = B_nu + 1.0/90.0*( \
-        7.0* 2.0*cst.h*nu1**3.0/cst.c**2.0/(jnp.exp(cst.h*nu1/(cst.kB*T))-1.0) +\
-        32.0*2.0*cst.h*nu2**3.0/cst.c**2.0/(jnp.exp(cst.h*nu2/(cst.kB*T))-1.0) +\
-        12.0*2.0*cst.h*nu3**3.0/cst.c**2.0/(jnp.exp(cst.h*nu3/(cst.kB*T))-1.0) +\
-        32.0*2.0*cst.h*nu4**3.0/cst.c**2.0/(jnp.exp(cst.h*nu4/(cst.kB*T))-1.0) +\
-        7.0* 2.0*cst.h*nu5**3.0/cst.c**2.0/(jnp.exp(cst.h*nu5/(cst.kB*T))-1.0))
+    B_nu = B_nu + 1.0/90.0*(
+        7.0 * 2.0 * cst.h * nu1**3.0 / cst.c**2.0 / (jnp.exp(cst.h * nu1 / (cst.kB * T)) - 1.0) +
+        32.0 * 2.0 * cst.h * nu2**3.0 / cst.c**2.0 / (jnp.exp(cst.h * nu2 / (cst.kB * T)) - 1.0) +
+        12.0 * 2.0 * cst.h * nu3**3.0 / cst.c**2.0 / (jnp.exp(cst.h * nu3 / (cst.kB * T)) - 1.0) +
+        32.0 * 2.0 * cst.h * nu4**3.0 / cst.c**2.0 / (jnp.exp(cst.h * nu4 / (cst.kB * T)) - 1.0) +
+        7.0 * 2.0 * cst.h * nu5**3.0 / cst.c**2.0 / (jnp.exp(cst.h * nu5 / (cst.kB * T)) - 1.0))
     return B_nu
 
 
@@ -71,12 +72,13 @@ def compute_star_planck_function_integral(temperatures, frequencies):
     """
     return compute_planck_function_integral(temperatures, frequencies)
 
-def _compute_rosseland_opacities(
-        opacities, 
-        temperature, 
-        weights_gauss, 
-        frequencies_bin_edges, 
-        scattering_in_emission, 
+@partial(jit, static_argnums=(4,))
+def compute_rosseland_opacities(
+        opacities,
+        temperature,
+        weights_gauss,
+        frequencies_bin_edges,
+        scattering_in_emission,
         continuum_opacities_scattering):
     """_summary_
 
@@ -93,7 +95,7 @@ def _compute_rosseland_opacities(
     """
 
     if scattering_in_emission:
-        opacities_use = opacities + continuum_opacities_scattering[None,:,:]
+        opacities_use = opacities + continuum_opacities_scattering[None, :, :]
     else:
         opacities_use = opacities
 
@@ -102,11 +104,10 @@ def _compute_rosseland_opacities(
                                                    temperature,
                                                    weights_gauss)
     return kappa_rosse
-compute_rosseland_opacities = jit(_compute_rosseland_opacities,static_argnums=(4))
 
 
 @jit
-def planck_f(T,nu):
+def planck_f(T, nu):
     """
     Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
     For every temperature and frequency provided.
@@ -119,10 +120,11 @@ def planck_f(T,nu):
         B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from 
                         Planck's law for each frequency and temperature.
     """
-    T_use = jnp.tile(T,(nu.shape[0],1))
-    buffer = 2.0*cst.h*nu[:,None]**3/cst.c**2
-    B_nu = buffer / (jnp.exp(cst.h*nu[:,None]/(cst.kB*T_use))-1.0)
+    T_use = jnp.tile(T, (nu.shape[0], 1))
+    buffer = 2.0 * cst.h*nu[:, None]**3 / cst.c**2
+    B_nu = buffer / (jnp.exp(cst.h * nu[:, None] / (cst.kB * T_use)) - 1.0)
     return B_nu
+
 
 @jit
 def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
@@ -142,16 +144,16 @@ def compute_planck_function_temperature_derivative(T, frequency_bin_edges):
     # Constants for efficiency (avoid repeated calculations within the loop)
     h_over_kb = cst.h / cst.kB
     two_h_over_c2 = 2.0 * cst.h**2 / cst.c**2
-    
+
     # Vectorized calculation of exp_terms and denominator for all T and nu
     exp_arg = (h_over_kb * jnp.outer(0.5/T, nu))
     exp_term_pos = jnp.exp(exp_arg) 
     exp_term_neg = jnp.exp(-exp_arg)
 
-    denominator = (exp_term_pos - exp_term_neg)**2 * jnp.outer(cst.kB * T**2, jnp.ones_like(nu)) 
+    denominator = (exp_term_pos - exp_term_neg)**2 * jnp.outer(cst.kB * T**2, jnp.ones_like(nu))
 
     # Calculate B_nu_dT using outer product for broadcasting, then transpose
-    B_nu_dT = (two_h_over_c2 * jnp.outer(jnp.ones_like(T), nu**4) / denominator).T  # Correct broadcasting
+    B_nu_dT = (two_h_over_c2 * jnp.outer(jnp.ones_like(T), nu**4) / denominator).T
     return B_nu_dT
 
 
@@ -160,7 +162,11 @@ def compute_planck_function_integral(temperatures, frequencies):
     Compute mean using Boole's method
     TODO: possibly a faster integration method?
     """
-    return _compute_planck_function_integral(temperatures, frequencies)
+    return lax.cond(
+        frequencies[1] > frequencies[0],
+        lambda: warnings.warn("Frequencies are not in descending order. This may lead to incorrect results."),
+        lambda: _compute_planck_function_integral(temperatures, frequencies)
+    )
     #if frequencies[1] > frequencies[0]:
     #    warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
     #    return None
@@ -196,23 +202,20 @@ def _compute_planck_function_integral(temperatures, frequencies):
                       + factor3 * nu4[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu4[None, :]) - 1.0)
                       + factor2 * nu_large[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_large[None, :]) - 1.0)))
     
-    """for i in range(frequencies.shape[0] - 1):
-        nu_large = frequencies[i]
-        nu_small = frequencies[i + 1]
-
-        diff_nu = nu_large - nu_small
-
-        nu2 = nu_small + diff_nu * 0.25
-        nu3 = nu_small + diff_nu * 0.5
-        nu4 = nu_small + diff_nu * 0.75
-
-        planck_flux = planck_flux.at[:, i].add(
-            factor1 * (factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)
-                       + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)
-                       + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)
-                       + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)
-                       + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)
-                       ))"""
+    # for i in range(frequencies.shape[0] - 1):
+    #    nu_large = frequencies[i]
+    #    nu_small = frequencies[i + 1]
+    #    diff_nu = nu_large - nu_small
+    #    nu2 = nu_small + diff_nu * 0.25
+    #    nu3 = nu_small + diff_nu * 0.5
+    #    nu4 = nu_small + diff_nu * 0.75
+    #    planck_flux = planck_flux.at[:, i].add(
+    #        factor1 * (factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)
+    #                   + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)
+    #                   + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)
+    #                   + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)
+    #                   + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)
+    #                   ))"""
     return planck_flux
 
 
@@ -228,7 +231,7 @@ def star_planck(T, nu):
         nu (ndarray): 1D array of frequencies in Hertz
 
     Returns:
-        B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from 
+        B_nu (ndarray): (len(nu),len(T)) matrix of the spectral radiance (ie flux) as calculated from
                         Planck's law for each frequency and temperature.
     """
     frequency_len = nu.shape[0]
@@ -242,12 +245,12 @@ def star_planck(T, nu):
         nu3 = nu_small+2.0*(nu_large-nu_small)/4.0
         nu4 = nu_small+3.0*(nu_large-nu_small)/4.0
         nu5 = nu_large
-        val = 1.0/90.0*\
-            ((7.0* 2.0*cst.h*nu1**3)/(cst.c**2.0*(jnp.exp(cst.h*nu1/(cst.kB*T))-1.0)) +\
-            (32.0*2.0*cst.h*nu2**3)/(cst.c**2.0*(jnp.exp(cst.h*nu2/(cst.kB*T))-1.0)) +\
-            (12.0*2.0*cst.h*nu3**3)/(cst.c**2.0*(jnp.exp(cst.h*nu3/(cst.kB*T))-1.0) )+\
-            (32.0*2.0*cst.h*nu4**3)/(cst.c**2.0*(jnp.exp(cst.h*nu4/(cst.kB*T))-1.0)) +\
-            (7.0* 2.0*cst.h*nu5**3)/(cst.c**2.0*(jnp.exp(cst.h*nu5/(cst.kB*T))-1.0)))
+        val = 1.0 / 90.0 *\
+            ((7.0 * 2.0 * cst.h * nu1**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu1/(cst.kB*T)) - 1.0)) +
+             (32.0 * 2.0 * cst.h * nu2**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu2/(cst.kB*T)) - 1.0)) +
+             (12.0 * 2.0 * cst.h * nu3**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu3/(cst.kB*T)) - 1.0)) +
+             (32.0 * 2.0 * cst.h * nu4**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu4/(cst.kB*T)) - 1.0)) +
+             (7.0 * 2.0 * cst.h * nu5**3) / (cst.c**2.0 * (jnp.exp(cst.h*nu5/(cst.kB*T)) - 1.0)))
         bnus.append(val)
     B_nu = jnp.array(bnus)
     return B_nu

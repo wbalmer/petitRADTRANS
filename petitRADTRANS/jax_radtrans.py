@@ -1,3 +1,8 @@
+"""
+JAX implementation of fortran_core.core
+- rayleigh scattering moved to jax_rayleigh_scattering
+"""
+
 from jax import config
 config.update("jax_enable_x64", True)
 import jax.numpy as jnp
@@ -11,23 +16,15 @@ from petitRADTRANS.fortran_radtrans_core import math as fmath
 import petitRADTRANS.jax_physics as jphys
 import petitRADTRANS.jax_math as jmath
 
-"""
-JAX implementation of fortran_core.core
-- rayleigh scattering moved to jax_rayleigh_scattering
-"""
-
-CST_PI = jnp.pi # Or the specific precision from Fortran
+CST_PI = jnp.pi  # Or the specific precision from Fortran
 TINIEST = jnp.finfo(jnp.float64).tiny
 HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
-# Testing arrays
-#pressures = 1e6*np.logspace(-6,3,20)
-#grav = 10**4
-#total_kap = np.ones((16,50,2,20))
 
 def combine_ck_opacities():
     # TODO
     return
+
 
 @jit
 def flux_ck_contribution(frequencies, 
@@ -50,7 +47,7 @@ def flux_ck_contribution(frequencies,
         _type_: _description_
     """
 
-    struct_shape = (frequencies.shape[0],temperatures.shape[0])
+    struct_shape = (frequencies.shape[0], temperatures.shape[0])
     flux = jnp.zeros(struct_shape[0])
     contr_em = jnp.zeros(struct_shape)
 
@@ -60,37 +57,61 @@ def flux_ck_contribution(frequencies,
 
         # Flux contribution from given scat_angle-angle
 
-        #mean_transm = np.zeros((struct_shape[0],transmission.shape[2],struct_shape[1])
-        mean_transm = jnp.sum(transm_mu* weights_gauss[:, None, None, None], axis=0)
+        # mean_transm = np.zeros((struct_shape[0],transmission.shape[2],struct_shape[1])
+        mean_transm = jnp.sum(transm_mu * weights_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
-        r = jphys.planck_f(temperatures,frequencies)
-        # Do the actual radiative transport
-        flux_mu = jnp.sum((r[:,:-1]+r[:,1:])*(transm_all[:,0:-1]-transm_all[:,1:])/2.0,axis=1)      
-        flux_mu = jnp.add(flux_mu,r[:,struct_shape[1]]*transm_all[:,struct_shape[1]])
+        r = jphys.planck_f(temperatures, frequencies)
 
-        contr_em = contr_em.at[:,:-1].add((r[:,:-1]+r[:,1:])*(transm_all[:,0:-1]-transm_all[:,1:]) *\
-                                           emission_cos_angles[i_scat_angle]*emission_cos_angles_weights[i_scat_angle])     
-        contr_em = contr_em.at[:,-1].add(2.0*r[:,struct_shape[1]] * transm_all[:,struct_shape[1]] *\
-                                          emission_cos_angles[i_scat_angle]*emission_cos_angles_weights[i_scat_angle])
+        # Do the actual radiative transport
+        flux_mu = jnp.sum(
+            (r[:, :-1]+r[:, 1:])
+            * (transm_all[:, 0:-1]-transm_all[:, 1:])
+            / 2.0,
+            axis=1
+            )
+        flux_mu = jnp.add(
+            flux_mu,
+            r[:, struct_shape[1]] * transm_all[:, struct_shape[1]]
+            )
+        contr_em = contr_em.at[:, :-1].add(
+            (r[:, :-1]+r[:, 1:])
+            * (transm_all[:, 0:-1]-transm_all[:, 1:])
+            * emission_cos_angles[i_scat_angle]
+            * emission_cos_angles_weights[i_scat_angle]
+            )
+        contr_em = contr_em.at[:, -1].add(
+            2.0
+            * r[:, struct_shape[1]]
+            * transm_all[:, struct_shape[1]]
+            * emission_cos_angles[i_scat_angle]
+            * emission_cos_angles_weights[i_scat_angle]
+            )
 
         # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
-        flux = jnp.add(flux, flux_mu/2.0*emission_cos_angles[i_scat_angle]*emission_cos_angles_weights[i_scat_angle])
+        flux = jnp.add(
+            flux,
+            flux_mu
+            / 2.0
+            * emission_cos_angles[i_scat_angle]
+            * emission_cos_angles_weights[i_scat_angle]
+            )
 
-    #Normalization
-    flux = flux*4.0*jnp.pi
+    # Normalization
+    flux = flux * 4.0 * jnp.pi
     contr_em = contr_em.T
-    contr_em = jnp.divide(contr_em,jnp.sum(contr_em,axis=0))
+    contr_em = jnp.divide(contr_em, jnp.sum(contr_em, axis=0))
     return flux, contr_em
+
 
 @jit
 def compute_ck_flux(
-    frequency,
-    temperature,
-    w_gauss,
-    emission_angle,
-    w_gauss_emission_angle,
-    optical_depths):
+        frequency,
+        temperature,
+        w_gauss,
+        emission_angle,
+        w_gauss_emission_angle,
+        optical_depths):
     """_summary_
 
     Args:
@@ -104,27 +125,39 @@ def compute_ck_flux(
     Returns:
         flux: shape (len_freq)
     """
-    struct_shape = (frequency.shape[0],temperature.shape[0])
+    struct_shape = (frequency.shape[0], temperature.shape[0])
     flux = jnp.zeros(struct_shape[0])
     for i_emission_angle in range(emission_angle.shape[0]):
         # Transmissions for a given incidence angle
-        transm_mu= jnp.exp(-optical_depths/emission_angle[i_emission_angle])
-        mean_transm = jnp.sum(transm_mu* w_gauss[:, None, None, None], axis=0)
+        transm_mu = jnp.exp(-optical_depths/emission_angle[i_emission_angle])
+        mean_transm = jnp.sum(transm_mu * w_gauss[:, None, None, None], axis=0)
         transm_all = jnp.prod(mean_transm, axis=1)
 
-        r = jphys.planck_f(temperature,frequency)
+        r = jphys.planck_f(temperature, frequency)
         # Do the actual radiative transport
-        flux_mu = jnp.sum((r[:,:-1]+r[:,1:])*(transm_all[:,0:-1]-transm_all[:,1:])*0.5,axis=1)      
-        flux_mu = jnp.add(flux_mu,r[:,struct_shape[1]]*transm_all[:,struct_shape[1]])
-        #print(flux_mu.shape)
+        flux_mu = jnp.sum(
+            (r[:, :-1]+r[:, 1:])
+            * (transm_all[:, 0:-1]-transm_all[:, 1:])
+            * 0.5,
+            axis=1
+            )
+        flux_mu = jnp.add(flux_mu, r[:, struct_shape[1]]*transm_all[:, struct_shape[1]])
+        # print(flux_mu.shape)
         # angle integ, factor 1/2 needed for flux calc. from upward pointing intensity
-        flux = jnp.add(flux,flux_mu*0.5*emission_angle[i_emission_angle]*w_gauss_emission_angle[i_emission_angle])
-    #Normalization
+        flux = jnp.add(flux,
+                       (flux_mu
+                        * 0.5
+                        * emission_angle[i_emission_angle]
+                        * w_gauss_emission_angle[i_emission_angle]
+                        )
+                       )
+    # Normalization
     # TODO Contribution function
     return flux*4.0*jnp.pi, None
 
+
 def compute_cloud_hansen_opacities():
-    #TODO
+    # TODO
     return
 
 
@@ -141,23 +174,20 @@ def compute_species_optical_depths(reference_gravity, pressures, opacities):
     Returns:
         DeviceArray: Optical depths with shape (n_g, n_frequencies, n_species, n_layers).
     """
-
-    n_layers = pressures.shape[0]
-
     # Calculate pressure differences
-    pressure_diffs = pressures[1:] - pressures[:-1]  
+    pressure_diffs = pressures[1:] - pressures[:-1]
 
     # Calculate average opacities between layers (vectorized)
-    avg_opacities = (opacities[..., 1:] + opacities[..., :-1]) / 2.0  
+    avg_opacities = (opacities[..., 1:] + opacities[..., :-1]) / 2.0
 
     # Calculate optical depth increments (vectorized)
-    d_optical_depths = avg_opacities * pressure_diffs[None, None, None, :] / reference_gravity 
+    d_optical_depths = avg_opacities * pressure_diffs[None, None, None, :] / reference_gravity
 
     # Integrate optical depths cumulatively (vectorized)
     optical_depths = jnp.concatenate(
         [
             jnp.zeros_like(opacities[..., :1]),  # Initial optical depth at the top is zero
-            jnp.cumsum(d_optical_depths, axis=-1) 
+            jnp.cumsum(d_optical_depths, axis=-1)
         ],
         axis=-1
     )
@@ -175,9 +205,17 @@ def compute_cloud_particles_mean_radius_hansen():
     return
 
 
-# --- Placeholder JAX helper functions (to be fully implemented) ---
-
 def solve_tridiagonal_fortran(a, b, c, d):
+    """
+    Solves a tridiagonal system Ax = d calling the Fortran implementation of the tridag solver.
+    Args:
+        a (jax.Array): Lower diagonal, shape (N,). a[i] is coeff of x_i for eq i+1.
+        b(jax.Array): Main diagonal, shape (N,).
+        c (jax.Array): Upper diagonal, shape (N,). c[i] is coeff of x_{i+2} for eq i+1.
+        d (jax.Array): Right-hand side, shape (N,).
+    Returns:
+        jax.Array: Solution x, shape (N,).
+    """
     result_shape = ShapeDtypeStruct(d.shape, d.dtype)
     return pure_callback(fmath.solve_tridiagonal_system, result_shape, a, b, c, d)
 
@@ -194,16 +232,12 @@ def solve_tridiagonal_system_jax(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
     Returns:
         jax.Array: Solution x, shape (N,).
     """
-    
 
-    # Option 2: Implement Thomas algorithm with lax.scan (more complex)
-    # This would replicate the Fortran logic more closely, including any specific numerical handling.
-    # Dummy implementation for structure
-    #return solve_tridiagonal_fortran(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
+    # return solve_tridiagonal_fortran(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
     return solve_tridiagonal_fortran(jnp.concatenate([jnp.array([0]), a_lower_diag]),
-                                        b_main_diag,
-                                        jnp.concatenate([c_upper_diag, jnp.array([0])]),
-                                        r_rhs)
+                                     b_main_diag,
+                                     jnp.concatenate([c_upper_diag, jnp.array([0])]),
+                                     r_rhs)
 
 
 @partial(jit)
@@ -245,11 +279,14 @@ def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
 
     return lax.cond(cond_skip_ng, no_ng_update_func, ng_update_func)
 
+
 # Vmap over (g, freq) dimensions
 # Input source arrays will be (n_g, n_freq, n_layers)
-vmapped_m_approximate_ng_source = vmap(vmap(m_approximate_ng_source_layer_jax,
-                                                    in_axes=(0,0,0,0,0)), # vmap over freq
-                                           in_axes=(0,0,0,0,0))          # vmap over g
+vmapped_m_approximate_ng_source = vmap(
+    vmap(
+        m_approximate_ng_source_layer_jax,
+        in_axes=(0, 0, 0, 0, 0)),  # vmap over freq
+    in_axes=(0, 0, 0, 0, 0))   # vmap over g
 
 
 # --- Main Feautrier Radiative Transfer JAX Function ---
@@ -292,20 +329,30 @@ def compute_feautrier_radiative_transfer(
 
     # --- 1. Stellar Attenuation (J_star_ini) ---
     # J_star_ini: (n_g, n_freq_bins, n_layers)
-    if emission_geometry_str == 'dayside_ave': geometry_coefficient = 0.5
-    elif emission_geometry_str == 'planetary_ave': geometry_coefficient = 0.25
-    elif emission_geometry_str == 'non-isotropic': geometry_coefficient = -1.0  # Special flag
-    else: raise ValueError(f"Unknown emission_geometry: {emission_geometry_str}")
+    if emission_geometry_str == 'dayside_ave':
+        geometry_coefficient = 0.5
+    elif emission_geometry_str == 'planetary_ave':
+        geometry_coefficient = 0.25
+    elif emission_geometry_str == 'non-isotropic':
+        geometry_coefficient = -1.0  # Special flag
+    else:
+        raise ValueError(f"Unknown emission_geometry: {emission_geometry_str}")
 
     if geometry_coefficient > 0:
         # optical_depths_in: (g, f, l), emission_cos_angles: (a)
         # stellar_intensity: (f)
         # exp_term: (g, f, a, l) = exp(- opt_depths(g,f,l) / mu(a) )
-        exp_term_gfal = jnp.exp(-optical_depths_in[:, :, None, :] / emission_cos_angles[None, None, :, None])
-        I_star_calc_gfal = geometry_coefficient * jnp.abs(stellar_intensity[None, :, None, None]) * exp_term_gfal
+        exp_term_gfal = jnp.exp(-optical_depths_in[:, :, None, :]
+                                / emission_cos_angles[None, None, :, None])
+        I_star_calc_gfal = (geometry_coefficient
+                            * jnp.abs(stellar_intensity[None, :, None, None])
+                            * exp_term_gfal
+                            )
         # J_star_ini (g,f,l) = 0.5 * sum_a (I_star_calc_gfal * mu_weight(a))
-        J_star_ini_gfl = 0.5 * jnp.sum(I_star_calc_gfal * emission_cos_angles_weights[None, None, :, None], axis=2)
-    else: # non-isotropic
+        J_star_ini_gfl = 0.5 * jnp.sum(I_star_calc_gfal
+                                       * emission_cos_angles_weights[None, None, :, None],
+                                       axis=2)
+    else:  # non-isotropic
         exp_term_gfl = jnp.exp(-optical_depths_in / star_irradiation_cos_angle)
         J_star_ini_gfl = jnp.abs(stellar_intensity[None, :, None] / 4.0 * exp_term_gfl)
 
@@ -315,12 +362,12 @@ def compute_feautrier_radiative_transfer(
     # --- 2. Planck Function Integral ---
     # planck_integral_lf: (n_layers, n_freq_bins)
     planck_integral_lf = jphys.compute_planck_function_integral(temperatures, frequencies_bin_edges)
-    planck_integral_fl = jnp.transpose(planck_integral_lf, (1, 0))  # (f,l) for easier broadcast with (g,f,l)
+    planck_integral_fl = jnp.transpose(planck_integral_lf, (1, 0))  # (f,l) for broadcast to (g,f,l)
 
     # --- 3. Surface Terms ---
     # I_surface_no_scattering_gf: (n_g, n_freq_bins)
     I_surface_emission_f = emissivities * planck_integral_lf[n_layers-1, :]  # (f,)
-    
+
     if geometry_coefficient > 0:
         # I_star_calc_gfal was (g,f,a,l). Need I_star_calc at surface: I_star_calc_gfa_surf (g,f,a)
         I_star_calc_gfa_surf = I_star_calc_gfal[:, :, :, n_layers-1]
@@ -333,7 +380,7 @@ def compute_feautrier_radiative_transfer(
             * J_star_ini_gfl[:, :, n_layers-1]
             * 4.0 * star_irradiation_cos_angle
             )
-    
+
     I_surface_no_scattering_gf = I_surface_emission_f[None, :] + I_surface_reflection_gf
 
     # --- 4. Initial Source Function & Precompute Feautrier Coefficients ---
@@ -347,14 +394,14 @@ def compute_feautrier_radiative_transfer(
     # dtau1_gfl: (n_g, n_freq, n_layers-1), optical_depths_in(g,f,l)
     dtau1_gfl = optical_depths_in[:, :, 1:] - optical_depths_in[:, :, :-1]
     dtau1_gfl = jnp.where((jnp.abs(dtau1_gfl) < TINIEST), TINIEST, dtau1_gfl)
-    
+
     # dtau2_gfl: (n_g, n_freq, n_layers-2)
     dtau2_gfl = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]
     dtau2_gfl = jnp.where((jnp.abs(dtau2_gfl) < TINIEST), TINIEST, dtau2_gfl)
-    
+
     # Feautrier coefficients (b_main_diags_gfal, a_lower_diags_gfalm1, c_upper_diags_gfalm1)
     # Shapes: (g, f, a, l) for main, (g, f, a, l-1) for off-diagonals
-    
+
     # Top layer (l=0)
     f1_top_gfa = jnp.clip(emission_cos_angles[None, None, :, None] /
                           dtau1_gfl[:, :, None, 0, None],
@@ -370,12 +417,14 @@ def compute_feautrier_radiative_transfer(
                              dtau2_gfl[:, :, None, :],
                              - inv_del_tau_min_half,
                              inv_del_tau_min_half)
-    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2 (dtau1 indices 1 to n_layers-2)
+    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2 
+    # (dtau1 indices 1 to n_layers-2)
     f2_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
                              dtau1_gfl[:, :, None, 1:],
                              -inv_del_tau_min,
                              inv_del_tau_min)
-    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3 (dtau1 indices 0 to n_layers-3)
+    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3 
+    # (dtau1 indices 0 to n_layers-3)
     f3_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
                              dtau1_gfl[:, :, None, :-1],
                              -inv_del_tau_min,
@@ -399,7 +448,7 @@ def compute_feautrier_radiative_transfer(
     _c = _c.at[:, :, :, 1:n_layers-1].set(c_gfal_mid)  # c_gfal_mid is shape (g,f,a,l-2)
     # This covers upper diags for rows 1 to n_layers-2
     c_upper_diags_gfalm1 = _c
-    
+
     # a_lower_diags_gfalm1: (g,f,a,l-1)
     _a = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers - 1))
     # a_gfal_mid is shape (g,f,a,l-2), covers lower diags for rows 1 to n_layers-2
@@ -414,7 +463,8 @@ def compute_feautrier_radiative_transfer(
     lambda_loc_contrib_mid_gfalm1 = mu_weight_a[None, None, :, None] / b_gfal_mid
     lambda_loc_mid_gflm2 = jnp.sum(lambda_loc_contrib_mid_gfalm1, axis=2)
 
-    f1_surf_gfa = jnp.clip(emission_cos_angles[None, None, :, None] / dtau1_gfl[:, :, None, n_layers-2, None],
+    f1_surf_gfa = jnp.clip(emission_cos_angles[None, None, :, None]
+                           / dtau1_gfl[:, :, None, n_layers-2, None],
                            -inv_del_tau_min,
                            inv_del_tau_min)
     lambda_loc_contrib_surf_gfa = mu_weight_a[None, None, :, None] / (1.0 + 2.0 * f1_surf_gfa**2)
@@ -429,8 +479,6 @@ def compute_feautrier_radiative_transfer(
     # --- 5. Scattering Iteration Loop ---
     # State: (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev, J_planet_scat_gfl_prev,
     #         s_n_gfl, s_n1_gfl, s_n2_gfl, s_n3_gfl, iter_idx, converged_flag)
-    # current_I_plus_surface_gfa: (n_g, n_freq_bins, n_angles)
-
     @jit
     def scattering_loop_body_func(loop_state_prev):
         (current_source_gfl, current_I_plus_surface_gfa, I_H_gfal_prev,
@@ -441,14 +489,10 @@ def compute_feautrier_radiative_transfer(
         # Source part: current_source_gfl (g,f,l)
         r_gfal = jnp.repeat(current_source_gfl[:, :, None, :], n_angles, axis=2)  # (g,f,a,l)
 
-        # Surface boundary for r_gfal at n_layers-1
-        # I_minus_boundary_gf (g,f) = I_surf_no_scat_gf + refl_const_f * sum_a(I_plus_surf_gfa * mu_w_a)
-        # current_I_plus_surface_gfa (g,f,a)
-        
         reflection_term_gf = surf_refl_2[None, :] *\
             jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2) # sum over angles
         I_minus_boundary_gf = I_surface_no_scattering_gf + reflection_term_gf
-        
+
         r_gfal_surface = 0.5 * (current_I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])  # (g,f,a)
         r_gfal = r_gfal.at[:, :, :, n_layers-1].set(r_gfal_surface)
 
@@ -460,16 +504,22 @@ def compute_feautrier_radiative_transfer(
         )
 
         # --- 5b. Calculate I_H_gfal_current and new I_plus_surface_gfa ---
-        I_H_gfal_current = jnp.zeros_like(I_J_gfal) # Renamed
+        I_H_gfal_current = jnp.zeros_like(I_J_gfal)  # Renamed
         I_H_gfal_current = I_H_gfal_current.at[:, :, :, 0].set(-I_J_gfal[:, :, :, 0])  # Top layer
 
         # Mid layers for I_H
         # deriv1_gfalm1: (g,f,a,l-2) using f2_mid and I_J for layers 1 to n_layers-2
-        deriv1_gfalm1 = f2_mid_gfalm1 * (I_J_gfal[:, :, :, 2:n_layers] - I_J_gfal[:, :, :, 1:n_layers-1])
+        deriv1_gfalm1 = f2_mid_gfalm1 * (I_J_gfal[:, :, :, 2:n_layers]
+                                         - I_J_gfal[:, :, :, 1:n_layers-1]
+                                         )
         # deriv2_gfalm1: (g,f,a,l-2) using f3_mid and I_J for layers 0 to n_layers-3
-        deriv2_gfalm1 = f3_mid_gfalm1 * (I_J_gfal[:, :, :, 1:n_layers-1] - I_J_gfal[:, :, :, 0:n_layers-2])
-        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 1:n_layers-1].set(-(deriv1_gfalm1 + deriv2_gfalm1) * 0.5)
-        
+        deriv2_gfalm1 = f3_mid_gfalm1 * (I_J_gfal[:, :, :, 1:n_layers-1]
+                                         - I_J_gfal[:, :, :, 0:n_layers-2]
+                                         )
+        I_H_gfal_current = I_H_gfal_current.at[:, :, :, 1:n_layers-1].set(
+            -(deriv1_gfalm1 + deriv2_gfalm1) * 0.5
+            )
+
         # New I_plus_surface_gfa (g,f,a) for next iteration
         # I_plus_surface = I_J_surface - deriv1_surface 
         #   (deriv1 for k=n_layers-1, which is last element of deriv1_gfalm1)
@@ -488,11 +538,11 @@ def compute_feautrier_radiative_transfer(
             (J_star_ini_gfl + J_planet_scat_gfl_current - lambda_loc_gfl * current_source_gfl)
         den_gfl = 1.0 - (1.0 - photon_destruction_probabilities_gfl) * lambda_loc_gfl
         source_after_ali_gfl = num_gfl / jnp.maximum(den_gfl, TINIEST)
-        
+
         # Ng Acceleration History Update
         next_s_n3_gfl, next_s_n2_gfl, next_s_n1_gfl = s_n2_gfl, s_n1_gfl, s_n_gfl
         next_s_n_gfl = source_after_ali_gfl  # Store pre-Ng source for history
-        
+
         # Apply Ng (iter_idx is 0-based)
         # Fortran: mod(i_iter_scat, 4) == 0. Here: (iter_idx + 1) % 4 == 0
         def ng_accel_func():
@@ -507,14 +557,14 @@ def compute_feautrier_radiative_transfer(
             ng_accel_func,
             lambda: source_after_ali_gfl  # No Ng
         )
-        
+
         # Convergence check based on relative change in total I_H at the top boundary
         total_I_H_top_prev = jnp.sum(I_H_gfal_prev[:, :, :, 0], axis=(0, 2)) # Sum over g and angles
         total_I_H_top_current = jnp.sum(I_H_gfal_current[:, :, :, 0], axis=(0, 2))
         max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
         new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
             (max_rel_change < convergence_threshold)
-        
+
         # Update loop state
         next_loop_state = (final_updated_source_gfl, new_I_plus_surface_gfa, I_H_gfal_current,
                            next_s_n_gfl, next_s_n1_gfl, next_s_n2_gfl, next_s_n3_gfl,
@@ -543,7 +593,7 @@ def compute_feautrier_radiative_transfer(
     final_loop_state = lax.while_loop(convergence_condition_func,
                                       scattering_loop_body_func,
                                       initial_iter_state)
-    
+
     # Extract final values from the loop state.
     # The I_H_gfal_prev and J_planet_scat_gfl_prev in the final_loop_state
     # are the I_H_gfal_current and J_planet_scat_gfl_current from the last completed iteration.
@@ -566,7 +616,8 @@ def compute_feautrier_radiative_transfer(
         # transm_all_fl = sum_g (transm_mu_gfl * weights_gauss_g)
         # r_source_fl = sum_g (final_source_lgf (transposed to g,f,l) * weights_gauss_g)
         # Loop over angles i_mu:
-        #   contrib_lf += (r_source_fl(l) + r_source_fl(l+1)) * (transm_all_fl(l) - transm_all_fl(l+1)) * mu * mu_w
+        #   contrib_lf +=
+        # (r_source_fl(l) + r_source_fl(l+1)) * (transm_all_fl(l) - transm_all_fl(l+1)) * mu * mu_w
         #   Handle surface term carefully.
         # Normalize contrib_lf.
         # This part needs careful translation of the loops and sums.
@@ -575,14 +626,13 @@ def compute_feautrier_radiative_transfer(
     return flux_f, emission_contribution_lf
 
 
-
 @jit
 def compute_optical_depths(
-    reference_gravity,
-    pressures,
-    opacities,
-    scattering_in_emission,
-    continuum_opacities_scattering):
+        reference_gravity,
+        pressures,
+        opacities,
+        scattering_in_emission=False,
+        continuum_opacities_scattering=None):
     """_summary_
 
     Args:
@@ -599,12 +649,14 @@ def compute_optical_depths(
 
     # TODO add scattering_in_emission check
     # May want to write separate function rather than using lax.cond
-    
+
     optical_depth = jnp.zeros(opacities.shape)
-    for i_struc in range(1,opacities.shape[3]):
-        optical_depth = optical_depth.at[i_struc].set(optical_depth[i_struc-1] +\
-                       (opacities[i_struc]+opacities[i_struc-1])\
-                        /2.0/reference_gravity*(pressures[i_struc]-pressures[i_struc-1]))
+    for i_struc in range(1, opacities.shape[3]):
+        optical_depth = optical_depth.at[i_struc].set(
+            optical_depth[i_struc-1]
+            + (opacities[i_struc]+opacities[i_struc-1])
+            / 2.0
+            / reference_gravity*(pressures[i_struc]-pressures[i_struc-1]))
     return optical_depth
 
 
@@ -626,7 +678,7 @@ def compute_photon_destruction_prob(total_opacity_in, continuum_opacity_scat_emi
     Returns:
         photon_destruction_prob: probability that the photon DOESN'T leave the atmospheric layer
     """
-    total_opacity = total_opacity_in[:,:,0,:]
+    total_opacity = total_opacity_in[:, :, 0, :]
     g_len = total_opacity_in.shape[0]
     photon_destruction_prob = jnp.ones(total_opacity.shape)
     for i_g in range(g_len):
@@ -638,10 +690,11 @@ def compute_photon_destruction_prob(total_opacity_in, continuum_opacity_scat_emi
 
 @jit
 def compute_planck_opacities_core(
-    total_opacity,
-    border_freqs,
-    temperature,
-    w_gauss):
+        total_opacity,
+        border_freqs,
+        temperature,
+        w_gauss
+        ):
     """_summary_
 
     Args:
@@ -654,19 +707,24 @@ def compute_planck_opacities_core(
         _type_: _description_
     """
     diff_freqs = jnp.diff(border_freqs)
-    B_nu = jphys.star_planck(temperature,border_freqs)
+    B_nu = jphys.star_planck(temperature, border_freqs)
 
-    kappa_planck= jnp.sum(B_nu *jnp.sum(w_gauss[:,None,None]/total_opacity[:,:-1,:],axis=0) *diff_freqs[:,None],axis=0)
-    norm = jnp.sum(B_nu * diff_freqs[:,None], axis = 0)
+    kappa_planck = jnp.sum(B_nu
+                           * jnp.sum(w_gauss[:, None, None]/total_opacity[:, :-1, :], axis=0)
+                           * diff_freqs[:, None],
+                           axis=0)
+    norm = jnp.sum(B_nu * diff_freqs[:, None], axis=0)
     return kappa_planck / norm
 
-def _compute_planck_opacities(
-    total_opacity, 
-    temperature, 
-    w_gauss, 
-    border_freqs,
-    do_scat_emis, 
-    continuum_opacity_scattering_emis):
+
+@partial(jit, static_argnames=("do_scat_emis"))
+def compute_planck_opacities(
+        total_opacity,
+        temperature,
+        w_gauss,
+        border_freqs,
+        do_scat_emis,
+        continuum_opacity_scattering_emis):
     """_summary_
 
     Args:
@@ -681,15 +739,15 @@ def _compute_planck_opacities(
         _type_: _description_
     """
     if do_scat_emis:
-        total_opacity_use = total_opacity + continuum_opacity_scattering_emis[None,:,:]
+        total_opacity_use = total_opacity + continuum_opacity_scattering_emis[None, :, :]
     else:
         total_opacity_use = total_opacity
-    kappa_planck = compute_planck_opacities_core(total_opacity_use[:,:,:], 
-                                   border_freqs, 
-                                   temperature,
-                                   w_gauss)
+    kappa_planck = compute_planck_opacities_core(
+        total_opacity_use[:, :, :],
+        border_freqs,
+        temperature,
+        w_gauss)
     return kappa_planck
-compute_planck_opacities = jit(_compute_planck_opacities,static_argnums=(4))
 
 
 @jit
@@ -700,10 +758,16 @@ def integ_parab(x, y, z, fx, fy, fz, a, b):
     c1 = fx - c2 * x - c3 * x**2
     return c1 * (b - a) + c2 * (b**2 - a**2) / 2 + c3 * (b**3 - a**3) / 3
 
+
 @jit
-def compute_radius_hydrostatic_equilibrium(pressures, reference_gravity, atmosphere_densities,
-                                          reference_pressure, planet_radius, variable_gravity,
-                                          n_layers):
+def compute_radius_hydrostatic_equilibrium(
+        pressures,
+        reference_gravity,
+        atmosphere_densities,
+        reference_pressure,
+        planet_radius,
+        variable_gravity,
+        n_layers):
     """Calculate the radius at hydrostatic equilibrium from the pressure grid."""
 
     inv_rho = 1.0 / atmosphere_densities
@@ -716,39 +780,61 @@ def compute_radius_hydrostatic_equilibrium(pressures, reference_gravity, atmosph
     radius_hydrostatic_equilibrium = jnp.zeros(n_layers)
 
     radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[n_layers - 2].set(
-        radius_hydrostatic_equilibrium[n_layers - 1] - (inv_rho[n_layers - 2] + inv_rho[n_layers - 1]) *
-        (pressures[n_layers - 1] - pressures[n_layers - 2]) * coefficient * 0.5
+        radius_hydrostatic_equilibrium[n_layers - 1]
+        - (inv_rho[n_layers - 2] + inv_rho[n_layers - 1])
+        * (pressures[n_layers - 1] - pressures[n_layers - 2])
+        * coefficient
+        * 0.5
     )
 
     def body(i, val):
-      radius_hydrostatic_equilibrium = val[0]
-      radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[i].set(
-          radius_hydrostatic_equilibrium[i + 1] - integ_parab(
-              pressures[i], pressures[i + 1], pressures[i + 2],
-              inv_rho[i], inv_rho[i + 1], inv_rho[i + 2],
-              pressures[i], pressures[i + 1]
-          ) * coefficient
-      )
-      return (radius_hydrostatic_equilibrium,)
+        radius_hydrostatic_equilibrium = val[0]
+        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[i].set(
+            radius_hydrostatic_equilibrium[i + 1]
+            - integ_parab(
+                pressures[i],
+                pressures[i + 1],
+                pressures[i + 2],
+                inv_rho[i],
+                inv_rho[i + 1],
+                inv_rho[i + 2],
+                pressures[i],
+                pressures[i + 1]
+            )
+            * coefficient
+        )
+        return (radius_hydrostatic_equilibrium,)
 
-    radius_hydrostatic_equilibrium, = lax.fori_loop(n_layers - 3, 0, body, (radius_hydrostatic_equilibrium,))
+    radius_hydrostatic_equilibrium, = lax.fori_loop(
+        n_layers - 3,
+        0,
+        body,
+        (radius_hydrostatic_equilibrium,)
+        )
 
     def find_r0_body(i, val):
         R0 = val[0]
         found = val[1]
-        if (pressures[i + 1] > reference_pressure) and (pressures[i] <= reference_pressure) and (not found):
+        if (pressures[i + 1] > reference_pressure)\
+            and (pressures[i] <= reference_pressure)\
+                and (not found):
             if i <= n_layers - 3:
                 R0 = radius_hydrostatic_equilibrium[i + 1] - integ_parab(
-                    pressures[i], pressures[i + 1], pressures[i + 2],
-                    inv_rho[i], inv_rho[i + 1], inv_rho[i + 2],
-                    reference_pressure, pressures[i + 1]
+                    pressures[i],
+                    pressures[i + 1],
+                    pressures[i + 2],
+                    inv_rho[i],
+                    inv_rho[i + 1],
+                    inv_rho[i + 2],
+                    reference_pressure,
+                    pressures[i + 1]
                 ) * coefficient
             else:
                 R0 = radius_hydrostatic_equilibrium[i + 1] - (inv_rho[i] + inv_rho[i + 1]) * \
                     (pressures[i + 1] - reference_pressure) * coefficient * 0.5
             found = True
         return (R0, found)
-    
+
     R0, _ = lax.fori_loop(n_layers - 2, 0, find_r0_body, (0.0, False))
 
     if variable_gravity:
@@ -765,6 +851,7 @@ def compute_rosseland_opacities():
     # TODO
     # Unclear if necessary - check jax_physics (compute_rosseland_opacity)
     return
+
 
 @jit
 def compute_transit_radii(opacities, temperatures, pressures, reference_gravity, mean_molar_masses,
@@ -784,15 +871,35 @@ def compute_transit_radii(opacities, temperatures, pressures, reference_gravity,
     opacities_ = jnp.where(opacities < 0, 0.0, opacities)
 
     alpha_t2 = jnp.zeros((n_g, n_frequencies, n_species, n_layers - 1))
-    alpha_t2 = alpha_t2.at[:, :, :, :-1].set(opacities_[:, :, :, :-1] * rho[:-1][jnp.newaxis, jnp.newaxis, jnp.newaxis, :])
-    alpha_t2 = alpha_t2.at[:, :, :, :-2].add(opacities_[:, :, :, 1:-1] * rho[1:-1][jnp.newaxis, jnp.newaxis, jnp.newaxis, :])
-    alpha_t2 = alpha_t2.at[:, :, :, -1].set(alpha_t2[:, :, :, -1] + opacities_[:, :, :, -1] * rho[-1])
+    alpha_t2 = alpha_t2.at[:, :, :, :-1].set(
+        opacities_[:, :, :, :-1]
+        * rho[:-1][jnp.newaxis, jnp.newaxis, jnp.newaxis, :]
+        )
+    alpha_t2 = alpha_t2.at[:, :, :, :-2].add(
+        opacities_[:, :, :, 1:-1]
+        * rho[1:-1][jnp.newaxis, jnp.newaxis, jnp.newaxis, :]
+        )
+    alpha_t2 = alpha_t2.at[:, :, :, -1].set(
+        alpha_t2[:, :, :, -1]
+        + opacities_[:, :, :, -1]
+        * rho[-1]
+        )
 
     if scattering_in_transmission:
         alpha_t2_scat = jnp.zeros((n_frequencies, n_layers - 1))
-        alpha_t2_scat = alpha_t2_scat.at[:, :-1].set(continuum_opacities_scattering[:, :-1] * rho[:-1])
-        alpha_t2_scat = alpha_t2_scat.at[:, :-2].add(continuum_opacities_scattering[:, 1:-1] * rho[1:-1])
-        alpha_t2_scat = alpha_t2_scat.at[:, -1].set(alpha_t2_scat[:, -1] + continuum_opacities_scattering[:, -1] * rho[-1])
+        alpha_t2_scat = alpha_t2_scat.at[:, :-1].set(
+            continuum_opacities_scattering[:, :-1]
+            * rho[:-1]
+            )
+        alpha_t2_scat = alpha_t2_scat.at[:, :-2].add(
+            continuum_opacities_scattering[:, 1:-1]
+            * rho[1:-1]
+            )
+        alpha_t2_scat = alpha_t2_scat.at[:, -1].set(
+            alpha_t2_scat[:, -1]
+            + continuum_opacities_scattering[:, -1] 
+            * rho[-1]
+            )
     else:
         alpha_t2_scat = jnp.zeros((n_frequencies, n_layers - 1))
 
@@ -801,17 +908,25 @@ def compute_transit_radii(opacities, temperatures, pressures, reference_gravity,
 
     for i_str in range(n_layers):
         for j_str in range(i_str):
-            radius_squared2 = radius_squared2.at[j_str, i_str].set(radius_squared[j_str] - radius_squared[i_str])
+            radius_squared2 = radius_squared2.at[j_str, i_str].set(
+                radius_squared[j_str] - radius_squared[i_str]
+                )
     radius_squared2 = jnp.sqrt(radius_squared2)
-    radius_squared2 = radius_squared2.at[:-1, :].set(radius_squared2[:-1, :] - radius_squared2[1:, :])
+    radius_squared2 = radius_squared2.at[:-1, :].set(
+        radius_squared2[:-1, :] - radius_squared2[1:, :]
+        )
 
     t_graze = jnp.zeros((n_g, n_frequencies, n_species, n_layers))
     t_graze_scat = jnp.zeros((n_frequencies, n_layers))
 
     for i_str in range(1, n_layers):
         for j_str in range(i_str):
-            t_graze = t_graze.at[:, :, :, i_str].add(alpha_t2[:, :, :, j_str] * radius_squared2[j_str, i_str])
-            t_graze_scat = t_graze_scat.at[:, i_str].add(alpha_t2_scat[:, j_str] * radius_squared2[j_str, i_str])
+            t_graze = t_graze.at[:, :, :, i_str].add(
+                alpha_t2[:, :, :, j_str] * radius_squared2[j_str, i_str]
+                )
+            t_graze_scat = t_graze_scat.at[:, i_str].add(
+                alpha_t2_scat[:, j_str] * radius_squared2[j_str, i_str]
+                )
 
     t_graze = jnp.exp(-t_graze)
     t_graze_scat = jnp.exp(-t_graze_scat)
@@ -821,20 +936,23 @@ def compute_transit_radii(opacities, temperatures, pressures, reference_gravity,
         for i_spec in range(n_species):
             for i_freq in range(n_frequencies):
                 t_graze_wlen_int =\
-                      t_graze_wlen_int.at[i_freq, i_str].set(t_graze_wlen_int[i_freq, i_str] * 
-                                                             jnp.sum(t_graze[:, i_freq, i_spec, i_str] * 
-                                                                     weights_gauss))
+                      t_graze_wlen_int.at[i_freq, i_str].set(
+                          t_graze_wlen_int[i_freq, i_str]
+                          * jnp.sum(t_graze[:, i_freq, i_spec, i_str] * weights_gauss)
+                          )
                 if scattering_in_transmission and (i_spec == 0):
-                    t_graze_wlen_int = \
-                        t_graze_wlen_int.at[i_freq, i_str].set(t_graze_wlen_int[i_freq, i_str] *
-                                                               t_graze_scat[i_freq, i_str])
+                    t_graze_wlen_int = t_graze_wlen_int.at[i_freq, i_str].set(
+                        t_graze_wlen_int[i_freq, i_str] * t_graze_scat[i_freq, i_str]
+                        )
 
     t_graze_wlen_int = 1.0 - t_graze_wlen_int
 
     t_graze_wlen_int = t_graze_wlen_int * radius_hydrostatic_equilibrium[jnp.newaxis, :]
 
     d_radius = jnp.zeros(n_layers)
-    d_radius = d_radius.at[1:].set(radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:])
+    d_radius = d_radius.at[1:].set(
+        radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
+        )
 
     t_graze_wlen_int_1 = jnp.zeros((n_frequencies, n_layers))
     t_graze_wlen_int_2 = jnp.zeros((n_frequencies, n_layers))
@@ -847,7 +965,9 @@ def compute_transit_radii(opacities, temperatures, pressures, reference_gravity,
 
     transit_radii = jnp.zeros(n_frequencies)
     for i_freq in range(n_frequencies):
-        transit_radii = transit_radii.at[i_freq].set(jnp.sum(transit_radii[i_freq] + t_graze_wlen_int_t[:, i_freq]))
+        transit_radii = transit_radii.at[i_freq].set(
+            jnp.sum(transit_radii[i_freq] + t_graze_wlen_int_t[:, i_freq])
+            )
 
     transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1]**2)
 
@@ -894,17 +1014,17 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
          cloud_scattering_reduction_factor_out) = carry
 
         intp_index_small_min = jnp.clip(
-            int((jnp.log10(HIT_border_lamb[HIT_i_lamb]) - jnp.log10(cloud_wavelengths[0])) /
-                jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0]) * (n_cloud_wavelengths - 1) + 1),
-                1,
-                n_cloud_wavelengths - 1
-                )
+            int((jnp.log10(HIT_border_lamb[HIT_i_lamb]) - jnp.log10(cloud_wavelengths[0]))
+                / jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0])
+                * (n_cloud_wavelengths - 1) + 1),
+            1, n_cloud_wavelengths - 1
+            )
         intp_index_small_max = jnp.clip(
-            int((jnp.log10(HIT_border_lamb[HIT_i_lamb + 1]) - jnp.log10(cloud_wavelengths[0])) /
-                jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0]) * (n_cloud_wavelengths - 1) + 1), 
-                1, 
-                n_cloud_wavelengths - 1
-                )
+            int((jnp.log10(HIT_border_lamb[HIT_i_lamb + 1]) - jnp.log10(cloud_wavelengths[0]))
+                / jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0])
+                * (n_cloud_wavelengths - 1) + 1),
+            1, n_cloud_wavelengths - 1
+            )
 
         kappa_integ = jnp.zeros(n_layers)
         kappa_scat_integ = jnp.zeros(n_layers)
@@ -913,31 +1033,31 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
         def integrate_section(start_index, end_index):
             nonlocal kappa_integ, kappa_scat_integ, red_fac_aniso_integ
             kappa_integ += integrate_opacities(
-                start_index -1 , 
-                n_cloud_wavelengths, 
-                n_layers, 
+                start_index - 1,
+                n_cloud_wavelengths,
+                n_layers,
                 cloud_absorption_opacities,
-                cloud_wavelengths, 
-                HIT_border_lamb[HIT_i_lamb] if start_index==intp_index_small_min else cloud_wavelengths[start_index-1],
-                HIT_border_lamb[HIT_i_lamb + 1] if end_index==intp_index_small_max else cloud_wavelengths[end_index]
+                cloud_wavelengths,
+                HIT_border_lamb[HIT_i_lamb] if start_index == intp_index_small_min else cloud_wavelengths[start_index-1],
+                HIT_border_lamb[HIT_i_lamb + 1] if end_index == intp_index_small_max else cloud_wavelengths[end_index]
                 )
             kappa_scat_integ += integrate_opacities(
-                start_index -1, 
-                n_cloud_wavelengths, 
-                n_layers, 
+                start_index - 1,
+                n_cloud_wavelengths,
+                n_layers,
                 cloud_scattering_opacities,
-                cloud_wavelengths, 
-                HIT_border_lamb[HIT_i_lamb] if start_index==intp_index_small_min else cloud_wavelengths[start_index-1],
-                HIT_border_lamb[HIT_i_lamb + 1] if end_index==intp_index_small_max else cloud_wavelengths[end_index]
+                cloud_wavelengths,
+                HIT_border_lamb[HIT_i_lamb] if start_index == intp_index_small_min else cloud_wavelengths[start_index-1],
+                HIT_border_lamb[HIT_i_lamb + 1] if end_index == intp_index_small_max else cloud_wavelengths[end_index]
                 )
             red_fac_aniso_integ += integrate_opacities(
-                start_index -1, 
-                n_cloud_wavelengths, 
-                n_layers, 
+                start_index - 1,
+                n_cloud_wavelengths,
+                n_layers,
                 cloud_scattering_reduction_factor,
-                cloud_wavelengths, 
-                HIT_border_lamb[HIT_i_lamb] if start_index==intp_index_small_min else cloud_wavelengths[start_index-1],
-                HIT_border_lamb[HIT_i_lamb + 1] if end_index==intp_index_small_max else cloud_wavelengths[end_index]
+                cloud_wavelengths,
+                HIT_border_lamb[HIT_i_lamb] if start_index == intp_index_small_min else cloud_wavelengths[start_index-1],
+                HIT_border_lamb[HIT_i_lamb + 1] if end_index == intp_index_small_max else cloud_wavelengths[end_index]
                 )
             return 
 
@@ -957,15 +1077,15 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
                 inner_loop_body, 
                 (intp_index_small_min + 1, None)
                 )
-            
+
             integrate_section(intp_index_small_max, intp_index_small_max+1)
 
         kappa_integ = kappa_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
         kappa_scat_integ = kappa_scat_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
         red_fac_aniso_integ = red_fac_aniso_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
 
-        kappa_tot_integ = kappa_tot_integ.at[HIT_i_lamb, :].set(kappa_integ)
-        kappa_tot_scat_integ = kappa_tot_scat_integ.at[HIT_i_lamb, :].set(kappa_scat_integ)
+        # kappa_tot_integ = kappa_tot_integ.at[HIT_i_lamb, :].set(kappa_integ)
+        # kappa_tot_scat_integ = kappa_tot_scat_integ.at[HIT_i_lamb, :].set(kappa_scat_integ)
 
         clouds_final_absorption_opacities = clouds_final_absorption_opacities.at[HIT_i_lamb, :].add(kappa_integ)
         cloud_anisotropic_extinctions =\
@@ -975,25 +1095,25 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
         cloud_scattering_reduction_factor_out =\
             cloud_scattering_reduction_factor_out.at[HIT_i_lamb, :].add(red_fac_aniso_integ)
 
-        return (clouds_final_absorption_opacities, 
-                cloud_anisotropic_extinctions, 
-                cloud_isotropic_extinctions, 
+        return (clouds_final_absorption_opacities,
+                cloud_anisotropic_extinctions,
+                cloud_isotropic_extinctions,
                 cloud_scattering_reduction_factor_out
-        )
+                )
 
-    carry = (clouds_final_absorption_opacities, 
-             cloud_anisotropic_extinctions, 
-             cloud_isotropic_extinctions, 
+    carry = (clouds_final_absorption_opacities,
+             cloud_anisotropic_extinctions,
+             cloud_isotropic_extinctions,
              cloud_scattering_reduction_factor_out)
-    
-    (clouds_final_absorption_opacities, 
-     cloud_anisotropic_extinctions, 
-     cloud_isotropic_extinctions, 
+
+    (clouds_final_absorption_opacities,
+     cloud_anisotropic_extinctions,
+     cloud_isotropic_extinctions,
      cloud_scattering_reduction_factor_out) = lax.fori_loop(0, n_frequencies_bins - 1, loop_body, carry)
 
-    return (clouds_final_absorption_opacities, 
-            cloud_anisotropic_extinctions, 
-            cloud_isotropic_extinctions, 
+    return (clouds_final_absorption_opacities,
+            cloud_anisotropic_extinctions,
+            cloud_isotropic_extinctions,
             cloud_scattering_reduction_factor_out)
 
 
