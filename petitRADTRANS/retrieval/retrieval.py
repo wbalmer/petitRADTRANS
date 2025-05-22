@@ -18,6 +18,7 @@ from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
@@ -4275,6 +4276,25 @@ class Retrieval:
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
+                if self.name + "_radial_velocity" in self.configuration.parameters.keys():
+                        # RV in km/s -> multiply by 1e5 to cm/s
+                        # wlen_model in micron
+                        # cst.c in cm/s
+                        radial_velocity = self.best_fit_parameters[self.name + "_radial_velocity"].value * 1e5 
+                        wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                        #wavelengths += wavel_shift
+
+                        # Don't want to rebin the spectrum multiple times.
+                        #spectrum_model = spectres_numba(
+                        #    wlen_model,
+                        #    wlen_model + wavel_shift,
+                        #    verbose=False
+                        #    spectrum_model,
+                        #)
+                elif "system_radial_velocity" in self.configuration.parameters.keys():
+                    radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5 
+                    wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                    #wavelengths += wavel_shift
 
                 if data.scale:
                     scale = self.best_fit_parameters[f"{name}_scale_factor"].value
