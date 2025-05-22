@@ -8,12 +8,13 @@ import warnings
 import dill
 import numpy as np
 import numpy.typing as npt
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.stats import binned_statistic
 
 import petitRADTRANS
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
+# noinspection PyUnresolvedReferences
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import running_mean
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
@@ -3099,12 +3100,9 @@ class Retrieval:
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
 
-                contr_em = best_fit_contribution / weights
-
                 # This probably doesn't need to be in a loop
-                for i_str in range(best_fit_contribution.shape[0]):
-                    contr_em[i_str, :] = best_fit_contribution[i_str, :] * spectral_weights
-
+                contr_em = best_fit_contribution / weights
+                contr_em = contr_em * spectral_weights[None, :]
                 contr_em = np.sum(best_fit_contribution, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 
@@ -3743,8 +3741,8 @@ class Retrieval:
                     contribution=True,
                     mode=mode
                 )
-                nu = wavelength2frequency(best_fit_wavelengths)
 
+                nu = wavelength2frequency(best_fit_wavelengths)
                 mean_diff_nu = -np.diff(nu)
                 diff_nu = np.zeros_like(nu)
                 diff_nu[:-1] = mean_diff_nu
@@ -3764,12 +3762,9 @@ class Retrieval:
                 weights = weights / np.sum(weights)
                 weights = weights.reshape(len(weights), 1)
 
-                contr_em = best_fit_contribution / weights
-
                 # This probably doesn't need to be in a loop
-                for i_str in range(best_fit_contribution.shape[0]):
-                    contr_em[i_str, :] = best_fit_contribution[i_str, :] * spectral_weights
-
+                contr_em = best_fit_contribution / weights
+                contr_em = contr_em * spectral_weights[None, :]
                 contr_em = np.sum(best_fit_contribution, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 

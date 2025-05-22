@@ -9,12 +9,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from matplotlib.lines import Line2D
+from typing import Any
 from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.clouds import (
-    return_t_cond_fe, return_t_cond_fe_l, return_t_cond_fe_comb, return_t_cond_kcl, return_t_cond_mgsio3,
-    return_t_cond_na2s, simple_cdf_fe, simple_cdf_kcl, simple_cdf_mgsio3, simple_cdf_na2s
+    return_t_cond_fe,
+    return_t_cond_fe_comb,
+    return_t_cond_fe_l,
+    return_t_cond_kcl,
+    return_t_cond_mgsio3,
+    return_t_cond_na2s,
+    simple_cdf_fe,
+    simple_cdf_kcl,
+    simple_cdf_mgsio3,
+    simple_cdf_na2s
 )
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.opacities.opacities import Opacity
@@ -222,7 +231,7 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
     # Get all samples
     if np.ndim(result_directory) > 0:
         sd = []
-        sample_dict = {}
+        sample_dict: dict[str, Any] = {}
 
         for i, directory in enumerate(result_directory):
             sd.append(get_pymultinest_sample_dict(directory, name=retrieval_name))
@@ -288,8 +297,8 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
 
         parameter_ranges_dict_tmp = copy.deepcopy(parameter_ranges_dict[sample])
 
-        for j, plot_indice in enumerate(parameter_plot_indices_dict[sample]):
-            parameter_ranges_dict_tmp[plot_indice] = parameter_ranges_dict[sample][j]
+        for j, plot_index in enumerate(parameter_plot_indices_dict[sample]):
+            parameter_ranges_dict_tmp[plot_index] = parameter_ranges_dict[sample][j]
 
         parameter_ranges_dict[sample] = copy.deepcopy(parameter_ranges_dict_tmp)
 
@@ -311,11 +320,11 @@ def _prepare_multiple_retrievals_plot(result_directory, retrieved_parameters, tr
 
 
 def contour_corner(
-        sampledict: dict,
+        sampledict: dict[str, Any],
         parameter_names: dict[str, list[str]],
         output_file: str = None,
         parameter_ranges: dict[str, npt.NDArray[float]] = None,
-        parameter_plot_indices: dict[str, npt.NDArray[int]] = None,
+        parameter_plot_indices: dict[str, npt.NDArray[np.integer]] = None,
         true_values: dict[str, npt.NDArray[float]] = None,
         short_name: dict[str, str] = None,
         quantiles: list[float] = None,
@@ -343,6 +352,11 @@ def contour_corner(
         reverse: bool = False,
         labelpad: float = 0.0,
         plot_contours: bool = True,
+        label_kwargs: dict = None,
+        title_kwargs: dict = None,
+        hist_kwargs: dict = None,
+        hist2d_kwargs: dict = {},
+        contour_kwargs: dict = None,
         **kwargs
 ):
     """
@@ -550,27 +564,6 @@ def contour_corner(
         else:
             truths_list = None
 
-        label_kwargs = None
-        title_kwargs = None
-        hist_kwargs = None
-        hist2d_kwargs = {}
-        contour_kwargs = None
-
-        if "label_kwargs" in kwargs.keys():
-            label_kwargs = kwargs["label_kwargs"]
-
-        if "title_kwargs" in kwargs.keys():
-            title_kwargs = kwargs["title_kwargs"]
-
-        if "hist_kwargs" in kwargs.keys():
-            hist_kwargs = kwargs["hist_kwargs"]
-
-        if "hist2d_kwargs" in kwargs.keys():
-            hist2d_kwargs = kwargs["hist2d_kwargs"]
-
-        if "contour_kwargs" in kwargs.keys():
-            contour_kwargs = kwargs["contour_kwargs"]
-
         if short_name is None:
             label = key
         else:
@@ -585,7 +578,7 @@ def contour_corner(
                 labels_list=labels_list,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
-                color_list=color_list[count],
+                color=color_list[count],
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
                 hist_kwargs=hist_kwargs,
@@ -612,7 +605,6 @@ def contour_corner(
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
             )
-            count += 1
         else:
             _ = _corner_wrap(
                 data_list=data_list,
@@ -620,7 +612,7 @@ def contour_corner(
                 labels_list=labels_list,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
-                color_list=color_list[count],
+                color=color_list[count],
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
                 hist_kwargs=hist_kwargs,
@@ -647,7 +639,7 @@ def contour_corner(
                 hist2d_levels=hist2d_levels,
                 **hist2d_kwargs,
             )
-            count += 1
+        count += 1
 
     if legend:
         fig.get_axes()[2].legend(handles=handles,
@@ -1011,10 +1003,10 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
             c = color
 
         for j in range(ncols):
-            axes[i, j].set_xlim(parameter_ranges_dict[list(sample_dict.keys())[0]][id_ref[j]])
+            axes[i, j].set_xlim(parameter_ranges_dict[list(sample_dict.keys())[0]][id_ref[j]])  # type: ignore
 
             if parameter_names_ref[j] not in parameter_names_dict[sample_id]:
-                axes[i, j].axis('off')
+                axes[i, j].axis('off')  # type: ignore
             else:
                 if int(sample_id) == add_rectangle:
                     max_col = j
@@ -1035,32 +1027,32 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
                             cmp=None,
                             bins=bins,
                             color=c,
-                            axe=axes[i, j],
+                            axe=axes[i, j],  # type: ignore
                             y_label=None,
                             tight_layout=False,
                             fmt=fmt
                         )
-                        axes[i, j].set_yticks([])
+                        axes[i, j].set_yticks([])  # type: ignore
 
                         if parameter_name == 'new_resolving_power' and i == len(sample_dict) - 1:
-                            x_ticks = axes[i, j].get_xticks()
+                            x_ticks = axes[i, j].get_xticks()  # type: ignore
 
                             if len(x_ticks) > 2:
                                 x_ticks = x_ticks[::2]
-                                axes[i, j].set_xticks(x_ticks[::2])
+                                axes[i, j].set_xticks(x_ticks[::2])  # type: ignore
 
                         break
 
         if result_names is not None:
-            axes[i, 0].set_ylabel(result_names[int(sample_id)])
+            axes[i, 0].set_ylabel(result_names[int(sample_id)])  # type: ignore
 
         i += 1
 
     fig.tight_layout(rect=(0, 0, 0.99, 1))
 
     if add_rectangle is not None:
-        bbox0 = axes[add_rectangle, 0].get_tightbbox(fig.canvas.get_renderer())
-        bbox1 = axes[add_rectangle, max_col].get_tightbbox(fig.canvas.get_renderer())
+        bbox0 = axes[add_rectangle, 0].get_tightbbox(fig.canvas.get_renderer())  # type: ignore
+        bbox1 = axes[add_rectangle, max_col].get_tightbbox(fig.canvas.get_renderer())  # type: ignore
         x0, y0, width0, height = bbox0.transformed(fig.transFigure.inverted()).bounds
         x1, y1, width1, _ = bbox1.transformed(fig.transFigure.inverted()).bounds
 
@@ -1084,28 +1076,30 @@ def plot_multiple_posteriors(result_directory, retrieved_parameters, log_evidenc
         plt.savefig(os.path.join(figure_directory, figure_name + '.' + image_format))
 
 
-def plot_opacity_contributions(radtrans_object: Radtrans,
-                               mode: str,
-                               include: list = 'all',
-                               exclude: list = None,
-                               opacity_contributions: dict = None,
-                               colors: dict = None,
-                               line_styles: dict = None,
-                               fill_below: bool = False,
-                               fill_alpha: float = 0.5,
-                               x_axis_scale: str = 'linear',
-                               y_axis_scale: str = 'linear',
-                               fig_size: tuple = (12.8, 4.8),
-                               opaque_cloud_top_pressure: float = None,
-                               power_law_opacity_350nm: float = None,
-                               power_law_opacity_coefficient: float = None,
-                               gray_opacity: float = None,
-                               cloud_photosphere_median_optical_depth: float = None,
-                               additional_absorption_opacities_function: callable = None,
-                               additional_scattering_opacities_function: callable = None,
-                               stellar_intensities: npt.NDArray[float] = None,
-                               star_radius: float = None,
-                               **kwargs):
+def plot_opacity_contributions(
+    radtrans_object: Radtrans,
+    mode: str,
+    include: list = 'all',
+    exclude: list = None,
+    opacity_contributions: dict = None,
+    colors: dict = None,
+    line_styles: dict = None,
+    fill_below: bool = False,
+    fill_alpha: float = 0.5,
+    x_axis_scale: str = 'linear',
+    y_axis_scale: str = 'linear',
+    fig_size: tuple = (12.8, 4.8),
+    opaque_cloud_top_pressure: float = None,
+    power_law_opacity_350nm: float = None,
+    power_law_opacity_coefficient: float = None,
+    gray_opacity: float = None,
+    cloud_photosphere_median_optical_depth: float = None,
+    additional_absorption_opacities_function: callable = None,
+    additional_scattering_opacities_function: callable = None,
+    stellar_intensities: npt.NDArray[float] = None,
+    star_radius: float = None,
+    **kwargs
+) -> dict[str, npt.NDArray[float]]:
     if exclude is None:
         exclude = []
 
@@ -1729,6 +1723,8 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
                 label=s,
                 **kwargs
             )
+
+    return None
 
 
 def plot_result_corner(retrieval_directory: str, retrieved_parameters: dict, retrieval_name=None,

@@ -1,10 +1,11 @@
 """Stores useful mathematical functions.
 """
 import numpy as np
+import numpy.typing as npt
 from scipy.special import erf, erfinv, lambertw
 
 
-def bayes_factor2sigma(bayes_factor: float) -> float:
+def bayes_factor2sigma(bayes_factor: float) -> float | npt.NDArray[np.floating]:
     """
     Convert a Bayes factor, or "evidence", into a sigma significance. For Bayes factor higher than exp(25), the function
     is approximated with a square root function.
@@ -46,7 +47,7 @@ def bayes_factor2sigma(bayes_factor: float) -> float:
         return sigma
 
 
-def box_car_conv(array: np.ndarray, points: np.ndarray) -> np.ndarray:
+def box_car_conv(array: npt.NDArray, points: npt.NDArray) -> npt.NDArray:
     res = np.zeros_like(array)
     len_arr = len(array)
 
@@ -65,19 +66,28 @@ def box_car_conv(array: np.ndarray, points: np.ndarray) -> np.ndarray:
     return res
 
 
-def calculate_chi2(data: [float, np.ndarray], model: [float, np.ndarray], uncertainties: [float, np.ndarray]) \
-        -> [float, np.ndarray]:
-    return np.sum(((data - model) / uncertainties) ** 2)
+def calculate_chi2(
+    data: float | npt.NDArray,
+    model: float | npt.NDArray,
+    uncertainties: float | npt.NDArray
+) -> float:
+    return float(np.sum(((data - model) / uncertainties) ** 2))
 
 
-def calculate_reduced_chi2(data: [float, np.ndarray], model: [float, np.ndarray], uncertainties: [float, np.ndarray],
-                           degrees_of_freedom: int = 0) -> [float, np.ndarray]:
+def calculate_reduced_chi2(
+    data: float | npt.NDArray,
+    model: float | npt.NDArray,
+    uncertainties: float | npt.NDArray,
+    degrees_of_freedom: int = 0
+) -> float | npt.NDArray:
     return calculate_chi2(data, model, uncertainties) / (np.size(data) - degrees_of_freedom)
 
 
-def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
-                          covariance_matrix: np.ndarray = None
-                          ) -> np.ndarray:
+def calculate_uncertainty(
+    derivatives: npt.NDArray,
+    uncertainties: npt.NDArray,
+    covariance_matrix: npt.NDArray = None
+) -> npt.NDArray | None:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
     coefficients between x, y, ...
@@ -92,7 +102,7 @@ def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
         3. http://math.jacobs-university.de/oliver/teaching/jacobs/fall2015/esm106/handouts/error-propagation.pdf
     Args:
         derivatives:
-            Partial derivatives of the function with respect to each variables (df/dx, df/dy, ...)
+            Partial derivatives of the function with respect to each variable (df/dx, df/dy, ...)
         uncertainties:
             Uncertainties of each variable (either a 1D-array or a 2D-array containing - and + unc.)
         covariance_matrix:
@@ -117,8 +127,26 @@ def calculate_uncertainty(derivatives: np.ndarray, uncertainties: np.ndarray,
             np.matmul(sigma_more, np.matmul(covariance_matrix, np.transpose(sigma_more)))
         ]))
 
+    return None
 
-def feature_scaling(array: np.ndarray, min_value: float = 0.0, max_value: float = 1.0) -> np.ndarray:
+
+def compute_resolving_power(array: npt.NDArray[float]) -> float:
+    """Compute the mean resolving power of an array.
+
+    Args:
+        array:
+            A 1-D array.
+
+    Returns:
+        The mean resolving power of the array.
+    """
+    return np.mean(
+        array[:-1] / np.diff(array) + 0.5,
+        dtype=float
+    )
+
+
+def feature_scaling(array: npt.NDArray, min_value: float = 0.0, max_value: float = 1.0) -> npt.NDArray:
     """Bring all values of array between a min and max value.
 
     Args:
@@ -132,7 +160,7 @@ def feature_scaling(array: np.ndarray, min_value: float = 0.0, max_value: float 
     return min_value + ((array - np.min(array)) * (max_value - min_value)) / (np.max(array) - np.min(array))
 
 
-def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> np.ndarray:
+def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> npt.NDArray:
     """Compute a 1D Gaussian convolution kernel.
     To be used with scipy.ndimage.convolve1d.
 
@@ -156,7 +184,7 @@ def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> np.ndarray:
     return phi_x / phi_x.sum()
 
 
-def gaussian_weights_running(sigmas: np.ndarray, truncate: float = 4.0) -> np.ndarray:
+def gaussian_weights_running(sigmas: npt.NDArray, truncate: float = 4.0) -> npt.NDArray:
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
     Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
@@ -185,7 +213,7 @@ def longitude2phase(longitude: float):
     return longitude / (2 * np.pi)
 
 
-def mean_uncertainty(uncertainties: np.ndarray) -> float:
+def mean_uncertainty(uncertainties: npt.NDArray) -> float:
     """Calculate the uncertainty of the mean of an array.
 
     Args:
@@ -197,7 +225,7 @@ def mean_uncertainty(uncertainties: np.ndarray) -> float:
     return np.sqrt(np.sum(uncertainties ** 2)) / np.size(uncertainties)
 
 
-def median_uncertainties(uncertainties: np.ndarray) -> float:
+def median_uncertainties(uncertainties: npt.NDArray) -> float:
     """Calculate the uncertainty of the median of an array.
 
     Demonstration:
@@ -219,7 +247,7 @@ def median_uncertainties(uncertainties: np.ndarray) -> float:
         * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
 
 
-def normalize(array: np.ndarray, axis: int = None) -> np.ndarray:
+def normalize(array: npt.NDArray, axis: int = None) -> npt.NDArray:
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
 
 
@@ -232,7 +260,7 @@ def phase2longitude(phase: float, rad2deg: bool = False):
     return longitude
 
 
-def prt_resolving_space(start, stop, resolving_power) -> np.ndarray:
+def prt_resolving_space(start, stop, resolving_power) -> npt.NDArray:
     """Return numbers evenly spaced at the specified resolving power.
 
     Args:
@@ -307,7 +335,7 @@ def resolving_space(start, stop, resolving_power):
     return np.array(samples)
 
 
-def running_mean(x: np.ndarray, n: int) -> np.ndarray:
+def running_mean(x: npt.NDArray, n: int) -> npt.NDArray:
     cum_sum = np.cumsum(np.insert(x, 0, 0))
 
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)

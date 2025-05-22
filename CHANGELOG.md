@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a23] - 2025-03-25
+## [3.2.0a31] - 2025-05-15
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
@@ -14,14 +14,16 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Argument `return_abundances` to `Radtrans`, to return the mass fractions of the model.
 - Possibility to load a custom pre-calculated chemical table file.
 - Possibility to save `retrieval.configuration` to a pickle file.
+- Possibility to select the wavelength range for the calculation of the median optical depth of photospheric clouds ([issue 94](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/94)).
 - Module `opacities`, that will replace `_input_data_loader` in next major version.
 - Module `_input_data`, that will replace `_input_data_loader` in next major version.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
+- Function `math.compute_resolving_power`.
 - Package `dill` as a requirement in order to serialize `RetrievalConfig` objects.
 - The pRT version in retrieval summary files.
 - QoL function to convert a list of strings (e.g. `['H2O', 'C2H2', 'CH4']`) into a single string (e.g. `"'H2O', 'C2H2', 'CH4'"`) that can be used in console outputs.
-- An unknown opacity category.
+- An "unknown" opacity category.
 
 ### Changed
 - Function `msum` in `chemistry.core` now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
@@ -32,26 +34,33 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ### Deprecated
 - Module `_input_data_loader` and functions wherein, replaced with module `_input_data` and `Opacity` objects.
 - Possibility to use CIA aliases (e.g. 'He--H2' or 'H2He' instead of 'H2--He').
+- More helpful error message when trying to calculate mean molar masses with 0 gaseous abundances.
 - Warning message about the use pRT2 names for `Radtrans` functions `calculate_flux` and `calculate_transit_radii`.
 
 ### Fixed
 - Incorrect stellar spectrum calculation in `SpectralModel` when calculating scaled emission spectra of irradiated planets.
 - Correlated-k opacities wavelength range not taken into account when loading them from `Radtrans`.
 - Incorrect calculations of chi2 and inconsistent opacity usage in `get_full_range_model`.
+- Crash when using correlated-k opacities imported from the DACE database ([issue 99](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/99)).
+- Crash when reading contribution function in `retrieval` class.
+- Crash when using cloud opacity full name in `plot_opacity_contribution` ([issue 104](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/104)).
+- Inhomogeneous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89)).
+- Incorrect behaviour: `SpectralModel` parameters are not updated when calculating contribution spectra.
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name.
 - Incorrect `SpectralModel` behaviour: filling species dict is overridden if only H2 and He are set as filling species and equilibrium chemistry is activated.
 - Filling species not being set to their equilibrium chemistry value when set to `None`.
 - Contribution overplotting in abundance profile plots.
-- Bug fix in stepped abundance profile.
+- Function `chemistry.utils.stepped_profile` incorrectly checking for abundances and pressures array sizes.
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
 - Incorrect log-x tick labelling in spectra plots.
+- Colors in function `plotlib.contour_corner` are offset by one ([issue 100](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/100)).
+- Numerical cancellation error occurring on some systems when calculating transmission contribution functions.
+- Incorrect behaviour: warnings for opacity files (.h5) are raised for non-opacity files.
 - Minor typo in a warning message.
-- Fixed inhomogenous part error in `plot_spectra` ([issue 89](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/89))
-- Removed warnings for `.DS_Store` files.
-- Resolved issues 100 and 101 for corner plotting.
-- Numerical cancellation error that occurred on some systems when calculating transmission contribution functions.
-- Fixed reading contribution function in `retrieval` class.
+- Updated corner plot ranges, fixing ([issue 101](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/101))
+- Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103))
+- Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106))
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
@@ -64,7 +73,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.1.2] - 2024-10-05
 ### Fixed
-- Crash when converting DACE opacities (solves [issue 87](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/87), introduced in [3.1.0a29](https://gitlab.com/mauricemolli/petitRADTRANS/-/commit/3e7344610ec2b3ac2fbe2bad75bee0c905f6c09f)).
+- Crash when converting DACE opacities ([issue 87](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/87), regression introduced in [3.1.0a29](https://gitlab.com/mauricemolli/petitRADTRANS/-/commit/3e7344610ec2b3ac2fbe2bad75bee0c905f6c09f)).
 
 ## [3.1.1] - 2024-10-03
 ### Changed

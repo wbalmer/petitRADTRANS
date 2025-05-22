@@ -219,6 +219,9 @@ def match_function_default(path_input_data: str, sub_path: str,
                            find_all: bool = False, display_other_files: bool = False):
     full_path = str(os.path.join(path_input_data, sub_path))
 
+    if not os.path.isdir(full_path) and files is None:  # directory does not exist, return empty list
+        return []
+
     if files is None:
         files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
 

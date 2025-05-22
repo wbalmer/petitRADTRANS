@@ -15,7 +15,7 @@ from petitRADTRANS import __version__ as prt_version
 from petitRADTRANS._input_data import default_file_selection, find_input_file
 from petitRADTRANS.cli.prt_cli import get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.utils import list_str2str, LockedDict
+from petitRADTRANS.utils import LockedDict, list_str2str
 
 if os.environ.get("pRT_emcee_mode") == 'True':  # TODO make use of config_parser instead
     pass
@@ -421,6 +421,9 @@ class Opacity:
             )
 
         if len(charge) > 0:
+            if len(charge) == 1:  # handle the case where only "p", "m", "+", "-" is given
+                charge = "1" + charge
+
             if charge[-1] in {cls._minus_symbol, cls._minus_char}:
                 charge = -int(charge[:-1])
             elif charge[-1] in {cls._plus_symbol, cls._plus_char}:
@@ -468,7 +471,10 @@ class Opacity:
         full_path = str(os.path.join(path_input_data, sub_path))
 
         if files is None:
-            files = [f for f in os.listdir(full_path) if os.path.isfile(os.path.join(full_path, f))]
+            files = [
+                f for f in os.listdir(full_path)
+                if os.path.isfile(os.path.join(full_path, f)) and f.endswith('.h5')
+            ]
 
         if len(files) == 0:  # no file in path, return empty list
             return []
@@ -483,8 +489,6 @@ class Opacity:
                 if filename_sampling != '' or filename_range != '':
                     # First pass, try to use default resolution
                     for file in files:
-                        if file.endswith('.DS_Store'):
-                            continue
                         # Extract source and spectral info
                         _file, spectral_info = cls.split_species_spectral_info(file)
 
@@ -837,20 +841,6 @@ class Opacity:
             )
         )
 
-        species_filename = cls.join_species_all_info(
-            species_name=istopologue_name,
-            natural_abundance='',  # no need to add the natural abundance
-            charge=charge,
-            cloud_info=cloud_info,
-            source=source,
-            spectral_info=spectral_info,
-            spectral_sampling=None,
-            wavelength_range=None
-        )
-
-        for charge_symbol in cls._charge_symbols:
-            charge = charge.replace(charge_symbol, cls._charges[charge_symbol])
-
         species_directory = cls.join_species_all_info(
             species_name=istopologue_name,
             natural_abundance='',  # no need to add the natural abundance
@@ -858,6 +848,20 @@ class Opacity:
             cloud_info=cloud_info,
             source='',
             spectral_info='',
+            spectral_sampling=None,
+            wavelength_range=None
+        )
+
+        for charge_symbol in cls._charge_symbols:
+            charge = charge.replace(charge_symbol, cls._charges[charge_symbol])
+
+        species_filename = cls.join_species_all_info(
+            species_name=istopologue_name,
+            natural_abundance='',  # no need to add the natural abundance
+            charge=charge,
+            cloud_info=cloud_info,
+            source=source,
+            spectral_info=spectral_info,
             spectral_sampling=None,
             wavelength_range=None
         )
@@ -1232,7 +1236,7 @@ class Opacity:
         return int(string.split(cls._constant_resolving_power, 1)[1])
 
     @classmethod
-    def get_resolving_power_string(cls, resolving_power: [int, float, str]) -> str:
+    def get_resolving_power_string(cls, resolving_power: int | float | str) -> str:
         if isinstance(resolving_power, float):
             return f"{cls._constant_resolving_power}{resolving_power:.0e}".replace(
                 'e+', 'e'
@@ -1551,17 +1555,25 @@ class Opacity:
 
     @classmethod
     def split_cloud_info(cls, cloud_info: str) -> (str, str, str):
-        matter_state_string: str = cloud_info[:3]  # "(s)" or "(l)"
+        if ')' not in cloud_info:
+            raise ValueError(
+                f"no matter state found in cloud info '{cloud_info}'; "
+                f"available matter states for clouds are {list_str2str(cls._condensed_matter_states)}"
+            )
 
-        matter_state: str = ''
+        matter_state: str = cloud_info[:cloud_info.index(')') + 1]  # "(s)" or "(l)"
+
         solid_structure: str = ''
         solid_structure_id: str = ''
 
-        for _matter_state in cls._condensed_matter_states:
-            if _matter_state == matter_state_string:
-                _, solid_structure = cloud_info.split(cls._solid_structure_separator, 1)
-                matter_state = _matter_state
-                break
+        if matter_state in cls._condensed_matter_states:
+            if matter_state == cls._solid_matter_state:
+                solid_structure = cloud_info.split(cls._solid_structure_separator, 1)[1]
+        else:
+            raise NotImplementedError(
+                f"matter state '{matter_state}' is not implemented for cloud species; "
+                f"available matter states for clouds are {list_str2str(cls._condensed_matter_states)}"
+            )
 
         if cls._solid_structure_separator in solid_structure:
             solid_structure, solid_structure_id = solid_structure.split(cls._solid_structure_separator)
