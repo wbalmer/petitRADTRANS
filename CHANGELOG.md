@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a31] - 2025-05-15
+## [3.2.0a32] - 2025-05-23
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).

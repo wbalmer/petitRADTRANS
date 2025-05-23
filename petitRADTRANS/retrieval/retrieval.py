@@ -3103,7 +3103,7 @@ class Retrieval:
                 # This probably doesn't need to be in a loop
                 contr_em = best_fit_contribution / weights
                 contr_em = contr_em * spectral_weights[None, :]
-                contr_em = np.sum(best_fit_contribution, axis=1)
+                contr_em = np.sum(contr_em, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 
                 if self.test_plotting:
@@ -3765,7 +3765,7 @@ class Retrieval:
                 # This probably doesn't need to be in a loop
                 contr_em = best_fit_contribution / weights
                 contr_em = contr_em * spectral_weights[None, :]
-                contr_em = np.sum(best_fit_contribution, axis=1)
+                contr_em = np.sum(contr_em, axis=1)
                 contr_em = contr_em / np.sum(contr_em)
 
                 if self.test_plotting:
