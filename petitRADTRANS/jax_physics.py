@@ -12,7 +12,7 @@ import petitRADTRANS.physical_constants as cst
 
 
 @jit
-def planck_f_lr(T, nul, nur):
+def compute_planck_function_integral_old(T, nul, nur):
     # TODO this might not be used anymore.
     # calculate planck function between two frequencies
     B_nu = 0.0
@@ -99,15 +99,15 @@ def compute_rosseland_opacities(
     else:
         opacities_use = opacities
 
-    kappa_rosse = compute_rosseland_opacities_core(opacities_use, 
-                                                   frequencies_bin_edges, 
+    kappa_rosse = compute_rosseland_opacities_core(opacities_use,
+                                                   frequencies_bin_edges,
                                                    temperature,
                                                    weights_gauss)
     return kappa_rosse
 
 
 @jit
-def planck_f(T, nu):
+def compute_planck_function(T, nu):
     """
     Calculates B_ν https://en.wikipedia.org/wiki/Planck%27s_law
     For every temperature and frequency provided.
@@ -162,16 +162,14 @@ def compute_planck_function_integral(temperatures, frequencies):
     Compute mean using Boole's method
     TODO: possibly a faster integration method?
     """
+    def reverse_frequencies(temperatures, frequencies):
+        warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
+        return _compute_planck_function_integral(temperatures, jnp.flip(frequencies))
     return lax.cond(
         frequencies[1] > frequencies[0],
-        lambda: warnings.warn("Frequencies are not in descending order. This may lead to incorrect results."),
+        lambda: reverse_frequencies(temperatures, frequencies),
         lambda: _compute_planck_function_integral(temperatures, frequencies)
     )
-    #if frequencies[1] > frequencies[0]:
-    #    warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
-    #    return None
-    #else:
-    #    return _compute_planck_function_integral(temperatures, frequencies)
 
 
 @jit
@@ -195,27 +193,13 @@ def _compute_planck_function_integral(temperatures, frequencies):
     nu3 = nu_small + diff_nu * 0.5
     nu4 = nu_small + diff_nu * 0.75
 
-    planck_flux = (factor1
-                   * (factor2 * nu_small[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_small[None, :]) - 1.0)
-                      + factor3 * nu2[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu2[None, :]) - 1.0)
-                      + factor4 * nu3[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu3[None, :]) - 1.0)
-                      + factor3 * nu4[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu4[None, :]) - 1.0)
-                      + factor2 * nu_large[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_large[None, :]) - 1.0)))
-    
-    # for i in range(frequencies.shape[0] - 1):
-    #    nu_large = frequencies[i]
-    #    nu_small = frequencies[i + 1]
-    #    diff_nu = nu_large - nu_small
-    #    nu2 = nu_small + diff_nu * 0.25
-    #    nu3 = nu_small + diff_nu * 0.5
-    #    nu4 = nu_small + diff_nu * 0.75
-    #    planck_flux = planck_flux.at[:, i].add(
-    #        factor1 * (factor2 * nu_small ** 3.0 / (jnp.exp(cst_h_kt * nu_small) - 1.0)
-    #                   + factor3 * nu2 ** 3.0 / (jnp.exp(cst_h_kt * nu2) - 1.0)
-    #                   + factor4 * nu3 ** 3.0 / (jnp.exp(cst_h_kt * nu3) - 1.0)
-    #                   + factor3 * nu4 ** 3.0 / (jnp.exp(cst_h_kt * nu4) - 1.0)
-    #                   + factor2 * nu_large ** 3.0 / (jnp.exp(cst_h_kt * nu_large) - 1.0)
-    #                   ))"""
+    planck_flux = (
+        factor1
+        * (factor2 * nu_small[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_small[None, :]) - 1.0)
+            + factor3 * nu2[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu2[None, :]) - 1.0)
+            + factor4 * nu3[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu3[None, :]) - 1.0)
+            + factor3 * nu4[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu4[None, :]) - 1.0)
+            + factor2 * nu_large[None, :] ** 3.0 / (jnp.exp(cst_h_kt[:, None] * nu_large[None, :]) - 1.0)))
     return planck_flux
 
 
