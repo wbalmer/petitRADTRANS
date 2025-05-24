@@ -6,7 +6,7 @@ Prerequisites for basic installation
 ====================================
 To install petitRADTRANS, without retrievals, you need to install:
 
-- Python 3.9+,
+- Python 3.10+,
 - a fortran compiler, for example ``gfortran``.
 - to use the automatic data download feature, ``chromium`` [*]_.
 
