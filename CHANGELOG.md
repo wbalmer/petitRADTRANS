@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a32] - 2025-05-23
+## [3.2.0a33] - 2025-05-24
 ### Added
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Module `_input_data`, that will replace `_input_data_loader` in next major version.
 - Functions in module `__file_conversion` to write cloud and CIA opacities.
 - Functions in module `_input_data_loader` to get the opacity file extensions.
+- Function `Planet.compute_intrinsic_temperature_leconte`, to calculate a planet intrinsic temperature according to Eq. 23 of Leconte et al. 2010.
 - Function `math.compute_resolving_power`.
 - Package `dill` as a requirement in order to serialize `RetrievalConfig` objects.
 - The pRT version in retrieval summary files.
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - An "unknown" opacity category.
 
 ### Changed
+- Minimum compatible Python version is now 3.10 (was 3.9).
 - Function `msum` in `chemistry.core` now checks each pressure level to ensure `mfrac` less than 1 throughout the atmosphere, and fills in appropriate amounts of fill gas per level.
 - Saved best-fit spectra are now convolved and binned per-instrument.
 - Tests now use more lightweights opacity files.
@@ -33,7 +35,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ### Deprecated
 - Module `_input_data_loader` and functions wherein, replaced with module `_input_data` and `Opacity` objects.
-- Possibility to use CIA aliases (e.g. 'He--H2' or 'H2He' instead of 'H2--He').
+- Possibility to use CIA aliases (e.g. `'He--H2'` or `'H2He'` instead of 'H2--He').
 - More helpful error message when trying to calculate mean molar masses with 0 gaseous abundances.
 - Warning message about the use pRT2 names for `Radtrans` functions `calculate_flux` and `calculate_transit_radii`.
 
@@ -49,7 +51,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Incorrect behaviour: opacity spectral information are ignored when searching opacities on Keeper.
 - Incorrect behaviour with `join_species_all_info`, which could unintentionally add a `.` to the species name.
 - Incorrect `SpectralModel` behaviour: filling species dict is overridden if only H2 and He are set as filling species and equilibrium chemistry is activated.
-- Filling species not being set to their equilibrium chemistry value when set to `None`.
+- Filling species are not being set to their equilibrium chemistry value when set to `None`.
 - Contribution overplotting in abundance profile plots.
 - Function `chemistry.utils.stepped_profile` incorrectly checking for abundances and pressures array sizes.
 - Opacity wavelength range not taken into account when rebinning correlated-k opacities in module `retrieval`.
@@ -58,9 +60,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Numerical cancellation error occurring on some systems when calculating transmission contribution functions.
 - Incorrect behaviour: warnings for opacity files (.h5) are raised for non-opacity files.
 - Minor typo in a warning message.
-- Updated corner plot ranges, fixing ([issue 101](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/101))
-- Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103))
-- Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106))
+- Updated corner plot ranges, fixing ([issue 101](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/101)).
+- Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103)).
+- Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106)).
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.

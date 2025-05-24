@@ -1047,6 +1047,57 @@ class Planet:
             equilibrium_temperature=equilibrium_temperature
         )
 
+    def calculate_intrinsic_temperature_leconte(
+        self,
+        quality_factor: float,
+        love_number_2: float,
+        emissivity: float = 1
+    ) -> float:
+        """Calculate the intrinsic temperature from the tidal heating rate.
+
+        Source: Leconte et al. 2010 http://dx.doi.org/10.1051/0004-6361/201014337 (Eq. 23).
+
+        This makes 3 major assumptions:
+            1. the eccentricity is small (<~0.2),
+            2. the planet is near synchronization, i.e. angular_speed (omega_p) ~ rotation frequency (n),
+            3. the tidal heating rate is evenly deposited near the "surface" of the planet.
+
+        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is the
+        value of k2/Q, which may be easier to find that the individual parameters.
+        The k2/Q value can be given to this function e.g. by setting `love_number_2=1` and `quality_factor=1 / (k2/Q)`.
+        Typical k2/Q values are (Lainey et al. 2015, https://arxiv.org/pdf/1604.04184):
+            - Earth-like: ~1e-3
+            - Neptune-like: ~1e-4
+            - Saturn-like: ~2e-4
+            - Jupiter-like: ~1e-5
+        With typical k2 values ranging from ~0.1 to ~1.0, and typical Q values ranging from 1e2 to 1e6.
+        These values are often given with high uncertainties.
+
+        Args:
+            quality_factor: float
+                Quality factor of the planet (a.k.a. "Q").
+                In some works, the reduced quality factor (Q') is used. Its relationship with Q is given by:
+                    Q' = 3Q / (2 * k2),
+                Where k2 is the Love number of degree 2 of the planet.
+            love_number_2: float
+                Love number of degree 2 of the planet (a.k.a. "k2"). Default is 3/2, the value for a homogeneous sphere.
+            emissivity:
+                Emissivity of the planet. Default is 1.
+
+        Returns:
+            (K) The intrinsic temperature of the planet, according to Leconte et al. 2010 (Eq. 23).
+        """
+        return self.compute_intrinsic_temperature_leconte(
+            quality_factor=quality_factor,
+            radius=self.radius,
+            orbit_semi_major_axis=self.orbit_semi_major_axis,
+            orbital_velocity=self.calculate_orbital_velocity(),
+            orbital_eccentricity=self.orbital_eccentricity,
+            star_mass=self.star_mass,
+            love_number_2=love_number_2,
+            emissivity=emissivity
+        )
+
     def calculate_full_transit_duration(self):
         return self.compute_full_transit_duration(
             total_transit_duration=self.transit_duration,
@@ -1362,6 +1413,76 @@ class Planet:
             scaling_factor * equilibrium_temperature
             * np.exp(-(np.log10(flux * 1e-9) - mean) ** 2 / standard_deviation)  # flux scaling required to match Fig. 1
         )
+
+    @staticmethod
+    def compute_intrinsic_temperature_leconte(
+        quality_factor: float,
+        radius: float,
+        orbit_semi_major_axis: float,
+        orbital_velocity: float,
+        orbital_eccentricity: float,
+        star_mass: float,
+        love_number_2: float = 1.5,
+        emissivity: float = 1
+    ) -> float:
+        """Calculate the intrinsic temperature from the tidal heating rate.
+
+        Source: Leconte et al. 2010 http://dx.doi.org/10.1051/0004-6361/201014337 (Eq. 23).
+
+        This makes 3 major assumptions:
+            1. the eccentricity is small (<~0.2, see Leconte et al. 2010, fig. 2),
+            2. the planet is near synchronization, i.e. angular_speed (omega_p) ~ rotation frequency (n),
+            3. the tidal heating rate is evenly deposited near the "surface" of the planet.
+
+        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is the
+        value of k2/Q, which may be easier to find that the individual parameters.
+        The k2/Q value can be given to this function e.g. by setting `love_number_2=1` and `quality_factor=1 / (k2/Q)`.
+        Typical k2/Q values are (Lainey et al. 2015, https://arxiv.org/pdf/1604.04184):
+            - Earth-like: ~1e-3
+            - Neptune-like: ~1e-4
+            - Saturn-like: ~2e-4
+            - Jupiter-like: ~1e-5
+        With typical k2 values ranging from ~0.1 to ~1.0, and typical Q values ranging from 1e2 to 1e6.
+        These values are often given with high uncertainties.
+
+        Args:
+            quality_factor: float
+                Quality factor of the planet (a.k.a. "Q").
+                In some works, the reduced quality factor (Q') is used. Its relationship with Q is given by:
+                    Q' = 3Q / (2 * k2),
+                Where k2 is the Love number of degree 2 of the planet.
+            radius: float
+                (cm) Radius of the planet.
+            orbit_semi_major_axis: float
+                (cm) Semi-major axis of the planet's orbit.
+            orbital_velocity: float
+                (cm.s-1) Orbital velocity of the planet.
+            orbital_eccentricity:
+                Eccentricity of the planet's orbit.
+            star_mass: float
+                (g) Mass of the planet's star
+            love_number_2: float
+                Love number of degree 2 of the planet (a.k.a. "k2"). Default is 3/2, the value for a homogeneous sphere.
+            emissivity:
+                Emissivity of the planet. Default is 1.
+
+        Returns:
+            (K) The intrinsic temperature of the planet, according to Leconte et al. 2010 (Eq. 23).
+        """
+        # Assuming that the planet is near synchronization, i.e. angular_speed ~ n
+        angular_speed = orbital_velocity / orbit_semi_major_axis  # (rad.s-1) omega_p in Leconte et al. 2010
+
+        tidal_heating_rate = (
+            21 / 2 * love_number_2 / quality_factor
+            * cst.G * star_mass ** 2
+            * radius ** 5 / orbit_semi_major_axis ** 6
+            * angular_speed * orbital_eccentricity ** 2
+        )  # (W) E^dot_tides in Leconte et al. 2010
+
+        # Assuming that the tidal heating rate is evenly deposited near the "surface" of the planet
+        area = 4 * np.pi * radius ** 2  # (cm2)
+
+        return (tidal_heating_rate / (area * emissivity * cst.sigma)) ** 0.25  # (K)
 
     @staticmethod
     def compute_mid_transit_time_from_source(observation_day,
