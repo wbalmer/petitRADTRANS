@@ -1062,8 +1062,8 @@ class Planet:
             2. the planet is near synchronization, i.e. angular_speed (omega_p) ~ rotation frequency (n),
             3. the tidal heating rate is evenly deposited near the "surface" of the planet.
 
-        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is the
-        value of k2/Q, which may be easier to find that the individual parameters.
+        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is
+        the value of k2/Q, which may be easier to find that the individual parameters.
         The k2/Q value can be given to this function e.g. by setting `love_number_2=1` and `quality_factor=1 / (k2/Q)`.
         Typical k2/Q values are (Lainey et al. 2015, https://arxiv.org/pdf/1604.04184):
             - Earth-like: ~1e-3
@@ -1434,8 +1434,8 @@ class Planet:
             2. the planet is near synchronization, i.e. angular_speed (omega_p) ~ rotation frequency (n),
             3. the tidal heating rate is evenly deposited near the "surface" of the planet.
 
-        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is the
-        value of k2/Q, which may be easier to find that the individual parameters.
+        The main unknowns of this equation are `quality_factor` (Q) and `love_number_2` (k2), but what matters most is
+        the value of k2/Q, which may be easier to find that the individual parameters.
         The k2/Q value can be given to this function e.g. by setting `love_number_2=1` and `quality_factor=1 / (k2/Q)`.
         Typical k2/Q values are (Lainey et al. 2015, https://arxiv.org/pdf/1604.04184):
             - Earth-like: ~1e-3
