@@ -21,9 +21,132 @@ TINIEST = jnp.finfo(jnp.float64).tiny
 HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 
-def combine_ck_opacities():
-    # TODO
-    return
+def combine_ck_opacities(opacities_fortran_order, g_gauss, weights_gauss):
+    """
+    JAX implementation of the combine_ck_opacities Fortran subroutine.
+
+    Args:
+        opacities_fortran_order (jax.Array): Opacities with shape (n_g, n_frequencies, n_species, n_layers).
+        g_gauss (jax.Array): Gaussian quadrature g-values, shape (n_g,).
+        weights_gauss (jax.Array): Gaussian quadrature weights, shape (n_g,).
+
+    Returns:
+        jax.Array: Combined opacities, shape (n_g, n_frequencies, n_layers).
+    """
+    n_g, n_frequencies, n_species, n_layers = opacities_fortran_order.shape
+    threshold_coefficient = 1e-2  # Fortran: 1d-2
+    n_sample = n_g * n_g
+
+    # Threshold calculation: threshold(n_frequencies, n_layers)
+    threshold = jnp.max(opacities_fortran_order[0, :, :, :], axis=1) * threshold_coefficient
+    # threshold shape is (n_frequencies, n_layers)
+
+    # g_presort calculation: flat array of weights_gauss(i) * weights_gauss(j)
+    g_presort_flat = (weights_gauss[:, None] * weights_gauss[None, :]).ravel()
+    # g_presort_flat shape: (n_g*n_g,) which is n_sample
+
+    # Permute opacities for easier vmap/scan: (layers, frequencies, species, n_g)
+    opacities_perm = jnp.transpose(opacities_fortran_order, (3, 1, 2, 0))
+    # Permute threshold to (layers, frequencies)
+    threshold_perm = jnp.transpose(threshold, (1, 0))
+
+    def combine_one_species_lf(opac_out_current_lf, spec_opac_lf, threshold_lf):
+        """
+        Combines opacities of one species with the current accumulated opacities
+        for a single layer and frequency.
+        opac_out_current_lf: shape (n_g,) - current combined opacities
+        spec_opac_lf: shape (n_g,) - opacities of the new species to add
+        threshold_lf: scalar - threshold for this layer/frequency
+        """
+
+        def perform_combination():
+            # k_out_combined_flat: shape (n_sample,)
+            # Fortran: k_out((i_g-1)*n_g + j_g) = opacities_out(i_g,...) + spec2(j_g)
+            k_out_combined_flat = (opac_out_current_lf[:, None] + spec_opac_lf[None, :]).ravel()
+
+            # Prepare for sorting: opacities and their g_presort weights
+            # sampled_opa_weights_0: combined opacities
+            # sampled_opa_weights_1: corresponding g_presort weights
+            sampled_opa_weights_0 = k_out_combined_flat
+            sampled_opa_weights_1 = g_presort_flat
+
+            # Sort by opacities (sampled_opa_weights_0)
+            sorted_indices = jnp.argsort(sampled_opa_weights_0)
+            k_sorted = sampled_opa_weights_0[sorted_indices]
+            weights_sorted = sampled_opa_weights_1[sorted_indices]
+
+            # Normalize weights
+            # Fortran: sampled_opa_weights(:, 2) = sampled_opa_weights(:, 2) / sum(...)
+            weights_normalized = weights_sorted / jnp.sum(weights_sorted)
+
+            # Calculate g_out_x_coords for interpolation (x-values for jnp.interp)
+            cum_sum_weights_normalized = jnp.cumsum(weights_normalized)
+            prev_cum_sum = jnp.concatenate([jnp.array([0.0]), cum_sum_weights_normalized[:-1]])
+            g_x_vals = weights_normalized * 0.5 + prev_cum_sum
+            g_x_coords = jnp.concatenate([g_x_vals, jnp.array([1.0])])
+
+            # Prepare k_out_y_coords for interpolation (y-values for jnp.interp)
+            k_y_intermediate = k_sorted.at[0].set(opac_out_current_lf[0] + spec_opac_lf[0])
+            k_y_coords = jnp.concatenate([
+                k_y_intermediate,
+                jnp.array([opac_out_current_lf[-1] + spec_opac_lf[-1]])
+            ])
+
+            # Linear Interpolation back to the original g_gauss grid
+            new_opac_out_lf = jnp.interp(g_gauss, g_x_coords, k_y_coords)
+            return new_opac_out_lf
+
+        def skip_combination():
+            return opac_out_current_lf
+
+        # Conditional execution based on threshold
+        return lax.cond(spec_opac_lf[-1] < threshold_lf,
+                        skip_combination,
+                        perform_combination)
+
+    def process_layer_freq(opacities_all_species_lf, threshold_lf):
+        """
+        Processes all species for a single layer and frequency.
+        opacities_all_species_lf: shape (n_species, n_g)
+        threshold_lf: scalar
+        """
+        # Initial opacities_out is from the first species
+        opac_out_initial_lf = opacities_all_species_lf[0, :]
+
+        if n_species == 1:
+            return opac_out_initial_lf
+
+        # Define the body for lax.scan over the remaining species
+        def species_scan_body(current_combined_opac_lf, next_species_opac_lf):
+            updated_opac_lf = combine_one_species_lf(
+                current_combined_opac_lf,
+                next_species_opac_lf,
+                threshold_lf
+            )
+            # The scan's 'y' output is not used here, only the final carry.
+            return updated_opac_lf, None
+
+        # Opacities of species 2 to N_species
+        remaining_species_opac_lf = opacities_all_species_lf[1:, :]
+
+        final_combined_opac_lf, _ = lax.scan(
+            species_scan_body,
+            opac_out_initial_lf,
+            remaining_species_opac_lf
+        )
+        return final_combined_opac_lf
+
+    # vmapped_over_layers = vmap(process_layer_freq, in_axes=(0, 0))
+    opacities_out_perm = vmap(  # vmap over layers
+        vmap(process_layer_freq, in_axes=(0, 0)),  # vmap over frequencies
+        in_axes=(0, 0)
+    )(opacities_perm, threshold_perm)
+    # opacities_out_perm has shape (n_layers, n_frequencies, n_g)
+
+    # Transpose back to Fortran output order: (n_g, n_frequencies, n_layers)
+    opacities_out_final = jnp.transpose(opacities_out_perm, (2, 1, 0))
+
+    return opacities_out_final
 
 
 @jit
