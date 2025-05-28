@@ -992,15 +992,16 @@ def compute_radius_hydrostatic_equilibrium(
         variable_gravity):
     """Calculate the radius at hydrostatic equilibrium from the pressure grid."""
     n_layers = pressures.shape[0]
-    inv_rho = 1.0 / atmosphere_densities
+    inv_rho = 1.0 / (atmosphere_densities + TINIEST)
+    dtype = pressures.dtype
 
     coefficient = lax.cond(
         variable_gravity,
-        lambda: 1.0 / reference_gravity / planet_radius**2,
-        lambda: -1.0 / reference_gravity
+        lambda: 1.0 / (reference_gravity * (planet_radius**2) + TINIEST),
+        lambda: -1.0 / (reference_gravity + TINIEST)
     )
 
-    radius_hydrostatic_equilibrium = jnp.zeros(n_layers)
+    radius_hydrostatic_equilibrium = jnp.zeros(n_layers, dtype=dtype)
 
     radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[n_layers - 2].set(
         radius_hydrostatic_equilibrium[n_layers - 1]
@@ -1010,8 +1011,13 @@ def compute_radius_hydrostatic_equilibrium(
         * 0.5
     )
 
-    def body(i, val):
-        radius_hydrostatic_equilibrium = val[0]
+    def condition(val):
+        i = val[0]
+        return i >= 0
+    
+    def body(val):
+        i = val[0]
+        radius_hydrostatic_equilibrium = val[1]
         radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium.at[i].set(
             radius_hydrostatic_equilibrium[i + 1]
             - integ_parab(
@@ -1026,70 +1032,64 @@ def compute_radius_hydrostatic_equilibrium(
             )
             * coefficient
         )
-        return (radius_hydrostatic_equilibrium,)
-
-    radius_hydrostatic_equilibrium, = lax.fori_loop(
-        n_layers - 3,
-        0,
+        return (i-1, radius_hydrostatic_equilibrium,)
+    _, radius_hydrostatic_equilibrium = lax.while_loop(
+        condition,
         body,
-        (radius_hydrostatic_equilibrium,)
+        (n_layers - 3, radius_hydrostatic_equilibrium,)
         )
 
-    def find_r0_body(i, val):
-        R0 = val[0]
-        found = val[1]
+    reference_index = jnp.argmin(jnp.abs(pressures - reference_pressure))
+    reference_index = lax.cond(
+        pressures[reference_index] <= reference_pressure,
+        lambda: reference_index,
+        lambda: reference_index - 1
+    )
 
-        pressure_condition = (
-            (pressures[i + 1] > reference_pressure) & 
-            (pressures[i] <= reference_pressure))
-        layer_condition = (i <= n_layers - 3)
-        
-        def layer_true():
-            return radius_hydrostatic_equilibrium[i + 1] - integ_parab(
-                    pressures[i],
-                    pressures[i + 1],
-                    pressures[i + 2],
-                    inv_rho[i],
-                    inv_rho[i + 1],
-                    inv_rho[i + 2],
-                    reference_pressure,
-                    pressures[i + 1]
-                ) * coefficient, True
-        
-        def layer_false():
-            return radius_hydrostatic_equilibrium[i + 1] - (inv_rho[i] + inv_rho[i + 1]) * \
-                    (pressures[i + 1] - reference_pressure) * coefficient * 0.5, True
-        
-        def false_pressure():
-            return R0, False
-        
-        R0, found = lax.cond(
-            pressure_condition,
-            lambda: lax.cond(
-                layer_condition,
-                layer_true,
-                layer_false
-            ),
-            false_pressure
+    layer_condition = (reference_index <= n_layers - 3)
+    
+    def layer_true():
+        return radius_hydrostatic_equilibrium[reference_index + 1] - integ_parab(
+                pressures[reference_index],
+                pressures[reference_index + 1],
+                pressures[reference_index + 2],
+                inv_rho[reference_index],
+                inv_rho[reference_index + 1],
+                inv_rho[reference_index + 2],
+                reference_pressure,
+                pressures[reference_index + 1]
+            ) * coefficient
+
+    def layer_false():
+        return (radius_hydrostatic_equilibrium[reference_index + 1]
+                - (inv_rho[reference_index] + inv_rho[reference_index + 1])
+                * (pressures[reference_index + 1] - reference_pressure)
+                * coefficient
+                * 0.5)
+
+    R0 = lax.cond(
+            layer_condition,
+            layer_true,
+            layer_false
         )
-        return R0, found
-
-    R0, _ = lax.fori_loop(n_layers - 2, 0, find_r0_body, (0.0, False))
 
     def variable_gravity_radius(R0, radius_hydrostatic_equilibrium):
-        R0 = 1.0 / planet_radius - R0
-        radius_hydrostatic_equilibrium = 1.0 / (radius_hydrostatic_equilibrium + R0)
+        R0 = (1.0 / planet_radius) - R0
+        radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
+        radius_hydrostatic_equilibrium = 1.0 / (radius_hydrostatic_equilibrium + TINIEST)
         return radius_hydrostatic_equilibrium
 
     def constant_gravity_radius(R0, radius_hydrostatic_equilibrium):
         R0 = planet_radius - R0
         radius_hydrostatic_equilibrium = radius_hydrostatic_equilibrium + R0
         return radius_hydrostatic_equilibrium
+
     return lax.cond(variable_gravity,
                     variable_gravity_radius,
                     constant_gravity_radius,
                     R0,
                     radius_hydrostatic_equilibrium)
+
 
 @partial(jit, static_argnames=["scattering_in_transmission", "variable_gravity"])
 def compute_transit_radii(
@@ -1149,7 +1149,7 @@ def compute_transit_radii(
         return alpha_t2_scat
 
     def no_transmission_scattering():
-        return jnp.zeros((n_frequencies, n_layers - 1))
+        return jnp.zeros((n_frequencies, n_layers))
 
     alpha_t2_scat = lax.cond(
         scattering_in_transmission,
