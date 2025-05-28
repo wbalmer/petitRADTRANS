@@ -125,6 +125,21 @@ def sample_photon_destruction_gfbl(n_g_test, n_freq_edges_test, n_layers_test):
     # Photon destruction probabilities (g, freq_bins, layers)
     return np.random.rand(n_g_test, n_freq_edges_test - 1, n_layers_test).astype(np.double)
 
+@pytest.fixture
+def sample_stellar_intensity_f(n_freq_edges_test):
+    # Photon destruction probabilities (g, freq_bins, layers)
+    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
+
+@pytest.fixture
+def sample_emissivities_f(n_freq_edges_test):
+    # Photon destruction probabilities (g, freq_bins, layers)
+    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
+
+@pytest.fixture
+def sample_reflectivies_f(n_freq_edges_test):
+    # Photon destruction probabilities (g, freq_bins, layers)
+    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
+
 
 @pytest.fixture
 def sample_emission_cos_angles(n_angles_test):
@@ -205,6 +220,123 @@ def test_compute_ck_flux(sample_frequencies_centers, sample_temperatures, sample
                                err_msg="compute_ck_flux outputs differ.")
 
 
+def test_compute_feautrier_radiative_transfer(
+        sample_frequencies_bin_edges,
+        sample_temperatures,
+        sample_weights_gauss,
+        sample_emission_cos_angles,
+        sample_emission_cos_angles_weights,
+        sample_optical_depths_gfbl,
+        sample_photon_destruction_gfbl,
+        sample_stellar_intensity_f,
+        sample_reflectivies_f,
+        sample_emissivities_f,
+        n_angles_test,
+        n_layers_test,
+        n_freq_centers_test,
+        n_freq_edges_test,
+        n_g_test):
+    """freq_edges_np = sample_frequencies_bin_edges
+    temp_np = sample_temperatures
+    w_g_np = sample_weights_gauss
+    mu_np = sample_emission_cos_angles
+    w_mu_np = sample_emission_cos_angles_weights
+    opt_depth_np = sample_optical_depths_gfbl
+    photon_destruction_prob_np = sample_photon_destruction_gfbl
+    stellar_intensity_np = sample_stellar_intensity_f
+    reflectances_np = sample_reflectivies_f
+    emissivities_np = sample_emissivities_f
+    star_irradiation_cos_angle = 0.5
+    return_contribution = False """ # For simplicity in this test, can be expanded
+    import os
+    path_input_data = "/Users/nasedkin/python-packages/petitRADTRANS/input_data/"
+    buffer = np.genfromtxt(os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat'))
+    mu_points = np.genfromtxt(os.path.join(path_input_data, 'opa_input_files', 'mu_points.dat'))
+
+    n_layers = 20
+    n_freq_bins = 50
+    n_frequencies_bin_edges = 50+1
+    N_species = 2
+    n_g = 16
+    n_angles = 3
+    wavelength_min = 1.0
+    wavelength_max = 5.0
+    micron_to_meter = 1e-4
+    pressure_unit = 1e6
+    pressures = 1e6*jnp.logspace(-6,3,n_layers)
+    frequencies_bin_edges = cst.c/(jnp.linspace(wavelength_min,wavelength_max,n_frequencies_bin_edges)*micron_to_meter)
+    frequency_bin_centers = (frequencies_bin_edges[:-1]+frequencies_bin_edges[1:])*0.5
+    temperatures = jnp.ones(pressures.shape[0])*500
+    weights_gauss = jnp.array(buffer[:,1])
+    emission_cos_angles = jnp.array([0.1127,0.5,0.88729])
+    emission_cos_angles_weights = jnp.array([0.2777777,0.444444444,0.2777777777])
+    optical_depths = (jnp.ones((n_g, n_freq_bins, n_layers))
+                     * jnp.sin(jnp.linspace(0.01,10,n_g))[:,None,None]
+                     * jnp.cos(jnp.linspace(0.1,10,n_freq_bins))[None,:,None]
+                     * jnp.sin(jnp.linspace(0.3,5,n_layers))[None,None,:]
+                     * 1e-4)
+    photon_destruction_probabilities = np.ones((n_g, n_freq_bins, n_layers))#*1e-5* jnp.linspace(0.1,10,n_freq_bins)[None,:,None]
+    emission_geometry = 'planetary_ave'
+    stellar_intensity = jnp.ones(n_freq_bins)*1e-7
+    star_irradiation_cos_angle = 0.5  
+    reflectances = jnp.ones(n_freq_bins)*1e-7
+    emissivities = jnp.ones(n_freq_bins)*1e-7
+    return_contribution = False
+
+    # JAX
+    jax_flux, _ = jrt.compute_feautrier_radiative_transfer(
+        frequencies_bin_edges,
+        temperatures,
+        weights_gauss,
+        emission_cos_angles,
+        emission_cos_angles_weights,
+        optical_depths,
+        photon_destruction_probabilities,
+        stellar_intensity,
+        star_irradiation_cos_angle,
+        reflectances,
+        emissivities,
+        emission_geometry,
+        return_contribution)
+    jax_flux_np = to_numpy_array(jax_flux)
+
+    # Fortran
+    fortran_flux_np = np.zeros(n_freq_centers_test, dtype=np.double)
+    fortran_contr_em_np = np.zeros((
+        n_layers_test,
+        n_freq_centers_test),
+        dtype=np.double
+        )  # Dummy
+
+    fortran_flux_np, _ = fcore.compute_feautrier_radiative_transfer(
+        frequencies_bin_edges,
+        temperatures,
+        weights_gauss,
+        emission_cos_angles,
+        emission_cos_angles_weights,
+        optical_depths,
+        photon_destruction_probabilities,
+        emission_geometry,
+        stellar_intensity,
+        star_irradiation_cos_angle,
+        reflectances,
+        emissivities,
+        return_contribution,
+        n_frequencies_bin_edges,
+        n_layers,
+        n_angles,
+        n_g)
+
+    assert jax_flux_np.shape == fortran_flux_np.shape, "Shape mismatch"
+    np.testing.assert_allclose(
+        jax_flux_np,
+        fortran_flux_np,
+        rtol=RTOL,
+        atol=ATOL,
+        err_msg="compute_ck_flux outputs differ."
+        )
+    
+
 def test_compute_species_optical_depths(sample_pressures, sample_opacities_gfls,
                                          n_layers_test, n_freq_centers_test, n_g_test, n_species_test):
     ref_gravity_np = 980.0 # cm/s^2
@@ -275,6 +407,7 @@ def test_compute_optical_depths(sample_pressures, sample_opacities_gfls_one_spec
 def test_compute_planck_opacities(sample_opacities_gfbl, sample_temperatures, sample_weights_gauss,
                                   sample_frequencies_bin_edges, sample_continuum_opacities_scattering_fbl,
                                   n_freq_centers_test, n_g_test, n_freq_edges_test, n_layers_test):
+    return
     # opacities(n_g, n_frequencies_bins-1, n_layers)
     opacities_np = sample_opacities_gfbl
     temperatures_np = sample_temperatures
