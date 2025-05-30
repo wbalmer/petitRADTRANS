@@ -312,7 +312,7 @@ def make_press_temp_iso(rad_trans_params):
     return press_new, temp_new
 
 
-def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
+def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_points):
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
 
@@ -324,80 +324,114 @@ def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
     https://github.com/MartianColonist/POSEIDON/blob/main/POSEIDON/atmosphere.py
 
     Parameters:
-        press : (numpy.ndarray)
+        pressures : (numpy.ndarray)
             An array of pressure values (in bar) at which to calculate temperatures.
-        pressure_points : (list)
-            A list of pressure breakpoints defining different temperature regimes.
-        t_set : (float)
-            A temperature at pressure_points[4] used to constrain the temperature profile.
+        log_pressure_points : (list)
+            A list of log pressure breakpoints defining different temperature regimes.
+            The zeroth element is the minimum pressure, should be log10(press[0]).
+            The first element is the 1-2 boundary
+            The second element is the level of the inversion
+            The third element is the 2-3 boundary.
+            The fourth element is the pressure at which the temperature is set (P_set).
+        T_set : (float)
+            A temperature at log_pressure_points[4] used to constrain the temperature profile.
         alpha_points : (list)
             A list of alpha values used in the parameterization for different regimes.
+            Must have length 2.
         beta_points : (list)
             A list of beta values used in the parameterization for different regimes.
             By default, b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
+            Must have length 2.
 
     Returns:
         temperatures : (numpy.ndarray)
             An array of calculated temperatures (in K) corresponding to the input pressure values.
 
-    Note:
-    - This function assumes that pressure_points, temperature_points, alpha_points, and beta_points
-      are lists with the same length, defining different pressure-temperature regimes. The function
-      uses logarithmic relationships to calculate temperatures within these regimes.
-
     Reference:
     - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres.
       The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
     """
-    temperatures = np.zeros_like(press)
+    temperatures = np.zeros_like(pressures)
 
     # Set up masks for the different temperature regions
-    mask_1 = press < pressure_points[1]
-    mask_2 = (press >= pressure_points[1]) & (press < pressure_points[3])
-    mask_3 = press >= pressure_points[3]
+    pressure_points = 10**np.array(log_pressure_points)
+    mask_1 = pressures < pressure_points[1]
+    mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
+    mask_3 = pressures >= pressure_points[3]
 
     # Find index of pressure closest to the set pressure
-    i_set = np.argmin(np.abs(press - pressure_points[4]))
-    p_set_i = press[i_set]
+    i_set = np.argmin(np.abs(pressures - pressure_points[4]))
+    p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = np.log10(press)
-    log_p_min = pressure_points[0]
+    log_p = np.log10(pressures)
+    log_p_min = log_pressure_points[0]
     log_p_set_i = np.log10(p_set_i)
 
-    t0 = None
-    t2 = None
-    t3 = None
+    T0 = None
+    T2 = None
+    T3 = None
 
     # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
-    if pressure_points[4] >= pressure_points[3]:
-        t3 = t_set  # T_deep is the isothermal deep temperature T3 here
+    # By default (P_set = 10 bar), so T(P_set) should be in layer 3
+    if log_pressure_points[4] >= log_pressure_points[3]:
+        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
 
         # Use the temperature parameter to compute boundary temperatures
-        t2 = t3 - ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+        T2 = T3 - (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T1 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T0 = T1 - (
+            (1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)
+            ) ** (1 / beta_points[0])
 
     # If a different P_deep has been chosen, solve equations for layer 2...
-    elif pressure_points[4] >= pressure_points[1]:  # Temperature parameter in layer 2
+    elif (
+        log_pressure_points[4] >= log_pressure_points[1]
+    ):  # Temperature parameter in layer 2
         # Use the temperature parameter to compute the boundary temperatures
-        t2 = t_set - ((1.0 / alpha_points[1]) * (log_p_set_i - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[0])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+        T2 = T_set - (
+            (1.0 / alpha_points[1]) * (log_p_set_i - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T1 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[0])
+        T3 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T0 = T1 - ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+            1 / beta_points[0]
+        )
 
     # ...or for layer 1
-    elif pressure_points[4] < pressure_points[1]:  # Temperature parameter in layer 1
+    elif (
+        log_pressure_points[4] < log_pressure_points[1]
+    ):  # Temperature parameter in layer 1
 
         # Use the temperature parameter to compute the boundary temperatures
-        t0 = t_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (1 / beta_points[0])
-        t1 = t0 + ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
-        t2 = t1 - ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
+        T0 = T_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (
+            1 / beta_points[0]
+        )
+        T1 = T0 + ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+            1 / beta_points[0]
+        )
+        T2 = T1 - (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T3 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
 
-    temperatures[mask_1] = (log_p[mask_1] - pressure_points[0]) ** (1 / beta_points[0]) / alpha_points[0] + t0
-    temperatures[mask_2] = (log_p[mask_2] - pressure_points[2]) ** (1 / beta_points[1]) / alpha_points[1] + t2
-    temperatures[mask_3] = t3
+    temperatures[mask_1] = T0 + (
+        (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
+    ) ** (1 / beta_points[0])
+    temperatures[mask_2] = T2 + (
+        (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
+    ) ** (1 / beta_points[1])
+    temperatures[mask_3] = T3
     return temperatures
 
 
