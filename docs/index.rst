@@ -61,6 +61,7 @@ Active Developers
 - Nora Bachmann
 - Doriann Blain (main developer, and mastermind behind Version 3)
 - Beatriz Campos Estrada
+- David Hägele
 - Sam de Regt
 - Paul Mollière
 - Evert Nasedkin (mastermind behind the retrieval package)
