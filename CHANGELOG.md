@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.2.0a33] - 2025-05-24
 ### Added
+- Option for `adaptive_feautrier_iterations` in the emission spectrum scattering-convergence.
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
 - Cloud deck finder for SiO, using the saturation vapor pressure reported in Wetzel et al. (2013).
 - Power law temperature profile and retrieval models.

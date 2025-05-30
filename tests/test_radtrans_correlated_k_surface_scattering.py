@@ -55,3 +55,28 @@ def test_correlated_k_emission_spectrum_surface_scattering():
         reflectances=test_parameters['planetary_parameters']['surface_reflectance'],
         frequencies_to_wavelengths=False
     )
+
+
+def test_correlated_k_emission_spectrum_surface_scattering_with_adaptive_feautrier_iterations():
+    # Copy atmosphere so that change in reflectance is not carried outside the function
+    atmosphere = copy.deepcopy(atmosphere_ck_surface_scattering)
+
+    benchmark = Benchmark(
+        function=atmosphere.calculate_flux,
+        relative_tolerance=relative_tolerance
+    )
+
+    benchmark.run(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        irradiation_geometry='non-isotropic',
+        star_effective_temperature=test_parameters['stellar_parameters']['effective_temperature'],
+        star_radius=test_parameters['stellar_parameters']['radius'] * petitRADTRANS.physical_constants.r_sun,
+        orbit_semi_major_axis=test_parameters['planetary_parameters']['orbit_semi_major_axis'],
+        star_irradiation_angle=test_parameters['stellar_parameters']['incidence_angle'],
+        reflectances=test_parameters['planetary_parameters']['surface_reflectance'],
+        frequencies_to_wavelengths=False,
+        adaptive_feautrier_iterations=True
+    )

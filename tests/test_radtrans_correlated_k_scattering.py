@@ -88,6 +88,29 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
     )
 
 
+def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_adaptive_feautrier_iterations():
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
+
+    benchmark = Benchmark(
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance
+    )
+
+    benchmark.run(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=mass_fractions,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+        frequencies_to_wavelengths=False,
+        adaptive_feautrier_iterations=True
+    )
+
+
 def test_correlated_k_photospheric_radius_calculation():
     import copy
     from .benchmark import ReferenceFile
