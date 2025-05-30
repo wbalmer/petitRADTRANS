@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.0a33] - 2025-05-24
+## [3.2.0a34] - 2025-05-27
 ### Added
 - Option for `adaptive_feautrier_iterations` in the emission spectrum scattering-convergence.
 - Non-vertically constant free-chemistry abundance profiles. Included stepped, linear and cubic interpolations.
@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Updated corner plot ranges, fixing ([issue 101](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/101)).
 - Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103)).
 - Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106)).
+- Fixed numerical bug in Madhusudhan/Seager PT profile ([issue 115](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/115)).
+- Fixed missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)).
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
