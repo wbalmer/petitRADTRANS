@@ -50,6 +50,7 @@ The following papers document pRT:
 - The base package is described in `Mollière et al. (2019) <https://arxiv.org/abs/1904.11504>`_.
 - The self-scattering implementation (relevant for, e.g., cloudy self-luminous planets) is described in `Mollière et al. (2020) <https://arxiv.org/abs/2006.09394>`_.
 - The stellar light and surface scattering is described in `Alei et al. (2022) <https://arxiv.org/abs/2204.10041>`_.
+- pRT Version 3 is described in `Blain et al. (2024) <https://ui.adsabs.harvard.edu/abs/2024JOSS....9.7028B/abstract>`_.
 - The retrieval package is documented in `Nasedkin et al. (2024) <https://doi.org/10.21105/joss.05875>`_.
 
 Please cite the base paper and those relevant to your work if you make use of petitRADTRANS.
@@ -57,9 +58,13 @@ Please cite the base paper and those relevant to your work if you make use of pe
 Active Developers
 =================
 
+- Nora Bachmann
 - Doriann Blain (main developer, and mastermind behind Version 3)
+- Beatriz Campos Estrada
+- Sam de Regt
 - Paul Mollière
 - Evert Nasedkin (mastermind behind the retrieval package)
+- Antonia von Stauffenberg
 
 Since publishing the first paper on pRT in 2019, the lead development has been passed on from Paul Mollière to other members of the team, listed alphabetically above. At the moment, Doriann Blain is the lead developer.
 Right now, Paul's main job is to determine the strategic directions for the code, managing its development, and adding new features here and there, from time to time...
