@@ -1,6 +1,4 @@
 import jax.numpy as jnp
-from jax import config
-config.update("jax_enable_x64", True)
 from jax import jit,vmap,lax
 
 import petitRADTRANS.physical_constants as cst

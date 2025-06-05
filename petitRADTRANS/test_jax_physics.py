@@ -2,6 +2,8 @@
 
 import pytest
 import jax
+from jax import config
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -23,7 +25,6 @@ except Exception as e:
     print(f"JAX tests will run on default JAX device: {JAX_DEVICE.platform.upper()}")
 
 # Enable float64 for JAX to match Fortran's double precision
-jax.config.update("jax_enable_x64", True)
 
 # --- Import JAX functions to be tested ---
 # This assumes jphys.py is in a location where it can be imported.
@@ -39,9 +40,13 @@ import petitRADTRANS.jax_physics as jphys
 # It might be part of the petitRADTRANS package, e.g., petitRADTRANS.lib.fortran_module.physics
 
 # --- Test Configuration ---
-RTOL = 1e-6  # Relative tolerance for comparisons
-ATOL = 1e-9  # Absolute tolerance for comparisons (useful for near-zero values)
-
+# --- Test Configuration ---
+RTOL = 1e-4  # Increased relative tolerance for complex functions
+ATOL = 1e-6  # Increased absolute tolerance
+N_TIMING_RUNS = 100 # Number of times to run each function for timing
+if config.jax_enable_x64:
+    RTOL = 1e-8  # Increased relative tolerance for complex functions
+    ATOL = 1e-10  # Increased absolute tolerance
 
 # --- Helper Functions ---
 def to_jax_array(arr, dtype=jnp.float64):

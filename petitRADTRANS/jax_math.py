@@ -33,42 +33,77 @@ def wrap_callback(a, b, c, r):
 @jit
 def solve_tridiagonal_system(a, b, c, d):
     '''
-    TDMA solver, a b c d can be NumPy array type or Python list type.
-    refer to http://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
+    Solves a tridiagonal system of linear equations Ax = d using the Thomas algorithm (TDMA).
+
+    Args:
+        a (jax.numpy.ndarray): The lower diagonal of matrix A. If length N, a[0] is ignored.
+        b (jax.numpy.ndarray): The main diagonal of matrix A. Length N.
+        c (jax.numpy.ndarray): The upper diagonal of matrix A. If length N, c[N-1] is ignored.
+        d (jax.numpy.ndarray): The right-hand side vector. Length N.
+
+    Returns:
+        jax.numpy.ndarray: The solution vector x. Length N.
+
+    Notes:
+    - Assumes a, b, c, d are JAX arrays of equal length N.
+    - For the matrix A:
+        - A_ii = b_i
+        - A_{i,i-1} = a_i  (for i = 1 to N-1, effectively using a[1]...a[N-1] from input `a`)
+        - A_{i,i+1} = c_i  (for i = 0 to N-2, effectively using c[0]...c[N-2] from input `c`)
+    - Refer to http://en.wikipedia.org/wiki/Tridiagonal_matrix_algorithm
     and to http://www.cfd-online.com/Wiki/Tridiagonal_matrix_algorithm_-_TDMA_(Thomas_algorithm)
     '''
     nf = len(d)  # number of equations
-    ac, bc, cc, dc = map(jnp.array, (a, b, c, d))  # copy arrays
-    ac, bc, cc, dc = lax.fori_loop(
+    # Ensure inputs are JAX arrays. If they are already, this is a no-op.
+    ac, bc_fwd, cc, dc_fwd = map(jnp.array, (a, b, c, d))
+
+    # Forward elimination
+    # Original ac and cc are passed through, bc_fwd and dc_fwd are modified.
+    _, bc_fwd, _, dc_fwd = lax.fori_loop(
         1,
         nf,
-        internal_tridag,
-        (ac, bc, cc, dc)
-        )     
-    xc = bc
-    xc = xc.at[-1].set(dc[-1]/bc[-1])
-    xcr = jnp.flip(xc)
-    bcr = jnp.flip(bc)
-    ccr = jnp.flip(cc)
-    dcr = jnp.flip(dc)
-    xcr, bcr, ccr, dcr = lax.fori_loop(
+        _thomas_forward_elimination_body,
+        (ac, bc_fwd, cc, dc_fwd)  # cc is original upper diagonal
+    )
+
+    # Backward substitution
+    x = jnp.zeros(nf, dtype=d.dtype)
+    x = x.at[-1].set(dc_fwd[-1] / bc_fwd[-1])
+
+    # Loop from nf-2 down to 0
+    # The loop variable `i` goes from 0 to nf-2.
+    # We calculate x[nf-2-i] in each iteration.
+    x = lax.fori_loop(
         0,
-        nf-1,
-        internal_tridag_reverse,
-        (xcr, bcr, ccr, dcr)
-        )
-    return jnp.flip(xcr)
+        nf - 1,  # Iterates nf-1 times, for i = 0, ..., nf-2
+        lambda i, x_carry: _thomas_backward_substitution_body(i, x_carry, nf, cc, bc_fwd, dc_fwd),
+        x
+    )
+    return x
 
 
-def internal_tridag_reverse(il, val):
-    xc, bc, cc, dc = val
-    xc = xc.at[il].set((dc[il]-cc[il]*xc[il-1])/bc[il])
-    return (xc, bc, cc, dc)
-
-
-def internal_tridag(it, val):
+def _thomas_forward_elimination_body(it, val):
     ac, bc, cc, dc = val
-    mc = ac[it]/bc[it-1]
-    bc = bc.at[it].add(- mc*cc[it-1])
-    dc = dc.at[it].add(- mc*dc[it-1])
+    # it ranges from 1 to nf-1
+    # ac[it] is a_i in standard notation (for row i)
+    # bc[it-1] is the modified b_{i-1}
+    # cc[it-1] is c_{i-1} in standard notation (for row i-1)
+    mc = ac[it] / bc[it-1]
+    bc_new_it = bc[it] - mc * cc[it-1]
+    dc_new_it = dc[it] - mc * dc[it-1]
+    bc = bc.at[it].set(bc_new_it)
+    dc = dc.at[it].set(dc_new_it)
     return (ac, bc, cc, dc)
+
+
+def _thomas_backward_substitution_body(i, x_carry, nf, cc, bc_fwd, dc_fwd):
+    # i iterates from 0 to nf-2 (for a total of nf-1 iterations)
+    # We are calculating x[idx] where idx goes from nf-2 down to 0.
+    idx = nf - 2 - i
+    # x_carry[idx+1] is x_{idx+1} which has been computed in the previous step (or initialized for x[nf-1])
+    # cc[idx] is the original upper diagonal element c_idx
+    # bc_fwd[idx] is the modified main diagonal element from forward elimination
+    # dc_fwd[idx] is the modified RHS element from forward elimination
+    x_val = (dc_fwd[idx] - cc[idx] * x_carry[idx+1]) / bc_fwd[idx]
+    x_carry = x_carry.at[idx].set(x_val)
+    return x_carry

@@ -2,11 +2,8 @@
 JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
-
-from jax import config
-config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
+from jax import config, grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 
 
 import numpy as np
@@ -17,8 +14,11 @@ import petitRADTRANS.jax_physics as jphys
 import petitRADTRANS.jax_math as jmath
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
-TINIEST = jnp.finfo(jnp.float64).tiny
-HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
+TINIEST = jnp.finfo(jnp.float32).tiny
+HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float32).max)
+if config.jax_enable_x64:
+    TINIEST = jnp.finfo(jnp.float64).tiny
+    HUGE_SQRT = jnp.sqrt(jnp.finfo(jnp.float64).max)
 
 
 @jit
@@ -365,19 +365,24 @@ def solve_tridiagonal_system_jax(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
     """
     Solves a tridiagonal system Ax = r_rhs using Thomas algorithm or jax.scipy.
     Args:
-        a_lower_diag (jax.Array): Lower diagonal, shape (N-1,). a[i] is coeff of x_i for eq i+1.
+        a_lower_diag (jax.Array): Lower diagonal, shape (N,). a[i] is coeff of x_i for eq i+1.
         b_main_diag (jax.Array): Main diagonal, shape (N,).
-        c_upper_diag (jax.Array): Upper diagonal, shape (N-1,). c[i] is coeff of x_{i+2} for eq i+1.
+        c_upper_diag (jax.Array): Upper diagonal, shape (N,). c[i] is coeff of x_{i+2} for eq i+1.
         r_rhs (jax.Array): Right-hand side, shape (N,).
     Returns:
         jax.Array: Solution x, shape (N,).
     """
-
+    # lax.linalg.tridiagonal_solve 
+    return jmath.solve_tridiagonal_system(
+        a_lower_diag,
+        b_main_diag,
+        c_upper_diag,
+        r_rhs)
     # return solve_tridiagonal_fortran(a_lower_diag, b_main_diag, c_upper_diag, r_rhs)
-    return solve_tridiagonal_fortran(jnp.concatenate([jnp.array([0]), a_lower_diag]),
-                                     b_main_diag,
-                                     jnp.concatenate([c_upper_diag, jnp.array([0])]),
-                                     r_rhs)
+    # return solve_tridiagonal_fortran(jnp.concatenate([jnp.array([0]), a_lower_diag]),
+    #                                 b_main_diag,
+    #                                 jnp.concatenate([c_upper_diag, jnp.array([0])]),
+    #                                 r_rhs)
 
 
 @partial(jit)
@@ -395,12 +400,12 @@ def m_approximate_ng_source_layer_jax(tn, tn1, tn2, tn3, current_source_layer):
     Q2 = Q2.at[0].set(0.0)
     Q3 = Q3.at[0].set(0.0)
 
-    A1 = jnp.minimum(jnp.sum(Q1 * Q1), HUGE_SQRT)
-    A2 = jnp.minimum(jnp.sum(Q2 * Q1), HUGE_SQRT)
-    B1 = jnp.minimum(jnp.sum(Q1 * Q2), HUGE_SQRT)
-    B2 = jnp.minimum(jnp.sum(Q2 * Q2), HUGE_SQRT)
-    C1 = jnp.minimum(jnp.sum(Q1 * Q3), HUGE_SQRT)
-    C2 = jnp.minimum(jnp.sum(Q2 * Q3), HUGE_SQRT)
+    A1 = jnp.minimum(jnp.dot(Q1, Q1), HUGE_SQRT)
+    A2 = jnp.minimum(jnp.dot(Q2, Q1), HUGE_SQRT)
+    B1 = jnp.minimum(jnp.dot(Q1, Q2), HUGE_SQRT)
+    B2 = jnp.minimum(jnp.dot(Q2, Q2), HUGE_SQRT)
+    C1 = jnp.minimum(jnp.dot(Q1, Q3), HUGE_SQRT)
+    C2 = jnp.minimum(jnp.dot(Q2, Q3), HUGE_SQRT)
 
     AB_denominator = A1 * B2 - A2 * B1
 
@@ -595,7 +600,7 @@ def compute_feautrier_radiative_transfer(
     dtau2_gfl = optical_depths_in[:, :, 2:] - optical_depths_in[:, :, :-2]
     dtau2_gfl = jnp.where((jnp.abs(dtau2_gfl) < TINIEST), TINIEST, dtau2_gfl)
 
-    # Feautrier coefficients (b_main_diags_gfal, a_lower_diags_gfalm1, c_upper_diags_gfalm1)
+    # Feautrier coefficients (b_main_diags_gfal, a_lower_diags_gfal, c_upper_diags_gfalm1)
     # Shapes: (g, f, a, l) for main, (g, f, a, l-1) for off-diagonals
 
     # Top layer (l=0)
@@ -639,17 +644,17 @@ def compute_feautrier_radiative_transfer(
     b_main_diags_gfal = _b
 
     # c_upper_diags_gfalm1: (g,f,a,l-1)
-    _c = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers - 1))
+    _c = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
     _c = _c.at[:, :, :, 0].set(c_gfal_0[..., 0])
     _c = _c.at[:, :, :, 1:n_layers-1].set(c_gfal_mid)  # c_gfal_mid is shape (g,f,a,l-2)
     # This covers upper diags for rows 1 to n_layers-2
-    c_upper_diags_gfalm1 = _c
+    c_upper_diags_gfal = _c
 
-    # a_lower_diags_gfalm1: (g,f,a,l-1)
-    _a = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers - 1))
+    # a_lower_diags_gfal: (g,f,a,l)
+    _a = jnp.zeros((n_g, n_freq_bins, n_angles, n_layers))
     # a_gfal_mid is shape (g,f,a,l-2), covers lower diags for rows 1 to n_layers-2
-    _a = _a.at[:, :, :, :n_layers-2].set(a_gfal_mid)
-    a_lower_diags_gfalm1 = _a
+    _a = _a.at[:, :, :, 1:n_layers-1].set(a_gfal_mid)
+    a_lower_diags_gfal = _a
 
     # Lambda_loc for ALI (Accelerated Lambda Iteration)
     # lambda_loc_gfl: (n_g, n_freq_bins, n_layers)
@@ -696,8 +701,21 @@ def compute_feautrier_radiative_transfer(
         # Inputs are (g,f,a,dims). Vmap over (g,f,a).
         # I_J_gfal: (g,f,a,l)
         I_J_gfal = vmap(vmap(vmap(solve_tridiagonal_system_jax, in_axes=(0, 0, 0, 0))))(
-            a_lower_diags_gfalm1, b_main_diags_gfal, c_upper_diags_gfalm1, r_gfal
+            a_lower_diags_gfal, b_main_diags_gfal, c_upper_diags_gfal, r_gfal
         )
+        # I_J_gfal: (g,f,a,l). vmap over g and f, lax.linalg.tridiagonal_solve handles the 'a' batch dim.
+        #I_J_gfal = vmap(vmap(solve_tridiagonal_system_jax, in_axes=(0, 0, 0, 0)),
+        #                in_axes=(0, 0, 0, 0))(
+        #                    a_lower_diags_gfal,
+        #                    b_main_diags_gfal,
+        #                    c_upper_diags_gfal,
+        #                    r_gfal
+        #                    )
+        #I_J_gfal = lax.linalg.tridiagonal_solve(
+        #    a_lower_diags_gfal,
+        #    b_main_diags_gfal,
+        #    c_upper_diags_gfal,
+        #    r_gfal)
 
         # --- 5b. Calculate I_H_gfal_current and new I_plus_surface_gfa ---
         I_H_gfal_current = jnp.zeros_like(I_J_gfal)  # Renamed

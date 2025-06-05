@@ -3,12 +3,28 @@ Test suite for JAX radiative transfer functions, comparing against Fortran imple
 """
 import pytest
 import jax
+from jax import config
+# Enable float64 for JAX to match Fortran's double precision
+config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
 import numpy as np
+import time
 import matplotlib.pyplot as plt
 
 # --- JAX Device Configuration ---
 _JAX_DEVICE_NAME = "cpu"  # Or "gpu", "tpu", None
+JAX_DTYPE = jnp.float64
+NUMPY_DTYPE = np.double
+
+# --- Test Configuration ---
+RTOL = 1e-4  # Increased relative tolerance for complex functions
+ATOL = 1e-6  # Increased absolute tolerance
+N_TIMING_RUNS = 100 # Number of times to run each function for timing
+if config.jax_enable_x64:
+    RTOL = 1e-8  # Increased relative tolerance for complex functions
+    ATOL = 1e-10  # Increased absolute tolerance
+
 
 try:
     if _JAX_DEVICE_NAME and _JAX_DEVICE_NAME.lower() != "default":
@@ -22,8 +38,6 @@ except Exception as e:
     JAX_DEVICE = jax.default_device()
     print(f"JAX tests will run on default JAX device: {JAX_DEVICE.platform.upper()}")
 
-# Enable float64 for JAX to match Fortran's double precision
-jax.config.update("jax_enable_x64", True)
 
 # --- Import JAX and Fortran functions ---
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
@@ -32,12 +46,26 @@ import petitRADTRANS.jax_radtrans as jrt
 import petitRADTRANS.jax_physics as jphys # For JAX Planck functions etc.
 import petitRADTRANS.physical_constants as cst
 
-# --- Test Configuration ---
-RTOL = 1e-5  # Increased relative tolerance for complex functions
-ATOL = 1e-8  # Increased absolute tolerance
+
+# --- Timing Results Storage ---
+timing_results = {}
+
+# --- Pytest Fixture to Save Timings ---
+@pytest.fixture(scope="session", autouse=True)
+def save_timing_results():
+    """Saves the timing results to a file at the end of the test session."""
+    yield
+    output_file = "timing_results.txt"
+    with open(output_file, "w") as f:
+        f.write("Function Name, JAX Mean Time (s), JAX Std Time (s), Fortran Mean Time (s), Fortran Std Time (s), JAX/Fortran\n")
+        for func_name, times in timing_results.items():
+            f.write(f"{func_name}, {times['jax_mean_time']:.6f}, {times['jax_std_time']:.6f}, "
+                    f"{times['fortran_mean_time']:.6f}, {times['fortran_std_time']:.6f}, {times['jax_mean_time']/times['fortran_mean_time']:.6f},\n")
+
+    print(f"\nTiming results written to {output_file}")
 
 # --- Helper Functions ---
-def to_jax_array(arr, dtype=jnp.float64):
+def to_jax_array(arr, dtype=JAX_DTYPE):
     return jax.device_put(jnp.array(arr, dtype=dtype), device=JAX_DEVICE)
 
 def to_numpy_array(arr):
@@ -64,100 +92,99 @@ def n_angles_test(): return 3
 
 @pytest.fixture
 def sample_pressures(n_layers_test):
-    return np.logspace(-6, 2, n_layers_test).astype(np.double)  # bar
+    return np.logspace(-6, 2, n_layers_test).astype(NUMPY_DTYPE)  # bar
 
 @pytest.fixture
 def sample_temperatures(n_layers_test):
-    return np.linspace(500, 2000, n_layers_test).astype(np.double)  # K
+    return np.linspace(500, 2000, n_layers_test).astype(NUMPY_DTYPE)  # K
 
 @pytest.fixture
 def sample_frequencies_centers(n_freq_centers_test):
     # For functions expecting frequency bin centers
-    return np.linspace(3e14, 1e14, n_freq_centers_test).astype(np.double)  # Hz
+    return np.linspace(3e14, 1e14, n_freq_centers_test).astype(NUMPY_DTYPE)  # Hz
 
 @pytest.fixture
 def sample_frequencies_bin_edges(n_freq_edges_test):
     # For functions expecting frequency bin edges
     # Ensure decreasing order for some Fortran routines if necessary, though JAX versions might handle it
-    return np.sort(np.linspace(3.1e14, 0.9e14, n_freq_edges_test)).astype(np.double)  # Hz
+    return np.sort(np.linspace(3.1e14, 0.9e14, n_freq_edges_test)).astype(NUMPY_DTYPE)  # Hz
 
 @pytest.fixture
 def sample_g_gauss(n_g_test):
     # Example g-values (actual values depend on the quadrature)
-    return np.linspace(0.1, 0.9, n_g_test).astype(np.double)
+    return np.linspace(0.1, 0.9, n_g_test).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_weights_gauss(n_g_test):
     # Example weights (must sum to 1 if they are normalized weights)
-    weights = np.abs(np.random.rand(n_g_test)).astype(np.double)
+    weights = np.abs(np.random.rand(n_g_test)).astype(NUMPY_DTYPE)
     return weights / np.sum(weights)
 
 @pytest.fixture
 def sample_opacities_gfls(n_g_test, n_freq_centers_test, n_species_test, n_layers_test):
     # Opacities for (g, freq_centers, species, layers)
-    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_species_test, n_layers_test) * 1e-23).astype(np.double)
+    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_species_test, n_layers_test) * 1e-23).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_opacities_gfls_one_species(n_g_test, n_freq_centers_test, n_species_test, n_layers_test):
     # Opacities for (g, freq_centers, species, layers)
-    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, 1, n_layers_test) * 1e-23).astype(np.double)
+    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, 1, n_layers_test) * 1e-23).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_opacities_gfbl(n_g_test, n_freq_centers_test, n_layers_test):
     # Opacities for (g, freq_bins, layers) - assuming n_species=1 for some contexts
     # n_freq_edges_test is number of edges, so n_freq_edges_test-1 is number of bins
-    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_layers_test) * 1e-23).astype(np.double)
+    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_layers_test) * 1e-23).astype(NUMPY_DTYPE)
 
 
 @pytest.fixture
 def sample_optical_depths_gfls(n_g_test, n_freq_centers_test, n_species_test, n_layers_test):
     # Optical depths for (g, freq_centers, species, layers)
-    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_species_test, n_layers_test) * 10.0).astype(np.double)
+    return np.abs(np.random.rand(n_g_test, n_freq_centers_test, n_species_test, n_layers_test) * 10.0).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_optical_depths_gfbl(n_g_test, n_freq_edges_test, n_layers_test):
     # Optical depths for (g, freq_bins, layers)
-    return np.abs(np.random.rand(n_g_test, n_freq_edges_test - 1, n_layers_test) * 10.0).astype(np.double)
+    return np.abs(np.random.rand(n_g_test, n_freq_edges_test - 1, n_layers_test) * 10.0).astype(NUMPY_DTYPE)
 
 
 @pytest.fixture
 def sample_photon_destruction_gfbl(n_g_test, n_freq_edges_test, n_layers_test):
     # Photon destruction probabilities (g, freq_bins, layers)
-    return np.random.rand(n_g_test, n_freq_edges_test - 1, n_layers_test).astype(np.double)
+    return np.random.rand(n_g_test, n_freq_edges_test - 1, n_layers_test).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_stellar_intensity_f(n_freq_edges_test):
     # Photon destruction probabilities (g, freq_bins, layers)
-    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
+    return np.random.rand(n_freq_edges_test - 1).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_emissivities_f(n_freq_edges_test):
     # Photon destruction probabilities (g, freq_bins, layers)
-    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
+    return np.random.rand(n_freq_edges_test - 1).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_reflectivies_f(n_freq_edges_test):
     # Photon destruction probabilities (g, freq_bins, layers)
-    return np.random.rand(n_freq_edges_test - 1).astype(np.double)
-
+    return np.random.rand(n_freq_edges_test - 1).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_emission_cos_angles(n_angles_test):
-    return np.linspace(0.1, 1.0, n_angles_test).astype(np.double)
+    return np.linspace(0.1, 1.0, n_angles_test).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_emission_cos_angles_weights(n_angles_test):
-    weights = np.abs(np.random.rand(n_angles_test)).astype(np.double)
+    weights = np.abs(np.random.rand(n_angles_test)).astype(NUMPY_DTYPE)
     return weights / np.sum(weights)
 
 @pytest.fixture
 def sample_continuum_opacities_scattering_fl(n_freq_centers_test, n_layers_test):
-    return np.abs(np.random.rand(n_freq_centers_test, n_layers_test) * 1e-25).astype(np.double)
+    return np.abs(np.random.rand(n_freq_centers_test, n_layers_test) * 1e-25).astype(NUMPY_DTYPE)
 
 @pytest.fixture
 def sample_continuum_opacities_scattering_fbl(n_freq_edges_test, n_layers_test):
      # n_freq_edges_test is number of edges, so n_freq_edges_test-1 is number of bins
-    return np.abs(np.random.rand(n_freq_edges_test - 1, n_layers_test) * 1e-25).astype(np.double)
+    return np.abs(np.random.rand(n_freq_edges_test - 1, n_layers_test) * 1e-25).astype(NUMPY_DTYPE)
 
 # --- Test Cases ---
 
@@ -167,20 +194,48 @@ def test_combine_ck_opacities(sample_opacities_gfls, sample_g_gauss, sample_weig
     g_gauss_np = sample_g_gauss
     weights_gauss_np = sample_weights_gauss
 
-    # JAX
+    # JAX Warm-up
     opacities_jax = to_jax_array(opacities_np)
     g_gauss_jax = to_jax_array(g_gauss_np)
     weights_gauss_jax = to_jax_array(weights_gauss_np)
-    jax_result = jrt.combine_ck_opacities(opacities_jax, g_gauss_jax, weights_gauss_jax)
-    jax_result_np = to_numpy_array(jax_result)
+    _ = jrt.combine_ck_opacities(opacities_jax, g_gauss_jax, weights_gauss_jax).block_until_ready()
 
-    # Fortran
-    # Fortran output is (n_g, n_frequencies, n_layers)
-    fortran_opacities_out_np = np.zeros((n_g_test, n_freq_centers_test, n_layers_test), dtype=np.double)
-    fortran_opacities_out_np = fcore.combine_ck_opacities(
+    # Fortran Warm-up
+    _ = fcore.combine_ck_opacities(
         opacities_np, g_gauss_np, weights_gauss_np,
         n_g_test, n_freq_centers_test, n_species_test, n_layers_test,
     )
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_result = jrt.combine_ck_opacities(opacities_jax, g_gauss_jax, weights_gauss_jax).block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_result_np = to_numpy_array(jax_result)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        # Fortran output is (n_g, n_frequencies, n_layers)
+        fortran_opacities_out_np = np.zeros((n_g_test, n_freq_centers_test, n_layers_test), dtype=NUMPY_DTYPE)
+        fortran_opacities_out_np = fcore.combine_ck_opacities(
+            opacities_np, g_gauss_np, weights_gauss_np,
+            n_g_test, n_freq_centers_test, n_species_test, n_layers_test,
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+
+    timing_results[test_combine_ck_opacities.__name__] = {
+        'jax_mean_time': jax_mean_time,
+        'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time,
+        'fortran_std_time': fortran_std_time
+    }
     
     assert jax_result_np.shape == fortran_opacities_out_np.shape, "Shape mismatch"
     np.testing.assert_allclose(jax_result_np, fortran_opacities_out_np, rtol=RTOL, atol=ATOL,
@@ -197,61 +252,75 @@ def test_compute_ck_flux(sample_frequencies_centers, sample_temperatures, sample
     mu_np = sample_emission_cos_angles
     w_mu_np = sample_emission_cos_angles_weights
     opt_depth_np = sample_optical_depths_gfls
+    
+    freq_jax = to_jax_array(freq_np)
+    temp_jax = to_jax_array(temp_np)
+    w_g_jax = to_jax_array(w_g_np)
+    mu_jax = to_jax_array(mu_np)
+    w_mu_jax = to_jax_array(w_mu_np)
+    opt_depth_jax = to_jax_array(opt_depth_np)
+
     return_contribution = False # For simplicity in this test, can be expanded
 
-    # JAX
-    jax_flux, _ = jrt.compute_ck_flux(
-        to_jax_array(freq_np), to_jax_array(temp_np), to_jax_array(w_g_np),
-        to_jax_array(mu_np), to_jax_array(w_mu_np), to_jax_array(opt_depth_np),
+    # JAX Warm-up
+    _ = jrt.compute_ck_flux(
+        freq_jax,
+        temp_jax,
+        w_g_jax,
+        mu_jax,
+        w_mu_jax,
+        opt_depth_jax,
         return_contribution
-    )
-    jax_flux_np = to_numpy_array(jax_flux)
+    )[0].block_until_ready()
 
-    # Fortran
-    fortran_flux_np = np.zeros(n_freq_centers_test, dtype=np.double)
-    fortran_contr_em_np = np.zeros((n_layers_test, n_freq_centers_test), dtype=np.double) # Dummy
-    fortran_flux_np, fortran_contr_em_np = fcore.compute_ck_flux(
+    # Fortran Warm-up
+    _ = fcore.compute_ck_flux(
         freq_np, temp_np, w_g_np, mu_np, w_mu_np, opt_depth_np, return_contribution,
         n_freq_centers_test, n_layers_test, n_angles_test, n_g_test, n_species_test
     )
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_flux, _ = jrt.compute_ck_flux(
+            freq_jax, temp_jax, w_g_jax,
+            mu_jax, w_mu_jax, opt_depth_jax,
+            return_contribution
+        )
+        jax_flux.block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_flux_np = to_numpy_array(jax_flux)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_flux_np = np.zeros(n_freq_centers_test, dtype=NUMPY_DTYPE)
+        fortran_contr_em_np = np.zeros((n_layers_test, n_freq_centers_test), dtype=NUMPY_DTYPE) # Dummy
+        fortran_flux_np, fortran_contr_em_np = fcore.compute_ck_flux(
+            freq_np, temp_np, w_g_np, mu_np, w_mu_np, opt_depth_np, return_contribution,
+            n_freq_centers_test, n_layers_test, n_angles_test, n_g_test, n_species_test
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_ck_flux.__name__] = {
+        'jax_mean_time': jax_mean_time, 'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time, 'fortran_std_time': fortran_std_time
+    }
 
     assert jax_flux_np.shape == fortran_flux_np.shape, "Shape mismatch"
     np.testing.assert_allclose(jax_flux_np, fortran_flux_np, rtol=RTOL, atol=ATOL,
                                err_msg="compute_ck_flux outputs differ.")
 
 
-def test_compute_feautrier_radiative_transfer(
-        sample_frequencies_bin_edges,
-        sample_temperatures,
-        sample_weights_gauss,
-        sample_emission_cos_angles,
-        sample_emission_cos_angles_weights,
-        sample_optical_depths_gfbl,
-        sample_photon_destruction_gfbl,
-        sample_stellar_intensity_f,
-        sample_reflectivies_f,
-        sample_emissivities_f,
-        n_angles_test,
-        n_layers_test,
-        n_freq_centers_test,
-        n_freq_edges_test,
-        n_g_test):
-    """freq_edges_np = sample_frequencies_bin_edges
-    temp_np = sample_temperatures
-    w_g_np = sample_weights_gauss
-    mu_np = sample_emission_cos_angles
-    w_mu_np = sample_emission_cos_angles_weights
-    opt_depth_np = sample_optical_depths_gfbl
-    photon_destruction_prob_np = sample_photon_destruction_gfbl
-    stellar_intensity_np = sample_stellar_intensity_f
-    reflectances_np = sample_reflectivies_f
-    emissivities_np = sample_emissivities_f
-    star_irradiation_cos_angle = 0.5
-    return_contribution = False """ # For simplicity in this test, can be expanded
+def test_compute_feautrier_radiative_transfer():
     import os
     path_input_data = "/Users/nasedkin/python-packages/petitRADTRANS/input_data/"
     buffer = np.genfromtxt(os.path.join(path_input_data, 'opa_input_files', 'g_comb_grid.dat'))
-    mu_points = np.genfromtxt(os.path.join(path_input_data, 'opa_input_files', 'mu_points.dat'))
 
     n_layers = 20
     n_freq_bins = 50
@@ -259,56 +328,71 @@ def test_compute_feautrier_radiative_transfer(
     N_species = 2
     n_g = 16
     n_angles = 3
+
     wavelength_min = 1.0
     wavelength_max = 5.0
     micron_to_meter = 1e-4
-    pressure_unit = 1e6
-    pressures = 1e6*jnp.logspace(-6,3,n_layers)
-    frequencies_bin_edges = cst.c/(jnp.linspace(wavelength_min,wavelength_max,n_frequencies_bin_edges)*micron_to_meter)
-    frequency_bin_centers = (frequencies_bin_edges[:-1]+frequencies_bin_edges[1:])*0.5
-    temperatures = jnp.ones(pressures.shape[0])*500
-    weights_gauss = jnp.array(buffer[:,1])
-    emission_cos_angles = jnp.array([0.1127,0.5,0.88729])
-    emission_cos_angles_weights = jnp.array([0.2777777,0.444444444,0.2777777777])
-    optical_depths = (jnp.ones((n_g, n_freq_bins, n_layers))
-                     * jnp.sin(jnp.linspace(0.01,10,n_g))[:,None,None]
-                     * jnp.cos(jnp.linspace(0.1,10,n_freq_bins))[None,:,None]
-                     * jnp.sin(jnp.linspace(0.3,5,n_layers))[None,None,:]
-                     * 1e-4)
-    photon_destruction_probabilities = np.ones((n_g, n_freq_bins, n_layers))#*1e-5* jnp.linspace(0.1,10,n_freq_bins)[None,:,None]
+    frequencies_bin_edges = cst.c/(
+            np.linspace(
+                wavelength_min,
+                wavelength_max,
+                n_frequencies_bin_edges)
+            * micron_to_meter).astype(NUMPY_DTYPE)
+        
+    pressures = 1e6*np.logspace(-6, 3, n_layers).astype(NUMPY_DTYPE)
+    temperatures = np.ones(pressures.shape[0]).astype(NUMPY_DTYPE)*500
+
+    weights_gauss = np.array(buffer[:,1]).astype(NUMPY_DTYPE)
+    emission_cos_angles = np.array([0.1127,0.5,0.88729])
+    emission_cos_angles_weights = np.array([0.2777777,0.444444444,0.2777777777]).astype(NUMPY_DTYPE)
+
+    optical_depths = (
+        np.ones((n_g, n_freq_bins, n_layers)).astype(NUMPY_DTYPE)
+        * np.sin(np.linspace(0.01,10,n_g))[:,None,None]
+        * np.cos(np.linspace(0.1,10,n_freq_bins))[None,:,None]
+        * np.sin(np.linspace(0.3,5,n_layers))[None,None,:]
+        * 1e-4)
+    photon_destruction_probabilities = np.ones((n_g, n_freq_bins, n_layers)).astype(NUMPY_DTYPE)  #*1e-5* np.linspace(0.1,10,n_freq_bins)[None,:,None]
+    
     emission_geometry = 'planetary_ave'
-    stellar_intensity = jnp.ones(n_freq_bins)*1e-7
-    star_irradiation_cos_angle = 0.5  
-    reflectances = jnp.ones(n_freq_bins)*1e-7
-    emissivities = jnp.ones(n_freq_bins)*1e-7
+    star_irradiation_cos_angle = 0.5
+    stellar_intensity = np.ones(n_freq_bins).astype(NUMPY_DTYPE)*1e-7
+    reflectances = np.ones(n_freq_bins).astype(NUMPY_DTYPE)*1e-7
+    emissivities = np.ones(n_freq_bins).astype(NUMPY_DTYPE)*1e-7
     return_contribution = False
 
-    # JAX
-    jax_flux, _ = jrt.compute_feautrier_radiative_transfer(
-        frequencies_bin_edges,
-        temperatures,
-        weights_gauss,
-        emission_cos_angles,
-        emission_cos_angles_weights,
-        optical_depths,
-        photon_destruction_probabilities,
-        stellar_intensity,
+    # --- Convert to JAX arrays ---
+    frequencies_bin_edges_jax = to_jax_array(frequencies_bin_edges)
+    temperatures_jax = to_jax_array(temperatures)
+    weights_gauss_jax = to_jax_array(weights_gauss)
+    emission_cos_angles_jax = to_jax_array(emission_cos_angles)
+    emission_cos_angles_weights_jax = to_jax_array(emission_cos_angles_weights)
+    optical_depths_jax = to_jax_array(optical_depths)
+    photon_destruction_probabilities_jax = to_jax_array(photon_destruction_probabilities)
+    stellar_intensity_jax = to_jax_array(stellar_intensity)
+    reflectances_jax = to_jax_array(reflectances)
+    emissivities_jax = to_jax_array(emissivities)
+    
+    # JAX Warm-up
+    _ = jrt.compute_feautrier_radiative_transfer(
+        frequencies_bin_edges_jax,
+        temperatures_jax,
+        weights_gauss_jax,
+        emission_cos_angles_jax,
+        emission_cos_angles_weights_jax,
+        optical_depths_jax,
+        photon_destruction_probabilities_jax,
+        stellar_intensity_jax,
         star_irradiation_cos_angle,
-        reflectances,
-        emissivities,
+        reflectances_jax,
+        emissivities_jax,
         emission_geometry,
-        return_contribution)
-    jax_flux_np = to_numpy_array(jax_flux)
+        return_contribution)[0].block_until_ready()
 
-    # Fortran
-    fortran_flux_np = np.zeros(n_freq_centers_test, dtype=np.double)
-    fortran_contr_em_np = np.zeros((
-        n_layers_test,
-        n_freq_centers_test),
-        dtype=np.double
-        )  # Dummy
+    # Fortran Warm-up
+    fortran_flux_np = np.zeros(n_freq_bins, dtype=NUMPY_DTYPE)
 
-    fortran_flux_np, _ = fcore.compute_feautrier_radiative_transfer(
+    _ = fcore.compute_feautrier_radiative_transfer(
         frequencies_bin_edges,
         temperatures,
         weights_gauss,
@@ -325,7 +409,61 @@ def test_compute_feautrier_radiative_transfer(
         n_frequencies_bin_edges,
         n_layers,
         n_angles,
-        n_g)
+        n_g)[0]
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_flux, _ = jrt.compute_feautrier_radiative_transfer(
+            frequencies_bin_edges_jax,
+            temperatures_jax,
+            weights_gauss_jax,
+            emission_cos_angles_jax,
+            emission_cos_angles_weights_jax,
+            optical_depths_jax,
+            photon_destruction_probabilities_jax,
+            stellar_intensity_jax,
+            star_irradiation_cos_angle,
+            reflectances_jax,
+            emissivities_jax,
+            emission_geometry,
+            return_contribution)
+        jax_flux.block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_flux_np = to_numpy_array(jax_flux)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_flux_np, _ = fcore.compute_feautrier_radiative_transfer(
+            frequencies_bin_edges,
+            temperatures,
+            weights_gauss,
+            emission_cos_angles,
+            emission_cos_angles_weights,
+            optical_depths,
+            photon_destruction_probabilities,
+            emission_geometry,
+            stellar_intensity,
+            star_irradiation_cos_angle,
+            reflectances,
+            emissivities,
+            return_contribution,
+            n_frequencies_bin_edges,
+            n_layers,
+            n_angles,
+            n_g)
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_feautrier_radiative_transfer.__name__] = {
+        'jax_mean_time': jax_mean_time, 'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time, 'fortran_std_time': fortran_std_time
+    }
 
     assert jax_flux_np.shape == fortran_flux_np.shape, "Shape mismatch"
     np.testing.assert_allclose(
@@ -339,24 +477,56 @@ def test_compute_feautrier_radiative_transfer(
 
 def test_compute_species_optical_depths(sample_pressures, sample_opacities_gfls,
                                          n_layers_test, n_freq_centers_test, n_g_test, n_species_test):
-    ref_gravity_np = 980.0 # cm/s^2
-    pressures_np = sample_pressures * 1e6 # bar to cgs for Fortran
+    ref_gravity_np = 980.0  # cm/s^2
+    pressures_np = sample_pressures * 1e6  # bar to cgs for Fortran
     opacities_np = sample_opacities_gfls
 
-    # JAX
+    ref_gravity_jax = 980.0  # cm/s^2
+    pressures_jax = to_jax_array(pressures_np) # bar to cgs for Fortran
+    opacities_jax = to_jax_array(opacities_np)
+    # JAX Warm-up
     # JAX function takes pressures in cgs
-    jax_opt_depth = jrt.compute_species_optical_depths(
-        to_jax_array(ref_gravity_np), to_jax_array(pressures_np), to_jax_array(opacities_np)
-    )
-    jax_opt_depth_np = to_numpy_array(jax_opt_depth)
+    _ = jrt.compute_species_optical_depths(
+        ref_gravity_jax, pressures_jax, opacities_jax
+    ).block_until_ready()
 
-    # Fortran
-    fortran_opt_depth_np = np.zeros_like(opacities_np)
-    fortran_opt_depth_np = fcore.compute_species_optical_depths(
+    # Fortran Warm-up
+    _ = fcore.compute_species_optical_depths(
         ref_gravity_np, pressures_np, opacities_np,
         n_layers_test, n_freq_centers_test, n_g_test, n_species_test
     )
-    
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_opt_depth = jrt.compute_species_optical_depths(
+            ref_gravity_jax, pressures_jax, opacities_jax
+        ).block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_opt_depth_np = to_numpy_array(jax_opt_depth)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_opt_depth_np = np.zeros_like(opacities_np)
+        fortran_opt_depth_np = fcore.compute_species_optical_depths(
+            ref_gravity_np, pressures_np, opacities_np,
+            n_layers_test, n_freq_centers_test, n_g_test, n_species_test
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_species_optical_depths.__name__] = {
+        'jax_mean_time': jax_mean_time,
+        'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time,
+        'fortran_std_time': fortran_std_time
+    }
+
     assert jax_opt_depth_np.shape == fortran_opt_depth_np.shape, "Shape mismatch"
     np.testing.assert_allclose(jax_opt_depth_np, fortran_opt_depth_np, rtol=RTOL, atol=ATOL,
                                err_msg="compute_species_optical_depths outputs differ.")
@@ -373,25 +543,66 @@ def test_compute_optical_depths(sample_pressures, sample_opacities_gfls_one_spec
     # Fortran expects continuum_opacities_scattering(n_frequencies, n_layers)
     # JAX expects continuum_opacities_scattering(n_frequencies, n_layers)
     continuum_scat_np = sample_continuum_opacities_scattering_fl
+
+    ref_gravity_jax = to_jax_array(ref_gravity_np)
+    pressures_jax = to_jax_array(pressures_np)
+    opacities_jax = to_jax_array(opacities_np)
+    continuum_scat_jax = to_jax_array(continuum_scat_np)
     scattering_in_emission = True
 
-    # JAX
-    jax_opt_depth, jax_photon_dest_prob = jrt.compute_optical_depths(
-        to_jax_array(ref_gravity_np), to_jax_array(pressures_np),
-        to_jax_array(opacities_np), scattering_in_emission,
-        to_jax_array(continuum_scat_np)
+    # JAX Warm-up
+    _, _ = jrt.compute_optical_depths(
+        ref_gravity_jax,
+        pressures_jax,
+        opacities_jax,
+        scattering_in_emission,
+        continuum_scat_jax
     )
-    jax_opt_depth_np = to_numpy_array(jax_opt_depth)
-    jax_photon_dest_prob_np = to_numpy_array(jax_photon_dest_prob)
+    _.block_until_ready()
 
-    # Fortran
-    fortran_opt_depth_np = np.zeros_like(opacities_np)
-    # Fortran photon_destruction_probabilities is (n_g, n_frequencies, n_layers)
-    fortran_photon_dest_prob_np = np.zeros((n_g_test, n_freq_centers_test, n_layers_test), dtype=np.double)
-    fortran_opt_depth_np, fortran_photon_dest_prob_np = fcore.compute_optical_depths(
+    # Fortran Warm-up
+    _ = fcore.compute_optical_depths(
         ref_gravity_np, pressures_np, opacities_np, scattering_in_emission,
         continuum_scat_np, n_layers_test, n_freq_centers_test, n_g_test
     )
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_opt_depth, jax_photon_dest_prob = jrt.compute_optical_depths(
+            ref_gravity_jax,
+            pressures_jax,
+            opacities_jax,
+            scattering_in_emission,
+            continuum_scat_jax
+        )
+        jax_opt_depth.block_until_ready()
+        jax_photon_dest_prob.block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_opt_depth_np = to_numpy_array(jax_opt_depth)
+    jax_photon_dest_prob_np = to_numpy_array(jax_photon_dest_prob)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_opt_depth_np = np.zeros_like(opacities_np)
+        # Fortran photon_destruction_probabilities is (n_g, n_frequencies, n_layers)
+        fortran_photon_dest_prob_np = np.zeros((n_g_test, n_freq_centers_test, n_layers_test), dtype=NUMPY_DTYPE)
+        fortran_opt_depth_np, fortran_photon_dest_prob_np = fcore.compute_optical_depths(
+            ref_gravity_np, pressures_np, opacities_np, scattering_in_emission,
+            continuum_scat_np, n_layers_test, n_freq_centers_test, n_g_test
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_optical_depths.__name__] = {
+        'jax_mean_time': jax_mean_time, 'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time, 'fortran_std_time': fortran_std_time
+    }
 
     assert jax_opt_depth_np.shape == fortran_opt_depth_np.shape, "Optical depth shape mismatch"
     np.testing.assert_allclose(jax_opt_depth_np, fortran_opt_depth_np, rtol=RTOL, atol=ATOL,
@@ -417,32 +628,61 @@ def test_compute_planck_opacities(sample_opacities_gfbl, sample_temperatures, sa
     continuum_scat_np = sample_continuum_opacities_scattering_fbl
     scattering_in_emission = True
    
-    # JAX
+    # JAX Warm-up
     # JAX total_opacity input is (n_g, n_freq_bins-1, n_layers)
     # JAX continuum_opacity_scattering_emis is (n_freq_bins-1, n_layers)
-    jax_planck_opac = jrt.compute_planck_opacities(
+    _ = jrt.compute_planck_opacities(
         to_jax_array(opacities_np), to_jax_array(temperatures_np), to_jax_array(weights_gauss_np),
         to_jax_array(freq_edges_np), scattering_in_emission, to_jax_array(continuum_scat_np)
-    )
+    ).block_until_ready()
     
+    # Fortran Warm-up
+    _ = fcore.compute_planck_opacities(
+        opacities_np, temperatures_np, weights_gauss_np, freq_edges_np,
+        scattering_in_emission, continuum_scat_np,
+        n_g_test, n_freq_centers_test, n_layers_test, n_freq_edges_test
+    )
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_planck_opac = jrt.compute_planck_opacities(
+            to_jax_array(opacities_np), to_jax_array(temperatures_np), to_jax_array(weights_gauss_np),
+            to_jax_array(freq_edges_np), scattering_in_emission, to_jax_array(continuum_scat_np)
+        ).block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
     jax_planck_opac_np = to_numpy_array(jax_planck_opac)
 
-    # Fortran
+    # Time Fortran
     # Fortran opacities(n_g, n_frequencies, n_layers) -> n_frequencies is n_freq_bins-1
     # Fortran continuum_opacities_scattering(n_frequencies, n_layers)
-    fortran_planck_opac_np = np.zeros(n_layers_test, dtype=np.double)
-    fortran_planck_opac_np = fcore.compute_planck_opacities(
-        opacities_np,
-        temperatures_np,
-        weights_gauss_np,
-        freq_edges_np,
-        scattering_in_emission,
-        continuum_scat_np,
-        n_g_test,
-        n_freq_centers_test,
-        n_layers_test,
-        n_freq_edges_test
-    )
+    # TODO: figure out why fortran function is crashing.
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_planck_opac_np = np.zeros(n_layers_test, dtype=NUMPY_DTYPE)
+        fortran_planck_opac_np = fcore.compute_planck_opacities(
+            opacities_np,
+            temperatures_np,
+            weights_gauss_np,
+            freq_edges_np,
+            scattering_in_emission,
+            continuum_scat_np,
+            n_g_test,
+            n_freq_centers_test,
+            n_layers_test,
+            n_freq_edges_test
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_planck_opacities.__name__] = {
+        'jax_mean_time': jax_mean_time, 'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time, 'fortran_std_time': fortran_std_time
+    }
 
     assert jax_planck_opac_np.shape == fortran_planck_opac_np.shape, "Shape mismatch"
     np.testing.assert_allclose(jax_planck_opac_np, fortran_planck_opac_np, rtol=RTOL, atol=ATOL,
@@ -455,7 +695,7 @@ def test_compute_radius_hydrostatic_equilibrium(sample_pressures, sample_tempera
     temperatures_np = sample_temperatures
     
     # Create plausible mean_molar_masses and atmosphere_densities
-    mean_molar_masses_np = np.full(n_layers_test, 2.3, dtype=np.double)  # Example: H2/He mix
+    mean_molar_masses_np = np.full(n_layers_test, 2.3, dtype=NUMPY_DTYPE)  # Example: H2/He mix
     atmosphere_densities_np = pressures_np_cgs * mean_molar_masses_np * cst.amu / (cst.kB * temperatures_np)
 
     reference_gravity_np = 1000.0  # cm/s^2
@@ -463,30 +703,64 @@ def test_compute_radius_hydrostatic_equilibrium(sample_pressures, sample_tempera
     planet_radius_np = 7e9  # cm (Jupiter-like)
     variable_gravity = True
 
-    # JAX
+    pressures_jax_cgs = to_jax_array(pressures_np_cgs)
+    reference_gravity_jax = reference_gravity_np
+    atmosphere_densities_jax = to_jax_array(atmosphere_densities_np)
+    reference_pressure_jax_cgs = to_jax_array(reference_pressure_np_cgs)
+    planet_radius_jax = to_jax_array(planet_radius_np)
+    # JAX Warm-up
     # JAX pressures are in cgs
-    jax_radius_eq = jrt.compute_radius_hydrostatic_equilibrium(
-        to_jax_array(pressures_np_cgs),
-        to_jax_array(reference_gravity_np),
-        to_jax_array(atmosphere_densities_np),
-        to_jax_array(reference_pressure_np_cgs),
-        to_jax_array(planet_radius_np),
+    _ = jrt.compute_radius_hydrostatic_equilibrium(
+        pressures_jax_cgs,
+        reference_gravity_jax,
+        atmosphere_densities_jax,
+        reference_pressure_jax_cgs,
+        planet_radius_jax,
         variable_gravity
+    ).block_until_ready()
+
+    # Fortran Warm-up
+    _ = fcore.compute_radius_hydrostatic_equilibrium(
+        pressures_np_cgs, reference_gravity_np, atmosphere_densities_np,
+        reference_pressure_np_cgs, planet_radius_np, variable_gravity, n_layers_test
     )
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_radius_eq = jrt.compute_radius_hydrostatic_equilibrium(
+            pressures_jax_cgs,
+            reference_gravity_jax,
+            atmosphere_densities_jax,
+            reference_pressure_jax_cgs,
+            planet_radius_jax,
+            variable_gravity
+        ).block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
     jax_radius_eq_np = to_numpy_array(jax_radius_eq)
 
-    # Fortran
-    fortran_radius_eq_np = np.zeros(n_layers_test, dtype=np.double)
-    # Fortran pressures are in cgs
-    fortran_radius_eq_np = fcore.compute_radius_hydrostatic_equilibrium(
-        pressures_np_cgs,
-        reference_gravity_np,
-        atmosphere_densities_np,
-        reference_pressure_np_cgs,
-        planet_radius_np,
-        variable_gravity,
-        n_layers_test
-    )
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        fortran_radius_eq_np = np.zeros(n_layers_test, dtype=NUMPY_DTYPE)
+        # Fortran pressures are in cgs
+        fortran_radius_eq_np = fcore.compute_radius_hydrostatic_equilibrium(
+            pressures_np_cgs, reference_gravity_np, atmosphere_densities_np,
+            reference_pressure_np_cgs, planet_radius_np, variable_gravity, n_layers_test
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_radius_hydrostatic_equilibrium.__name__] = {
+        'jax_mean_time': jax_mean_time,
+        'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time,
+        'fortran_std_time': fortran_std_time
+    }
 
     assert jax_radius_eq_np.shape == fortran_radius_eq_np.shape, "Shape mismatch"
     np.testing.assert_allclose(jax_radius_eq_np, fortran_radius_eq_np, rtol=RTOL, atol=ATOL,
@@ -500,7 +774,7 @@ def test_compute_transit_radii(sample_opacities_gfls, sample_temperatures, sampl
     temperatures_np = sample_temperatures
     pressures_cgs_np = sample_pressures * 1e6  # cgs
     
-    mean_molar_masses_np = np.full(n_layers_test, 2.3, dtype=np.double)
+    mean_molar_masses_np = np.full(n_layers_test, 2.3, dtype=NUMPY_DTYPE)
     reference_gravity_np = 1000.0
     reference_pressure_bar_np = 1.0  # bar
     planet_radius_cm_np = 7e9  # cm
@@ -509,29 +783,86 @@ def test_compute_transit_radii(sample_opacities_gfls, sample_temperatures, sampl
     continuum_scat_np = sample_continuum_opacities_scattering_fl
     variable_gravity = True
 
-    # JAX
+    opacities_jax = to_jax_array(opacities_np)
+    temperatures_jax = to_jax_array(temperatures_np)
+    pressures_cgs_jax = to_jax_array(pressures_cgs_np)
+    reference_gravity_jax = reference_gravity_np
+    mean_molar_masses_jax = to_jax_array(mean_molar_masses_np)
+    reference_pressure_bar_jax = reference_pressure_bar_np
+    planet_radius_cm_jax = planet_radius_cm_np
+    weights_gauss_jax = to_jax_array(weights_gauss_np)
+    continuum_scat_jax = to_jax_array(continuum_scat_np)
+    # JAX Warm-up
     # JAX pressures are in bar
-    jax_transit_radii, jax_radius_hydro_eq = jrt.compute_transit_radii(
-        to_jax_array(opacities_np), to_jax_array(temperatures_np), to_jax_array(pressures_cgs_np),
-        to_jax_array(reference_gravity_np), to_jax_array(mean_molar_masses_np),
-        to_jax_array(reference_pressure_bar_np), to_jax_array(planet_radius_cm_np),
-        to_jax_array(weights_gauss_np), scattering_in_transmission,
-        to_jax_array(continuum_scat_np), variable_gravity
+    _, _ = jrt.compute_transit_radii(
+        opacities_jax,
+        temperatures_jax,
+        pressures_cgs_jax,
+        reference_gravity_jax,
+        mean_molar_masses_jax,
+        reference_pressure_bar_jax,
+        planet_radius_cm_jax,
+        weights_gauss_jax,
+        scattering_in_transmission,
+        continuum_scat_jax,
+        variable_gravity
     )
-    jax_transit_radii_np = to_numpy_array(jax_transit_radii)
-    jax_radius_hydro_eq_np = to_numpy_array(jax_radius_hydro_eq)
+    _[0].block_until_ready()
 
-    # Fortran
-    # Fortran pressures are in bar
-    fortran_transit_radii_np = np.zeros(n_freq_centers_test, dtype=np.double)
-    fortran_radius_hydro_eq_np = np.zeros(n_layers_test, dtype=np.double)
-    fortran_transit_radii_np, fortran_radius_hydro_eq_np = fcore.compute_transit_radii(
+    # Fortran Warm-up
+    _ = fcore.compute_transit_radii(
         opacities_np, temperatures_np, pressures_cgs_np, reference_gravity_np,
         mean_molar_masses_np, reference_pressure_bar_np, planet_radius_cm_np,
         weights_gauss_np, scattering_in_transmission, continuum_scat_np,
-        variable_gravity, n_freq_centers_test, n_layers_test, n_g_test, n_species_test, 
+        variable_gravity, n_freq_centers_test, n_layers_test, n_g_test, n_species_test,
     )
-    
+
+    # Time JAX
+    jax_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        jax_transit_radii, jax_radius_hydro_eq = jrt.compute_transit_radii(
+            opacities_jax,
+            temperatures_jax,
+            pressures_cgs_jax,
+            reference_gravity_jax,
+            mean_molar_masses_jax,
+            reference_pressure_bar_jax,
+            planet_radius_cm_jax,
+            weights_gauss_jax,
+            scattering_in_transmission,
+            continuum_scat_jax,
+            variable_gravity
+        )
+        jax_transit_radii.block_until_ready()
+        jax_radius_hydro_eq.block_until_ready()
+        jax_times.append(time.perf_counter() - start_time)
+    jax_mean_time = np.mean(jax_times)
+    jax_std_time = np.std(jax_times)
+    jax_transit_radii_np = to_numpy_array(jax_transit_radii)
+    jax_radius_hydro_eq_np = to_numpy_array(jax_radius_hydro_eq)
+
+    # Time Fortran
+    fortran_times = []
+    for _ in range(N_TIMING_RUNS):
+        start_time = time.perf_counter()
+        # Fortran pressures are in bar
+        fortran_transit_radii_np = np.zeros(n_freq_centers_test, dtype=NUMPY_DTYPE)
+        fortran_radius_hydro_eq_np = np.zeros(n_layers_test, dtype=NUMPY_DTYPE)
+        fortran_transit_radii_np, fortran_radius_hydro_eq_np = fcore.compute_transit_radii(
+            opacities_np, temperatures_np, pressures_cgs_np, reference_gravity_np,
+            mean_molar_masses_np, reference_pressure_bar_np, planet_radius_cm_np,
+            weights_gauss_np, scattering_in_transmission, continuum_scat_np,
+            variable_gravity, n_freq_centers_test, n_layers_test, n_g_test, n_species_test, 
+        )
+        fortran_times.append(time.perf_counter() - start_time)
+    fortran_mean_time = np.mean(fortran_times)
+    fortran_std_time = np.std(fortran_times)
+    timing_results[test_compute_transit_radii.__name__] = {
+        'jax_mean_time': jax_mean_time, 'jax_std_time': jax_std_time,
+        'fortran_mean_time': fortran_mean_time, 'fortran_std_time': fortran_std_time
+    }
+
     assert jax_transit_radii_np.shape == fortran_transit_radii_np.shape, "Transit radii shape mismatch"
     np.testing.assert_allclose(jax_transit_radii_np, fortran_transit_radii_np, rtol=RTOL, atol=ATOL,
                                err_msg="compute_transit_radii (transit_radii) outputs differ.")
@@ -543,4 +874,4 @@ def test_compute_transit_radii(sample_opacities_gfls, sample_temperatures, sampl
 
 if __name__ == "__main__":
     pytest.main([__file__])
-
+    save_timing_results()

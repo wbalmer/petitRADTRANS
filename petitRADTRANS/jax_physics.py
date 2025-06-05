@@ -1,7 +1,6 @@
 """
 JAX implementation of fortran_core.physics
 """
-import numpy as np
 import jax.numpy as jnp
 import warnings
 from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
@@ -9,7 +8,6 @@ from functools import partial
 
 import petitRADTRANS.physical_constants as cst
 # import petitRADTRANS.fortran_radtrans_core import math as fmath
-
 
 @jit
 def compute_planck_function_integral_old(T, nul, nur):
