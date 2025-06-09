@@ -1,5 +1,5 @@
-import numpy as np
 import easychem as ec
+import numpy as np
 
 
 def get_easychem_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR=False):

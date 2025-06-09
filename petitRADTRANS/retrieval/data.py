@@ -5,10 +5,10 @@ import warnings
 
 import numpy as np
 from astropy.io import fits
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
+from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from scipy.ndimage import gaussian_filter
 
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 import petitRADTRANS.physical_constants as cst
 
 
@@ -689,7 +689,6 @@ class Data:
         else:
             log_l += -0.5 * np.sum((diff / f_err) ** 2)
             log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2))
-
             if per_datapoint:  # TODO is there a point calculating log_l if only log_l_per_datapoint is returned?
                 # Only diagonal covariance elements
                 log_l_per_datapoint = -0.5 * np.log(2 * np.pi * f_err ** 2) - 0.5 * (diff / f_err) ** 2

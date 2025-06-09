@@ -12,25 +12,23 @@ import warnings
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 import petitRADTRANS
-from petitRADTRANS._input_data_loader import (_get_base_cia_names, _get_base_cloud_names, _get_base_correlated_k_names,
-                                              _get_base_line_by_line_names, check_opacity_name,
-                                              get_default_correlated_k_resolution,
-                                              get_species_basename, get_species_isotopologue_name,
-                                              get_opacity_directory, get_opacity_input_file, get_resolving_power_string,
-                                              join_species_all_info)
+# noinspection PyUnresolvedReferences
+from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 from petitRADTRANS.math import prt_resolving_space
-import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.utils import LockedDict
 
 # MPI Multiprocessing
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
+
 if prt_emcee_mode == 'True':
     load_mpi = False
 
@@ -46,7 +44,9 @@ if load_mpi:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     except ImportError:
-        pass
+        MPI = None
+        comm = None
+        rank = None
 
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
@@ -115,13 +115,13 @@ def _chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input
 
     # Read in parameters of chemistry grid
     if old_paths:
-        path = os.path.join(
+        path = str(os.path.join(
             path_input_data, __get_prt2_input_data_subpaths()['pre_calculated_chemistry'],
-        )
+        ))
     else:
-        path = os.path.join(
+        path = str(os.path.join(
             path_input_data, get_input_data_subpaths()['pre_calculated_chemistry'], 'equilibrium_chemistry'
-        )
+        ))
 
     hdf5_file = os.path.join(path, 'equilibrium_chemistry.chemtable.petitRADTRANS.h5')
 
@@ -307,9 +307,9 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
 
     # Get only existing directories
     if old_paths:
-        input_directory = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['cia_opacities'])
+        input_directory = str(os.path.join(path_input_data, __get_prt2_input_data_subpaths()['cia_opacities']))
     else:
-        input_directory = os.path.join(path_input_data, get_input_data_subpaths()['cia_opacities'])
+        input_directory = str(os.path.join(path_input_data, get_input_data_subpaths()['cia_opacities']))
 
     # Save each clouds data into HDF5 file
     if output_directory is None:
@@ -321,10 +321,10 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
     for i, key in enumerate(doi_dict):
         # Check if data directory exists
         if old_paths:
-            cia_dir = os.path.join(input_directory, key)
+            cia_dir = os.path.join(str(input_directory), key)
         else:
             cia_dir = os.path.join(
-                input_directory, key, get_species_isotopologue_name(_get_base_cia_names()[key])
+                str(input_directory), key, CIAOpacity.get_species_isotopologue_name(_get_base_cia_names()[key])
             )
 
         if not os.path.isdir(cia_dir):
@@ -394,72 +394,16 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
         # Write HDF5 file
         print(f" Writing file '{hdf5_cia_file}'...", end=' ')
 
-        with h5py.File(hdf5_cia_file, "w") as fh5:
-            dataset = fh5.create_dataset(
-                name='DOI',
-                shape=(1,),
-                data=doi_dict[key]
-            )
-            dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-            dataset.attrs['additional_description'] = description_dict[key]
-
-            dataset = fh5.create_dataset(
-                name='Date_ID',
-                shape=(1,),
-                data=f'petitRADTRANS-v{petitRADTRANS.__version__}_'
-                     f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
-            )
-            dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                         'at which the table has been created, ' \
-                                         'along with the version of petitRADTRANS'
-
-            dataset = fh5.create_dataset(
-                name='wavenumbers',
-                data=wavenumbers
-            )
-            dataset.attrs['long_name'] = 'CIA wavenumbers'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='alpha',
-                data=np.transpose(cia_dict['alpha'])[:, ::-1]  # (temperature, wavenumber) wavenumbers ordering
-            )
-            dataset.attrs['long_name'] = 'Table of monochromatic absorption with axes (temperature, wavenumber)'
-            dataset.attrs['units'] = 'cm^-1'
-
-            dataset = fh5.create_dataset(
-                name='t',
-                data=cia_dict['temperature']
-            )
-            dataset.attrs['long_name'] = 'Temperature grid'
-            dataset.attrs['units'] = 'K'
-
-            dataset = fh5.create_dataset(
-                name='mol_mass',
-                data=np.array([float(get_species_molar_mass(species)) for species in cia_dict['molecules']])
-            )
-            dataset.attrs['long_name'] = 'Masses of the colliding species'
-            dataset.attrs['units'] = 'AMU'
-
-            dataset = fh5.create_dataset(
-                name='mol_name',
-                data=cia_dict['molecules']
-            )
-            dataset.attrs['long_name'] = 'Names of the colliding species described'
-
-            dataset = fh5.create_dataset(
-                name='wlrange',
-                data=np.array([cia_dict['lambda'].min(), cia_dict['lambda'].max()]) * 1e4  # cm to um
-            )
-            dataset.attrs['long_name'] = 'Wavelength range covered'
-            dataset.attrs['units'] = 'µm'
-
-            dataset = fh5.create_dataset(
-                name='wnrange',
-                data=np.array([wavenumbers.min(), wavenumbers.max()])
-            )
-            dataset.attrs['long_name'] = 'Wavenumber range covered'
-            dataset.attrs['units'] = 'cm^-1'
+        write_cia_opacities(
+            hdf5_cia_file=hdf5_cia_file,
+            molecules=cia_dict['molecules'],
+            wavenumbers=wavenumbers,
+            wavelengths=cia_dict['lambda'],
+            alpha=np.transpose(cia_dict['alpha'])[:, ::-1],  # (temperature, wavenumber) wavenumbers ordering
+            temperatures=cia_dict['temperature'],
+            doi=doi_dict[key],
+            description=description_dict[key]
+        )
 
         print("Done.")
 
@@ -628,6 +572,8 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     else:
         input_directory = os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities'])
 
+    input_directory = str(input_directory)
+
     bad_keys = []
 
     for key in doi_dict:
@@ -644,8 +590,11 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
 
                 continue
 
-            species_dir = get_species_basename(_get_base_cloud_names()[k], join=True)
-            iso_dir = get_species_isotopologue_name(_get_base_cloud_names()[k], join=True)
+            species_dir = CloudOpacity.get_species_base_name(
+                species_full_name=_get_base_cloud_names()[k],
+                join=True
+            )
+            iso_dir = CloudOpacity.get_species_isotopologue_name(_get_base_cloud_names()[k], join=True)
             species_dir = os.path.join(input_directory, species_dir, iso_dir)
 
         if not os.path.isdir(species_dir):
@@ -714,12 +663,15 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
             if 'KCl(s)' in k:
                 basename = 'KCL'
             else:
-                basename = get_species_basename(_get_base_cloud_names()[k])
+                basename = CloudOpacity.get_species_base_name(_get_base_cloud_names()[k])
 
             cloud_species.append(basename + '(c)')
 
-            species_dir = get_species_basename(_get_base_cloud_names()[k], join=True)
-            iso_dir = get_species_isotopologue_name(_get_base_cloud_names()[k], join=True)
+            species_dir = CloudOpacity.get_species_base_name(
+                species_full_name=_get_base_cloud_names()[k],
+                join=True
+            )
+            iso_dir = CloudOpacity.get_species_isotopologue_name(_get_base_cloud_names()[k], join=True)
             cloud_isos.append(os.path.join(species_dir, iso_dir))
 
     all_cloud_species = ''
@@ -738,16 +690,16 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
         all_cloud_isos = all_cloud_isos + cloud_iso + ','
 
     if old_paths:
-        reference_file = os.path.join(
+        reference_file = str(os.path.join(
             path_input_data, __get_prt2_input_data_subpaths()['clouds_opacities'],
             'MgSiO3_c', 'amorphous', 'mie', 'opa_0001.dat'
-        )
+        ))
     else:
-        reference_file = os.path.join(
+        reference_file = str(os.path.join(
             path_input_data,
             get_input_data_subpaths()['clouds_opacities'],
             'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie', 'opa_0001.dat'
-        )
+        ))
 
     if not os.path.isfile(reference_file):
         raise FileNotFoundError(
@@ -759,10 +711,10 @@ def _continuum_clouds_opacities_dat2h5(path_input_data=petitradtrans_config_pars
     n_cloud_wavelength_bins = int(len(np.genfromtxt(reference_file)[:, 0]))
 
     if old_paths:
-        cloud_path = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['clouds_opacities'])
+        cloud_path = str(os.path.join(path_input_data, __get_prt2_input_data_subpaths()['clouds_opacities']))
         path_reference_files = os.path.join(cloud_path, 'MgSiO3_c', 'amorphous', 'mie')
     else:
-        cloud_path = os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities'])
+        cloud_path = str(os.path.join(path_input_data, get_input_data_subpaths()['clouds_opacities']))
         path_reference_files = os.path.join(cloud_path, 'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie')
 
     path_input_files = os.path.join(path_input_data, 'opa_input_files')
@@ -1257,14 +1209,18 @@ def _correlated_k_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
 
     if not external_single_species:
         if old_paths:
-            input_directory = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['correlated_k_opacities'])
+            input_directory = str(
+                os.path.join(path_input_data, __get_prt2_input_data_subpaths()['correlated_k_opacities'])
+            )
 
             directories = [
                 os.path.join(input_directory, d) for d in os.listdir(input_directory)
                 if os.path.isdir(d) and d != 'PaxHeader'
             ]
         else:
-            input_directory = os.path.join(path_input_data, get_input_data_subpaths()['correlated_k_opacities'])
+            input_directory = str(
+                os.path.join(path_input_data, get_input_data_subpaths()['correlated_k_opacities'])
+            )
 
             directories = []
 
@@ -1513,6 +1469,156 @@ def _correlated_k_opacities_dat2h5_external_species(path_to_species_opacity_fold
                                    external_species_contributor=contributor,
                                    external_species_description=description,
                                    external_species_molmass=molmass)
+
+
+def _get_base_cia_names():
+    return LockedDict.build_and_lock({
+        'H2--H2': 'H2--H2-NatAbund__BoRi.R831_0.6-250mu',
+        'H2--He': 'H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu',
+        'H2O--H2O': 'H2O--H2O-NatAbund',
+        'H2O--N2': 'H2O--N2-NatAbund',
+        'N2--H2': 'N2--H2-NatAbund.DeltaWavenumber1_5.3-909mu',
+        'N2--He': 'N2--He-NatAbund.DeltaWavenumber1_10-909mu',
+        'N2--N2': 'N2--N2-NatAbund.DeltaWavelength1e-6_2-100mu',
+        'O2--O2': 'O2--O2-NatAbund.DeltaWavelength1e-6_0.34-8.7mu',
+        'N2--O2': 'N2--O2-NatAbund.DeltaWavelength1e-6_0.72-5.4mu',
+        'CO2--CO2': 'CO2--CO2-NatAbund.DeltaWavelength1e-6_3-100mu',
+    })
+
+
+def _get_base_cloud_names():
+    return LockedDict.build_and_lock({
+        'Al2O3(s)_crystalline': 'Al2-O3-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'H2O(s)_crystalline': 'H2-O-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'H2O(l)': 'H2-O-NatAbund(l).R39_0.1-250mu',
+        'H2OSO4(l)': 'H2-O-S-O4-NatAbund(l).R39_0.1-250mu',
+        'KCl(s)_crystalline': 'K-Cl-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'Mg2SiO4(s)_amorphous': 'Mg2-Si-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'Mg2SiO4(s)_crystalline': 'Mg2-Si-O4-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'Mg05Fe05SiO3(s)_amorphous': 'Mg05-Fe05-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgAl2O4(s)_crystalline': 'Mg-Al2-O4-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgFeSiO4(s)_amorphous': 'Mg-Fe-Si-O4-NatAbund(s)_amorphous.R39_0.2-250mu',
+        'MgSiO3(s)_amorphous': 'Mg-Si-O3-NatAbund(s)_amorphous.R39_0.1-250mu',
+        'MgSiO3(s)_crystalline': 'Mg-Si-O3-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'Na2S(s)_crystalline': 'Na2-S-NatAbund(s)_crystalline_000.R39_0.1-250mu',
+        'SiC(s)_crystalline': 'Si-C-NatAbund(s)_crystalline_000.R39_0.1-250mu'
+    })
+
+
+def _get_base_correlated_k_names():
+    """Only used for file conversion from pRT2 to pRT3."""
+    return LockedDict.build_and_lock({
+        'Al': '27Al__Kurucz.R1000_0.1-250mu',
+        'Al+': '27Al_p__Kurucz.R1000_0.1-250mu',
+        'AlH': '27Al-1H__AlHambra.R1000_0.3-50mu',
+        'AlO': '27Al-16O__ATP.R1000_0.3-50mu',
+        'C2H2': '12C2-1H2__aCeTY.R1000_0.3-50mu',
+        'C2H4': '12C2-1H4__MaYTY.R1000_0.3-50mu',
+        'Ca': '40Ca__Kurucz.R1000_0.1-250mu',
+        'Ca+': '40Ca_p__Kurucz.R1000_0.1-250mu',
+        'CaH': '40Ca-1H__MoLLIST.R1000_0.3-50mu',
+        'CH4': '12C-1H4__YT34to10.R1000_0.3-50mu',
+        'CO': '12C-16O__HITEMP.R1000_0.1-250mu',
+        '13CO': '13C-16O__HITEMP.R1000_0.1-250mu',
+        'CO_all_iso': 'C-O-NatAbund__HITEMP.R1000_0.1-250mu',
+        'CO2': '12C-16O2__UCL-4000.R1000_0.3-50mu',
+        'CrH': '52Cr-1H__MoLLIST.R1000_0.3-50mu',
+        'Fe': '56Fe__Kurucz.R1000_0.1-250mu',
+        'Fe+': '56Fe_p__Kurucz.R1000_0.1-250mu',
+        'FeH': '56Fe-1H__MoLLIST.R1000_0.3-50mu',
+        'H2O': '1H2-16O__HITEMP.R1000_0.1-250mu',
+        'H2S': '1H2-32S__AYT2.R1000_0.3-50mu',
+        'HCN': '1H-12C-14N__Harris.R1000_0.3-50mu',
+        'K': '39K__Allard.R1000_0.1-250mu',
+        'Li': '7Li__Kurucz.R1000_0.1-250mu',
+        'Mg': '24Mg__Kurucz.R1000_0.1-250mu',
+        'Mg+': '24Mg_p__Kurucz.R1000_0.1-250mu',
+        'MgH': '24Mg-1H__MoLLIST.R1000_0.3-50mu',
+        'MgO': '24Mg-16O__LiTY.R1000_0.3-50mu',
+        'Na': '23Na__Allard.R1000_0.1-250mu',
+        'NaH': '23Na-1H__Rivlin.R1000_0.3-50mu',
+        'NH3': '14N-1H3__CoYuTe.R1000_0.3-50mu',
+        'O': '16O__Kurucz.R1000_0.1-250mu',
+        'O+': '16O_p__Kurucz.R1000_0.1-250mu',  # TODO not in the docs
+        'O2': '16O2__HITRAN.R1000_0.3-50mu',
+        'O3': '16O3__HITRAN.R1000_0.1-250mu',
+        'OH': '16O-1H__HITEMP.R1000_0.3-50mu',
+        'PH3': '31P-1H3__SAlTY.R1000_0.3-50mu',
+        'SH': '32S-1H__GYT.R1000_0.3-50mu',
+        'Si': '28Si__Kurucz.R1000_0.1-250mu',
+        'Si+': '28Si_p__Kurucz.R1000_0.1-250mu',
+        'SiO': '28Si-16O__EBJT.R1000_0.3-50mu',
+        'SiO2': '28Si-16O2__OYT3.R1000_0.3-50mu',
+        'Ti': '48Ti__Kurucz.R1000_0.1-250mu',
+        'Ti+': '48Ti_p__Kurucz.R1000_0.1-250mu',
+        '48TiO': '48Ti-16O__Plez.R1000_0.1-250mu',
+        'TiO_all_iso': 'Ti-O-NatAbund__Plez.R1000_0.1-250mu',
+        'V': '51V__Kurucz.R1000_0.1-250mu',
+        'V+': '51V_p__Kurucz.R1000_0.1-250mu',
+        'VO': '51V-16O__VOMYT.R1000_0.3-50mu'
+    })
+
+
+def _get_base_line_by_line_names():
+    """Only used for file conversion from pRT2 to pRT3."""
+    return LockedDict.build_and_lock({
+        'Al': '27Al__Kurucz.R1e6_0.3-28mu',
+        'B': '11B__Kurucz.R1e6_0.3-28mu',
+        'Be': '9Be__Kurucz.R1e6_0.3-28mu',
+        'C2H2': '12C2-1H2__HITRAN.R1e6_0.3-28mu',
+        'Ca': '40Ca__Kurucz.R1e6_0.3-28mu',
+        'Ca+': '40Ca_p__Kurucz.R1e6_0.3-28mu',
+        'CaH': '40Ca-1H__MoLLIST.R1e6_0.3-28mu',  # TODO not in docs
+        'CH3D': '12C-1H3-2H__HITRAN.R1e6_0.3-28mu',
+        'CH4': '12C-1H4__Hargreaves.R1e6_0.3-28mu',
+        'CO2': '12C-16O2__HITEMP.R1e6_0.3-28mu',
+        'C-17O': '12C-17O__HITRAN.R1e6_0.3-28mu',
+        'C-18O': '12C-18O__HITRAN.R1e6_0.3-28mu',
+        '13CO': '13C-16O__HITRAN.R1e6_0.3-28mu',
+        '13C-17O': '13C-17O__HITRAN.R1e6_0.3-28mu',
+        '13C-18O': '13C-18O__HITRAN.R1e6_0.3-28mu',
+        'CO_all_iso': 'C-O-NatAbund__HITEMP.R1e6_0.3-28mu',
+        'CO': '12C-16O__HITEMP.R1e6_0.3-28mu',
+        'Cr': '52Cr__Kurucz.R1e6_0.3-28mu',
+        'Fe': '56Fe__Kurucz.R1e6_0.3-28mu',
+        'Fe+': '56Fe_p__Kurucz.R1e6_0.3-28mu',
+        'FeH': '56Fe-1H__MoLLIST.R1e6_0.3-28mu',
+        'HD': '1H-2H__HITRAN.R1e6_0.3-28mu',
+        'H2': '1H2__HITRAN.R1e6_0.3-28mu',
+        'HDO': '1H-2H-16O__HITEMP.R1e6_0.3-28mu',
+        'H2-17O': '1H2-17O__HITEMP.R1e6_0.3-28mu',
+        'HD-17O': '1H-2H-17O__HITEMP.R1e6_0.3-28mu',
+        'H2-18O': '1H2-18O__HITEMP.R1e6_0.3-28mu',
+        'HD-18O': '1H-2H-18O__HITEMP.R1e6_0.3-28mu',
+        'H2O': '1H2-16O__HITEMP.R1e6_0.3-28mu',
+        'H2S_main_iso': '1H2-32S__HITRAN.R1e6_0.3-28mu',
+        'HCN_main_iso': '1H-12C-14N__Harris.R1e6_0.3-28mu',
+        'K': '39K__Allard.R1e6_0.3-28mu',
+        'Li': '7Li__Kurucz.R1e6_0.3-28mu',
+        'Mg': '24Mg__Kurucz.R1e6_0.3-28mu',
+        'Mg+': '24Mg_p__Kurucz.R1e6_0.3-28mu',
+        'N': '14N__Kurucz.R1e6_0.3-28mu',
+        'Na': '23Na__Allard.R1e6_0.3-28mu',
+        'NH3': '14N-1H3__BYTe.R1e6_0.3-28mu',
+        'O3': '16O3__HITRAN.R1e6_0.3-28mu',
+        'OH': '16O-1H__HITEMP.R1e6_0.3-28mu',
+        'PH3': '31P-1H3__SAlTY.R1e6_0.3-28mu',
+        'Si': '28Si__Kurucz.R1e6_0.3-28mu',
+        'SiO': '28Si-16O__EBJT.R1e6_0.3-28mu',
+        'Ti': '48Ti__Kurucz.R1e6_0.3-28mu',
+        '46TiO': '46Ti-16O__Plez.R1e6_0.3-28mu',
+        '47TiO': '47Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO': '48Ti-16O__Plez.R1e6_0.3-28mu',
+        '49TiO': '49Ti-16O__Plez.R1e6_0.3-28mu',
+        '50TiO': '50Ti-16O__Plez.R1e6_0.3-28mu',
+        'TiO_all_iso': 'Ti-O-NatAbund__Plez.R1e6_0.3-28mu',
+        'V': '51V__Kurucz.R1e6_0.3-28mu',
+        'V+': '51V_p__Kurucz.R1e6_0.3-28mu',
+        'VO': '51V-16O__Plez.R1e6_0.3-28mu',
+        'Y': '89Y__Kurucz.R1e6_0.3-28mu'
+    })
 
 
 def _get_default_rebinning_wavelength_range():
@@ -2078,14 +2184,14 @@ def _line_by_line_opacities_dat2h5(path_input_data=petitradtrans_config_parser.g
 
     # Conversion
     if old_paths:
-        input_directory = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['line_by_line_opacities'])
+        input_directory = str(os.path.join(path_input_data, __get_prt2_input_data_subpaths()['line_by_line_opacities']))
 
         directories = [
             os.path.join(input_directory, d) for d in os.listdir(input_directory)
             if os.path.isdir(d) and d != 'PaxHeader'
         ]
     else:
-        input_directory = os.path.join(path_input_data, get_input_data_subpaths()['line_by_line_opacities'])
+        input_directory = str(os.path.join(path_input_data, get_input_data_subpaths()['line_by_line_opacities']))
         directories = []
 
         for species_dir in os.listdir(input_directory):
@@ -2159,9 +2265,9 @@ def _phoenix_spec_dat2h5(path_input_data=petitradtrans_config_parser.get_input_d
     from petitRADTRANS.stellar_spectra.phoenix import phoenix_star_table
     # Load the stellar parameters
     if old_paths:
-        path = os.path.join(path_input_data, __get_prt2_input_data_subpaths()['stellar_spectra'])
+        path = str(os.path.join(path_input_data, __get_prt2_input_data_subpaths()['stellar_spectra']))
     else:
-        path = os.path.join(path_input_data, get_input_data_subpaths()['stellar_spectra'], 'phoenix')
+        path = str(os.path.join(path_input_data, get_input_data_subpaths()['stellar_spectra'], 'phoenix'))
 
     hdf5_file = phoenix_star_table.get_default_file(path_input_data=path_input_data)
 
@@ -2255,8 +2361,8 @@ def _refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_
     )
 
     for key, value in get_input_data_subpaths().items():
-        old_subpath = os.path.join(path_input_data, old_input_data_subpaths[key])
-        new_subpath = os.path.join(path_input_data, value)
+        old_subpath = str(os.path.join(path_input_data, old_input_data_subpaths[key]))
+        new_subpath = str(os.path.join(path_input_data, value))
 
         if key == 'planet_data':
             if not os.path.isdir(old_subpath):
@@ -2389,8 +2495,8 @@ def _refactor_input_data_folder(path_input_data=petitradtrans_config_parser.get_
                 else:
                     spec = None
 
-                base_dirname = get_species_basename(filename, join=True)
-                iso_dirname = get_species_isotopologue_name(filename, join=True)
+                base_dirname = Opacity.get_species_base_name(filename, join=True)
+                iso_dirname = Opacity.get_species_isotopologue_name(filename, join=True)
 
                 if old_directory in directories:
                     base_dirname = os.path.join(new_subpath, base_dirname)
@@ -2584,10 +2690,9 @@ def bin_species_exok(species: list[str], resolution: float):
     print(f"Resolving power: {resolution}")
 
     for s in species:
-        ck_paths.append(get_opacity_input_file(
-            path_input_data=prt_path,
-            category='correlated_k_opacities',
-            species=s
+        ck_paths.append(CorrelatedKOpacity.find(
+            species=s,
+            path_input_data=prt_path
         ))
 
         print(f" Re-binned opacities: '{ck_paths[-1]}'")
@@ -2599,54 +2704,6 @@ def bin_species_exok(species: list[str], resolution: float):
     )
 
 
-def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
-                correlation=None):
-    """
-    Generate a fits file that can be used as an input to a pRT retrieval.
-
-    Args:
-        wavelength : numpy.ndarray
-            The wavelength bin centers in micron. dim(N)
-        spectrum : numpy.ndarray
-            The flux density in W/m2/micron at each wavelength bin. dim(N)
-        covariance : numpy.ndarray
-            The covariance of the flux in (W/m2/micron)^2 dim(N,N)
-        object_name : string
-            The name of the object, used for file naming.
-        output_dir : string
-            The parent directory of the output file.
-        correlation : numpy.ndarray
-            The correlation matrix of the flux points (See Brogi & Line 2018, https://arxiv.org/pdf/1811.01681.pdf)
-
-    Returns:
-        hdul : astropy.fits.HDUlist
-            The HDUlist object storing the spectrum.
-    """
-
-    from astropy.io import fits
-
-    primary_hdu = fits.PrimaryHDU([])
-    primary_hdu.header['OBJECT'] = object_name
-
-    c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
-    c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
-    c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
-
-    if correlation is not None:
-        c4 = fits.Column(name="CORRELATION", array=correlation, format=str(correlation.shape[0]) + 'D', unit=" - ")
-    else:
-        c4 = None
-
-    columns = [c1, c2, c3, c4]
-
-    table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
-    hdul = fits.HDUList([primary_hdu, table_hdu])
-    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
-    hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
-
-    return hdul
-
-
 def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_species, doi,
                                       cloud_species_mode=None,
                                       path_input_data=petitradtrans_config_parser.get_input_data_path(),
@@ -2654,7 +2711,7 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
                                       cloud_path=None, path_input_files=None, path_reference_files=None,
                                       rewrite=False, clean=False):
     """Using ExoMol units for HDF5 files."""
-    check_opacity_name(output_name)
+    CloudOpacity.check_name(output_name)
 
     if cloud_species_mode is None:
         cloud_species_mode = ''
@@ -2663,11 +2720,11 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
     all_cloud_isos = input_directory.rsplit(os.path.sep, 2)[1] + ','
     all_cloud_species_mode = cloud_species_mode + ','
 
-    reference_file = os.path.join(
+    reference_file = str(os.path.join(
         path_input_data,
         get_input_data_subpaths()['clouds_opacities'],
         'MgSiO3(s)_amorphous', 'Mg-Si-O3-NatAbund(s)_amorphous', 'mie', 'opa_0001.dat'
-    )
+    ))
 
     if not os.path.isfile(reference_file):
         raise FileNotFoundError(
@@ -2714,94 +2771,20 @@ def continuum_clouds_opacities_dat2h5(input_directory, output_name, cloud_specie
 
     i = 0  # only one cloud
 
-    with h5py.File(hdf5_opacity_file, "w") as fh5:
-        dataset = fh5.create_dataset(
-            name='DOI',
-            shape=(1,),
-            data=doi
-        )
-        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
-        dataset.attrs['additional_description'] = str(description)
-
-        dataset = fh5.create_dataset(
-            name='Date_ID',
-            shape=(1,),
-            data=f'petitRADTRANS-v{petitRADTRANS.__version__}'
-                 f'_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
-        )
-        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
-                                     'at which the table has been created, ' \
-                                     'along with the version of petitRADTRANS'
-
-        dataset = fh5.create_dataset(
-            name='wavenumbers',
-            data=wavenumbers
-        )
-        dataset.attrs['long_name'] = 'Opacities wavenumbers'
-        dataset.attrs['units'] = 'cm^-1'
-
-        dataset = fh5.create_dataset(
-            name='absorption_opacities',
-            data=cloud_absorption_opacities[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'cm^2.g^-1'
-
-        dataset = fh5.create_dataset(
-            name='scattering_opacities',
-            data=cloud_scattering_opacities[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'cm^2.g^-1'
-
-        dataset = fh5.create_dataset(
-            name='asymmetry_parameters',
-            data=cloud_asymmetry_parameter[:, ::-1, i]
-        )
-        dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
-        dataset.attrs['units'] = 'None'
-
-        dataset = fh5.create_dataset(
-            name='particles_density',
-            data=cloud_particles_densities[i]
-        )
-        dataset.attrs['long_name'] = 'Average density of the cloud particles'
-        dataset.attrs['units'] = 'g.cm^-3'
-
-        dataset = fh5.create_dataset(
-            name='mol_name',
-            shape=(1,),
-            data=cloud_species[i]
-        )
-        dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
-
-        dataset = fh5.create_dataset(
-            name='particles_radii',
-            data=cloud_particles_radii
-        )
-        dataset.attrs['long_name'] = 'Particles average radius grid'
-        dataset.attrs['units'] = 'cm'
-
-        dataset = fh5.create_dataset(
-            name='particle_radius_bins',
-            data=cloud_particles_radius_bins
-        )
-        dataset.attrs['long_name'] = 'Particles average radius grid bins'
-        dataset.attrs['units'] = 'cm'
-
-        dataset = fh5.create_dataset(
-            name='wlrange',
-            data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
-        )
-        dataset.attrs['long_name'] = 'Wavelength range covered'
-        dataset.attrs['units'] = 'µm'
-
-        dataset = fh5.create_dataset(
-            name='wnrange',
-            data=np.array([wavenumbers.min(), wavenumbers.max()])
-        )
-        dataset.attrs['long_name'] = 'Wavenumber range covered'
-        dataset.attrs['units'] = 'cm^-1'
+    write_cloud_opacities(
+        hdf5_opacity_file=hdf5_opacity_file,
+        cloud_species=cloud_species[i],
+        wavenumbers=wavenumbers,
+        cloud_wavelengths=cloud_wavelengths,
+        cloud_absorption_opacities=cloud_absorption_opacities[:, ::-1, i],
+        cloud_scattering_opacities=cloud_scattering_opacities[:, ::-1, i],
+        cloud_asymmetry_parameter=cloud_asymmetry_parameter[:, ::-1, i],
+        cloud_particles_densities=cloud_particles_densities[i],
+        cloud_particles_radii=cloud_particles_radii,
+        cloud_particles_radius_bins=cloud_particles_radius_bins,
+        doi=doi,
+        description=description
+    )
 
     print("Done.")
 
@@ -2943,6 +2926,54 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
         dataset.attrs['units'] = 'cm^-1'
 
     print("Done.")
+
+
+def fits_output(wavelength, spectrum, covariance, object_name, output_dir="",
+                correlation=None):
+    """
+    Generate a fits file that can be used as an input to a pRT retrieval.
+
+    Args:
+        wavelength : numpy.ndarray
+            The wavelength bin centers in micron. dim(N)
+        spectrum : numpy.ndarray
+            The flux density in W/m2/micron at each wavelength bin. dim(N)
+        covariance : numpy.ndarray
+            The covariance of the flux in (W/m2/micron)^2 dim(N,N)
+        object_name : string
+            The name of the object, used for file naming.
+        output_dir : string
+            The parent directory of the output file.
+        correlation : numpy.ndarray
+            The correlation matrix of the flux points (See Brogi & Line 2018, https://arxiv.org/pdf/1811.01681.pdf)
+
+    Returns:
+        hdul : astropy.fits.HDUlist
+            The HDUlist object storing the spectrum.
+    """
+
+    from astropy.io import fits
+
+    primary_hdu = fits.PrimaryHDU([])
+    primary_hdu.header['OBJECT'] = object_name
+
+    c1 = fits.Column(name="WAVELENGTH", array=wavelength, format='D', unit="micron")
+    c2 = fits.Column(name="FLUX", array=spectrum, format='D', unit="W/m2/micron")
+    c3 = fits.Column(name="COVARIANCE", array=covariance, format=str(covariance.shape[0]) + 'D', unit="[W/m2/micron]^2")
+
+    if correlation is not None:
+        c4 = fits.Column(name="CORRELATION", array=correlation, format=str(correlation.shape[0]) + 'D', unit=" - ")
+    else:
+        c4 = None
+
+    columns = [c1, c2, c3, c4]
+
+    table_hdu = fits.BinTableHDU.from_columns(columns, name='SPECTRUM')
+    hdul = fits.HDUList([primary_hdu, table_hdu])
+    outstring = os.path.join(output_dir, object_name + "_spectrum.fits")
+    hdul.writeto(outstring, overwrite=True, checksum=True, output_verify='exception')
+
+    return hdul
 
 
 def format2petitradtrans(load_function, opacities_directory: str, natural_abundance: bool,
@@ -3113,7 +3144,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     else:
         natural_abundance = ''
 
-    species_isotopologue_name = get_species_isotopologue_name(species_isotopologue_name)
+    species_isotopologue_name = Opacity.get_species_isotopologue_name(species_isotopologue_name)
 
     molmass = get_species_molar_mass(species)
 
@@ -3178,6 +3209,7 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                          f"Unique pressures found: {unique_pressures.size}")
 
     pressure_temperature_grid_sorted_id = np.lexsort((temperatures, pressures))
+    resolving_power_line_by_line: float | None = None
 
     print("Preparation successful")
 
@@ -3188,19 +3220,20 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             (unique_pressures.size, unique_temperatures.size, wavenumbers_line_by_line_selected.size)
         )
 
-        output_directory = get_opacity_directory(
+        output_directory = LineByLineOpacity.get_species_directory(
             species=species,
-            category='line_by_line_opacities',
-            path_input_data=path_input_data,
-            full=False
+            category=None,  # use default
+            path_input_data=path_input_data
         )
 
-        resolving_power = np.mean(
-            wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5
-        )
+        if resolving_power_line_by_line is None:
+            resolving_power_line_by_line = np.mean(
+                wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5,
+                dtype=float
+            )
 
         filename = get_opacity_filename(
-            resolving_power=resolving_power,
+            resolving_power=resolving_power_line_by_line,
             wavelength_boundaries=line_by_line_wavelength_boundaries,
             species_isotopologue_name=species_isotopologue_name,
             source=source,
@@ -3292,10 +3325,6 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             (unique_pressures.size, unique_temperatures.size, wavenumbers.size)
         )
 
-        # Revert order to match wavelength ordering
-        if wavenumbers[0] < wavenumbers[1]:
-            wavenumbers = wavenumbers[::-1]
-
         print(" Initializing correlated-k parameters...")
         samples_edges = np.zeros(samples.size + 1)
         samples_edges[-1] = 1.0
@@ -3303,28 +3332,32 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         for i in range(samples.size - 1):
             samples_edges[i + 1] = (samples[i + 1] + samples[i]) / 2
 
-        resolving_power = -np.mean(wavenumbers[:-1] / np.diff(wavenumbers) + 0.5)
-        downsampling = int(resolving_power / correlated_k_resolving_power)
+        if resolving_power_line_by_line is None:
+            resolving_power_line_by_line = np.mean(
+                wavenumbers_petitradtrans_line_by_line[:-1] / np.diff(wavenumbers_petitradtrans_line_by_line) + 0.5,
+                dtype=float
+            )
+
+        downsampling = int(resolving_power_line_by_line / correlated_k_resolving_power)
 
         if downsampling > wavenumbers.size:
             raise ValueError(f"unable to make correlate-k resolving power {correlated_k_resolving_power}"
-                             f"from source with resolving power {resolving_power}")
+                             f"from source with resolving power {resolving_power_line_by_line}")
 
         if use_legacy_correlated_k_wavenumbers_sampling:
             starting_index = 999
         else:
             starting_index = 0
 
-        bin_edges = wavenumbers[starting_index::downsampling][::-1]  # revert back to increasing wavenumber order
-        wavenumbers = wavenumbers[::-1]
+        bin_edges: npt.NDArray[float] = wavenumbers_petitradtrans_line_by_line[::-1][starting_index::downsampling][::-1]
 
         if use_legacy_correlated_k_wavenumbers_sampling:
             max_extra_edges = 2
 
             # Append an extra edge until the source maximum wavenumber is reached
             for i in range(max_extra_edges):
-                resolving_power = bin_edges[-1] / np.diff(bin_edges[-2:]) - 1
-                bin_edges = np.append(bin_edges, bin_edges[-1] * (1 + 1 / resolving_power))
+                resolving_power_line_by_line = bin_edges[-1] / np.diff(bin_edges[-2:]) - 1
+                bin_edges = np.append(bin_edges, bin_edges[-1] * (1 + 1 / resolving_power_line_by_line))
 
                 if bin_edges[-1] > wavenumbers[-1]:
                     warnings.warn(f"legacy maximum bin edges ({bin_edges[-1]} cm-1) "
@@ -3351,6 +3384,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             samples.size
         ))
 
+        min_selection_size: int = int(np.ceil(1 / np.min(np.diff(samples)))) * 2
+
         for i in range(bin_edges.size - 1):
             print(f" Calculating correlated-k ({i + 1}/{bin_edges.size - 1})...", end='\r')
             selection = np.nonzero(
@@ -3360,11 +3395,51 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
                 )
             )[0]
 
+            if selection.size < 2:  # happens when resolving power is too small
+                selection_low = np.nonzero(np.less(wavenumbers, bin_edges[i + 1]))[0]
+                selection_high = np.nonzero(np.greater_equal(wavenumbers, bin_edges[i]))[0]
+
+                if selection_low.size == 0:
+                    selection_low = 0
+                else:
+                    selection_low = selection_low[-1]
+
+                if selection_high.size == 0:
+                    selection_high = wavenumbers.size - 1
+                else:
+                    selection_high = selection_high[0]
+
+                if selection_low == selection_high:
+                    selection_low = max((selection_low - 1, 0))
+                    selection_high = min((selection_high + 1, wavenumbers.size - 1))
+
+                if selection_low > wavenumbers.size - 2:
+                    selection_low = wavenumbers.size - 2
+
+                if selection_high < 1:
+                    selection_high = 1
+                elif selection_high == wavenumbers.size - 1:
+                    selection_high = None
+
+                selection = [selection_low, selection_high]
+
             _sigmas = sigmas[:, :, selection[0]:selection[-1]]
+
+            # If selection size is too small, interpolate the cross-sections so that there is enough samples for c-k
+            if np.size(selection) < min_selection_size:
+                _wavenumbers = wavenumbers[selection[0]:selection[-1]]
+                _wavenumbers = np.linspace(_wavenumbers[0], _wavenumbers[-1], min_selection_size)
+                _sigmas = interp1d(wavenumbers[selection[0]:selection[-1]], _sigmas, axis=-1)
+                _sigmas = _sigmas(_wavenumbers)
+
+                selection_size = min_selection_size
+            else:
+                selection_size = selection.size
+
             _sigmas = np.sort(_sigmas, axis=-1)
             sigmas_g_mean = np.zeros((unique_pressures.size, unique_temperatures.size, samples.size))
 
-            g_sort = np.linspace(0, 1, selection.size)
+            g_sort = np.linspace(0, 1, selection_size)
 
             for j in range(samples.size):
                 g_selection = np.nonzero(
@@ -3392,11 +3467,10 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
             cloud_info=cloud_info
         )
 
-        output_directory = get_opacity_directory(
+        output_directory = CorrelatedKOpacity.get_species_directory(
             species=species,
-            category='correlated_k_opacities',
-            path_input_data=path_input_data,
-            full=False
+            category=None,  # use default
+            path_input_data=path_input_data
         )
 
         hdf5_opacity_file = os.path.join(
@@ -3452,8 +3526,8 @@ def get_opacity_filename(resolving_power, wavelength_boundaries, species_isotopo
     spectral_info = spectral_info.replace('e+0', 'e').replace('e-0', 'e-')
     spectral_info = spectral_info.replace('.0-', '-').replace('.0mu', 'mu')
 
-    return join_species_all_info(
-        name=species_isotopologue_name.replace('-NatAbund', ''),
+    return Opacity.join_species_all_info(
+        species_name=species_isotopologue_name.replace('-NatAbund', ''),
         natural_abundance=natural_abundance,
         charge=charge,
         cloud_info=cloud_info,
@@ -3468,7 +3542,7 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
                                   opacities_pressures=None, opacities_temperatures=None, line_paths=None,
                                   memory_map_mode=False, rewrite=False, clean=False):
     """Using ExoMol units for HDF5 files."""
-    check_opacity_name(output_name)
+    LineByLineOpacity.check_name(output_name)
 
     if output_name is None:
         output_name = directory.rsplit(os.path.sep, 1)[1]
@@ -3493,7 +3567,7 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
     species = species.rsplit('_def', 1)[0]
 
     # Check HDF5 file existence
-    hdf5_opacity_file = os.path.abspath(os.path.join(directory, '..', output_name + '.xsec.petitRADTRANS.h5'))
+    hdf5_opacity_file = os.path.abspath(os.path.join(str(directory), '..', output_name + '.xsec.petitRADTRANS.h5'))
 
     if os.path.isfile(hdf5_opacity_file) and not rewrite:
         __print_skipping_message(hdf5_opacity_file)
@@ -3569,7 +3643,7 @@ def line_by_line_opacities_dat2h5(directory, output_name, molmass, doi,
         opacities = np.memmap(memory_map_file, dtype='float32', mode='w+', shape=(line_paths_.size, wavelengths.size))
 
     for i, line_path in enumerate(line_paths_):
-        if not os.path.isfile(line_path):
+        if not os.path.isfile(str(line_path)):
             raise FileNotFoundError(f"file '{line_path}' does not exists")
 
         print(f" Loading file '{line_path}' ({i + 1}/{line_paths_.size})...")
@@ -3686,7 +3760,7 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
         )
         cross_sections = np.concatenate([cross_sections, [0, 0]])
 
-    # Interpolate the Dace calculation to that grid
+    # Interpolate the Dace cross-sections to pRT's line-by-line grid
     sig_interp = interp1d(wavenumbers, cross_sections)
     sigmas_prt = sig_interp(wavenumbers_petitradtrans_line_by_line[selection[0]:selection[1]])
 
@@ -3782,7 +3856,7 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
     try:
         import exo_k
     except ImportError:
-        # Only raise a warning to give a chance to download the binned
+        # Only raise a warning to give a chance to download the binned-down file
         warnings.warn("binning down of opacities requires exo_k to be installed, no binning down has been performed")
         return -1
 
@@ -3803,27 +3877,36 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
 
         # Output files
         output_file = input_file.replace(
-            join_species_all_info('', spectral_info=get_default_correlated_k_resolution()),
-            join_species_all_info('', spectral_info=get_resolving_power_string(target_resolving_power))
+            CorrelatedKOpacity.join_species_all_info(
+                '',
+                spectral_info=CorrelatedKOpacity.get_resolving_power_string(
+                    CorrelatedKOpacity.get_default_resolving_power()
+                )
+            ),
+            CorrelatedKOpacity.join_species_all_info(
+                '', spectral_info=CorrelatedKOpacity.get_resolving_power_string(target_resolving_power)
+            )
         )
 
         if os.path.isfile(output_file) and not rewrite:
             print(f"File '{output_file}' already exists, skipping re-binning...")
         else:
-            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}... ", end=' ')
+            print(f"Rebinning file '{input_file}' to R = {target_resolving_power}...")
             # Use Exo-k to rebin to low-res
             tab = exo_k.Ktable(filename=input_file, remove_zeros=True)
             tab.bin_down(wavenumber_grid)
-            print('Done.')
+            print(" Done.")
 
-            print(f" Writing binned down file '{output_file}'... ", end=' ')
+            print(f" Writing binned down file '{output_file}'...", end=' ')
             tab.write_hdf5(output_file)
-            print('Done.')
+            print("Done.")
 
             print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
 
     if comm is not None:  # wait for the main process to finish the binning down
         comm.barrier()
+
+    return 0  # execution without error
 
 
 def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species=None, rewrite=False):
@@ -3867,6 +3950,170 @@ def rebin_multiple_ck_line_opacities(target_resolving_power, paths=None, species
 
     if success:
         print("Successfully binned down all k-tables\n")
+
+
+def write_cia_opacities(hdf5_cia_file, molecules, wavenumbers, wavelengths, alpha, temperatures,
+                        doi='', description=''):
+    with h5py.File(hdf5_cia_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['additional_description'] = description
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}_'
+                 f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='wavenumbers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'CIA wavenumbers'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='alpha',
+            data=alpha
+        )
+        dataset.attrs['long_name'] = 'Table of monochromatic absorption with axes (temperature, wavenumber)'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='t',
+            data=temperatures
+        )
+        dataset.attrs['long_name'] = 'Temperature grid'
+        dataset.attrs['units'] = 'K'
+
+        dataset = fh5.create_dataset(
+            name='mol_mass',
+            data=np.array([float(get_species_molar_mass(species)) for species in molecules])
+        )
+        dataset.attrs['long_name'] = 'Masses of the colliding species'
+        dataset.attrs['units'] = 'AMU'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            data=molecules
+        )
+        dataset.attrs['long_name'] = 'Names of the colliding species described'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([wavelengths.min(), wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
+
+
+def write_cloud_opacities(hdf5_opacity_file, cloud_species, wavenumbers, cloud_wavelengths,
+                          cloud_absorption_opacities, cloud_scattering_opacities, cloud_asymmetry_parameter,
+                          cloud_particles_densities, cloud_particles_radii, cloud_particles_radius_bins,
+                          doi='', description=''):
+    with h5py.File(hdf5_opacity_file, "w") as fh5:
+        dataset = fh5.create_dataset(
+            name='DOI',
+            shape=(1,),
+            data=doi
+        )
+        dataset.attrs['long_name'] = 'Data object identifier linked to the data'
+        dataset.attrs['additional_description'] = str(description)
+
+        dataset = fh5.create_dataset(
+            name='Date_ID',
+            shape=(1,),
+            data=f'petitRADTRANS-v{petitRADTRANS.__version__}'
+                 f'_{datetime.datetime.now(datetime.timezone.utc).isoformat()}'
+        )
+        dataset.attrs['long_name'] = 'ISO 8601 UTC time (https://docs.python.org/3/library/datetime.html) ' \
+                                     'at which the table has been created, ' \
+                                     'along with the version of petitRADTRANS'
+
+        dataset = fh5.create_dataset(
+            name='wavenumbers',
+            data=wavenumbers
+        )
+        dataset.attrs['long_name'] = 'Opacities wavenumbers'
+        dataset.attrs['units'] = 'cm^-1'
+
+        dataset = fh5.create_dataset(
+            name='absorption_opacities',
+            data=cloud_absorption_opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the absorption opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='scattering_opacities',
+            data=cloud_scattering_opacities
+        )
+        dataset.attrs['long_name'] = 'Table of the scattering opacities with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'cm^2.g^-1'
+
+        dataset = fh5.create_dataset(
+            name='asymmetry_parameters',
+            data=cloud_asymmetry_parameter
+        )
+        dataset.attrs['long_name'] = 'Table of the asymmetry parameters with axes (particle radius, wavenumber)'
+        dataset.attrs['units'] = 'None'
+
+        dataset = fh5.create_dataset(
+            name='particles_density',
+            data=cloud_particles_densities
+        )
+        dataset.attrs['long_name'] = 'Average density of the cloud particles'
+        dataset.attrs['units'] = 'g.cm^-3'
+
+        dataset = fh5.create_dataset(
+            name='mol_name',
+            shape=(1,),
+            data=cloud_species
+        )
+        dataset.attrs['long_name'] = 'Name of the species described, "(c)" indicates that it has condensed'
+
+        dataset = fh5.create_dataset(
+            name='particles_radii',
+            data=cloud_particles_radii
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='particle_radius_bins',
+            data=cloud_particles_radius_bins
+        )
+        dataset.attrs['long_name'] = 'Particles average radius grid bins'
+        dataset.attrs['units'] = 'cm'
+
+        dataset = fh5.create_dataset(
+            name='wlrange',
+            data=np.array([cloud_wavelengths.min(), cloud_wavelengths.max()]) * 1e4  # cm to um
+        )
+        dataset.attrs['long_name'] = 'Wavelength range covered'
+        dataset.attrs['units'] = 'µm'
+
+        dataset = fh5.create_dataset(
+            name='wnrange',
+            data=np.array([wavenumbers.min(), wavenumbers.max()])
+        )
+        dataset.attrs['long_name'] = 'Wavenumber range covered'
+        dataset.attrs['units'] = 'cm^-1'
 
 
 def write_correlated_k(file, doi, wavenumbers, wavenumbers_bins_edges, cross_sections, mol_mass, species,

@@ -22,7 +22,7 @@ In correlated-k mode (``"c-k"``), most of the molecular opacities are calculated
 For some species such as CO and TiO, the contribution of all isotopologues is considered, following their natural abundance **on Earth**. Some secondary isotopologues are also available. This has been done because of a large natural abundance ratio between the isotopes of some elements (e.g. Ti), and/or because of the significant spectral contribution of secondary isotopologues at the considered resolution (e.g. 12CO/13CO).
 
 All ``c-k`` opacities referenced here have a resolving power of 1000 and cover **at least** wavelengths 0.3 to 50 µm. The actual wavelength coverage is given by looking at the full filenames in the table below.
-Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as desribed in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
+Pressure and temperature grids may vary and are thus treated on a per-species basis within pRT. All opacities are stored at 16 discrete g values of the cumulative opacity distribution function, per spectral bin, as described in `Mollière et al. (2019) <https://ui.adsabs.harvard.edu/abs/2019A%26A...627A..67M/abstract>`_, their Section 3.1.
 
 .. Tip:: Correlated-k tables with the extension ``.ktable.petitRADTRANS.h5`` from `ExoMol <https://www.exomol.com/data/data-types/opacity/>`_ can be used directly.
 
@@ -71,6 +71,11 @@ The available correlated-k opacities are listed below. When multiple source are 
       - 12C-1H3-2H__HITRAN
       - 12C-1H3-2H__HITRAN.R1000_0.1-250mu.ktable.petitRADTRANS.h5
       - 10.1016/j.jqsrt.2013.07.002
+      - --
+    * - CH4
+      - 12C-1H4__MM
+      - 12C-1H4__MM.R1000_0.3-50mu.ktable.petitRADTRANS.h5
+      - 10.1093/mnras/stae148
       - --
     * - CH4
       - 12C-1H4__HITEMP
@@ -845,16 +850,16 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - CaTiO3(s)_crystalline__Mie
       - Ca-Ti-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Posch et al. (2003), Ap&SS, 149:437; Ueda et al 1998 J. Phys.: Condens. Matter 10 3669; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Cr(s)__DHS
+    * - Cr(s)_structureUnclear__DHS
       - Cr-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
-    * - Cr(s)__Mie
+    * - Cr(s)_structureUnclear__Mie
       - Cr-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Lynch&Hunter (1991) in Palik: "Handbook of Optical Constants of Solids"; Rakic et al. (1998) Applied Optics Vol. 37, Issue 22
-    * - Fe(s)__DHS
+    * - Fe(s)_amorphous__DHS
       - Fe-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1086/173677
-    * - Fe(s)__Mie
+    * - Fe(s)_amorphous__Mie
       - Fe-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1086/173677
     * - Fe(s)_crystalline__DHS
@@ -863,16 +868,16 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - Fe(s)_crystalline__Mie
       - Fe-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1996A&A...311..291H
-    * - Fe2O3(s)__DHS
+    * - Fe2O3(s)_structureUnclear__DHS
       - Fe2-O3-NatAbund(s)_structureUnclear__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2O3(s)__Mie
+    * - Fe2O3(s)_structureUnclear__Mie
       - Fe2-O3-NatAbund(s)_structureUnclear__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Amaury H.M.J. Triaud, in Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2SiO4(s)__DHS
+    * - Fe2SiO4(s)_structureUnclear__DHS
       - Fe2-Si-O4-NatAbund(s)_structureUnclear__DHS.R39_0.4-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - Fe2SiO4(s)__Mie
+    * - Fe2SiO4(s)_structureUnclear__Mie
       - Fe2-Si-O4-NatAbund(s)_structureUnclear__Mie.R39_0.4-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Fabian et al. (2001), A&A Vol. 378; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - FeO(s)_crystalline__DHS
@@ -917,16 +922,16 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - KCl(s)_crystalline__Mie
       - K-Cl-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
-    * - Mg05Fe05SiO3(s)__DHS
+    * - Mg05Fe05SiO3(s)_amorphous__DHS
       - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J
-    * - Mg05Fe05SiO3(s)__Mie
+    * - Mg05Fe05SiO3(s)_amorphous__Mie
       - Mg05-Fe05-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J
-    * - Mg2SiO4(s)__DHS
+    * - Mg2SiO4(s)_amorphous__DHS
       - Mg2-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
-    * - Mg2SiO4(s)__Mie
+    * - Mg2SiO4(s)_amorphous__Mie
       - Mg2-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
     * - Mg2SiO4(s)_crystalline__DHS
@@ -941,10 +946,10 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - MgAl2O4(s)_crystalline__Mie
       - Mg-Al2-O4-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Edward D. Palik: Handbook of Optical Constants of Solids, Elsevier Science, 2012
-    * - MgFeSiO4(s)__DHS
+    * - MgFeSiO4(s)_amorphous__DHS
       - Mg-Fe-Si-O4-NatAbund(s)_amorphous__DHS.R39_0.2-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - MgFeSiO4(s)__Mie
+    * - MgFeSiO4(s)_amorphous__Mie
       - Mg-Fe-Si-O4-NatAbund(s)_amorphous__Mie.R39_0.2-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Dorschner et al. (1995), A&A Vol. 300; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - MgO(s)_crystalline__DHS
@@ -953,16 +958,16 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - MgO(s)_crystalline__Mie
       - Mg-O-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Roessler & Huffman (1981) in Palik: "Handbook of Optical Constants of Solids"
-    * - MgSiO3(s)__DHS
+    * - MgSiO3(s)_amorphous__DHS
       - Mg-Si-O3-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
-    * - MgSiO3(s)__Mie
+    * - MgSiO3(s)_amorphous__Mie
       - Mg-Si-O3-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 10.1016/S0022-4073(02)00301-1
-    * - MgSiO3(s)__DHS-glassy
+    * - MgSiO3(s)_amorphous__DHS-glassy
       - Mg-Si-O3-NatAbund(s)_amorphous__DHS-glassy.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J, 1995A&A...300..503D
-    * - MgSiO3(s)__Mie-glassy
+    * - MgSiO3(s)_amorphous__Mie-glassy
       - Mg-Si-O3-NatAbund(s)_amorphous__Mie-glassy.R39_0.2-250mu.cotable.petitRADTRANS.h5
       - 1994A&A...292..641J, 1995A&A...300..503D
     * - MgSiO3(s)_crystalline__DHS
@@ -971,10 +976,10 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - MgSiO3(s)_crystalline__Mie
       - Mg-Si-O3-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1998A&A...339..904J, 10.1086/192321
-    * - MnS(s)__DHS
+    * - MnS(s)_structureUnclear__DHS
       - Mn-S-NatAbund(s)_structureUnclear__DHS.R39_0.1-190mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
-    * - MnS(s)__Mie
+    * - MnS(s)_structureUnclear__Mie
       - Mn-S-NatAbund(s)_structureUnclear__Mie.R39_0.1-190mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Huffman&Wild (1967) Phys. Rev., Vol 156:989; Montaner et al. (1979) Phys. Status Solidi Appl. Res., Vol. 52:597
     * - Na2S(s)_crystalline__DHS
@@ -995,16 +1000,16 @@ The cloud opacities have been calculated using `OpacityTool <https://diana.iwf.o
     * - SiC(s)_crystalline__Mie
       - Si-C-NatAbund(s)_crystalline_000__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - 1988A&A...194..335P
-    * - SiO(s)__DHS
+    * - SiO(s)_amorphous__DHS
       - Si-O-NatAbund(s)_amorphous__DHS.R39_0.1-100mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
-    * - SiO(s)__Mie
+    * - SiO(s)_amorphous__Mie
       - Si-O-NatAbund(s)_amorphous__Mie.R39_0.1-100mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Wetzel et al. (2013) A&A, Vol 553:A92
     * - SiO2(s)__DHS
       - Si-O2-NatAbund(s)_amorphous__DHS.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
-    * - SiO2(s)__Mie
+    * - SiO2(s)_amorphous__Mie
       - Si-O2-NatAbund(s)_amorphous__Mie.R39_0.1-250mu.cotable.petitRADTRANS.h5
       - Compilation of 10.1093/mnras/stx3141 which uses Henning&Mutschke (1997), A&A Vol. 327; Philipp (1985) in Palik: "Handbook of Optical Constants of Solids"; Database of Optical Constants for Cosmic Dust, Laboratory Astrophysics Group of the AIU Jena
     * - SiO2(s)_crystalline__DHS

@@ -73,10 +73,10 @@ def test_line_by_line_emission_partial_cloud_calculated_radius():
         reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
         mean_molar_masses=test_parameters['mean_molar_mass'],
         eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
-        cloud_particle_radius_distribution_std=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['sigma_log_normal'],
+        cloud_f_sed=list(test_parameters['cloud_parameters']['cloud_species'].values())[0][
+            'f_sed'],
+        cloud_particle_radius_distribution_std=list(test_parameters['cloud_parameters']['cloud_species'].values())[0][
+            'sigma_log_normal'],
         frequencies_to_wavelengths=False
     )
 

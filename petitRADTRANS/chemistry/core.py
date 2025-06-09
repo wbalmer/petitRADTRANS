@@ -159,13 +159,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
-            abundances_interp['H2'] = 10 ** parameters['H2'].value
+            abundances_interp['H2'] = 10 ** parameters['H2'].value * np.ones_like(pressures)
 
         else:
             abundances_interp['H2'] = 0.766 * (1.0 - msum)
 
         if 'He' in parameters.keys():
-            abundances_interp['He'] = 10 ** parameters['He'].value
+            abundances_interp['He'] = 10 ** parameters['He'].value * np.ones_like(pressures)
 
         else:
             abundances_interp['He'] = 0.234 * (1.0 - msum)

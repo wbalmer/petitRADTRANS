@@ -1,3 +1,4 @@
+# TODO deprecated module, remove in v4.0.0
 import copy
 import os
 import re
@@ -7,7 +8,13 @@ from molmass import Formula
 
 from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
-from petitRADTRANS.utils import LockedDict, user_input
+from petitRADTRANS.utils import list_str2str, LockedDict, user_input
+
+warnings.warn(
+    "module '_input_data_loader' is deprecated and will be removed in a future update."
+    "Use the modules 'opacities' or 'input_data' instead.",
+    FutureWarning
+)
 
 
 def __build_cia_aliases_dict():
@@ -167,6 +174,7 @@ def __recursive_merge_contiguous_isotopes(isotope_groups, i, index_merge=None):
 
 
 def _get_base_cia_names():
+    # TODO duplicate from __file_conversion, remove in v 4.0.0
     return LockedDict.build_and_lock({
         'H2--H2': 'H2--H2-NatAbund__BoRi.R831_0.6-250mu',
         'H2--He': 'H2--He-NatAbund__BoRi.DeltaWavenumber2_0.5-500mu',
@@ -329,13 +337,12 @@ def _get_input_file(path_input_data, sub_path, files=None, filename=None,
     else:  # at least one file detected in path
         if filename is not None:  # check if one of the files matches the given filename
             matching_files = []
-            resolution_filename = ''
             _filename = filename.split('.', 1)[0]
             _filename_source = _split_species_source(_filename)[1]
 
-            if expect_spectral_information:
-                resolution_filename, range_filename = _get_spectral_information(filename)
+            resolution_filename, range_filename = _get_spectral_information(filename)
 
+            if expect_spectral_information or resolution_filename != '' or range_filename != '':
                 # First pass, try to use default resolution
                 for file in files:
                     _file, spectral_info = _split_species_spectral_info(file)
@@ -629,6 +636,10 @@ def _has_isotope(string):
         return True
     else:
         return False
+
+
+def _join_spectral_information(resolution_filename, range_filename):
+    return f"{resolution_filename}_{range_filename}"
 
 
 def _merge_contiguous_isotopes(species, isotope_separator):
@@ -1030,6 +1041,7 @@ def check_opacity_name(opacity_name: str):
 
 
 def get_cia_aliases(name: str) -> str:
+    # TODO remove in version 4.0.0
     # Try to match name with full directory and directory shortcut
     cia_filenames = _get_base_cia_names()
 
@@ -1055,10 +1067,22 @@ def get_cia_aliases(name: str) -> str:
 
     for cia, aliases in cia_aliases.items():
         if name in aliases:
+            if name != cia:
+                warnings.warn(
+                    "usage of CIA aliases is deprecated and will be removed in a future update.\n"
+                    "Use the CIA actual name, with pRT's CIA separator ('--') between colliding species, instead",
+                    FutureWarning
+                )
+
             return cia_filenames[cia]
 
     # Name does not match a directory, a directory shortcut, or an alias
     return name
+
+
+def get_cia_opacity_file_extension():
+    """Return petitRADTRANS' CIA opacity files extension."""
+    return 'ciatable.petitRADTRANS.h5'
 
 
 def get_cloud_aliases(name: str) -> str:
@@ -1142,7 +1166,7 @@ def get_cloud_aliases(name: str) -> str:
                     else:
                         valid_opacities.add(match)
 
-                available = "'" + "', '".join([match.rsplit('_', 1)[1] for match in valid_opacities]) + "'"
+                available = list_str2str([match.rsplit('_', 1)[1] for match in valid_opacities])
 
                 if space_group_example != '':
                     cloud_info += '_' + space_group_example
@@ -1189,6 +1213,16 @@ def get_cloud_aliases(name: str) -> str:
         name = _name + cloud_info + method + spectral_info
 
     return name
+
+
+def get_cloud_opacity_file_extension():
+    """Return petitRADTRANS' cloud opacity files extension."""
+    return 'cotable.petitRADTRANS.h5'
+
+
+def get_correlated_k_opacity_file_extension():
+    """Return petitRADTRANS' correlated-k opacity files extension."""
+    return 'ktable.petitRADTRANS.h5'
 
 
 def get_default_cloud_resolution() -> str:
@@ -1271,6 +1305,11 @@ def get_input_file(file: str, path_input_data: str, sub_path: str = None, expect
     return matches
 
 
+def get_line_by_line_opacity_file_extension():
+    """Return petitRADTRANS' line-by-line opacity files extension."""
+    return 'xsec.petitRADTRANS.h5'
+
+
 def get_opacity_directory(species: str, category: str,
                           path_input_data: str = None, full: bool = False):
     if path_input_data is None:
@@ -1282,7 +1321,9 @@ def get_opacity_directory(species: str, category: str,
     istopologue_name = get_species_isotopologue_name(species, join=False)
 
     _, natural_abundance, charge, cloud_info, source, spectral_info = (
-        split_species_all_info(species, final_charge_format='pm'))
+        split_species_all_info(species, final_charge_format='pm')
+    )
+
     filename = join_species_all_info(
         name=istopologue_name,
         charge=charge,
@@ -1404,7 +1445,8 @@ def get_species_scientific_name(species: str) -> str:
     return rf"{_rebuild_isotope_numbers(name, mode='scientific')}"
 
 
-def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info=''):
+def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', source='', spectral_info='',
+                          resolution_filename=None, range_filename=None):
     if natural_abundance != '':
         name += '-' + natural_abundance
 
@@ -1414,7 +1456,26 @@ def join_species_all_info(name, natural_abundance='', charge='', cloud_info='', 
         name += '__' + source
 
     if spectral_info != '':
+        if resolution_filename is not None or range_filename is not None:
+            raise ValueError(
+                f"cannot give both complete spectral info ('{spectral_info}'), "
+                f"and resolution ('{resolution_filename}') + range ('{range_filename}')\n"
+                f"Set resolution_filename and range_filename to None, or set spectral_info to an empty string"
+            )
         name += '.' + spectral_info
+    elif resolution_filename is not None or range_filename is not None:
+        if resolution_filename is None:
+            raise ValueError("both resolution_filename and range_filename must be not None, "
+                             "but resolution_filename is None")
+
+        if range_filename is None:
+            raise ValueError("both resolution_filename and range_filename must be not None, "
+                             "but range_filename is None")
+
+        name += '.' + _join_spectral_information(
+            resolution_filename=resolution_filename,
+            range_filename=range_filename
+        )
 
     return name
 

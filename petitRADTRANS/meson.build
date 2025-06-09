@@ -1,12 +1,12 @@
-subdir('retrieval')
-subdir('config')
-#subdir('slurm_runs')
-subdir('chemistry')
-subdir('stellar_spectra')
-subdir('cli')
 subdir('ccf')
+subdir('chemistry')
+subdir('cli')
+subdir('config')
+subdir('opacities')
 subdir('plotlib')
+subdir('retrieval')
 subdir('slurm_runs')
+subdir('stellar_spectra')
 
 py.install_sources([
     'math.py',

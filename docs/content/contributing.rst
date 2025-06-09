@@ -15,7 +15,7 @@ Guidelines to report an issue
 - Use a clear title for the issue.
 - Add a few sentences to describe your issue in more details if necessary.
 - Add relevant information (OS, pRT version, Python version, use of ``venv`` or ``conda``, etc.).
-- Add some key-points: steps to reproduce, expect results and actual results.
+- Add some key-points: steps to reproduce, expected results and actual results.
 - Always include an example that can be used by the developers to reproduce your issue.
 - For large scripts or console outputs (more than ~20 lines), please use attached files.
 - You may also add how severe you estimate the issue is.
@@ -105,7 +105,7 @@ When you estimate that your work is done, you can think about pushing to the ``d
 1. Check that you respect the :ref:`stylistic guidelines<stylistic_guidelines>`.
 2. Check the :ref:`merge request guidelines<merge_guidelines>`.
 3. Update the ``dev`` version number (see :ref:`versioning`) in the following files:
-    - ``project.toml``
+    - ``pyproject.toml``
     - ``meson.build``
     - ``CHANGELOG.md``
     - ``docs/conf.py``
@@ -331,7 +331,7 @@ Tox will automatically execute any function in any module across all the project
         |   └── test_stats.json            <- results of the last validated retrieval test
         ├── errors                         <- if an AssertionError is raised, results will be sent here for diagnostic
         ├── references                     <- contains the test reference files, storing results from the last validated test
-        |   └── <numerous .h5 files>       <- results of the last validated retrieval test
+        |   └── <numerous .h5 files>       <- results of the last validated tests
         ├── results                        <- results of the last retrieval test
         ├── __init__.py                    <- init file (empty)
         ├── benchmark.py                   <- module containing the Benchmark class, used to compare the results

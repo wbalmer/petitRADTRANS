@@ -192,11 +192,12 @@ class Benchmark:
         Args:
             test_parameters: current test parameters
         """
-        invalid_parameters = {}
+        invalid_parameters: dict = {}
+        error_messages: dict = {}
 
         for parameter, value in reference_file.parameters.items():
             if parameter not in test_parameters:
-                raise KeyError(f"reference file parameter '{parameter}' not in external parameters dict")
+                raise KeyError(f"reference file parameter '{parameter}' not in test parameters dict")
 
             try:
                 petitRADTRANS.utils.check_all_close(
@@ -205,8 +206,9 @@ class Benchmark:
                     atol=reference_file.parameters_absolute_tolerance,
                     rtol=reference_file.parameters_relative_tolerance
                 )
-            except AssertionError:
+            except AssertionError as error:
                 invalid_parameters[parameter] = value
+                error_messages[parameter] = error
 
         if len(invalid_parameters) > 0:
             self._write_error_file(
@@ -222,11 +224,23 @@ class Benchmark:
                 relative_tolerance=reference_file.parameters_relative_tolerance
             )
 
-            invalid_parameters = "'" + '", "'.join(invalid_parameters) + "'"
+            invalid_parameters: str = "'" + '", "'.join(invalid_parameters) + "'"
+            error_messages: tuple = tuple(
+                f"\n> {key}: {value}"
+                for key, value in error_messages.items()
+            )
+            error_messages: str = "".join(error_messages)
 
-            raise AssertionError(f"some parameters in reference file were not identical to the test parameters: "
-                                 f"{invalid_parameters}\n"
-                                 f"The invalid parameters has been saved for diagnostic")
+            raise AssertionError(
+                f"some of the test parameters were not close enough "
+                f"(absolute tolerance: {reference_file.parameters_absolute_tolerance}, "
+                f"relative tolerance: {reference_file.parameters_relative_tolerance}) "
+                f"to the reference file parameters: "
+                f"{invalid_parameters}\n"
+                f"The invalid parameters have been saved for diagnostic.\n"
+                f"Error messages:"
+                f"{error_messages}"
+            )
 
     def _get_function_arguments(self, parameters: dict) -> dict:
         """Get the function arguments from the given parameters.
@@ -371,29 +385,55 @@ class Benchmark:
         )
 
         # Run the function
-        outputs = self._run(**kwargs)
+        test_outputs = self._run(**kwargs)
+        invalid_outputs: list = []
+        error_messages: dict = {}
 
         # Check if the outputs are close enough to those from the reference file
-        try:
-            petitRADTRANS.utils.check_all_close(
-                outputs,
-                reference_file.outputs,
-                atol=self._absolute_tolerance,
-                rtol=self._relative_tolerance
-            )
-        except AssertionError:
+        for output_id, reference_output in reference_file.outputs.items():
+            if output_id not in test_outputs:
+                raise KeyError(f"reference file output '{output_id}' not in test output dict")
+
+            try:
+                petitRADTRANS.utils.check_all_close(
+                    test_outputs[output_id],
+                    reference_output,
+                    atol=self._absolute_tolerance,
+                    rtol=self._relative_tolerance
+                )
+            except AssertionError as error_message:
+                invalid_outputs.append(output_id)
+                error_messages[output_id] = error_message
+
+        if len(invalid_outputs) > 0:
             # Write an error file if the assertion failed
             self._write_error_file(
                 file_suffix='invalid_outputs',
                 error_dict={
-                    'test_outputs': outputs,
+                    'test_outputs': test_outputs,
                     'reference_outputs': reference_file.outputs
                 },
                 absolute_tolerance=self._absolute_tolerance,
                 relative_tolerance=self._relative_tolerance
             )
 
-            raise
+            invalid_outputs: str = "'" + '", "'.join(invalid_outputs) + "'"
+            error_messages: tuple = tuple(
+                f"\n> {key}: {value}"
+                for key, value in error_messages.items()
+            )
+            error_messages: str = "".join(error_messages)
+
+            raise AssertionError(
+                f"some outputs from the test were not close enough "
+                f"(absolute tolerance: {self._absolute_tolerance}, "
+                f"relative tolerance: {self._relative_tolerance}) "
+                f"to the reference outputs: "
+                f"{invalid_outputs}\n"
+                f"The test outputs have been saved for diagnostic.\n"
+                f"Error messages:"
+                f"{error_messages}"
+            )
 
         print(f"Test successful "
               f"(absolute and relative tolerances: {self._absolute_tolerance}, {self._relative_tolerance})")

@@ -1,11 +1,13 @@
 """Stores useful physical functions.
 """
 import numpy as np
+import numpy.typing as npt
 from scipy.interpolate import interp1d, PchipInterpolator
 
+# noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import running_mean
 import petitRADTRANS.physical_constants as cst
+from petitRADTRANS.math import running_mean
 
 
 def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
@@ -35,8 +37,16 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
             dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 2.) / cst.au
         return dist
 
+    return None
 
-def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, planet_radius=1.0, use_si_units=False):
+
+def compute_effective_temperature(
+    wavelengths: npt.NDArray,
+    flux: npt.NDArray,
+    orbit_semi_major_axis: float = 1.0,
+    planet_radius: float = 1.0,
+    use_si_units: bool = False
+) -> float:
     """Calculates the effective temperature by integrating the model and using the stefan boltzmann law.
 
     Args:
@@ -66,7 +76,7 @@ def compute_effective_temperature(wavelengths, flux, orbit_semi_major_axis=1.0, 
     return (energy / (cst.sigma*unit_factor)) ** 0.25
 
 
-def power_law_temperature_profile(press, alpha, T0):
+def power_law_temperature_profile(press: npt.NDArray, alpha: float, T0: float) -> npt.NDArray:
     """
     Compute a power law profile for temperature; log(T) = a*log(P) + b.
 
@@ -79,13 +89,18 @@ def power_law_temperature_profile(press, alpha, T0):
         T0 (float): multiplicative factor (offsets the profile)
 
     Returns:
-        temperaturess (array): temperature values for each pressure value
+        temperatures (array): temperature values for each pressure value
     """
     temperatures = T0*(press/press[0])**alpha
     return temperatures
 
 
-def cubic_spline_profile(press, temperature_points, gamma, nnodes=0):
+def cubic_spline_profile(
+    press: npt.NDArray,
+    temperature_points: npt.NDArray,
+    gamma: float,
+    nnodes: int = 0
+) -> tuple[npt.NDArray, float]:
     """
     Compute a cubic spline profile for temperature based on pressure points.
 
@@ -106,17 +121,22 @@ def cubic_spline_profile(press, temperature_points, gamma, nnodes=0):
             - prior (array-like): Curvature prior values calculated for the spline.
     """
 
-    cs = PchipInterpolator(np.linspace(np.log10(press[0]),
-                                       np.log10(press[-1]),
-                                       nnodes + 2),
-                           temperature_points)
+    cs = PchipInterpolator(
+        x=np.linspace(
+            np.log10(press[0]),
+            np.log10(press[-1]),
+            nnodes + 2
+        ),
+        y=temperature_points
+    )
 
-    interpolated_temps = cs(np.log10(press))
-    prior = temperature_curvature_prior(press, interpolated_temps, gamma)
+    interpolated_temps: npt.NDArray = cs(np.log10(press))
+    prior: float = temperature_curvature_prior(press, interpolated_temps, gamma)
+
     return interpolated_temps, prior
 
 
-def doppler_shift(wavelength_0, velocity):
+def doppler_shift(wavelength_0: npt.NDArray | float, velocity: npt.NDArray | float) -> npt.NDArray | float:
     """Calculate the Doppler-shifted wavelength for electromagnetic waves.
 
     A negative velocity means that the source is going toward the observer. A positive velocity means the source is
@@ -132,7 +152,7 @@ def doppler_shift(wavelength_0, velocity):
     return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
 
 
-def flux_cm2flux_hz(flux_cm, wavelength):
+def flux_cm2flux_hz(flux_cm: npt.NDArray | float, wavelength: npt.NDArray | float) -> npt.NDArray | float:
     """
     Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
     Flux units can be, e.g., erg.s-1.cm-2.
@@ -155,7 +175,7 @@ def flux_cm2flux_hz(flux_cm, wavelength):
     return flux_cm * wavelength ** 2 / cst.c
 
 
-def flux_hz2flux_cm(flux_hz, frequency):
+def flux_hz2flux_cm(flux_hz: npt.NDArray | float, frequency: npt.NDArray | float) -> npt.NDArray | float:
     """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
     Flux units can be, e.g., erg.s-1.cm-2.
 
@@ -178,7 +198,7 @@ def flux_hz2flux_cm(flux_hz, frequency):
     return flux_hz * frequency ** 2 / cst.c
 
 
-def flux2irradiance(flux, source_radius, target_distance):
+def flux2irradiance(flux: npt.NDArray | float, source_radius: float, target_distance: float) -> npt.NDArray | float:
     """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
 
     Args:
@@ -192,7 +212,7 @@ def flux2irradiance(flux, source_radius, target_distance):
     return flux * (source_radius / target_distance) ** 2
 
 
-def frequency2wavelength(frequency):
+def frequency2wavelength(frequency: npt.NDArray | float) -> npt.NDArray | float:
     """Convert frequencies into wavelength in centimeter.
 
     Args:
@@ -204,7 +224,7 @@ def frequency2wavelength(frequency):
     return cst.c / frequency
 
 
-def hz2um(frequency):
+def hz2um(frequency: npt.NDArray | float) -> npt.NDArray | float:
     """Convert frequencies into wavelengths in micrometer.
 
     Args:
@@ -216,7 +236,12 @@ def hz2um(frequency):
     return frequency2wavelength(frequency) * 1e4  # cm to um
 
 
-def linear_spline_profile(press, temperature_points, gamma, nnodes=0):
+def linear_spline_profile(
+    press: npt.NDArray,
+    temperature_points: npt.NDArray,
+    gamma: float,
+    nnodes: int = 0
+) -> tuple[npt.NDArray, float]:
     """
     Compute a linear spline profile for temperature based on pressure points.
 
@@ -236,12 +261,18 @@ def linear_spline_profile(press, temperature_points, gamma, nnodes=0):
               based on the linear spline.
             - prior (array-like): Curvature prior values calculated for the spline.
     """
-    interpolated_temps = np.interp(np.log10(press),
-                                   np.linspace(np.log10(press[0]),
-                                               np.log10(press[-1]),
-                                               int(nnodes) + 2),
-                                   temperature_points)
+    interpolated_temps = np.interp(
+        np.log10(press),
+        np.linspace(
+            np.log10(press[0]),
+            np.log10(press[-1]),
+            int(nnodes) + 2
+        ),
+        temperature_points
+    )
+
     prior = temperature_curvature_prior(press, interpolated_temps, gamma)
+
     return interpolated_temps, prior
 
 
@@ -281,7 +312,7 @@ def make_press_temp_iso(rad_trans_params):
     return press_new, temp_new
 
 
-def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
+def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_points):
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
 
@@ -293,84 +324,118 @@ def madhu_seager_2009(press, pressure_points, t_set, alpha_points, beta_points):
     https://github.com/MartianColonist/POSEIDON/blob/main/POSEIDON/atmosphere.py
 
     Parameters:
-        press : (numpy.ndarray)
+        pressures : (numpy.ndarray)
             An array of pressure values (in bar) at which to calculate temperatures.
-        pressure_points : (list)
-            A list of pressure breakpoints defining different temperature regimes.
-        t_set : (float)
-            A temperature at pressure_points[4] used to constrain the temperature profile.
+        log_pressure_points : (list)
+            A list of log pressure breakpoints defining different temperature regimes.
+            The zeroth element is the minimum pressure, should be log10(press[0]).
+            The first element is the 1-2 boundary
+            The second element is the level of the inversion
+            The third element is the 2-3 boundary.
+            The fourth element is the pressure at which the temperature is set (P_set).
+        T_set : (float)
+            A temperature at log_pressure_points[4] used to constrain the temperature profile.
         alpha_points : (list)
             A list of alpha values used in the parameterization for different regimes.
+            Must have length 2.
         beta_points : (list)
             A list of beta values used in the parameterization for different regimes.
-            By default b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
+            By default, b[0] == b[1] == 0.5, unclear how well this will work if these aren't used!
+            Must have length 2.
 
     Returns:
         temperatures : (numpy.ndarray)
             An array of calculated temperatures (in K) corresponding to the input pressure values.
 
-    Note:
-    - This function assumes that pressure_points, temperature_points, alpha_points, and beta_points
-      are lists with the same length, defining different pressure-temperature regimes. The function
-      uses logarithmic relationships to calculate temperatures within these regimes.
-
     Reference:
     - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres.
       The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
     """
-    temperatures = np.zeros_like(press)
+    temperatures = np.zeros_like(pressures)
 
     # Set up masks for the different temperature regions
-    mask_1 = press < pressure_points[1]
-    mask_2 = (press >= pressure_points[1]) & (press < pressure_points[3])
-    mask_3 = press >= pressure_points[3]
+    pressure_points = 10**np.array(log_pressure_points)
+    mask_1 = pressures < pressure_points[1]
+    mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
+    mask_3 = pressures >= pressure_points[3]
 
     # Find index of pressure closest to the set pressure
-    i_set = np.argmin(np.abs(press - pressure_points[4]))
-    p_set_i = press[i_set]
+    i_set = np.argmin(np.abs(pressures - pressure_points[4]))
+    p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = np.log10(press)
-    log_p_min = pressure_points[0]
+    log_p = np.log10(pressures)
+    log_p_min = log_pressure_points[0]
     log_p_set_i = np.log10(p_set_i)
 
-    t0 = None
-    t2 = None
-    t3 = None
+    T0 = None
+    T2 = None
+    T3 = None
 
+    # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
     # By default (P_set = 10 bar), so T(P_set) should be in layer 3
-    if pressure_points[4] >= pressure_points[3]:
-        t3 = t_set  # T_deep is the isothermal deep temperature T3 here
+    if log_pressure_points[4] >= log_pressure_points[3]:
+        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
 
         # Use the temperature parameter to compute boundary temperatures
-        t2 = t3 - ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+        T2 = T3 - (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T1 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T0 = T1 - (
+            (1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)
+            ) ** (1 / beta_points[0])
 
     # If a different P_deep has been chosen, solve equations for layer 2...
-    elif pressure_points[4] >= pressure_points[1]:  # Temperature parameter in layer 2
+    elif (
+        log_pressure_points[4] >= log_pressure_points[1]
+    ):  # Temperature parameter in layer 2
         # Use the temperature parameter to compute the boundary temperatures
-        t2 = t_set - ((1.0 / alpha_points[1]) * (log_p_set_i - pressure_points[2])) ** (1 / beta_points[1])
-        t1 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[0])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
-        t0 = t1 - ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
+        T2 = T_set - (
+            (1.0 / alpha_points[1]) * (log_p_set_i - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T1 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[0])
+        T3 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T0 = T1 - ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+            1 / beta_points[0]
+        )
 
     # ...or for layer 1
-    elif pressure_points[4] < pressure_points[1]:  # Temperature parameter in layer 1
+    elif (
+        log_pressure_points[4] < log_pressure_points[1]
+    ):  # Temperature parameter in layer 1
 
         # Use the temperature parameter to compute the boundary temperatures
-        t0 = t_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (1 / beta_points[0])
-        t1 = t0 + ((1.0 / alpha_points[0]) * (pressure_points[1] - log_p_min)) ** (1 / beta_points[0])
-        t2 = t1 - ((1.0 / alpha_points[1]) * (pressure_points[1] - pressure_points[2])) ** (1 / beta_points[1])
-        t3 = t2 + ((1.0 / alpha_points[1]) * (pressure_points[3] - pressure_points[2])) ** (1 / beta_points[1])
+        T0 = T_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (
+            1 / beta_points[0]
+        )
+        T1 = T0 + ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+            1 / beta_points[0]
+        )
+        T2 = T1 - (
+            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
+        T3 = T2 + (
+            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        ) ** (1 / beta_points[1])
 
-    temperatures[mask_1] = (log_p[mask_1] - pressure_points[0]) ** (1 / beta_points[0]) / alpha_points[0] + t0
-    temperatures[mask_2] = (log_p[mask_2] - pressure_points[2]) ** (1 / beta_points[1]) / alpha_points[1] + t2
-    temperatures[mask_3] = t3
+    temperatures[mask_1] = T0 + (
+        (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
+    ) ** (1 / beta_points[0])
+    temperatures[mask_2] = T2 + (
+        (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
+    ) ** (1 / beta_points[1])
+    temperatures[mask_3] = T3
     return temperatures
 
 
-def planck_function_cm(temperature, wavelength):
+def planck_function_cm(temperature: float, wavelength: npt.NDArray | float) -> npt.NDArray | float:
     """Returns the Planck function :math:`B_{\\lambda}(T)` in units of
     :math:`\\rm erg/s/cm^2/cm/steradian`.
 
@@ -389,7 +454,7 @@ def planck_function_cm(temperature, wavelength):
     return _planck_function
 
 
-def planck_function_hz(temperature, frequency):
+def planck_function_hz(temperature: float, frequency: npt.NDArray | float) -> npt.NDArray | float:
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
 
@@ -407,7 +472,10 @@ def planck_function_hz(temperature, frequency):
     return _planck_function
 
 
-def planck_function_hz_temperature_derivative(temperature, frequency):
+def planck_function_hz_temperature_derivative(
+    temperature: float,
+    frequency: npt.NDArray | float
+) -> npt.NDArray | float:
     """Returns the derivative of the Planck function with respect to the temperature in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
     # TODO unused?
@@ -429,7 +497,11 @@ def planck_function_hz_temperature_derivative(temperature, frequency):
     return _planck_function
 
 
-def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
+def rebin_spectrum(
+    input_wavelengths: npt.NDArray,
+    input_spectrum: npt.NDArray,
+    rebinned_wavelengths: npt.NDArray
+) -> npt.NDArray:
     """Re-bin the spectrum using the Fortran rebin_spectrum function, and catch errors occurring there.
     The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
 
@@ -453,7 +525,12 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     return rebinned_spectrum
 
 
-def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
+def rebin_spectrum_bin(
+    input_wavelengths: npt.NDArray,
+    input_spectrum: npt.NDArray,
+    rebinned_wavelengths: npt.NDArray,
+    bin_widths: npt.NDArray
+) -> npt.NDArray:
     """Re-bin the spectrum using the Fortran rebin_spectrum_bin function, and catch errors occurring there.
     The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
 
@@ -478,8 +555,15 @@ def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, 
     return rebinned_spectrum
 
 
-def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma, gravities, intrinsic_temperature,
-                                         equilibrium_temperature, redistribution_coefficient=0.25):
+def temperature_profile_function_guillot(
+    pressures: npt.NDArray,
+    infrared_mean_opacity: float,
+    gamma: float,
+    gravities: npt.NDArray,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float,
+    redistribution_coefficient: float = 0.25
+) -> npt.NDArray:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar).
@@ -521,8 +605,14 @@ def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma
     return temperature
 
 
-def temperature_profile_function_guillot_dayside(pressures, infrared_mean_opacity, gamma, gravities,
-                                                 intrinsic_temperature, equilibrium_temperature):
+def temperature_profile_function_guillot_dayside(
+    pressures: npt.NDArray,
+    infrared_mean_opacity: float,
+    gamma: float,
+    gravities: npt.NDArray,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float
+) -> npt.NDArray:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -553,8 +643,14 @@ def temperature_profile_function_guillot_dayside(pressures, infrared_mean_opacit
     )
 
 
-def temperature_profile_function_guillot_global(pressures, infrared_mean_opacity, gamma, gravities,
-                                                intrinsic_temperature, equilibrium_temperature):
+def temperature_profile_function_guillot_global(
+    pressures: npt.NDArray,
+    infrared_mean_opacity: float,
+    gamma: float,
+    gravities: npt.NDArray,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float
+) -> npt.NDArray:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -585,8 +681,13 @@ def temperature_profile_function_guillot_global(pressures, infrared_mean_opacity
     )
 
 
-def temperature_profile_function_guillot_global_ret(pressures, delta, gamma,
-                                                    intrinsic_temperature, equilibrium_temperature):
+def temperature_profile_function_guillot_global_ret(
+    pressures: npt.NDArray,
+    delta: float,
+    gamma: float,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float
+) -> npt.NDArray:
     """Global Guillot P-T formula with kappa/gravity replaced by delta."""
     # TODO what is delta?
     delta = np.abs(delta)
@@ -603,9 +704,15 @@ def temperature_profile_function_guillot_global_ret(pressures, delta, gamma,
     return temperature
 
 
-def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gravity,
-                                                  intrinsic_temperature, equilibrium_temperature,
-                                                  infrared_mean_opacity_solar_matallicity, metallicity=None):
+def temperature_profile_function_guillot_metallic(
+    pressures: npt.NDArray,
+    gamma: float,
+    reference_gravity: npt.NDArray,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float,
+    infrared_mean_opacity_solar_metallicity: float,
+    metallicity: float | None = None
+) -> npt.NDArray:
     """Get a Guillot temperature profile depending on metallicity.
 
     Args:
@@ -614,7 +721,7 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gr
         reference_gravity: (cm.s-2) surface gravity
         intrinsic_temperature: (K) intrinsic temperature
         equilibrium_temperature: (K) equilibrium temperature
-        infrared_mean_opacity_solar_matallicity:
+        infrared_mean_opacity_solar_metallicity:
             (cm2.s-1) infrared mean opacity for a solar metallicity (Z = 1) atmosphere
         metallicity: ratio of heavy elements abundance over H abundance with respect to the solar ratio
 
@@ -622,9 +729,9 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gr
         temperatures: (K) the temperature at each pressures of the atmosphere
     """
     if metallicity is not None:
-        kappa_ir = infrared_mean_opacity_solar_matallicity * metallicity
+        kappa_ir = infrared_mean_opacity_solar_metallicity * metallicity
     else:
-        kappa_ir = infrared_mean_opacity_solar_matallicity
+        kappa_ir = infrared_mean_opacity_solar_metallicity
 
     temperatures = temperature_profile_function_guillot_global(
         pressures=pressures,
@@ -638,8 +745,15 @@ def temperature_profile_function_guillot_metallic(pressures, gamma, reference_gr
     return temperatures
 
 
-def temperature_profile_function_guillot_modif(pressures, delta, gamma,
-                                               intrinsic_temperature, equilibrium_temperature, ptrans, alpha):
+def temperature_profile_function_guillot_modif(
+    pressures: npt.NDArray,
+    delta: float,
+    gamma: float,
+    intrinsic_temperature: float,
+    equilibrium_temperature: float,
+    ptrans: float,
+    alpha: float
+) -> npt.NDArray:
     """Modified Guillot P-T formula"""
     # TODO how is it modified? Why for?
     return temperature_profile_function_guillot_global_ret(
@@ -650,7 +764,7 @@ def temperature_profile_function_guillot_modif(pressures, delta, gamma,
     ) * (1. - alpha * (1. / (1. + pressures / ptrans)))
 
 
-def temperature_profile_function_isothermal(pressures, temperature):
+def temperature_profile_function_isothermal(pressures: npt.NDArray, temperature: float) -> npt.NDArray:
     # TODO only to temporarily fix methods, change name later
     return np.ones(pressures.size) * temperature
 
@@ -752,7 +866,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
             tnew = np.exp(np.cumsum(tnew) + tstart)
 
             # Add upper radiative and
-            # lower conective part into one single array
+            # lower convective part into one single array
             tfinal = copy.copy(t_take)
             tfinal[conv_index] = tnew
 
@@ -813,13 +927,13 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
         if i_intp == 0:
             tfintp = interp1d(press_cgs, tfinal, kind='cubic')
-            # The temperature at p_bot_spline (from the radiative-convectice solution)
+            # The temperature at p_bot_spline (from the radiative-convective solution)
             t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
             # The temperature at pressures below p_bot_spline (free parameters)
             t_support[:(int(len(support_points_low)) - 1)] = t3
             # t_support[:3] = tfintp(support_points_low)
             # The temperature at pressures above p_bot_spline
-            # (from the radiative-convectice solution)
+            # (from the radiative-convective solution)
             t_support[int(len(support_points_low)):] = \
                 tfintp(support_points[(int(len(support_points_low))):])
 
@@ -829,7 +943,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
                 tfintp1(support_points[:(int(len(support_points_low)) - 1)])
 
             tfintp = interp1d(press_cgs, tfinal)
-            # The temperature at p_bot_spline (from the radiative-convectice solution)
+            # The temperature at p_bot_spline (from the radiative-convective solution)
             t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
             # print('diff', t_connect_calc - tfintp(p_bot_spline))
             t_support[int(len(support_points_low)):] = \
@@ -933,7 +1047,7 @@ def dtdp_temperature_profile(
     return temperatures
 
 
-def um2hz(wavelength):
+def um2hz(wavelength: npt.NDArray | float) -> npt.NDArray | float:
     """Convert wavelengths in micrometer into frequencies.
 
     Args:
@@ -945,7 +1059,7 @@ def um2hz(wavelength):
     return frequency2wavelength(wavelength * 1e-4)  # the operation is the same: (c / Hz) -> cm, (c / cm) -> Hz
 
 
-def wavelength2frequency(wavelength):
+def wavelength2frequency(wavelength: npt.NDArray | float) -> npt.NDArray | float:
     """Convert wavelengths in centimeter to frequencies.
 
     Args:

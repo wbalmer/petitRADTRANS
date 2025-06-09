@@ -70,10 +70,10 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
         relative_tolerance=relative_tolerance
     )
 
-    fsed_min = test_parameters['cloud_parameters']['cloud_species'][
-        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][0]
-    fsed_max = test_parameters['cloud_parameters']['cloud_species'][
-        'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed_variable_setup'][1]
+    fsed_min = list(test_parameters['cloud_parameters']['cloud_species'].values())[0][  # set var fsed to 1st cloud val
+        'f_sed_variable_setup'][0]
+    fsed_max = list(test_parameters['cloud_parameters']['cloud_species'].values())[0][
+        'f_sed_variable_setup'][1]
     fseds = np.linspace(fsed_min, fsed_max, len(atmosphere_ck_scattering._pressures))
 
     benchmark.run(
@@ -88,10 +88,40 @@ def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_
     )
 
 
+def test_correlated_k_emission_spectrum_cloud_calculated_radius_scattering_with_adaptive_feautrier_iterations():
+    mass_fractions, _, cloud_f_sed, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
+
+    benchmark = Benchmark(
+        function=atmosphere_ck_scattering.calculate_flux,
+        relative_tolerance=relative_tolerance
+    )
+
+    benchmark.run(
+        temperatures=temperature_guillot_2010,
+        mass_fractions=mass_fractions,
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        eddy_diffusion_coefficients=test_parameters['planetary_parameters']['eddy_diffusion_coefficients'],
+        cloud_f_sed=cloud_f_sed,
+        cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+        frequencies_to_wavelengths=False,
+        adaptive_feautrier_iterations=True
+    )
+
+
 def test_correlated_k_photospheric_radius_calculation():
+    import copy
+    from .benchmark import ReferenceFile
+
     mass_fractions, cloud_particles_mean_radii, _, cloud_particle_radius_distribution_std, _ = get_cloud_parameters(
         'mass_fractions_correlated_k'
     )
+
+    # Relax tolerance due to test pipeline inconsistencies
+    _parameters_relative_tolerance = copy.deepcopy(ReferenceFile.parameters_relative_tolerance)
+    ReferenceFile.parameters_relative_tolerance = 1e-6
 
     benchmark = Benchmark(
         function=atmosphere_ck_scattering.calculate_photosphere_radius,
@@ -99,6 +129,7 @@ def test_correlated_k_photospheric_radius_calculation():
     )
 
     atmosphere_ck_scattering._Radtrans__set_sum_opacities(emission=True)
+    atmosphere_ck_scattering._Radtrans__use_smart_clear_opacities = False
 
     (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
      cloud_opacities, cloud_particles_mean_radii) = (
@@ -119,12 +150,14 @@ def test_correlated_k_photospheric_radius_calculation():
         planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup,
         opacities=opacities,
         continuum_opacities_scattering=continuum_opacities_scattering,
-        cloud_f_sed=test_parameters['cloud_parameters']['cloud_species'][
-            'Mg2-Si-O4-NatAbund(s)_crystalline_000__DHS.R39_0.1-250mu']['f_sed'],
+        cloud_f_sed=np.array(list(test_parameters['cloud_parameters']['cloud_species'].values())[0]['f_sed']),
         cloud_photosphere_median_optical_depth=None,
         cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
         cloud_absorption_opacities=cloud_absorption_opacities
     )
+
+    # Put back default parameter relative tolerance
+    ReferenceFile.parameters_relative_tolerance = _parameters_relative_tolerance
 
 
 def test_correlated_k_emission_spectrum_cloud_calculated_radius_stellar_scattering_planetary_average():

@@ -1,0 +1,102 @@
+WASP39b_Guillot_FreeChem_PatchyGreyHaze
+2025-03-20, 10:18:15
+pRT v3.2.0a20
+retrievals/transmission/runs/
+Live points: 400
+
+Fixed Parameters
+    stellar_radius = 64867068000.000
+    reference_pressure = 0.010
+    line_species = ['H2O__POKAZATEL.R400', 'CO-NatAbund.R400', 'CO2.R400', 'CH4__MM.R400', 'SO2.R400']
+    cloud_species = []
+Free Parameters, Prior^-1(0), Prior^-1(1)
+    log_g = 2.000000, 5.500000
+    planet_radius = 0.800000, 1.600000
+    T_int = 100.000350, 3599.999650
+    T_equ = 100.000350, 3599.999650
+    gamma = 1.000000, 0.749894
+    log_kappa_IR = -3.999999, 1.999999
+    log_Pcloud = -7.999999, 2.999999
+    haze_factor = -3.999999, 9.999999
+    power_law_opacity_350nm = 0.000000, 99999078970204995584.000000
+    power_law_opacity_coefficient = -19.999998, 1.999998
+    cloud_fraction = 0.000000, 1.000000
+    JWST/NIRSPEC/PRISM_offset = -0.000520, 0.000520
+    JWST/NIRISSSOSS/O2_offset = -0.000520, 0.000520
+    H2O__POKAZATEL = -7.999999, -0.000001
+    CO-NatAbund = -7.999999, -0.000001
+    CO2 = -7.999999, -0.000001
+    CH4__MM = -7.999999, -0.000001
+    SO2 = -7.999999, -0.000001
+
+Data
+JWST/NIRSPEC/PRISM
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRSpec_PRISM_bins_scale1.dat
+    Model Function = guillot_transmission
+    offset = True
+    distance = 3.0856775814913675e+19
+    data resolution = 100
+    model resolution = 400
+JWST/NIRISSSOSS/O1
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRISS_SOSS_Order1_R100.dat
+    Model Function = guillot_transmission
+    distance = 3.0856775814913675e+19
+    data resolution = 700
+    model resolution = 400
+    external_pRT_reference = JWST/NIRSPEC/PRISM
+JWST/NIRISSSOSS/O2
+    ./retrievals/transmission/observations/JWST/WASP39b_NIRISS_SOSS_Order2_R100.dat
+    Model Function = guillot_transmission
+    offset = True
+    distance = 3.0856775814913675e+19
+    data resolution = 700
+    model resolution = 400
+    external_pRT_reference = JWST/NIRSPEC/PRISM
+
+Multinest Outputs
+  marginal evidence:
+    log Z = 836.3 +- 0.0
+    ln Z = 1925.7 +- 0.1
+  Statistical Fit Parameters
+    log_g          2.438 +- 0.058
+    planet_radius  1.3359 +- 0.0075
+    T_int          603 +- 153
+    T_equ          373 +- 174
+    gamma          0.936 +- 0.079
+    log_kappa_IR   -0.10 +- 0.54
+    log_Pcloud     -2.19 +- 0.11
+    haze_factor    9.02 +- 0.86
+    power_law_opacity_350nm0.0000000 +- 0.0000080
+    power_law_opacity_coefficient-10.1 +- 6.7
+    cloud_fraction 0.984 +- 0.014
+    JWST/NIRSPEC/PRISM_offset0.0000601 +- 0.0000095
+    JWST/NIRISSSOSS/O2_offset-0.000156 +- 0.000019
+    H2O__POKAZATEL -3.00 +- 0.11
+    CO-NatAbund    -3.29 +- 0.28
+    CO2            -4.44 +- 0.13
+    CH4__MM        -6.80 +- 0.34
+    SO2            -4.90 +- 0.12
+
+Best Fit Parameters
+    𝛘^2/n_wlen = 2.77
+    𝛘^2/DoF = 2.95
+    stellar_radius = 6.487e+10
+    reference_pressure = 1.000e-02
+    log_g = 2.334e+00
+    planet_radius = 1.317e+00
+    T_int = 3.938e+02
+    T_equ = 3.596e+02
+    gamma = 9.326e-01
+    log_kappa_IR = 7.266e-01
+    log_Pcloud = -2.389e+00
+    haze_factor = 8.874e+00
+    power_law_opacity_350nm = 7.263e-15
+    power_law_opacity_coefficient = -1.388e+01
+    cloud_fraction = 9.881e-01
+    JWST/NIRSPEC/PRISM_offset = 6.180e-05
+    JWST/NIRISSSOSS/O2_offset = -1.616e-04
+    H2O__POKAZATEL = -3.061e+00
+    CO-NatAbund = -3.135e+00
+    CO2 = -4.518e+00
+    CH4__MM = -6.651e+00
+    SO2 = -4.817e+00
