@@ -167,7 +167,6 @@ class Data:
 
         self.data_resolution = data_resolution
         self.data_resolution_array_model = None
-
         self.model_resolution = model_resolution
         self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
@@ -190,10 +189,12 @@ class Data:
             if line_opacity_mode == 'lbl' and model_resolution < 1000:
                 logging.warning("Your resolution is lower than R=1000, it's recommended to use 'c-k' mode.")
 
-        # Optional, covariance and scaling
+        # Optional, covariance
         self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
+
+        # Optional, flux and uncertainty scaling
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
@@ -378,6 +379,37 @@ class Data:
 
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
+    def line_b_uncertainty_scaling(self, parameters):
+        """
+        This function implements the 10^b scaling from Line 2015, which allows
+        for us to account for underestimated uncertainties:
+
+        We modify the standard error on the data point by the factor 10^b to account for
+        underestimated uncertainties and/or unknown missing forward model physics
+        (Foreman-Mackey et al. 2013, Hogg et al. 2010, Tremain et al. 2002), e.g., imperfect fits.
+        This results in a more generous estimate of the parameter uncertainties. Note that this
+        is similar to inflating the error bars post-facto in order to achieve reduced chi-squares
+        of unity, except that this approach is more formal because uncertainties in this parameter
+        are properly marginalized into the other relevant parameters. Generally, the factor 10^b
+        takes on values that fall between the minimum and maximum of the square of the data uncertainties.
+
+        Args:
+            parameters: Dict
+                Dictionary of Parameters, should contain key 'uncertianty_scaling_b'.
+                This can be done for all data sets, or specified with a tag at the end of
+                the key to apply different factors to different datasets.
+        Returns:
+            b: float
+                10**b error bar scaling factor.
+        """
+        b_val = -np.inf
+        if parameters is not None:
+            if f'{self.name}_b' in parameters.keys():
+                b_val = parameters[f'{self.name}_b'].value
+            elif 'uncertainty_scaling_b' in parameters.keys():
+                b_val = parameters['uncertainty_scaling_b'].value
+        return b_val
+    
     def set_distance(self, distance):
         """
         Sets the distance variable in the data class.
@@ -427,7 +459,72 @@ class Data:
         self.system_distance = new_dist
         return scale
 
-    def get_chisq(self, wlen_model,
+    def scale_and_offset_flux(self, parameters_dict: dict) -> np.ndarray:
+        """
+        Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
+        """
+        scaled_spectrum = self.spectrum.copy()  # Operate on a copy
+
+        scale_factor = 1.0
+        if self.scale:
+            param_val = parameters_dict.get(f"{self.name}_scale_factor")
+            if param_val is not None:
+                scale_factor = param_val.value if hasattr(param_val, 'value') else param_val
+
+        scaled_spectrum = scaled_spectrum * scale_factor
+
+        offset_val = 0.0
+        if self.offset_bool:
+            param_val = parameters_dict.get(f"{self.name}_offset")
+            if param_val is not None:
+                offset_val = param_val.value if hasattr(param_val, 'value') else param_val
+
+        scaled_spectrum = scaled_spectrum - offset_val
+        return scaled_spectrum
+
+    def scale_and_inflate_uncertainties(self, parameters_dict: dict) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Applies scaling to self.uncertainties or self.covariance.
+        Returns a tuple: (scaled_uncertainties, scaled_covariance). One will be None.
+        """
+        scaled_uncertainties = None
+        scaled_covariance = None
+
+        # Multiplicative scaling factor for error bars
+        err_scale_factor = 1.0
+        if self.scale_err:  # This flag means apply multiplicative scaling to errors
+            param_val = parameters_dict.get(f"{self.name}_scale_factor")  # Uses the same param as flux scaling
+            if param_val is not None:
+                err_scale_factor = param_val.value if hasattr(param_val, 'value') else param_val
+
+        # Additive error inflation term (log10(error_val_to_add_in_variance))
+        raw_b_val = self.line_b_uncertainty_scaling(parameters_dict)
+
+        additive_variance_term = 0.0
+        if raw_b_val != -np.inf:
+            additive_variance_term = 10**raw_b_val
+
+        if self.covariance is not None:
+            scaled_covariance = self.covariance.copy()
+            scaled_covariance = scaled_covariance * (err_scale_factor**2)
+            if additive_variance_term > 0:
+                # Add to diagonal (variances)
+                np.fill_diagonal(scaled_covariance, np.diag(scaled_covariance) + additive_variance_term)
+        elif self.uncertainties is not None:
+            scaled_uncertainties = self.uncertainties.copy()
+            scaled_uncertainties = scaled_uncertainties * err_scale_factor
+            if additive_variance_term > 0:
+                scaled_uncertainties = np.sqrt(scaled_uncertainties**2 + additive_variance_term)
+        else:
+            # Should not happen if __init__ ensures either uncertainties or covariance exists
+            raise ValueError("Data object has neither uncertainties nor covariance.")
+
+        return scaled_uncertainties, scaled_covariance
+    
+    
+#### ------- Delete below here ------- ####
+    def get_chisq(self,
+                  wlen_model,
                   spectrum_model,
                   plotting,
                   parameters=None,
@@ -722,78 +819,84 @@ class Data:
     def log_likelihood2chi2(log_likelihood: float) -> float:
         return -2 * log_likelihood
 
-    # TODO: do we want to pass the whole parameter dict,
-    # or just set a class variable for b in the likelihood function?
-    def line_b_uncertainty_scaling(self, parameters):
-        """
-        This function implements the 10^b scaling from Line 2015, which allows
-        for us to account for underestimated uncertainties:
-
-        We modify the standard error on the data point by the factor 10^b to account for
-        underestimated uncertainties and/or unknown missing forward model physics
-        (Foreman-Mackey et al. 2013, Hogg et al. 2010, Tremain et al. 2002), e.g., imperfect fits.
-        This results in a more generous estimate of the parameter uncertainties. Note that this
-        is similar to inflating the error bars post-facto in order to achieve reduced chi-squares
-        of unity, except that this approach is more formal because uncertainties in this parameter
-        are properly marginalized into the other relevant parameters. Generally, the factor 10^b
-        takes on values that fall between the minimum and maximum of the square of the data uncertainties.
-
-        Args:
-            parameters: Dict
-                Dictionary of Parameters, should contain key 'uncertianty_scaling_b'.
-                This can be done for all data sets, or specified with a tag at the end of
-                the key to apply different factors to different datasets.
-        Returns:
-            b: float
-                10**b error bar scaling factor.
-        """
-        b_val = -np.inf
-        if parameters is not None:
-            if f'{self.name}_b' in parameters.keys():
-                b_val = parameters[f'{self.name}_b'].value
-            elif 'uncertainty_scaling_b' in parameters.keys():
-                b_val = parameters['uncertainty_scaling_b'].value
-        return b_val
+class Rebin:
+    """
+    A class containing static methods for rebinning and convolving spectra.
+    """
 
     @staticmethod
-    def convolve(input_wavelength,
-                 input_flux,
-                 instrument_res):
-        r"""
-        This function convolves a model spectrum to the instrumental wavelength
-        using the provided data_resolution
+    def convolve_spectrum(input_wavelength: np.ndarray, input_flux: np.ndarray, instrument_res: any) -> np.ndarray:
+        """
+        Convolve a model spectrum with a given instrument resolution.
+        This method replicates the logic from petitRADTRANS.retrieval.data.Data.convolve().
 
-        TODO Move out of data class
         Args:
-            input_wavelength : numpy.ndarray
-                The wavelength grid of the model spectrum
-            input_flux : numpy.ndarray
-                The flux as computed by the model
-            instrument_res : float
-                :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
+            input_wavelength : np.ndarray
+                The wavelength array of the model spectrum.
+            input_flux : np.ndarray
+                The flux array of the model spectrum.
+            instrument_res : float or np.ndarray
+                The instrument resolution. Can be a single float (constant resolution)
+                or an array (variable resolution per wavelength point).
 
         Returns:
-            flux_lsf
-                The convolved spectrum.
+            flux_lsf : np.ndarray
+                The convolved flux array.
         """
         if isinstance(instrument_res, np.ndarray):
-            return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
-        # From talking to Ignas: delta lambda of resolution element
-        # is FWHM of the LSF's standard deviation, hence:
-        sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
+            # Variable width convolution
+            flux_lsf = fconvolve.variable_width_convolution(
+                input_wavelength,
+                input_flux,
+                instrument_res  # This is expected to be sigma_lsf values per wavelength by variable_width_convolution
+            )
+        else:
+            # Constant resolution convolution using Gaussian filter
+            # Calculate sigma_lsf (standard deviation of the LSF)
+            sigma_lsf = input_wavelength / (2.0 * np.sqrt(2.0 * np.log(2.0)) * instrument_res)
 
-        # The input spacing of petitRADTRANS is 1e3, but just compute
-        # it to be sure, or more versatile in the future.
-        # Also, we have a log-spaced grid, so the spacing is constant
-        # as a function of wavelength
-        spacing = np.mean(2. * np.diff(input_wavelength) / (input_wavelength[1:] + input_wavelength[:-1]))
+            # Calculate the spacing of the wavelength array
+            spacing = np.abs(input_wavelength - np.roll(input_wavelength, 1))
+            spacing[0] = spacing[1]  # Fix the first element due to np.roll
 
-        # Calculate the sigma to be used in the gauss filter in units
-        # of input wavelength bins
-        sigma_lsf_gauss_filter = sigma_lsf / spacing
+            # Calculate sigma_lsf for gaussian_filter
+            sigma_lsf_gauss_filter = sigma_lsf / spacing
 
-        flux_lsf = gaussian_filter(input_flux,
-                                   sigma=sigma_lsf_gauss_filter,
-                                   mode='nearest')
+            # Convolve with a Gaussian LSF
+            flux_lsf = gaussian_filter(input_flux, sigma=sigma_lsf_gauss_filter, mode='nearest')
 
         return flux_lsf
+
+    @staticmethod
+    def rebin_spectrum(
+        model_wavelengths: np.ndarray,
+        model_spectrum: np.ndarray,
+        data_wavelengths: np.ndarray,
+        data_wavelength_bin_widths: np.ndarray
+    ) -> np.ndarray:
+        """
+        Rebin a model spectrum to the resolution of the data.
+        This method wraps the fortran_rebin.rebin_spectrum_bin function.
+
+        Args:
+            model_wavelengths : np.ndarray
+                The wavelength array of the model spectrum.
+            model_spectrum : np.ndarray
+                The flux array of the model spectrum.
+            data_wavelengths : np.ndarray
+                The wavelength array of the data.
+            data_wavelength_bin_widths : np.ndarray
+                The widths of the wavelength bins of the data.
+
+        Returns:
+            rebinned_flux : np.ndarray
+                The rebinned model flux array, on the data_wavelengths grid.
+        """
+        rebinned_flux = frebin.rebin_spectrum_bin(
+            model_wavelengths,
+            model_spectrum,
+            data_wavelengths,
+            data_wavelength_bin_widths
+        )
+        return rebinned_flux
+

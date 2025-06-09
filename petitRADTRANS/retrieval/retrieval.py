@@ -151,7 +151,6 @@ class Retrieval:
         self.chi2 = None
         self.posterior_sample_spectra = {}
         self.test_plotting = test_plotting
-        self.pt_plot_mode = False
         self.evaluate_sample_spectra = evaluate_sample_spectra
 
         # Pymultinest stuff
@@ -583,6 +582,23 @@ class Retrieval:
             return model_returned_values
         else:
             return model_returned_values[list(data.keys())[0]]
+
+    def calculate_temperature_profile(self, parameters):
+        for data_name, data_obj in self.configuration.data.items():
+            if data_name == self.configuration.plot_kwargs.get('take_PTs_from'):
+                radtrans_obj_to_use = data_obj.radtrans_object
+                if data_obj.external_radtrans_reference is not None:
+                    radtrans_obj_to_use = \
+                        self.configuration.data[data_obj.external_radtrans_reference].radtrans_object
+                pt_output = data_obj.model_generating_function(
+                    radtrans_obj_to_use,
+                    parameters,
+                    pt_plot_mode=True,
+                    amr=self.configuration.amr
+                )
+                return pt_output[0], pt_output[1]
+        return None, None
+        
 
     @classmethod
     def from_data(
@@ -1268,7 +1284,7 @@ class Retrieval:
         model_returned_values = dd.model_generating_function(
             dd.radtrans_object,
             self.configuration.parameters,
-            self.pt_plot_mode,
+            pt_plot_mode=False,
             amr=self.configuration.amr
         )  # TODO the generating function should always return the same number of values
         beta = None
@@ -1475,9 +1491,7 @@ class Retrieval:
 
         parameters = self.build_param_dict(sample, parameters_read)
 
-        self.pt_plot_mode = True
-        pressures, temps = self.log_likelihood(sample, 0, 0)
-        self.pt_plot_mode = False
+        pressures, temps = self.calculate_temperature_profile(sample)
 
         if self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference is None:
             name = self.configuration.plot_kwargs["take_PTs_from"]
@@ -1892,6 +1906,7 @@ class Retrieval:
             raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
                              f"but was '{self.uncertainties_mode}'")
 
+
         # Store per data-object
         per_datapoint = False
 
@@ -1946,7 +1961,7 @@ class Retrieval:
                 model_returned_values = data.model_generating_function(
                     data.radtrans_object,
                     self.configuration.parameters,
-                    self.pt_plot_mode,
+                    pt_plot_mode=False,
                     amr=self.configuration.amr
                 )  # TODO the generating function should always return the same number of values
 
@@ -2961,7 +2976,6 @@ class Retrieval:
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
             min_xaxis = 1e-7
-            self.pt_plot_mode = True
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
                 log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
@@ -2972,8 +2986,7 @@ class Retrieval:
             else:
                 sample_use = None  # TODO prevent reference before assignment
 
-            pressures, t = self.log_likelihood(sample_use, 0, 0)
-            self.pt_plot_mode = False
+            pressures, t = self.calculate_temperature_profile(sample_use)
 
             # Check if we're only plotting a few species
             if species_to_plot is None:
@@ -3380,9 +3393,6 @@ class Retrieval:
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
 
-            self.pt_plot_mode = True
-            self.pt_plot_mode = False
-
             # Calculate the best fit/median spectrum contribution
             if mode.strip('-').strip("_").lower() == "bestfit":
                 # Get best-fit index
@@ -3630,17 +3640,6 @@ class Retrieval:
             # Choose what samples we want to use
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
 
-            # This is probably obsolete
-            # i_p = 0
-            self.pt_plot_mode = True
-            """for pp in self.configuration.parameters:
-                if self.configuration.parameters[pp].is_free_parameter:
-                    for i_s in range(len(parameters_read)):
-                        if parameters_read[i_s] == self.configuration.parameters[pp].name:
-                            samples_use[:, i_p] = sample_dict[self.configuration.retrieval_name][:, i_s]
-
-                    i_p += 1"""
-
             # Let's set up a standardized pressure array, regardless of AMR stuff.
             amr = self.configuration.amr
             self.configuration.amr = False
@@ -3660,11 +3659,9 @@ class Retrieval:
             else:
                 length_samples = np.shape(samples_use)[1]
                 for i_sample in range(length_samples):
-                    press, t = self.log_likelihood(samples_use[:-1, i_sample], 0, 0)
-
+                    press, t = self.calculate_temperature_profile(samples_use[:-1, i_sample])
                     if t is None:
                         continue
-
                     temps.append(t)
 
                 temps = np.array(temps, dtype=float)
@@ -3720,7 +3717,6 @@ class Retrieval:
 
             # Check if we're weighting by the contribution function.
             if contribution:
-                self.pt_plot_mode = False
                 if mode.strip('-').strip("_").lower() == "bestfit":
                     # Get best-fit index
                     log_l, best_fit_index = self.get_best_fit_likelihood(samples_use)
