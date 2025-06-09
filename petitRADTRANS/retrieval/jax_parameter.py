@@ -39,6 +39,7 @@ class Parameter:
                  plot_in_corner=False,
                  corner_ranges=None,
                  corner_transform=None,
+                 transform_prior_cube_coordinate=None,
                  corner_label=None):
 
         self.name = name
@@ -46,6 +47,7 @@ class Parameter:
         self.value = value
         self.distribution = distribution
         self.prior_sample = None
+        self.transform_prior_cube_coordinate = transform_prior_cube_coordinate
         self.plot_in_corner = plot_in_corner
         self.corner_ranges = corner_ranges
         self.corner_transform = corner_transform
@@ -88,7 +90,7 @@ class Parameter:
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
     def set_prior(self):
-        self.prior_sample = Prior(self.distribution, name = self.name)
+        self.prior_sample = Prior(self.distribution, name=self.name)
     
 class RetrievalParameter:
     __available_priors = [

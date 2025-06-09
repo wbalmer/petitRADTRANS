@@ -9,7 +9,7 @@ import dill
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
-from jax import random, numpy as jnp
+from jax import random, devices, numpy as jnp
 
 from jaxns import NestedSampler
 from jaxns import Model
@@ -35,7 +35,11 @@ from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
-from petitRADTRANS.retrieval.sampler import Sampler, PymultinestSampler, UltranestSampler, JAXNSSampler
+from petitRADTRANS.retrieval.sampler import (Sampler,
+                                             PymultinestSampler,
+                                             UltranestSampler,
+                                             JAXNSSampler,
+                                             JAXNSShardedStaticNestedSampler)
 
 from petitRADTRANS.utils import flatten_object, list_str2str
 from petitRADTRANS.math import filter_spectrum_with_spline
@@ -2218,6 +2222,12 @@ class Retrieval:
 
         return params
 
+    def prior_model_jaxns(self):
+        for key, parameter in self.configuration.parmeters.items():
+            parameter.set_prior()
+            parameter.value = yield parameter.prior_sample
+        return self.configuration.parmeters
+
     def run(self, sampler_type: str = "pymultinest", sampler_object: Sampler = None, **sampler_kwargs):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
@@ -2226,76 +2236,82 @@ class Retrieval:
         TODO: simplfy code, want to enable use of more or less arbitrary samplers
 
         Args:
-            sampling_efficiency : Float
-                pymultinest sampling efficiency. If const efficiency mode is true, should be set to around
-                0.05. Otherwise, it should be around 0.8 for parameter estimation and 0.3 for evidence
-                comparison.
-            const_efficiency_mode : Bool
-                pymultinest constant efficiency mode
-            n_live_points : Int
-                Number of live points to use in pymultinest, or the minimum number of live points to
-                use for the Ultranest reactive sampler.
-            log_z_convergence : float
-                If ultranest is being used, the convergence criterion on log z.
-            step_sampler : bool
-                Use a step sampler to improve the efficiency in ultranest.
-            warmstart_max_tau : float
-                Warm start allows accelerated computation based on a different but similar UltraNest run.
-            n_iter_before_update : int
-                Number of live point replacements before printing an update to a log file.
-            max_iters : int
-                Maximum number of sampling iterations. If 0, will continue until convergence criteria are satisfied.
-            frac_remain : float
-                Ultranest convergence criterion. Halts integration if live point weights are below the specified value.
-            l_epsilon : float
-                Ultranest convergence criterion. Use with noisy likelihoods. Halts integration if live points are
-                within l_epsilon.
-            resume : bool
-                Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
-            error_checking : bool
-                Test the model generating function for typical errors. ONLY TURN THIS OFF IF YOU KNOW WHAT YOU'RE DOING!
-            force_serial_error_checking : bool
-                If True, error checking will be performed process-by-process, instead of with all processes at once.
-                This can prevent memory overflow.
-            seed : int
-                Random number generator seed, -ve value for seed from the system clock (for reproducibility)
+            sampler_type : str
+                The type of sampler to use. Can be one of the following:
+                    pymultinest - requires Multinest installation. 
+                    jaxns - Requires JAXNS. Default choice for JAXNS
+                    jaxnsshardedstaticsestedsampler - Requires JAXNS. Advanced option for JAXNS
+                    ultranest - Requires ultranest. Implements.
         """
         print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
         if MPI is None and sampler_type == 'pymultinest':
             print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
         error_checking = sampler_kwargs.pop('error_checking', True)
         force_serial_error_checking = sampler_kwargs.pop('force_serial_error_checking', False)
-        any_error_checking = comm.allreduce(error_checking, op=MPI.LOR) \
-            if MPI is not None and comm is not None else error_checking
+        # any_error_checking = comm.allreduce(error_checking, op=MPI.LOR)
+        # %if MPI is not None and comm is not None else error_checking
+
         if error_checking:
             if force_serial_error_checking and MPI is not None and comm is not None:
                 for i in range(comm.Get_size()):
-                    if rank == i: self._check_errors()
+                    if rank == i:
+                        self._check_errors()
                     comm.barrier()
-            else: self._check_errors()
-        if comm is not None: comm.barrier()
+            else:
+                self._check_errors()
+        if comm is not None:
+            comm.barrier()
 
         if sampler_object is not None:
             self.latest_sampler_results = sampler_object.run_sampler(**sampler_kwargs)
 
-        elif sampler_type == 'pymultinest':
+        elif sampler_type.lower() == 'pymultinest':
+            prefix = os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_')
+            if len(prefix) > 100 - 21 and rank == 0:
+                warnings.warn("The path to the output files is very long. "
+                              "This can cause problems for MultiNest...", RuntimeWarning)
+
+            if self.retrieval_configuration.run_mode == 'retrieval':
+                if rank == 0:
+                    print(f"Starting PyMultiNest retrieval: {self.retrieval_configuration.retrieval_name}")
+                    print(f"Output directory: {os.path.join(self.output_directory, 'out_PMN')}")
+                    with open(prefix + 'params.json', 'w') as f:
+                        json.dump(self._free_parameter_names_cache, f, indent=4)
+
             pmn_args = {
+                'outputfiles_basename':  sampler_kwargs.pop('outputfiles_basename', prefix),
                 'sampling_efficiency': sampler_kwargs.pop('sampling_efficiency', 0.8),
                 'const_efficiency_mode': sampler_kwargs.pop('const_efficiency_mode', False),
-                'n_live_points': sampler_kwargs.pop('n_live_points', 4000),
-                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance',
-                                                        sampler_kwargs.pop('log_z_convergence', 0.5)),
+                'n_live_points': sampler_kwargs.pop('n_live_points', 400),
+                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance', 0.5,
+                                                         sampler_kwargs.pop('log_z_convergence', 0.5)),
                 'n_iter_before_update': sampler_kwargs.pop('n_iter_before_update', 50),
                 'resume': sampler_kwargs.pop('resume', False),
+                'verbose': sampler_kwargs.pop('verbose', True),
                 'max_iter': sampler_kwargs.pop('max_iter', 0),
-                'seed': sampler_kwargs.pop('seed', -1)
+                'seed': sampler_kwargs.pop('seed', -1),
+                'n_clustering_params': sampler_kwargs.pop('n_clustering_params', None),
+                'wrapped_params': sampler_kwargs.pop('wrapped_params', None),
+                'importance_nested_sampling': sampler_kwargs.pop('importance_nested_sampling', True),
+                'multimodal': sampler_kwargs.pop('multimodal', True),
+                'null_log_evidence': sampler_kwargs.pop('null_log_evidence', -1e90),
+                'max_modes': sampler_kwargs.pop('max_modes', 100),
+                'mode_tolerance': sampler_kwargs.pop('mode_tolerance', -1e90),
+                'context': sampler_kwargs.pop('context', 0),
+                'write_output': sampler_kwargs.pop('write_output', True),
+                'log_zero': sampler_kwargs.pop('log_zero', -1e100),
+                'use_MPI': sampler_kwargs.pop('use_MPI', True),
+                'init_MPI': sampler_kwargs.pop('init_MPI', False),
+                'dump_callback': sampler_kwargs.pop('dump_callback', False),
             }
-            pmn_args.update(sampler_kwargs)
             sampler = PymultinestSampler(
-                log_likelihood_func=self.log_likelihood, prior_func=self.prior,
-                retrieval_configuration=self.configuration, output_directory=self.output_directory, **pmn_args
+                log_likelihood_func=self.log_likelihood,
+                prior_func=self.prior,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
             )
-            analyzer = sampler.run_sampler()
+            analyzer = sampler.run_sampler(**pmn_args)
+            sampler.pretty_print(self._free_parameter_names_cache, prefix)
             if analyzer is not None and rank == 0:
                 if hasattr(analyzer, 'get_stats'):
                     statistics = analyzer.get_stats()
@@ -2306,100 +2322,62 @@ class Retrieval:
                 else:
                     warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
             self.latest_sampler_results = analyzer
-        elif sampler_type == 'ultranest':
-            un_args = {
-                'n_live_points': sampler_kwargs.pop('n_live_points', 400),
-                'log_z_convergence': sampler_kwargs.pop('log_z_convergence', 0.5),
-                'step_sampler': sampler_kwargs.pop('step_sampler', False),
-                'warmstart_max_tau': sampler_kwargs.pop('warmstart_max_tau', 0.5),
-                'resume': 'auto' if sampler_kwargs.pop('resume', False) else 'overwrite',
-                'max_iters': sampler_kwargs.pop('max_iters', 0),
-                'frac_remain': sampler_kwargs.pop('frac_remain', 0.1),
-                'l_epsilon': sampler_kwargs.pop('l_epsilon', 0.3)
-            }
-            un_args.update(sampler_kwargs)
+
+        elif sampler_type.lower() == 'ultranest':
             sampler = UltranestSampler(
-                log_likelihood_func=self.log_likelihood, prior_func=self.prior_ultranest,
-                retrieval_configuration=self.configuration, output_directory=self.output_directory, **un_args
+                log_likelihood_func=self.log_likelihood,
+                prior_func=self.prior_ultranest,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler()
-        elif sampler_type == 'jaxns':
+            self.latest_sampler_results = sampler.run_sampler(**sampler_kwargs)
+            sampler.pretty_print_results()
+        elif sampler_type.lower() == 'jaxnestedsampler':
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
-            jax_args = {
-                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
+            jaxns_kwargs = {
                 'num_live_points': sampler_kwargs.pop('num_live_points', 400),
-                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', True),
-                'num_parallel_workers': sampler_kwargs.pop('num_parallel_workers', 1),
+                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
+                's': sampler_kwargs.pop('s', 4),
+                'k': sampler_kwargs.pop('k', 0),
+                'c': sampler_kwargs.pop('c', 200),
+                'devices': sampler_kwargs.pop('devices', devices()),
+                'difficult_model': sampler_kwargs.pop('difficult_model', False),
+                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', False),
+                'shell_fraction': sampler_kwargs.pop('shell_fraction', 0.5),
+                'gradient_guided': sampler_kwargs.pop('gradient_guided', False),
+                'init_efficiency_threshold': sampler_kwargs.pop('init_efficiency_threshold', 0.05),
                 'verbose': sampler_kwargs.pop('verbose', False),
                 'seed': sampler_kwargs.pop('seed', 42654)
             }
-            jax_args.update(sampler_kwargs)
+            jit = sampler_kwargs.pop('jit', True)
+
             sampler = JAXNSSampler(
-                log_likelihood_func=self.log_likelihood, prior_func=self.prior_model_jax,
-                retrieval_configuration=self.configuration, output_directory=self.output_directory, **jax_args
+                log_likelihood_func=self.log_likelihood,
+                prior_func=self.prior_model_jaxns,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
             )
-            self.latest_sampler_results = sampler.run_sampler()
+            sampler.run_sampler(jit=jit, **jaxns_kwargs)
+            self.latest_sampler_results = sampler.get_results()
+        elif sampler_type.lower() == 'jaxnsshardedstaticsestedsampler':
+            if tfp is None:
+                raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
+
+            jit = sampler_kwargs.pop('jit', True)
+            jaxns_kwargs.update(sampler_kwargs)
+            sampler = JAXNSShardedStaticNestedSampler(
+                log_likelihood_func=self.log_likelihood,
+                prior_func=self.prior_model_jax,
+                output_directory=self.output_directory,
+                retrieval_name=self.configuration.retrieval_name
+            )
+            sampler.run_sampler(jit=jit, **sampler_kwargs)
+            self.latest_sampler_results = sampler.get_results()
         else:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
         return self.latest_sampler_results
 
-    # TODO: sort alphabetically
-    def prior_model_jax(self):
-        """
-        TODO finish docstring
-        TODO need to use jax_parameter
-        """
-        for key,parameter in self.configuration.parameters.items():
-            parameter.set_prior()
-            parameter.value = yield parameter.prior_sample
-        return self.configuration.parameters
-
-    def run_jaxns(
-            self,
-            max_samples=1e7,
-            num_live_points=400,
-            parameter_estimation=True,
-            num_parallel_workers=1,
-            verbose=False):
-        """
-        TODO complete docstring
-        TODO check to see how priors work
-        """
-        model = Model(
-            prior_model=self.prior_model_jax,
-            log_likelihood=self.log_likelihood
-            )
-        
-        # TODO check which sampler we want, or provide options
-        ns = NestedSampler(
-            model=model,
-            max_samples=max_samples,
-            num_live_points = num_live_points,
-            parameter_estimation = parameter_estimation,
-            num_parallel_workers = num_parallel_workers,
-            verbose=verbose)
-        
-        # TODO: probably want a random seed
-        termination_reason, state = ns(random.PRNGKey(42654))
-        results = ns.to_results(termination_reason=termination_reason, state=state)
-        summary(results)
-        return results
-    
-
-    def save_jax_ns_results(self):
-        """
-        TODO implement
-        Save jaxns results in a useful format
-        """
-
-    def read_jax_ns_results(self):
-        """
-        TODO implement
-        Read in saved jaxns results
-        """
-        return
-    
     def sample_teff(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):
         r"""
         This function samples the outputs of a retrieval and computes Teff
