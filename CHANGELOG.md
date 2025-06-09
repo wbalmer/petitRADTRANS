@@ -3,11 +3,16 @@ All notable changes to petitRADTRANS will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
+
 ## [4.0.0a0] - 2024-10-24
 ## Changed
 - WORK IN PROGRESS 
 - Transitioning to JAX backend for GPU operations.
 
+## [3.3.0a0] - 2025-05-22
+### Added
+- Linear spline continuum subtraction (courtesy Will Balmer)
+- Radial velocity handling in retrieval package (courtesy Will Balmer)
 
 ## [3.2.0] - 2025-05-30
 ### Added

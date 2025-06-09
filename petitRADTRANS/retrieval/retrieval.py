@@ -26,15 +26,17 @@ from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import running_mean
+from petitRADTRANS.math import running_mean, convolve
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
 from petitRADTRANS.utils import flatten_object, list_str2str
+from petitRADTRANS.math import filter_spectrum_with_spline
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True
@@ -2167,7 +2169,7 @@ class Retrieval:
                 if self.evaluate_sample_spectra:
                     self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
                 else:
-                    convolved = data.convolve(wavelengths_model,
+                    convolved = convolve(wavelengths_model,
                                               spectrum_model,
                                               data.data_resolution)
                     binned = frebin.rebin_spectrum_bin(
@@ -2678,9 +2680,9 @@ class Retrieval:
 
             if data.data_resolution_array_model is not None:
                 data.initialise_data_resolution(wavelengths_model)
-                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
-                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
             binned = frebin.rebin_spectrum_bin(
                         wavelengths_model,
                         spectrum_model,
@@ -2751,9 +2753,9 @@ class Retrieval:
 
                 if data.data_resolution_array_model is not None:
                     data.initialise_data_resolution(wavelengths_model)
-                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
                 elif data.data_resolution is not None:
-                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
                 binned = frebin.rebin_spectrum_bin(
                     wavelengths_model,
                     spectrum_model,
@@ -2774,12 +2776,12 @@ class Retrieval:
                             )
                             if data.data_resolution_array_model is not None:
                                 data.initialise_data_resolution(wavelengths_model)
-                                spectrum_model_2 = data.convolve(
+                                spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution_array_model)
                             elif data.data_resolution is not None:
-                                spectrum_model_2 = data.convolve(
+                                spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution)
@@ -4360,6 +4362,25 @@ class Retrieval:
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
+                if name + "_radial_velocity" in self.configuration.parameters.keys():
+                        # RV in km/s -> multiply by 1e5 to cm/s
+                        # wlen_model in micron
+                        # cst.c in cm/s
+                        radial_velocity = self.best_fit_parameters[name + "_radial_velocity"].value * 1e5 
+                        wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                        #wavelengths += wavel_shift
+
+                        # Don't want to rebin the spectrum multiple times.
+                        #spectrum_model = spectres_numba(
+                        #    wlen_model,
+                        #    wlen_model + wavel_shift,
+                        #    verbose=False
+                        #    spectrum_model,
+                        #)
+                elif "system_radial_velocity" in self.configuration.parameters.keys():
+                    radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5 
+                    wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                    #wavelengths += wavel_shift
 
                 if data.scale:
                     scale = self.best_fit_parameters[f"{name}_scale_factor"].value
@@ -4399,6 +4420,13 @@ class Retrieval:
                             best_fit_binned = best_fit_binned[0]
                         except Exception:
                             pass
+                if data.subtract_continuum:
+                    nodes = self.best_fit_parameters[name + "_nodes"].value
+                    x_nodes = np.linspace(wavelengths[0], wavelengths[-1], nodes)
+                    best_fit_binned = filter_spectrum_with_spline(wavelengths, self.best_fit_spectra[name][1], x_nodes=x_nodes)
+                    x_nodes = np.linspace(best_fit_wavelengths[0], best_fit_wavelengths[-1], nodes)
+                    best_fit_spectrum = filter_spectrum_with_spline(best_fit_wavelengths, best_fit_spectrum, x_nodes=x_nodes)
+
 
                 marker = 'o' if not data.photometry else 's'
                 label = data.name

@@ -5,9 +5,9 @@ import warnings
 
 import numpy as np
 from astropy.io import fits
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from scipy.ndimage import gaussian_filter
+from petitRADTRANS.math import convolve, convolve_and_sample_Rvers, filter_spectrum_with_spline
+from spectres.spectral_resampling_numba import spectres_numba
 
 import petitRADTRANS.physical_constants as cst
 
@@ -126,6 +126,8 @@ class Data:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
+                 resample=False,
+                 subtract_continuum=False,
                  wavelength_bin_widths=None,
                  photometry=False,
                  photometric_transformation_function=None,
@@ -198,6 +200,8 @@ class Data:
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
+        self.resample = resample
+        self.subtract_continuum = subtract_continuum
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -np.inf
@@ -584,13 +588,13 @@ class Data:
 
                 for spectrum_model in model_spectra:
                     if self.data_resolution_array_model is not None:
-                        spectrum_model = self.convolve(
+                        spectrum_model = convolve(
                             wlen_model,
                             spectrum_model,
                             self.data_resolution_array_model
                         )
                     elif self.data_resolution is not None:
-                        spectrum_model = self.convolve(
+                        spectrum_model = convolve(
                             wlen_model,
                             spectrum_model,
                             self.data_resolution
@@ -606,6 +610,25 @@ class Data:
                     else:
                         rebin = True
 
+                    if self.name + "_radial_velocity" in parameters.keys():
+                        # RV in km/s -> multiply by 1e5 to cm/s
+                        # wlen_model in micron
+                        # cst.c in cm/s
+                        radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5 
+                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                        #wlen_model += wavel_shift
+
+                        # Don't want to rebin the spectrum multiple times.
+                        #spectrum_model = spectres_numba(
+                        #    wlen_model,
+                        #    wlen_model + wavel_shift,
+                        #    verbose=False
+                        #    spectrum_model,
+                        #)
+                    elif "system_radial_velocity" in parameters.keys():
+                        radial_velocity = parameters["system_radial_velocity"].value * 1e5 
+                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c)) 
+                        #wlen_model += wavel_shift
                     if rebin:
                         flux_rebinned = frebin.rebin_spectrum_bin(
                             wlen_model,
@@ -614,6 +637,11 @@ class Data:
                             self.wavelength_bin_widths
                         )
 
+                    if self.atmospheric_column_flux_mixer is None:
+                        break
+                    else:
+                        column_rebinned_spectra.append(flux_rebinned)
+                    
                     if self.atmospheric_column_flux_mixer is None:
                         break
                     else:
@@ -631,6 +659,19 @@ class Data:
             # species spectrum_to_flux functions return (flux,error)
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
+
+        if self.resample:
+            r_slope = parameters[self.name + "_R_slope"].value
+            r_intersect = parameters[self.name + "_R_int"].value
+            r_array = (self.wavelengths*r_slope)+r_intersect
+            # TODO: interpolate r_array and use standard convolve function.
+            # TODO: compare different convolution and binning methods
+            flux_rebinned = convolve_and_sample_Rvers(self.wavelengths, r_array, self.wavelengths, flux_rebinned)
+        
+        if self.subtract_continuum:
+            nodes = parameters[self.name + "_nodes"].value
+            x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
+            flux_rebinned = filter_spectrum_with_spline(self.wavelengths,flux_rebinned,x_nodes=x_nodes)
 
         if self.scale:
             diff = (flux_rebinned - self.spectrum * parameters[self.name + "_scale_factor"].value) + self.offset
