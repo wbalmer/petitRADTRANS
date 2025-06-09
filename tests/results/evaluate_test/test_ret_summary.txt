@@ -1,0 +1,37 @@
+test
+2025-03-19, 15:01:43
+pRT v3.2.0a20
+/Users/nasedkin/python-packages/petitRADTRANS/tests/results
+Live points: 50
+
+Fixed Parameters
+    Rstar = 69570000000.000
+    log_g = 2.450
+    line_species = ['1H2-16O__HITEMP.R120_0.9-1.2mu', '12C-1H4__YT34to10.R120_0.9-1.2mu']
+    cloud_species = []
+Free Parameters, Prior^-1(0), Prior^-1(1)
+    R_pl = 1.800000, 2.000000
+    Temperature = 500.000100, 1499.999900
+    log_Pcloud = -5.999999, 1.999999
+    1H2-16O__HITEMP = -6.000000, -1.000000
+    12C-1H4__YT34to10 = -6.000000, -1.000000
+
+Data
+test
+    /Users/nasedkin/python-packages/petitRADTRANS/tests/data/radtrans_correlated_k_transmission_cloud_calculated_radius_scattering_ref.dat
+    Model Function = retrieval_model_spec_iso
+    distance = 3.0856775814913675e+19
+    data resolution = 60
+    model resolution = 120
+
+Multinest Outputs
+  marginal evidence:
+    log Z = 43.8 +- 0.0
+    ln Z = 100.9 +- 0.1
+  Statistical Fit Parameters
+    R_pl           1.872 +- 0.048
+    Temperature    785 +- 236
+    log_Pcloud     -2.0 +- 1.9
+    1H2-16O__HITEMP-3.4 +- 1.6
+    12C-1H4__YT34to10-4.0 +- 1.5
+

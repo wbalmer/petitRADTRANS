@@ -3,7 +3,8 @@
 import numpy as np
 import numpy.typing as npt
 from scipy.special import erf, erfinv, lambertw
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, median_filter
+from scipy.signal import savgol_filter
 from scipy.optimize import lsq_linear
 from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
@@ -419,6 +420,9 @@ def median_uncertainties(uncertainties: npt.NDArray) -> float:
     return mean_uncertainty(uncertainties) \
         * np.sqrt(np.pi * np.size(uncertainties) / (2 * (np.size(uncertainties) - 1)))
 
+def median_filter_spectrum(spectrum, size=10, mode = 'nearest'):
+    median_filtered_spectrum = median_filter(spectrum, size=size, mode = mode)
+    return spectrum - median_filtered_spectrum
 
 def normalize(array: npt.NDArray, axis: int = None) -> npt.NDArray:
     return (array - np.min(array, axis=axis)) / (np.max(array, axis=axis) - np.min(array, axis=axis))
@@ -512,6 +516,16 @@ def running_mean(x: npt.NDArray, n: int) -> npt.NDArray:
     cum_sum = np.cumsum(np.insert(x, 0, 0))
 
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)
+
+
+def savgol_filter_spectrum(spectrum, window_length: int = 10, polyorder: int = 3, mode: str = 'nearest'):
+    savgol_filtered_spectrum = savgol_filter(
+        spectrum,
+        window_length=window_length,
+        polyorder=polyorder,
+        mode=mode
+    )
+    return spectrum - savgol_filtered_spectrum
 
 
 def sigma2bayes_factor(sigma: float) -> float:

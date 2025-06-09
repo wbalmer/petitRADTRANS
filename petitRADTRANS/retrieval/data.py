@@ -3,10 +3,16 @@ import logging
 import os
 import warnings
 
-import numpy as np
+import jax.numpy as jnp
+from jax.typing import ArrayLike
+
 from astropy.io import fits
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import convolve, convolve_and_sample_Rvers, filter_spectrum_with_spline
+from petitRADTRANS.math import (convolve,
+                                convolve_and_sample_Rvers,
+                                filter_spectrum_with_spline,
+                                median_filter_spectrum,
+                                savgol_filter_spectrum)
 from spectres.spectral_resampling_numba import spectres_numba
 
 import petitRADTRANS.physical_constants as cst
@@ -30,7 +36,7 @@ class Data:
             containing the wavelength, spectrum and covariance matrix.
             Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
             mask attributes.
-        data_resolution : float or np.ndarray
+        data_resolution : float or ArrayLike
             Spectral resolution of the instrument. Optional, allows convolution of model to
             instrumental line width. If the data_resolution is an array, the resolution can
             vary as as a function of wavelength. The array should have the same shape as
@@ -76,14 +82,6 @@ class Data:
             # TODO complete docstring
         wavelength_bin_widths : numpy.ndarray
             Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
-        photometry : bool
-            Set to True if using photometric data.
-        photometric_transformation_function : method
-            Transform the photometry (account for filter transmission etc.).
-            This function must take in the wavelength and flux of a spectrum,
-            and output a single photometric point (and optionally flux error).
-        photometric_bin_edges : Tuple, numpy.ndarray
-            The edges of the photometric bin in micron. [low,high]
         line_opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
             or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -109,6 +107,8 @@ class Data:
             Spectrum of the data.
         uncertainties:
             Uncertainties of the data, in the same units as the spectrum.
+        covariance:
+            Covariance of the data, in the same units as the spectrum^2.
         mask:
             Mask of the data.
     """
@@ -126,22 +126,18 @@ class Data:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
-                 resample=False,
-                 subtract_continuum=False,
-                 wavelength_bin_widths=None,
-                 photometry=False,
-                 photometric_transformation_function=None,
-                 photometric_bin_edges=None,
                  line_opacity_mode='c-k',
-                 radtrans_grid=False,
+                 radtrans_grid=False,  # TODO: get rid of this as a parameter?
                  concatenate_flux_epochs_variability=False,
-                 atmospheric_column_flux_mixer=None,
-                 variability_atmospheric_column_model_flux_return_mode=False,
+                 atmospheric_column_flux_mixer=None,  # Split to TimeSeriesData
+                 variability_atmospheric_column_model_flux_return_mode=False,  # Split to TimeSeriesData
                  radtrans_object=None,
-                 wavelengths=None,
-                 spectrum=None,
-                 uncertainties=None,
-                 mask=None
+                 spectrum=None,  # Split to SpectrumData
+                 wavelengths=None,  # Split to SpectrumData
+                 wavelength_bin_widths=None,  # Split to SpectrumData
+                 uncertainties=None,  # Split to SpectrumData
+                 covariance=None,
+                 mask=None  # Split to SpectrumData
                  ):
         self.name = name
         self.path_to_observations = path_to_observations
@@ -151,10 +147,11 @@ class Data:
         self.wavelengths = wavelengths  #: The wavelength bin centers
         self.spectrum = spectrum  #: The flux or transit depth
         self.uncertainties = uncertainties  #: The error on the flux or transit depth
-
+        self.covariance = covariance
+        
         # Add a mask with that will be used in retrievals
         if mask is None:
-            self.mask = np.zeros(np.shape(self.spectrum), dtype=bool)
+            self.mask = jnp.zeros(jnp.shape(self.spectrum), dtype=bool)
         else:
             self.mask = mask
 
@@ -192,7 +189,6 @@ class Data:
                 logging.warning("Your resolution is lower than R=1000, it's recommended to use 'c-k' mode.")
 
         # Optional, covariance
-        self.covariance = None
         self.inv_cov = None
         self.log_covariance_determinant = None
 
@@ -200,34 +196,16 @@ class Data:
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
-        self.resample = resample
         self.subtract_continuum = subtract_continuum
         self.scale_factor = 1.0
         self.offset = 0.0
-        self.bval = -np.inf
+        self.bval = -jnp.inf
 
         # Bins and photometry
         self.wavelength_boundaries = None
         self.wavelength_bin_widths = wavelength_bin_widths
-        self.photometry = photometry
-        self.photometric_transformation_function = \
-            photometric_transformation_function
-
-        if photometry:
-            missing = []
-
-            if photometric_transformation_function is None:
-                missing.append("'photometric_transformation_function'")
-
-            if photometric_bin_edges is None:
-                missing.append("'photometric_bin_edges'")
-
-            if len(missing) > 0:
-                ', '.join(missing)
-                raise ValueError(f"missing photometric arguments for photometric data '{name}': {missing}")
 
         self.photometry_range = wavelength_boundaries
-        self.photometric_bin_edges = photometric_bin_edges
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
@@ -241,27 +219,26 @@ class Data:
             if not os.path.exists(path_to_observations):
                 raise FileNotFoundError(f"data file '{path_to_observations}' does not exist")
 
-            if not photometry:
-                if path_to_observations.endswith("_x1d.fits"):
-                    self.load_jwst(path_to_observations)
-                elif path_to_observations.endswith('.fits'):
-                    self.loadfits(path_to_observations)
-                else:
-                    self.loadtxt(path_to_observations)
+            if path_to_observations.endswith("_x1d.fits"):
+                self.load_jwst(path_to_observations)
+            elif path_to_observations.endswith('.fits'):
+                self.loadfits(path_to_observations)
+            else:
+                self.loadtxt(path_to_observations)
 
-                if wavelength_boundaries is not None:
-                    self.wavelength_boundaries = wavelength_boundaries
-                else:
-                    self.wavelength_boundaries = [0.95 * self.wavelengths[0],
-                                                  1.05 * self.wavelengths[-1]]
+            if wavelength_boundaries is not None:
+                self.wavelength_boundaries = wavelength_boundaries
+            else:
+                self.wavelength_boundaries = [0.95 * self.wavelengths[0],
+                                                1.05 * self.wavelengths[-1]]
 
-                if self.wavelength_bin_widths is None:
-                    if wavelength_bin_widths is not None:
-                        self.wavelength_bin_widths = wavelength_bin_widths
-                    else:
-                        self.wavelength_bin_widths = np.zeros_like(self.wavelengths)
-                        self.wavelength_bin_widths[:-1] = np.diff(self.wavelengths)
-                        self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
+            if self.wavelength_bin_widths is None:
+                if wavelength_bin_widths is not None:
+                    self.wavelength_bin_widths = wavelength_bin_widths
+                else:
+                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                    self.wavelength_bin_widths[:-1] = jnp.diff(self.wavelengths)
+                    self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
             else:
                 if wavelength_boundaries is not None:
                     self.wavelength_boundaries = wavelength_boundaries
@@ -271,7 +248,7 @@ class Data:
                 # For binning later
                 self.wavelength_bin_widths = self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
                 if self.data_resolution is None:
-                    self.data_resolution = np.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
+                    self.data_resolution = jnp.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
 
     def loadtxt(self, path, delimiter=',', comments='#'):
         """
@@ -294,12 +271,12 @@ class Data:
 
         if self.photometry:
             return
-        obs = np.genfromtxt(path, delimiter=delimiter, comments=comments)
+        obs = jnp.genfromtxt(path, delimiter=delimiter, comments=comments)
         # Input sanity checks
-        if np.isnan(obs).any():
-            obs = np.genfromtxt(path)
+        if jnp.isnan(obs).any():
+            obs = jnp.genfromtxt(path)
         if len(obs.shape) < 2:
-            obs = np.genfromtxt(path, comments=comments)
+            obs = jnp.genfromtxt(path, comments=comments)
         if obs.shape[1] == 4:
             self.wavelengths = obs[:, 0]
             self.wavelength_bin_widths = obs[:, 1]
@@ -307,7 +284,7 @@ class Data:
             self.uncertainties = obs[:, 3]
             return
         elif obs.shape[1] != 3:
-            obs = np.genfromtxt(path)
+            obs = jnp.genfromtxt(path)
 
         # Warnings and errors
         if obs.shape[1] < 3:
@@ -319,7 +296,7 @@ class Data:
                           f"but has {obs.shape[1]}\n"
                           f"Additional columns will be ignored")
 
-        if np.isnan(obs).any():
+        if jnp.isnan(obs).any():
             warnings.warn(f"NANs present in data file '{path}'")
 
         self.wavelengths = obs[:, 0]
@@ -341,10 +318,10 @@ class Data:
         self.uncertainties = hdul["EXTRACT1D"].data["FLUX_ERROR"]
 
         # Convert from Jy to W/m^2/micron
-        # TODO: include unit conversions in utils
-        # TODO set which extension number to use, with reasonable default
-        self.spectrum = 1e-26 * 2.99792458e14 * self.spectrum / self.wavelengths ** 2
-        self.uncertainties = 1e-26 * 2.99792458e14 * self.uncertainties / self.wavelengths ** 2
+        c_micron = cst.c * 1e4
+        self.spectrum = 1e-26 * c_micron * self.spectrum / self.wavelengths ** 2
+        self.uncertainties = 1e-26 * c_micron * self.uncertainties / self.wavelengths ** 2
+
 
     def loadfits(self, path):
         """
@@ -367,21 +344,22 @@ class Data:
 
         try:
             self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
-            self.inv_cov = np.linalg.inv(self.covariance)
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            self.inv_cov = jnp.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
             # Note that this will only be the uncorrelated error.
             # Dot with the correlation matrix (if available) to get
             # the full error.
             try:
                 self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
             except Exception:  # TODO find what is the error expected here
-                self.uncertainties = np.sqrt(self.covariance.diagonal())
+                self.uncertainties = jnp.sqrt(self.covariance.diagonal())
         except Exception:  # TODO find what is the error expected here
             self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            self.covariance = np.diag(self.uncertainties ** 2)
-            self.inv_cov = np.linalg.inv(self.covariance)
+            self.covariance = jnp.diag(self.uncertainties ** 2)
+            self.inv_cov = jnp.linalg.inv(self.covariance)
 
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
+
 
     def line_b_uncertainty_scaling(self, parameters):
         """
@@ -406,7 +384,7 @@ class Data:
             b: float
                 10**b error bar scaling factor.
         """
-        b_val = -np.inf
+        b_val = -jnp.inf
         if parameters is not None:
             if f'{self.name}_b' in parameters.keys():
                 b_val = parameters[f'{self.name}_b'].value
@@ -429,12 +407,12 @@ class Data:
         return self.system_distance
 
     def initialise_data_resolution(self, wavelengths_model):
-        if isinstance(self.data_resolution, np.ndarray):
-            self.data_resolution_array_model = np.interp(wavelengths_model, self.wavelengths, self.data_resolution)
+        if isinstance(self.data_resolution, ArrayLike):
+            self.data_resolution_array_model = jnp.interp(wavelengths_model, self.wavelengths, self.data_resolution)
 
     def update_bins(self, wlens):
-        self.wavelength_bin_widths = np.zeros_like(wlens)
-        self.wavelength_bin_widths[:-1] = np.diff(wlens)
+        self.wavelength_bin_widths = jnp.zeros_like(wlens)
+        self.wavelength_bin_widths[:-1] = jnp.diff(wlens)
         self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
 
     def scale_to_distance(self, new_dist):
@@ -451,19 +429,19 @@ class Data:
         self.spectrum *= scale
         if self.covariance is not None:
             self.covariance *= scale ** 2
-            self.inv_cov = np.linalg.inv(self.covariance)
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            self.inv_cov = jnp.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
 
-            self.uncertainties = np.sqrt(self.covariance.diagonal())
+            self.uncertainties = jnp.sqrt(self.covariance.diagonal())
         else:
             self.uncertainties *= scale
-            self.covariance = np.diag(self.uncertainties)
-            self.inv_cov = np.linalg.inv(self.covariance)
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+            self.covariance = jnp.diag(self.uncertainties)
+            self.inv_cov = jnp.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
         self.system_distance = new_dist
         return scale
 
-    def scale_and_offset_flux(self, parameters_dict: dict) -> np.ndarray:
+    def scale_and_offset_flux(self, parameters_dict: dict) -> ArrayLike:
         """
         Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
         """
@@ -486,7 +464,7 @@ class Data:
         scaled_spectrum = scaled_spectrum - offset_val
         return scaled_spectrum
 
-    def scale_and_inflate_uncertainties(self, parameters_dict: dict) -> tuple[np.ndarray, np.ndarray]:
+    def scale_and_inflate_uncertainties(self, parameters_dict: dict) -> tuple[ArrayLike, ArrayLike]:
         """
         Applies scaling to self.uncertainties or self.covariance.
         Returns a tuple: (scaled_uncertainties, scaled_covariance). One will be None.
@@ -505,7 +483,7 @@ class Data:
         raw_b_val = self.line_b_uncertainty_scaling(parameters_dict)
 
         additive_variance_term = 0.0
-        if raw_b_val != -np.inf:
+        if raw_b_val != -jnp.inf:
             additive_variance_term = 10**raw_b_val
 
         if self.covariance is not None:
@@ -513,19 +491,245 @@ class Data:
             scaled_covariance = scaled_covariance * (err_scale_factor**2)
             if additive_variance_term > 0:
                 # Add to diagonal (variances)
-                np.fill_diagonal(scaled_covariance, np.diag(scaled_covariance) + additive_variance_term)
+                jnp.fill_diagonal(scaled_covariance, jnp.diag(scaled_covariance) + additive_variance_term)
         elif self.uncertainties is not None:
             scaled_uncertainties = self.uncertainties.copy()
             scaled_uncertainties = scaled_uncertainties * err_scale_factor
             if additive_variance_term > 0:
-                scaled_uncertainties = np.sqrt(scaled_uncertainties**2 + additive_variance_term)
+                scaled_uncertainties = jnp.sqrt(scaled_uncertainties**2 + additive_variance_term)
         else:
             # Should not happen if __init__ ensures either uncertainties or covariance exists
             raise ValueError("Data object has neither uncertainties nor covariance.")
 
         return scaled_uncertainties, scaled_covariance
+
+
+class PhotometryData(Data):
+    """
+    Data class for photometric observations.
+    Handles single or multiple photometric bands.
+    """
+    def __init__(self,
+                 name,
+                 photometric_transformation_function,
+                 photometric_bin_edges,
+                 path_to_observations=None,
+                 data_resolution=None,
+                 model_resolution=None,
+                 system_distance=None,
+                 external_radtrans_reference=None,
+                 model_generating_function=None,
+                 wavelength_boundaries=None,
+                 scale=False,
+                 scale_err=False,
+                 offset_bool=False,
+                 line_opacity_mode='c-k',
+                 radtrans_object=None,
+                 wavelengths=None):
+
+        self.photometric_transformation_function = photometric_transformation_function
+        self.photometric_bin_edges = jnp.asarray(photometric_bin_edges)
+
+        if self.photometric_transformation_function is None:
+            raise ValueError(f"{name}: photometric_transformation_function must be provided for PhotometryData.")
+
+        # Handle shape of photometric_bin_edges (single band vs multiple bands)
+        if self.photometric_bin_edges.ndim == 1: # Single band [low, high]
+            if self.photometric_bin_edges.shape != (2,):
+                raise ValueError(f"{name}: photometric_bin_edges for a single band must be a pair [low, high].")
+        elif self.photometric_bin_edges.ndim == 2: # Multiple bands [[low1, high1], [low2, high2]]
+            if self.photometric_bin_edges.shape[1] != 2:
+                raise ValueError(f"{name}: photometric_bin_edges for multiple bands must be an array of pairs [[low, high], ...].")
+        else:
+            raise ValueError(f"{name}: photometric_bin_edges has invalid shape.")
+
+        # Determine wavelength_boundaries for the base RadTrans object
+        # If not provided, derive from the full range of photometric bins.
+        derived_wavelength_boundaries = wavelength_boundaries
+        if derived_wavelength_boundaries is None:
+            if self.photometric_bin_edges.ndim == 1:  # Single band
+                derived_wavelength_boundaries = [0.95 * self.photometric_bin_edges[0], 1.05 * self.photometric_bin_edges[1]]
+            else: # Multiple bands
+                derived_wavelength_boundaries = [0.95 * jnp.min(self.photometric_bin_edges[:, 0]),
+                                                 1.05 * jnp.max(self.photometric_bin_edges[:, 1])]
+        
+        # Calculate effective/central wavelengths and bin widths for base class
+        # These will be stored as self.wavelengths and self.wavelength_bin_widths by the base class
+        calculated_effective_wavelengths = wavelengths
+        calculated_wavelength_bin_widths = None  # To be passed to base
+
+        if self.photometric_bin_edges.ndim == 1: # Single band
+            if calculated_effective_wavelengths is None:
+                calculated_effective_wavelengths = jnp.mean(self.photometric_bin_edges)
+            calculated_wavelength_bin_widths = self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
+        else: # Multiple bands
+            if calculated_effective_wavelengths is None:
+                calculated_effective_wavelengths = jnp.mean(self.photometric_bin_edges, axis=1)
+            calculated_wavelength_bin_widths = self.photometric_bin_edges[:, 1] - self.photometric_bin_edges[:, 0]
+        
+        # Ensure calculated_effective_wavelengths is a 1D array for consistency
+        if calculated_effective_wavelengths is not None:
+            calculated_effective_wavelengths = jnp.asarray([calculated_effective_wavelengths]).flatten()
+        if calculated_wavelength_bin_widths is not None:
+            calculated_wavelength_bin_widths = jnp.asarray([calculated_wavelength_bin_widths]).flatten()
+
+        super().__init__(name=name,
+                         path_to_observations=path_to_observations,
+                         data_resolution=data_resolution,
+                         model_resolution=model_resolution,
+                         system_distance=system_distance,
+                         external_radtrans_reference=external_radtrans_reference,
+                         model_generating_function=model_generating_function,
+                         wavelength_boundaries=derived_wavelength_boundaries,
+                         scale=scale,
+                         scale_err=scale_err,
+                         offset_bool=offset_bool,
+                         wavelength_bin_widths=calculated_wavelength_bin_widths,
+                         line_opacity_mode=line_opacity_mode,
+                         radtrans_object=radtrans_object,
+                         wavelengths=calculated_effective_wavelengths)
+        
+        if wavelength_boundaries is not None:
+            self.wavelength_boundaries = wavelength_boundaries
+        else:
+            self.wavelength_boundaries = [0.95 * self.photometric_bin_edges[0],
+                                          1.05 * self.photometric_bin_edges[1]]
+        # For binning later
+        self.wavelength_bin_widths = self.photometric_bin_edges[1] - self.photometric_bin_edges[0]
+        if self.data_resolution is None:
+            self.data_resolution = jnp.mean(self.photometric_bin_edges) / self.wavelength_bin_widths
+
+
+class TimeSeriesData(Data):
+    """
+    Data class for photometric observations.
+    Handles single or multiple photometric bands.
+    """
+    def __init__(self,
+                 name,
+                 path_to_observations=None,
+                 filename_list=None,
+                 observation_times=None,
+                 data_resolution=None,
+                 model_resolution=None,
+                 system_distance=None,
+                 external_radtrans_reference=None,
+                 model_generating_function=None,
+                 wavelength_boundaries=None,
+                 scale=False,
+                 scale_err=False,
+                 offset_bool=False,
+                 line_opacity_mode='c-k',
+                 radtrans_grid=False,  # TODO: get rid of this as a parameter?
+                 concatenate_flux_epochs_variability=False,
+                 atmospheric_column_flux_mixer=None,  # Split to TimeSeriesData
+                 variability_atmospheric_column_model_flux_return_mode=False,  # Split to TimeSeriesData
+                 radtrans_object=None,
+                 spectrum=None,  # Split to SpectrumData
+                 wavelengths=None,  # Split to SpectrumData
+                 wavelength_bin_widths=None,  # Split to SpectrumData
+                 uncertainties=None,  # Split to SpectrumData
+                 covariance=None,
+                 mask=None  # Split to SpectrumData
+                 ):
+        self.observation_times = observation_times
+        self.filename_list = filename_list
+        self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
+        self.atmospheric_column_flux_mixer = atmospheric_column_flux_mixer
+        self.variability_atmospheric_column_model_flux_return_mode =\
+            variability_atmospheric_column_model_flux_return_mode
+
+        super().__init__(
+                 name=name,
+                 path_to_observations=path_to_observations,
+                 data_resolution=data_resolution,
+                 model_resolution=model_resolution,
+                 system_distance=system_distance,
+                 external_radtrans_reference=external_radtrans_reference,
+                 model_generating_function=model_generating_function,
+                 wavelength_boundaries=wavelength_boundaries,
+                 scale=scale,
+                 scale_err=scale_err,
+                 offset_bool=offset_bool,
+                 line_opacity_mode=line_opacity_mode,
+                 radtrans_grid=radtrans_grid,
+                 radtrans_object=radtrans_object,
+                 spectrum=spectrum,
+                 wavelengths=wavelengths,
+                 wavelength_bin_widths=wavelength_bin_widths,
+                 uncertainties=uncertainties,
+                 covariance=covariance,
+                 mask=mask
+                 )
     
-    
+    def load_time_series_spectrum_txt(self, delimiter=',', comments='#'):
+        wavelengths, spectra, bin_widths, uncertainties = [], [], [], []
+        for filename in self.filename_list:
+            wavelength, spectrum, bin_width, uncertainty = self.loadtxt(self.path_to_observations + filename, delimiter, comments)
+            wavelengths.append(wavelength)
+            spectra.append(spectrum)
+            bin_widths.append(bin_width)
+            uncertainties.append(uncertainty)
+        self.wavelengths = jnp.array(wavelengths)
+        self.spectrum = jnp.array(spectra)
+        self.wavelength_bin_widths = jnp.array(bin_widths)
+        self.uncertainties = jnp.array(uncertainties)
+
+    def loadtxt(self, path, delimiter=',', comments='#'):
+        """
+        This function reads in a .txt or .dat file containing the spectrum. Headers should be commented out with '#',
+        the first column must be the wavelength in micron, the second column the flux or transit depth,
+        and the final column must be the error on each data point.
+        Checks will be performed to determine the correct delimiter, but the recommended format is to use a
+        csv file with columns for wavelength, flux and error.
+
+        Args:
+            path : str
+                Directory and filename of the data.
+            delimiter : string, int
+                The string used to separate values. By default, commas act as delimiter.
+                An integer or sequence of integers can also be provided as width(s) of each field.
+            comments : string
+                The character used to indicate the start of a comment.
+                All the characters occurring on a line after a comment are discarded
+        """
+        obs = jnp.genfromtxt(path, delimiter=delimiter, comments=comments)
+        # Input sanity checks
+        if jnp.isnan(obs).any():
+            obs = jnp.genfromtxt(path)
+        if len(obs.shape) < 2:
+            obs = jnp.genfromtxt(path, comments=comments)
+        if obs.shape[1] == 4:
+            wavelengths = obs[:, 0]
+            wavelength_bin_widths = obs[:, 1]
+            spectrum = obs[:, 2]
+            uncertainties = obs[:, 3]
+            return wavelengths, wavelength_bin_widths, spectrum, uncertainties
+        elif obs.shape[1] != 3:
+            obs = jnp.genfromtxt(path)
+
+        # Warnings and errors
+        if obs.shape[1] < 3:
+            raise ValueError(f"data file '{path}' must contain at least 3 columns (wavelength, flux, flux error), "
+                             f"but has {obs.shape[1]}")
+        elif obs.shape[1] > 4:
+            warnings.warn(f"data file '{path}' should contain at most 4 columns "
+                          f"(wavelength, [opt, wavelength bins], flux, flux error), "
+                          f"but has {obs.shape[1]}\n"
+                          f"Additional columns will be ignored")
+
+        if jnp.isnan(obs).any():
+            warnings.warn(f"NANs present in data file '{path}'")
+
+        wavelengths = obs[:, 0]
+        spectrum = obs[:, 1]
+        uncertainties = obs[:, 2]
+        wavelength_bin_widths = jnp.zeros_like(wavelengths)
+        wavelength_bin_widths[:-1] = jnp.diff(wavelengths)
+        wavelength_bin_widths[-1] = wavelength_bin_widths[-2]
+        return wavelengths, wavelength_bin_widths, spectrum, uncertainties
+         
+
 #### ------- Delete below here ------- ####
     def get_chisq(self,
                   wlen_model,
@@ -581,7 +785,7 @@ class Data:
                 model_spectra = []
                 column_rebinned_spectra = []
                 if self.atmospheric_column_flux_mixer is not None:
-                    for i_column_flux in range(np.shape(atmospheric_model_column_fluxes)[0]):
+                    for i_column_flux in range(jnp.shape(atmospheric_model_column_fluxes)[0]):
                         model_spectra.append(atmospheric_model_column_fluxes[i_column_flux, :])
                 else:
                     model_spectra.append(spectrum_model)
@@ -601,8 +805,8 @@ class Data:
                         )
 
                     # Rebin to model observation
-                    if np.size(wlen_model) == np.size(self.wavelengths):
-                        if np.all(wlen_model == self.wavelengths):
+                    if jnp.size(wlen_model) == jnp.size(self.wavelengths):
+                        if jnp.all(wlen_model == self.wavelengths):
                             flux_rebinned = copy.deepcopy(spectrum_model)
                             rebin = False
                         else:
@@ -615,19 +819,11 @@ class Data:
                         # wlen_model in micron
                         # cst.c in cm/s
                         radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5 
-                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
-                        #wlen_model += wavel_shift
+                        wlen_model *= wlen_model * jnp.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
 
-                        # Don't want to rebin the spectrum multiple times.
-                        #spectrum_model = spectres_numba(
-                        #    wlen_model,
-                        #    wlen_model + wavel_shift,
-                        #    verbose=False
-                        #    spectrum_model,
-                        #)
                     elif "system_radial_velocity" in parameters.keys():
                         radial_velocity = parameters["system_radial_velocity"].value * 1e5 
-                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c)) 
+                        wlen_model *= jnp.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c)) 
                         #wlen_model += wavel_shift
                     if rebin:
                         flux_rebinned = frebin.rebin_spectrum_bin(
@@ -641,14 +837,9 @@ class Data:
                         break
                     else:
                         column_rebinned_spectra.append(flux_rebinned)
-                    
-                    if self.atmospheric_column_flux_mixer is None:
-                        break
-                    else:
-                        column_rebinned_spectra.append(flux_rebinned)
 
                 if self.atmospheric_column_flux_mixer is not None:
-                    column_rebinned_spectra = np.array(column_rebinned_spectra)
+                    column_rebinned_spectra = jnp.array(column_rebinned_spectra)
                     flux_rebinned = self.atmospheric_column_flux_mixer(column_rebinned_spectra,
                                                                        parameters,
                                                                        self.name)
@@ -670,7 +861,7 @@ class Data:
         
         if self.subtract_continuum:
             nodes = parameters[self.name + "_nodes"].value
-            x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
+            x_nodes = jnp.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
             flux_rebinned = filter_spectrum_with_spline(self.wavelengths,flux_rebinned,x_nodes=x_nodes)
 
         if self.scale:
@@ -689,7 +880,7 @@ class Data:
             b_val = parameters["uncertainty_scaling_b"].value
 
         if b_val is not None:
-            f_err = np.sqrt(f_err ** 2 + 10 ** b_val)
+            f_err = jnp.sqrt(f_err ** 2 + 10 ** b_val)
 
         if self.scale_err:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
@@ -703,36 +894,36 @@ class Data:
 
             if self.scale_err:
                 cov = self.scale_factor ** 2 * self.covariance
-                inv_cov = np.linalg.inv(cov)
-                _, log_covariance_determinant = np.linalg.slogdet(2 * np.pi * cov)
+                inv_cov = jnp.linalg.inv(cov)
+                _, log_covariance_determinant = jnp.linalg.slogdet(2 * jnp.pi * cov)
 
             if b_val is not None:
-                cov = np.diag(np.diag(self.covariance) + 10 ** b_val)
-                inv_cov = np.linalg.inv(cov)
-                _, log_covariance_determinant = np.linalg.slogdet(2 * np.pi * cov)
+                cov = jnp.diag(jnp.diag(self.covariance) + 10 ** b_val)
+                inv_cov = jnp.linalg.inv(cov)
+                _, log_covariance_determinant = jnp.linalg.slogdet(2 * jnp.pi * cov)
 
-            log_l += -0.5 * np.dot(diff, np.dot(inv_cov, diff))
+            log_l += -0.5 * jnp.dot(diff, jnp.dot(inv_cov, diff))
             log_l += -0.5 * log_covariance_determinant
 
             if per_datapoint:
                 # Following Buerkner et al. (2020) to handle
                 # off-diagonal covariance elements
-                g_i = np.dot(inv_cov, diff)
-                sigma_bar_ii = np.diag(inv_cov)
+                g_i = jnp.dot(inv_cov, diff)
+                sigma_bar_ii = jnp.diag(inv_cov)
 
                 sigma_tilde_i = 1 / sigma_bar_ii
                 mu_tilde_i = flux_rebinned - g_i / sigma_bar_ii
 
                 log_l_per_datapoint = (
-                        -0.5 * np.log(2 * np.pi * sigma_tilde_i)
+                        -0.5 * jnp.log(2 * jnp.pi * sigma_tilde_i)
                         - 0.5 * (flux_rebinned - mu_tilde_i) ** 2 / sigma_tilde_i
                 )
         else:
-            log_l += -0.5 * np.sum((diff / f_err) ** 2)
-            log_l += -0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2))
+            log_l += -0.5 * jnp.sum((diff / f_err) ** 2)
+            log_l += -0.5 * jnp.sum(jnp.log(2.0 * jnp.pi * f_err ** 2))
             if per_datapoint:  # TODO is there a point calculating log_l if only log_l_per_datapoint is returned?
                 # Only diagonal covariance elements
-                log_l_per_datapoint = -0.5 * np.log(2 * np.pi * f_err ** 2) - 0.5 * (diff / f_err) ** 2
+                log_l_per_datapoint = -0.5 * jnp.log(2 * jnp.pi * f_err ** 2) - 0.5 * (diff / f_err) ** 2
 
         if plotting:
             import matplotlib.pyplot as plt
@@ -752,8 +943,8 @@ class Data:
             if not os.path.exists("mock_data"):
                 os.makedirs("mock_data")
 
-            np.savetxt("mock_data/" + self.name + "_mock_data.dat",
-                       np.column_stack((self.wavelengths, flux_rebinned, self.uncertainties)))
+            jnp.savetxt("mock_data/" + self.name + "_mock_data.dat",
+                       jnp.column_stack((self.wavelengths, flux_rebinned, self.uncertainties)))
 
         if per_datapoint:
             return log_l_per_datapoint
@@ -836,15 +1027,15 @@ class Data:
             chi2 *= chi2
             chi2 = chi2.sum()
 
-            return - 0.5 * data.size * np.log(chi2 / data.size)
+            return - 0.5 * data.size * jnp.log(chi2 / data.size)
         else:
             # Classical log-likelihood
             if beta_mode == 'multiply':
                 uncertainties = uncertainties * beta
-                penalty_term = - data.size * np.log(beta)
+                penalty_term = - data.size * jnp.log(beta)
             elif beta_mode == 'add':
                 uncertainties = uncertainties + beta
-                penalty_term = - np.sum(np.log(uncertainties))
+                penalty_term = - jnp.sum(jnp.log(uncertainties))
             else:
                 raise ValueError(f"beta mode must be 'multiply'|'add', but was '{beta_mode}'")
 
@@ -865,25 +1056,25 @@ class Rebin:
     """
 
     @staticmethod
-    def convolve_spectrum(input_wavelength: np.ndarray, input_flux: np.ndarray, instrument_res: any) -> np.ndarray:
+    def convolve_spectrum(input_wavelength: ArrayLike, input_flux: ArrayLike, instrument_res: any) -> ArrayLike:
         """
         Convolve a model spectrum with a given instrument resolution.
         This method replicates the logic from petitRADTRANS.retrieval.data.Data.convolve().
 
         Args:
-            input_wavelength : np.ndarray
+            input_wavelength : ArrayLike
                 The wavelength array of the model spectrum.
-            input_flux : np.ndarray
+            input_flux : ArrayLike
                 The flux array of the model spectrum.
-            instrument_res : float or np.ndarray
+            instrument_res : float or ArrayLike
                 The instrument resolution. Can be a single float (constant resolution)
                 or an array (variable resolution per wavelength point).
 
         Returns:
-            flux_lsf : np.ndarray
+            flux_lsf : ArrayLike
                 The convolved flux array.
         """
-        if isinstance(instrument_res, np.ndarray):
+        if isinstance(instrument_res, ArrayLike):
             # Variable width convolution
             flux_lsf = fconvolve.variable_width_convolution(
                 input_wavelength,
@@ -893,11 +1084,11 @@ class Rebin:
         else:
             # Constant resolution convolution using Gaussian filter
             # Calculate sigma_lsf (standard deviation of the LSF)
-            sigma_lsf = input_wavelength / (2.0 * np.sqrt(2.0 * np.log(2.0)) * instrument_res)
+            sigma_lsf = input_wavelength / (2.0 * jnp.sqrt(2.0 * jnp.log(2.0)) * instrument_res)
 
             # Calculate the spacing of the wavelength array
-            spacing = np.abs(input_wavelength - np.roll(input_wavelength, 1))
-            spacing[0] = spacing[1]  # Fix the first element due to np.roll
+            spacing = jnp.abs(input_wavelength - jnp.roll(input_wavelength, 1))
+            spacing[0] = spacing[1]  # Fix the first element due to jnp.roll
 
             # Calculate sigma_lsf for gaussian_filter
             sigma_lsf_gauss_filter = sigma_lsf / spacing
@@ -909,27 +1100,27 @@ class Rebin:
 
     @staticmethod
     def rebin_spectrum(
-        model_wavelengths: np.ndarray,
-        model_spectrum: np.ndarray,
-        data_wavelengths: np.ndarray,
-        data_wavelength_bin_widths: np.ndarray
-    ) -> np.ndarray:
+        model_wavelengths: ArrayLike,
+        model_spectrum: ArrayLike,
+        data_wavelengths: ArrayLike,
+        data_wavelength_bin_widths: ArrayLike
+    ) -> ArrayLike:
         """
         Rebin a model spectrum to the resolution of the data.
         This method wraps the fortran_rebin.rebin_spectrum_bin function.
 
         Args:
-            model_wavelengths : np.ndarray
+            model_wavelengths : ArrayLike
                 The wavelength array of the model spectrum.
-            model_spectrum : np.ndarray
+            model_spectrum : ArrayLike
                 The flux array of the model spectrum.
-            data_wavelengths : np.ndarray
+            data_wavelengths : ArrayLike
                 The wavelength array of the data.
-            data_wavelength_bin_widths : np.ndarray
+            data_wavelength_bin_widths : ArrayLike
                 The widths of the wavelength bins of the data.
 
         Returns:
-            rebinned_flux : np.ndarray
+            rebinned_flux : ArrayLike
                 The rebinned model flux array, on the data_wavelengths grid.
         """
         rebinned_flux = frebin.rebin_spectrum_bin(
@@ -939,4 +1130,44 @@ class Rebin:
             data_wavelength_bin_widths
         )
         return rebinned_flux
+    
+    @staticmethod
+    def continuum_subtract_spectrum(
+            wavelengths: ArrayLike,
+            spectrum: ArrayLike,
+            parameters: dict,
+            method: str = 'spline',
+            name: str = None) -> ArrayLike:
+        """
+        """
 
+        if method == 'spline':
+            nodes = wavelengths[0]
+            if name is not None and + (name + "_nodes" in parameters.keys()):
+                nodes = parameters[name + "_nodes"].value
+            elif "continuum_subtract_nodes" in parameters.keys():
+                nodes = parameters["continuum_subtract_nodes"].value
+            else:
+                raise ValueError("No nodes available to create spline.")
+            x_nodes = jjnp.linspace(wavelengths[0], wavelengths[-1], nodes)
+            return filter_spectrum_with_spline(wavelengths, spectrum, x_nodes=x_nodes)
+        elif method == 'medfilt':
+            median_filter_width = 10
+            if name is not None and + (name + "_median_filter_width" in parameters.keys()):
+                median_filter_width = parameters[name + "_median_filter_width"].value
+            elif "median_filter_width" in parameters.keys():
+                median_filter_width = parameters["median_filter_width"].value
+            return median_filter_spectrum(spectrum, size=median_filter_width)
+        elif method == 'savgol':
+            window_length = 10
+            polyorder = 3
+            if name is not None and + (name + "_savgol_window_length" in parameters.keys()):
+                window_length = parameters[name + "_savgol_window_length"].value
+            elif "savgol_window_length" in parameters.keys():
+                window_length = parameters["savgol_window_length"].value
+
+            if name is not None and + (name + "_savgol_polyorder" in parameters.keys()):
+                polyorder = parameters[name + "_savgol_polyorder"].value
+            elif "savgol_polyorder" in parameters.keys():
+                polyorder = parameters["savgol_polyorder"].value
+            return savgol_filter_spectrum(spectrum, window_length=window_length, polyorder=polyorder)

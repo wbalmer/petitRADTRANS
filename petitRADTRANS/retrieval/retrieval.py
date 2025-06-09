@@ -35,6 +35,8 @@ from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
+from petitRADTRANS.retrieval.sampler import Sampler, PymultinestSampler, UltranestSampler, JAXNSSampler
+
 from petitRADTRANS.utils import flatten_object, list_str2str
 from petitRADTRANS.math import filter_spectrum_with_spline
 
@@ -108,11 +110,6 @@ class Retrieval:
         output_directory: str = os.getcwd(),
         use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
-        ultranest: bool = False,
-        sampling_efficiency: float = None,
-        constant_efficiency_mode: str = None,
-        n_live_points: int = None,
-        resume: bool = False,
         corner_plot_names: list[str] = None,
         use_prt_plot_style: bool = True,
         test_plotting: bool = False,
@@ -157,41 +154,36 @@ class Retrieval:
         self.test_plotting = test_plotting
         self.evaluate_sample_spectra = evaluate_sample_spectra
 
-        # Pymultinest stuff
-        self.ultranest = ultranest
-        self.sampling_efficiency = sampling_efficiency
-        self.constant_efficiency_mode = constant_efficiency_mode
-        self.n_live_points = n_live_points
-        self.resume = resume
+        # PMN analysis 
         self.analyzer = None
 
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dictionary = {}
+        
         # Set up pretty plotting
         if use_prt_plot_style:
             # import petitRADTRANS.retrieval.plot_style  # commented to avoid breaking of mpl
             pass
-
         self.prt_plot_style = use_prt_plot_style
 
         # Path to input opacities
         self.path = petitradtrans_config_parser.get_input_data_path()
 
         # Setup Directories
-        if not os.path.isdir(os.path.join(self.output_directory, 'out_PMN')):
-            os.makedirs(
-                os.path.join(self.output_directory, 'out_PMN'),
-                exist_ok=True
-            )
-
-        if not os.path.isdir(os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name)):
-            os.makedirs(
-                os.path.join(self.output_directory, 'evaluate_' + self.configuration.retrieval_name),
-                exist_ok=True
-            )
+        os.makedirs(os.path.join(self.output_directory, 'out_PMN'), exist_ok=True)
+        os.makedirs(os.path.join(self.output_directory,
+                                 'evaluate_' + self.configuration.retrieval_name), exist_ok=True)
 
         # Setup pRT Objects for each data structure.
         self.setup_data()
+        self._n_free_params_total_retrieval = 0
+        free_param_names_list = []
+        for p_name, p_obj in self.configuration.parameters.items():
+            if p_obj.is_free_parameter:
+                self._n_free_params_total_retrieval += 1
+                free_param_names_list.append(p_name)
+        self._free_parameter_names_cache = free_param_names_list
+        self.latest_sampler_results = None
         if self.configuration.run_mode == 'evaluate':
             sample_dict, parameters_dict = self.get_samples(output_directory=self.output_directory)
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
@@ -200,9 +192,13 @@ class Retrieval:
             best_fit_sample = samples_use[:-1, best_fit_index]
             self.best_fit_parameters = self.build_param_dict(best_fit_sample, parameters_read)
         try:
-            self.generate_retrieval_summary()
-        except (ValueError, FileNotFoundError) as e:  # TODO check if ValueError was expected here
-            print(f"Could not generate summary file! Error was: {str(e)}")
+            analyzer_for_summary = self.get_analyzer(ret_name=self.configuration.retrieval_name)
+            if analyzer_for_summary and hasattr(analyzer_for_summary, 'get_stats'):
+                self.generate_retrieval_summary(stats=analyzer_for_summary.get_stats())
+            else:
+                self.generate_retrieval_summary(None)
+        except (ValueError, FileNotFoundError) as e:
+            print(f"Could not generate initial summary file! Error was: {str(e)}")
 
     def _check_errors(self):
         data_are_valid = self._data_are_valid()
@@ -432,23 +428,21 @@ class Retrieval:
         parameters = {}
         i_p = 0
 
-        for parameter_name in self.configuration.parameters:
-            if self.configuration.parameters[parameter_name].is_free_parameter:
-                for i_s in range(len(free_param_names)):
-                    if free_param_names[i_s] == self.configuration.parameters[parameter_name].name:
-                        parameters[self.configuration.parameters[parameter_name].name] = Parameter(
-                            name=parameter_name,
-                            is_free_parameter=False,
-                            value=sample[i_p]
-                        )
-                        i_p += 1
+        # TODO: test new implementation.
+        for parameter_name, parameter in self.configuration.parameters.items():
+            if parameter.is_free_parameter and parameter_name in free_param_names:
+                parameters[parameter_name] = Parameter(
+                    name=parameter_name,
+                    is_free_parameter=False,
+                    value=sample[i_p]
+                )
+                i_p += 1
             else:
                 parameters[parameter_name] = Parameter(
                     name=parameter_name,
                     is_free_parameter=False,
-                    value=self.configuration.parameters[parameter_name].value
+                    value=parameter.value
                 )
-
         return parameters
 
     def calculate_forward_model(
@@ -596,23 +590,49 @@ class Retrieval:
         else:
             return model_returned_values[list(data.keys())[0]]
 
-    def calculate_temperature_profile(self, parameters):
-        for data_name, data_obj in self.configuration.data.items():
-            if data_name == self.configuration.plot_kwargs.get('take_PTs_from'):
-                radtrans_obj_to_use = data_obj.radtrans_object
-                if data_obj.external_radtrans_reference is not None:
-                    radtrans_obj_to_use = \
-                        self.configuration.data[data_obj.external_radtrans_reference].radtrans_object
-                pt_output = data_obj.model_generating_function(
-                    radtrans_obj_to_use,
-                    parameters,
-                    pt_plot_mode=True,
-                    amr=self.configuration.amr
-                )
-                return pt_output[0], pt_output[1]
-        return None, None
-        
+    def calculate_temperature_profile(
+            self,
+            parameters=None,
+            data=None,
+            amr: bool = False,
+            copy_configuration_parameters: bool = True,
+            **kwargs):
+        """Calculate the temperature profile associated with the given data, for the given parameters.
+        Wrapper for calculate_forward_model.
 
+        Args:
+            parameters:
+                Parameters of the forward models.
+                Can be a dictionary with parameter names as keys, or a string, or None.
+                Possible string values are:
+                    - 'best fit': return the forward model with the retrieved best fit parameters.
+                    - 'median': return the forward model with the retrieved median parameters.
+                    - 'quantile': return the forward model with retrieved parameters at the given quantile.
+                If ``parameter='quantile'``, then a ``quantile`` (float) keyword argument must be added.
+                If None, the free parameters of the retrieval are set to their prior mid-range value.
+            data:
+                Can be a string, or a dictionary with data name as keys and Data objects as values, or None.
+                If None, the forward models of all the data in the retrieval configuration are calculated.
+            pt_plot_mode:
+                If True, the model function should return the pressure and temperature arrays before computing the flux.
+            amr:
+                If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
+                This will increase the size of the pressure grid by a constant factor that can be adjusted in the
+                setup_pres function.
+            copy_configuration_parameters:
+                If True, copy the configuration parameters to prevent unwanted modifications.
+        Returns:
+            A dictionary with the outputs of the forward models for the requested data, or, if data is a string, the
+            output of the forward model corresponding to these data.
+        """
+        return self.calculate_forward_model(
+            parameters,
+            data,
+            True,
+            amr,
+            copy_configuration_parameters,
+            **kwargs)
+        
     @classmethod
     def from_data(
         cls,
@@ -738,7 +758,7 @@ class Retrieval:
             uncertainties_mode=uncertainties_mode
         )
 
-    def generate_retrieval_summary(self, stats: dict = None) -> None:
+    def generate_retrieval_summary(self, stats: dict = None, sampler_parameters: dict = None) -> None:
         """
         This function produces a human-readable text file describing the retrieval.
         It includes all the fixed and free parameters, the limits of the priors (if uniform),
@@ -764,7 +784,10 @@ class Retrieval:
             summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + '\n')
             summary.write(f"pRT v{petitRADTRANS.__version__}\n")
             summary.write(self.output_directory + '\n')
-            summary.write(f"Live points: {self.n_live_points}\n\n")
+            
+            #summary.write(f"Live points: {self.n_live_points}\n\n")
+            # TODO: generic sampler parameters
+
             summary.write("Fixed Parameters\n")
 
             for key, value in self.configuration.parameters.items():
@@ -846,8 +869,8 @@ class Retrieval:
 
             summary.write('\n')
 
-            if stats is not None:
-                summary.write("Multinest Outputs\n")
+            if stats and 'global evidence' in stats and 'marginals' in stats:
+                summary.write("Sampler Outputs (PyMultiNest-like)\n  marginal evidence:\n")
                 summary.write('  marginal evidence:\n')
                 summary.write('    log Z = %.1f +- %.1f\n' %
                               (stats['global evidence'] / np.log(10), stats['global evidence error'] / np.log(10)))
@@ -883,6 +906,7 @@ class Retrieval:
                     summary.write(fmts % (param, med, sigma) + '\n')
 
                 summary.write('\n')
+            # TODO: Ultranest and JAXNS sampler output saving to file.
 
             if self.configuration.run_mode == 'evaluate':
                 summary.write("Best Fit Parameters\n")
@@ -948,36 +972,40 @@ class Retrieval:
                 The name of the retrieval that prepends all the PMN
                 output files.
         """
-        import pymultinest
-
-        # Avoid loading if we just want the current retrievals output
-        if ret_name == "" and self.analyzer is not None:
-            return self.analyzer
-
-        if ret_name == "":
-            ret_name = self.configuration.retrieval_name
-
-        prefix = os.path.join(self.output_directory, 'out_PMN', ret_name + '_')
-
-        # How many free parameters?
-        n_parameters = 0
-        free_parameter_names = []
-
-        for parameter_name in self.configuration.parameters:
-            if self.configuration.parameters[parameter_name].is_free_parameter:
-                free_parameter_names.append(self.configuration.parameters[parameter_name].name)
-                n_parameters += 1
-
-        # Get the outputs
-        analyzer = pymultinest.Analyzer(
-            n_params=n_parameters,
-            outputfiles_basename=prefix
-        )
-
-        if ret_name == self.configuration.retrieval_name:
-            self.analyzer = analyzer
-
-        return analyzer
+        current_ret_name = self.configuration.retrieval_name
+        is_current_retrieval = not ret_name or ret_name == current_ret_name
+        if hasattr(self, 'latest_sampler_results') and self.latest_sampler_results is not None:
+            if hasattr(self.latest_sampler_results, 'get_stats') and \
+               callable(getattr(self.latest_sampler_results, 'get_stats')):
+                if is_current_retrieval:
+                    return self.latest_sampler_results
+        if ret_name:
+            try:
+                import pymultinest
+                n_params = self._n_free_params_total_retrieval
+                prefix = os.path.join(self.output_directory, 'out_PMN', ret_name + '_')
+                if not os.path.exists(os.path.join(self.output_directory, 'out_PMN',
+                                                   ret_name + '_params.json')):
+                    if is_current_retrieval and hasattr(self, 'latest_sampler_results') and \
+                       self.latest_sampler_results is None:
+                        warnings.warn(
+                            f"PyMultiNest output for current retrieval '{ret_name}' not found or run incomplete."
+                        )
+                    elif not is_current_retrieval:
+                        warnings.warn(f"PyMultiNest output for '{ret_name}' not found at '{prefix}'.")
+                    return None
+                return pymultinest.Analyzer(n_params=n_params, outputfiles_basename=prefix)
+            except ImportError:
+                warnings.warn("pymultinest is not installed. Cannot load PymultinestAnalyzer from disk.")
+                return None
+            except Exception as e:
+                warnings.warn(f"Failed to load PyMultiNest analyzer for '{ret_name}': {e}")
+                return None
+        if hasattr(self, 'latest_sampler_results') and self.latest_sampler_results is not None:
+            warnings.warn(f"Returning raw results object of type: {type(self.latest_sampler_results)}.")
+            return self.latest_sampler_results
+        warnings.warn("No sampler results found or specified PyMultiNest retrieval name not loadable.")
+        return None
 
     def get_base_figure_name(self) -> str:
         return os.path.join(
@@ -1280,45 +1308,6 @@ class Retrieval:
 
         return norm
 
-    def get_data_model(self, cube, dd, retrieve_uncertainties=False):
-        # TODO remove in v.4.0.0: calculate_forward_model is more general, easier to use, and has a more consistent name
-        warnings.warn(
-            "function 'get_data_model' is deprecated and will be removed in a future update. "
-            "Use 'calculate_forward_model' instead."
-        )
-        i_p = 0
-
-        for pp in self.configuration.parameters:
-            if self.configuration.parameters[pp].is_free_parameter:
-                self.configuration.parameters[pp].set_param(cube[i_p])
-                i_p += 1
-
-        # Compute the model
-        model_returned_values = dd.model_generating_function(
-            dd.radtrans_object,
-            self.configuration.parameters,
-            pt_plot_mode=False,
-            amr=self.configuration.amr
-        )  # TODO the generating function should always return the same number of values
-        beta = None
-
-        if retrieve_uncertainties:
-            if len(model_returned_values) == 4:
-                wavelengths_model, spectrum_model, beta, additional_log_l = model_returned_values
-            else:
-                wavelengths_model, spectrum_model, beta = model_returned_values
-                additional_log_l = 0.
-        else:
-            if len(model_returned_values) == 3:
-                wavelengths_model, spectrum_model, additional_log_l = model_returned_values
-            else:
-                wavelengths_model, spectrum_model = model_returned_values
-                additional_log_l = 0.
-
-        if additional_log_l is None:
-            additional_log_l = 0
-
-        return wavelengths_model, spectrum_model, beta, additional_log_l
 
     def get_elpd_per_datapoint(self, ret_name: str = None):
         from .psis import psisloo
@@ -1788,18 +1777,12 @@ class Retrieval:
             names = [self.configuration.retrieval_name]
 
         if ultranest:
+            # TODO : check Ultranest outputs
             for name in names:
                 samples_ = np.genfromtxt(output_directory + 'out_' + name + '/chains/equal_weighted_post.txt')
                 parameters_read = open(output_directory + 'out_' + name + '/chains/weighted_post.paramnames')
                 samples[name] = samples_
                 param_dict[name] = parameters_read
-
-            for name in ret_names:
-                samples_ = np.genfromtxt(output_directory + 'out_' + name + '/chains/qual_weighted_post.txt')
-                parameters_read = open(output_directory + 'out_' + name + '/chains/weighted_post.paramnames')
-                samples[name] = samples_
-                param_dict[name] = parameters_read
-
             return samples, param_dict
 
         # pymultinest
@@ -1814,17 +1797,7 @@ class Retrieval:
             samples[name] = np.array(list(samples_.values()))
             param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
 
-        for name in ret_names:
-            samples_ = get_pymultinest_sample_dict(
-                output_dir=output_directory,
-                name=name,
-                add_log_likelihood=False,
-                add_stats=False
-            )
-
-            samples[name] = np.array(list(samples_.values()))
-            param_dict[name] = list(samples_.keys())[:-1]  # do not add the likelihood
-
+        # TODO: JAXNS
         return samples, param_dict
 
     def get_samples_dict(self, return_likelihood: bool = False) -> dict[str, npt.NDArray[float]]:
@@ -1857,6 +1830,7 @@ class Retrieval:
 
     @staticmethod
     def get_special_parameters() -> set[str]:
+        # TODO: naming convention
         return {'_spectrum_scaling', '_spectrum_offset', '_uncertainty_scaling'}
 
     def get_volume_mixing_ratios(self, sample: npt.NDArray[float], parameters_read: list[str] = None):
@@ -2244,23 +2218,7 @@ class Retrieval:
 
         return params
 
-    def run(
-        self,
-        sampling_efficiency: float = 0.8,
-        const_efficiency_mode: bool = False,
-        n_live_points: int = 4000,
-        log_z_convergence: float = 0.5,
-        step_sampler: bool = False,
-        warmstart_max_tau: float = 0.5,
-        n_iter_before_update: int = 50,
-        resume: bool = False,
-        max_iters: int = 0,
-        frac_remain: float = 0.1,
-        l_epsilon: float = 0.3,
-        error_checking: bool = True,
-        force_serial_error_checking: bool = False,
-        seed: int = -1
-    ) -> None:
+    def run(self, sampler_type: str = "pymultinest", sampler_object: Sampler = None, **sampler_kwargs):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
@@ -2302,157 +2260,89 @@ class Retrieval:
             seed : int
                 Random number generator seed, -ve value for seed from the system clock (for reproducibility)
         """
-        import pymultinest
-
-        print(f"Starting retrieval {self.configuration.retrieval_name}")
-
-        if MPI is None:
-            print(
-                "Unable to import mpi4py, using slow (single process) mode\n"
-                "The mpi4py module is required for faster (multi-processes) retrievals, and is strongly recommended"
-            )
-
-        self.n_live_points = n_live_points
-        self.sampling_efficiency = sampling_efficiency
-        self.resume = resume
-        self.constant_efficiency_mode = const_efficiency_mode
-
-        if MPI is not None and comm is not None:
-            any_error_checking = comm.allreduce(error_checking, op=MPI.LOR)
-        else:
-            any_error_checking = error_checking
-
+        print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
+        if MPI is None and sampler_type == 'pymultinest':
+            print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
+        error_checking = sampler_kwargs.pop('error_checking', True)
+        force_serial_error_checking = sampler_kwargs.pop('force_serial_error_checking', False)
+        any_error_checking = comm.allreduce(error_checking, op=MPI.LOR) \
+            if MPI is not None and comm is not None else error_checking
         if error_checking:
             if force_serial_error_checking and MPI is not None and comm is not None:
                 for i in range(comm.Get_size()):
-                    if rank == i:
-                        self._check_errors()
-                    else:
-                        print(f"rank {rank} waiting: serial error checking in progress...")
-
+                    if rank == i: self._check_errors()
                     comm.barrier()
-            else:
-                self._check_errors()
-        else:
-            if any_error_checking:
-                print(f"Process {rank} skipping error checking, "
-                      f"waiting for other processes to complete error checking...")
-            else:
-                print("Error checking is turned off!! You might overwrite your retrieval output files!")
+            else: self._check_errors()
+        if comm is not None: comm.barrier()
 
-        if comm is not None:
-            comm.barrier()
+        if sampler_object is not None:
+            self.latest_sampler_results = sampler_object.run_sampler(**sampler_kwargs)
 
-        if self.ultranest:
-            self._run_ultranest(
-                n_live_points=n_live_points,
-                log_z_convergence=log_z_convergence,
-                step_sampler=step_sampler,
-                warmstart_max_tau=warmstart_max_tau,
-                resume=resume,
-                max_iters=max_iters,
-                frac_remain=frac_remain,
-                l_epsilon=l_epsilon
+        elif sampler_type == 'pymultinest':
+            pmn_args = {
+                'sampling_efficiency': sampler_kwargs.pop('sampling_efficiency', 0.8),
+                'const_efficiency_mode': sampler_kwargs.pop('const_efficiency_mode', False),
+                'n_live_points': sampler_kwargs.pop('n_live_points', 4000),
+                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance',
+                                                        sampler_kwargs.pop('log_z_convergence', 0.5)),
+                'n_iter_before_update': sampler_kwargs.pop('n_iter_before_update', 50),
+                'resume': sampler_kwargs.pop('resume', False),
+                'max_iter': sampler_kwargs.pop('max_iter', 0),
+                'seed': sampler_kwargs.pop('seed', -1)
+            }
+            pmn_args.update(sampler_kwargs)
+            sampler = PymultinestSampler(
+                log_likelihood_func=self.log_likelihood, prior_func=self.prior,
+                retrieval_configuration=self.configuration, output_directory=self.output_directory, **pmn_args
             )
-
-            return
-
-        if const_efficiency_mode and sampling_efficiency > 0.1:
-            warnings.warn(
-                "Sampling efficiency should be <= 0.1 (0.05 recommended) if you're using constant efficiency mode!"
-            )
-
-        prefix = os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_')
-
-        if len(os.path.join(self.output_directory, 'out_PMN')) > 100:
-            warnings.warn(
-                "old versions of MultiNest requires output directory names to be < 100 characters "
-                f"long (current directory was {len(os.path.join(self.output_directory, 'out_PMN'))} "
-                f"characters long); "
-                "using more characters may cause MultiNest failure or filename truncation if not using the "
-                "latest MultiNest version"
-            )
-
-        # How many free parameters?
-        n_parameters = 0
-        free_parameter_names = []
-
-        for parameter_name in self.configuration.parameters:
-            if self.configuration.parameters[parameter_name].is_free_parameter:
-                free_parameter_names.append(self.configuration.parameters[parameter_name].name)
-                n_parameters += 1
-
-        if self.configuration.run_mode == 'retrieval':
-            print("Starting retrieval: " + self.configuration.retrieval_name + '\n')
-
-            with open(
-                    os.path.join(self.output_directory, 'out_PMN', self.configuration.retrieval_name + '_params.json'),
-                    'w'
-            ) as f:
-                json.dump(free_parameter_names, f)
-
-            pymultinest.run(
-                LogLikelihood=self.log_likelihood,
-                Prior=self.prior,
-                n_dims=n_parameters,
-                n_params=None,
-                n_clustering_params=None,
-                wrapped_params=None,
-                importance_nested_sampling=True,
-                multimodal=True,
-                const_efficiency_mode=const_efficiency_mode,
-                n_live_points=n_live_points,
-                evidence_tolerance=log_z_convergence,  # default value is 0.5
-                sampling_efficiency=sampling_efficiency,  # default value is 0.8
-                n_iter_before_update=n_iter_before_update,  # default value is 100
-                null_log_evidence=-1e90,  # PyM default value
-                max_modes=100,  # PyM default value
-                mode_tolerance=-1e90,  # PyM default value
-                outputfiles_basename=prefix,
-                seed=seed,
-                verbose=True,
-                resume=resume,
-                context=0,  # PyM default value (any additional information user wants to pass)
-                write_output=True,  # PyM default value
-                log_zero=-1e100,  # PyM default value
-                max_iter=max_iters,
-                init_MPI=False,  # PyM default value (should be False, because importing mpi4py initialises MPI already)
-                dump_callback=None,  # PyM default value
-                use_MPI=True,  # PyM default value
-            )
-
-        # Analyze the output data
-        self.analyzer = pymultinest.Analyzer(
-            n_params=n_parameters,
-            outputfiles_basename=prefix
-        )
-        statistics = self.analyzer.get_stats()
-
-        if rank == 0:
-            self.generate_retrieval_summary(statistics)
-
-            # Save the analysis
-            with open(prefix + 'stats.json', 'w') as f:
-                json.dump(statistics, f, indent=4)
-
-            # Informative prints
-            print('  marginal likelihood:')
-            print('    ln Z = %.1f +- %.1f' % (statistics['global evidence'], statistics['global evidence error']))
-            print('  parameters:')
-
-            for parameter_name, marginals in zip(free_parameter_names, statistics['marginals']):
-                sigma_low, sigma_hi = marginals['1sigma']
-                median = marginals['median']
-                sigma = (sigma_hi - sigma_low) / 2
-
-                if sigma == 0:
-                    i = 3
+            analyzer = sampler.run_sampler()
+            if analyzer is not None and rank == 0:
+                if hasattr(analyzer, 'get_stats'):
+                    statistics = analyzer.get_stats()
+                    self.generate_retrieval_summary(
+                        statistics, n_live_points=pmn_args['n_live_points'],
+                        sampling_efficiency=pmn_args['sampling_efficiency']
+                    )
                 else:
-                    i = max(0, int(-np.floor(np.log10(sigma))) + 1)
-
-                fmt = '%%.%df' % i
-                fmts = '\t'.join(['    %-15s' + fmt + " +- " + fmt])
-                print(fmts % (parameter_name, median, sigma))
+                    warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
+            self.latest_sampler_results = analyzer
+        elif sampler_type == 'ultranest':
+            un_args = {
+                'n_live_points': sampler_kwargs.pop('n_live_points', 400),
+                'log_z_convergence': sampler_kwargs.pop('log_z_convergence', 0.5),
+                'step_sampler': sampler_kwargs.pop('step_sampler', False),
+                'warmstart_max_tau': sampler_kwargs.pop('warmstart_max_tau', 0.5),
+                'resume': 'auto' if sampler_kwargs.pop('resume', False) else 'overwrite',
+                'max_iters': sampler_kwargs.pop('max_iters', 0),
+                'frac_remain': sampler_kwargs.pop('frac_remain', 0.1),
+                'l_epsilon': sampler_kwargs.pop('l_epsilon', 0.3)
+            }
+            un_args.update(sampler_kwargs)
+            sampler = UltranestSampler(
+                log_likelihood_func=self.log_likelihood, prior_func=self.prior_ultranest,
+                retrieval_configuration=self.configuration, output_directory=self.output_directory, **un_args
+            )
+            self.latest_sampler_results = sampler.run_sampler()
+        elif sampler_type == 'jaxns':
+            if tfp is None:
+                raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
+            jax_args = {
+                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
+                'num_live_points': sampler_kwargs.pop('num_live_points', 400),
+                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', True),
+                'num_parallel_workers': sampler_kwargs.pop('num_parallel_workers', 1),
+                'verbose': sampler_kwargs.pop('verbose', False),
+                'seed': sampler_kwargs.pop('seed', 42654)
+            }
+            jax_args.update(sampler_kwargs)
+            sampler = JAXNSSampler(
+                log_likelihood_func=self.log_likelihood, prior_func=self.prior_model_jax,
+                retrieval_configuration=self.configuration, output_directory=self.output_directory, **jax_args
+            )
+            self.latest_sampler_results = sampler.run_sampler()
+        else:
+            raise ValueError(f"Unknown sampler_type: {sampler_type}")
+        return self.latest_sampler_results
 
     # TODO: sort alphabetically
     def prior_model_jax(self):

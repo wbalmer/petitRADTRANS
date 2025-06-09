@@ -111,8 +111,8 @@ class Radtrans:
 
     def __init__(
         self,
-        pressures: npt.NDArray[np.floating] = None,
-        wavelength_boundaries: npt.NDArray[np.floating] = None,
+        pressures: ArrayLike = None,
+        wavelength_boundaries: ArrayLike = None,
         line_species: list[str] = None,
         gas_continuum_contributors: list[str] = None,
         rayleigh_species: list[str] = None,
@@ -120,7 +120,7 @@ class Radtrans:
         line_opacity_mode: str = 'c-k',
         line_by_line_opacity_sampling: int = 1,
         scattering_in_emission: bool = False,
-        emission_angle_grid: npt.NDArray[np.floating] = None,
+        emission_angle_grid: ArrayLike = None,
         anisotropic_cloud_scattering: bool = 'auto',
         path_input_data: str = None
     ):
@@ -288,7 +288,7 @@ class Radtrans:
         return self._cias_loaded_opacities
 
     @cias_loaded_opacities.setter
-    def cias_loaded_opacities(self, dictionary: dict[str, dict[str, npt.NDArray[np.floating]]]):
+    def cias_loaded_opacities(self, dictionary: dict[str, dict[str, ArrayLike]]):
         warnings.warn(
             "setting the Radtrans CIA opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
@@ -304,7 +304,7 @@ class Radtrans:
         return self._clouds_loaded_opacities
 
     @clouds_loaded_opacities.setter
-    def clouds_loaded_opacities(self, dictionary: dict[str, npt.NDArray[np.floating]]):
+    def clouds_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
         warnings.warn(
             "setting the Radtrans cloud opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
@@ -416,7 +416,7 @@ class Radtrans:
         self._path_input_data = path
 
     @property
-    def pressures(self) -> npt.NDArray[np.floating]:
+    def pressures(self) -> ArrayLike:
         # TODO pressures doesn't need to be a property
         return self._pressures
 
@@ -983,8 +983,8 @@ class Radtrans:
 
     @staticmethod
     def __get_frequency_grids_intersection_indices(
-        frequencies: npt.NDArray[np.floating],
-        file_frequencies: npt.NDArray[np.floating],
+        frequencies: ArrayLike,
+        file_frequencies: ArrayLike,
         tolerate_grid_misalignment: bool = False
     ) -> tuple[npt.NDArray[bool], npt.NDArray[bool]]:
         """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
@@ -2837,8 +2837,8 @@ class Radtrans:
     @staticmethod
     def _handle_grid_misalignment(
         indices: npt.NDArray[bool],
-        frequencies_reference: npt.NDArray[np.floating],
-        frequencies_test: npt.NDArray[np.floating]
+        frequencies_reference: ArrayLike,
+        frequencies_test: ArrayLike
     ) -> npt.NDArray[bool]:
         _indices: npt.NDArray[np.signedinteger] = np.nonzero(indices)[0]
 
@@ -3426,7 +3426,7 @@ class Radtrans:
             power_law_opacity_350nm: float = None,
             power_law_opacity_coefficient: float = None,
             gray_opacity: float = None,
-            cloud_photosphere_wavelength_boundaries: npt.NDArray[np.floating] = None,
+            cloud_photosphere_wavelength_boundaries: ArrayLike = None,
             cloud_photosphere_median_optical_depth: float = None,
             cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
