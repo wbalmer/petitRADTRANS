@@ -11,11 +11,6 @@ import numpy.typing as npt
 from scipy.stats import binned_statistic
 from jax import random, devices, numpy as jnp
 
-from jaxns import NestedSampler
-from jaxns import Model
-from jaxns import Prior
-from jaxns import summary, plot_diagnostics, plot_cornerplot, save_results, load_results, save_pytree
-
 # TODO decide if we want to use tfp distributions
 import tensorflow_probability.substrates.jax as tfp
 
@@ -25,10 +20,12 @@ import petitRADTRANS
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import running_mean, convolve
+from petitRADTRANS.radtrans_core.spectrum_utils import continuum_subtract_spectrum, convolve, rebin_spectrum_bin
+from petitRADTRANS.math import running_mean
+
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
+
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
@@ -2067,7 +2064,7 @@ class Retrieval:
                     convolved = convolve(wavelengths_model,
                                               spectrum_model,
                                               data.data_resolution)
-                    binned = frebin.rebin_spectrum_bin(
+                    binned = rebin_spectrum_bin(
                             wavelengths_model,
                             convolved,
                             data.wavelengths,
@@ -2468,7 +2465,7 @@ class Retrieval:
                 spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
                 spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
-            binned = frebin.rebin_spectrum_bin(
+            binned = rebin_spectrum_bin(
                         wavelengths_model,
                         spectrum_model,
                         data.wavelengths,
@@ -2541,7 +2538,7 @@ class Retrieval:
                     spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
                 elif data.data_resolution is not None:
                     spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
-                binned = frebin.rebin_spectrum_bin(
+                binned = rebin_spectrum_bin(
                     wavelengths_model,
                     spectrum_model,
                     data.wavelengths,
@@ -2570,7 +2567,7 @@ class Retrieval:
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution)
-                            binned_2 = frebin.rebin_spectrum_bin(
+                            binned_2 = rebin_spectrum_bin(
                                 wavelengths_model,
                                 spectrum_model_2,
                                 data.wavelengths,
@@ -4206,11 +4203,9 @@ class Retrieval:
                         except Exception:
                             pass
                 if data.subtract_continuum:
-                    nodes = self.best_fit_parameters[name + "_nodes"].value
-                    x_nodes = np.linspace(wavelengths[0], wavelengths[-1], nodes)
-                    best_fit_binned = filter_spectrum_with_spline(wavelengths, self.best_fit_spectra[name][1], x_nodes=x_nodes)
-                    x_nodes = np.linspace(best_fit_wavelengths[0], best_fit_wavelengths[-1], nodes)
-                    best_fit_spectrum = filter_spectrum_with_spline(best_fit_wavelengths, best_fit_spectrum, x_nodes=x_nodes)
+                    # TODO: figure out a good way to pass through the continuum subtraction method
+                    best_fit_binned = continuum_subtract_spectrum(wavelengths, self.best_fit_spectra[name][1], self.best_fit_parameters, method='spline', name=data.name)
+                    best_fit_spectrum = continuum_subtract_spectrum(best_fit_wavelengths, best_fit_spectrum, self.best_fit_parameters, method='spline', name=data.name)
 
 
                 marker = 'o' if not data.photometry else 's'
