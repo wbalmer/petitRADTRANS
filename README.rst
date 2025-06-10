@@ -36,6 +36,8 @@ Welcome to the repository of petitRADTRANS, an easy-to-use code for the calculat
 petitRADTRANS allows the calculation of emission or transmission spectra, at low or high resolution, clear or cloudy,
 and includes a retrieval module to fit a petitRADTRANS model to your spectral data.
 
+Please note that version 4.0 is experimental, use with caution!
+
 Documentation
 =============
 The code documentation, installation guide, and tutorial can be found at `https://petitradtrans.readthedocs.io <https://petitradtrans.readthedocs.io>`_.

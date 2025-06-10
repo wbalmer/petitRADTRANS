@@ -15,6 +15,7 @@ def _compute_gravity(parameters):
     planet_radius = parameters['planet_radius'].value
     
     return gravity, planet_radius
+
 def flux2irradiance(flux, source_radius, target_distance):
     """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
 
@@ -27,6 +28,7 @@ def flux2irradiance(flux, source_radius, target_distance):
         The irradiance of the source on the target (M.L-1.T-3).
     """
     return flux * (source_radius / target_distance) ** 2
+
 def temperature_profile_function_guillot(pressures, infrared_mean_opacity, gamma, gravities, intrinsic_temperature,
                                          equilibrium_temperature, redistribution_coefficient=0.25):
     """ Returns a temperature array, in units of K,
@@ -441,7 +443,7 @@ global_parameters["CO-NatAbund__HITEMP"] = Parameter(name = "CO-NatAbund__HITEMP
                                                is_free_parameter = True,
                                                distribution = tfpd.Uniform(low=-4, high= -0.5))
 def prior_model():
-    for key,parameter in global_parameters.items():
+    for key, parameter in global_parameters.items():
         parameter.set_prior()
         parameter.value = yield parameter.prior_sample
     return global_parameters

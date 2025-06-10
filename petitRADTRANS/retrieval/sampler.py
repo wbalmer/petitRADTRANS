@@ -135,7 +135,7 @@ class PymultinestSampler(Sampler):
 class UltranestSampler(Sampler):
     def __init__(self,
                  log_likelihood_func,  # Retrieval.log_likelihood_jax
-                 prior_func,          # Retrieval.prior_model_jax (generator)
+                 prior_func,           # Retrieval.prior_model_jax (generator)
                  output_directory,
                  retrieval_name,
                  enable_step_sampling = False

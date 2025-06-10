@@ -135,7 +135,6 @@ class Retrieval:
 
         # Maybe inherit from retrieval config class?
         # Could actually be merged with RetrievalConfig
-        self.ultranest = ultranest
         self.use_mpi = use_mpi
 
         self.uncertainties_mode = uncertainties_mode
@@ -333,83 +332,6 @@ class Retrieval:
 
             if comm is not None:
                 comm.barrier()
-
-    def _run_ultranest(
-        self,
-        n_live_points,
-        log_z_convergence,
-        step_sampler,
-        warmstart_max_tau,
-        resume,
-        max_iters,
-        frac_remain,
-        l_epsilon
-    ):
-        """
-        Run mode for the class. Uses ultranest to sample parameter space
-        and produce standard outputs.
-
-        Args:
-            n_live_points : Int
-                The minimum number of live points to use for the Ultranest reactive sampler.
-            log_z_convergence : float
-                The convergence criterion on log z.
-            step_sampler : bool
-                Use a step sampler to improve the efficiency in ultranest.
-            max_iters : int
-                Maximum number of sampling iterations. If 0, will continue until convergence criteria are satisfied.
-            frac_remain : float
-                Ultranest convergence criterion. Halts integration if live point weights are below the specified value.
-            l_epsilon : float
-                Ultranest convergence criterion. Use with noisy likelihoods. Halts integration if live points are
-                within l_epsilon.
-            resume : bool
-                Continue existing retrieval. If FALSE THIS WILL OVERWRITE YOUR EXISTING RETRIEVAL.
-        """
-
-        warnings.warn("ultranest mode is still in development. Proceed with caution")
-        try:
-            import ultranest as un
-            from ultranest.mlfriends import RobustEllipsoidRegion
-        except ImportError:
-            raise ImportError("could not import ultranest, check the documentation for installation instructions")
-
-        if self.configuration.run_mode == 'retrieval':
-            print("Starting retrieval: " + self.configuration.retrieval_name + '\n')
-            # How many free parameters?
-            n_params = 0
-            free_parameter_names = []
-            for pp in self.configuration.parameters:
-                if self.configuration.parameters[pp].is_free_parameter:
-                    free_parameter_names.append(self.configuration.parameters[pp].name)
-                    n_params += 1
-
-            if max_iters == 0:
-                max_iters = None
-            sampler = un.ReactiveNestedSampler(
-                free_parameter_names,
-                self.log_likelihood,
-                self.prior_ultranest,
-                log_dir=os.path.join(self.output_directory, "out_" + self.configuration.retrieval_name),
-                warmstart_max_tau=warmstart_max_tau,
-                resume=resume
-            )
-            if step_sampler:
-                import ultranest.stepsampler
-
-                sampler.stepsampler = ultranest.stepsampler.SliceSampler(
-                    nsteps=n_live_points,
-                    adaptive_nsteps='move-distance',
-                    generate_direction=ultranest.stepsampler.generate_mixture_random_direction
-                )
-            sampler.run(min_num_live_points=n_live_points,
-                        dlogz=log_z_convergence,
-                        max_iters=max_iters,
-                        frac_remain=frac_remain,
-                        l_epsilon=l_epsilon,
-                        region_class=RobustEllipsoidRegion)
-            sampler.print_results()
-            sampler.plot_corner()
 
     def build_param_dict(self, sample: npt.NDArray[float], free_param_names: list[str]) -> dict[str, Parameter]:
         """
@@ -648,7 +570,6 @@ class Retrieval:
         output_directory: str = "",
         use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
-        ultranest: bool = False,
         corner_plot_names: list[str] = None,
         use_prt_plot_style: bool = True,
         test_plotting: bool = False,
@@ -686,9 +607,6 @@ class Retrieval:
                 # TODO complete docstring
             evaluate_sample_spectra : Bool
                 Produce plots and data files for random samples drawn from the outputs of pymultinest.
-            ultranest : bool
-                If true, use Ultranest sampling rather than pymultinest. Provides a more accurate evidence estimate,
-                but is significantly slower.
             corner_plot_names : List(Str)
                 List of additional retrieval names that should be included in the corner plotlib.
             use_prt_plot_style : Bool
@@ -755,7 +673,6 @@ class Retrieval:
             output_directory=output_directory,
             use_mpi=use_mpi,
             evaluate_sample_spectra=evaluate_sample_spectra,
-            ultranest=ultranest,
             corner_plot_names=corner_plot_names,
             use_prt_plot_style=use_prt_plot_style,
             test_plotting=test_plotting,

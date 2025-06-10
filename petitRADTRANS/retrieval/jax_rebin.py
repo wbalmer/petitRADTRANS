@@ -106,6 +106,7 @@ def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, 
 
     rebinned_spectrum = rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin)
     return rebinned_spectrum
+
 """
 # Example usage:
 input_wavelengths = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])

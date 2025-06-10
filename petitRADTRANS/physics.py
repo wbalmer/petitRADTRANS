@@ -1,7 +1,7 @@
 """Stores useful physical functions.
 """
-import numpy as np
-import numpy.typing as npt
+import jax.numpy as jnp
+from jax.typing import ArrayLike
 from scipy.interpolate import interp1d, PchipInterpolator
 
 # noinspection PyUnresolvedReferences
@@ -30,19 +30,19 @@ def compute_dist(t_irr, dist, t_star, r_star, mode, mode_what):
         return t_irr
     elif mode_what == 'dist':
         if angle_use:
-            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. * mu_star) / cst.au
+            dist = jnp.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. * mu_star) / cst.au
         elif mode == 'p':
-            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 4.) / cst.au
+            dist = jnp.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 4.) / cst.au
         else:
-            dist = np.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 2.) / cst.au
+            dist = jnp.sqrt((r_star * cst.r_sun) ** 2. * (t_star / t_irr) ** 4. / 2.) / cst.au
         return dist
 
     return None
 
 
 def compute_effective_temperature(
-    wavelengths: npt.NDArray,
-    flux: npt.NDArray,
+    wavelengths: ArrayLike,
+    flux: ArrayLike,
     orbit_semi_major_axis: float = 1.0,
     planet_radius: float = 1.0,
     use_si_units: bool = False
@@ -62,8 +62,8 @@ def compute_effective_temperature(
             If the flux is in W/m2/micron, this should be true
     """
     def integrate_flux(_wavelengths, _flux):
-        return np.sum(
-            _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * np.diff(_wavelengths)
+        return jnp.sum(
+            _flux[:-1] * ((orbit_semi_major_axis / planet_radius) ** 2.) * jnp.diff(_wavelengths)
         )
 
     unit_factor = 1.0
@@ -76,7 +76,7 @@ def compute_effective_temperature(
     return (energy / (cst.sigma*unit_factor)) ** 0.25
 
 
-def power_law_temperature_profile(press: npt.NDArray, alpha: float, T0: float) -> npt.NDArray:
+def power_law_temperature_profile(press: ArrayLike, alpha: float, T0: float) -> ArrayLike:
     """
     Compute a power law profile for temperature; log(T) = a*log(P) + b.
 
@@ -96,11 +96,11 @@ def power_law_temperature_profile(press: npt.NDArray, alpha: float, T0: float) -
 
 
 def cubic_spline_profile(
-    press: npt.NDArray,
-    temperature_points: npt.NDArray,
+    press: ArrayLike,
+    temperature_points: ArrayLike,
     gamma: float,
     nnodes: int = 0
-) -> tuple[npt.NDArray, float]:
+) -> tuple[ArrayLike, float]:
     """
     Compute a cubic spline profile for temperature based on pressure points.
 
@@ -122,21 +122,21 @@ def cubic_spline_profile(
     """
 
     cs = PchipInterpolator(
-        x=np.linspace(
-            np.log10(press[0]),
-            np.log10(press[-1]),
+        x=jnp.linspace(
+            jnp.log10(press[0]),
+            jnp.log10(press[-1]),
             nnodes + 2
         ),
         y=temperature_points
     )
 
-    interpolated_temps: npt.NDArray = cs(np.log10(press))
+    interpolated_temps: ArrayLike = cs(jnp.log10(press))
     prior: float = temperature_curvature_prior(press, interpolated_temps, gamma)
 
     return interpolated_temps, prior
 
 
-def doppler_shift(wavelength_0: npt.NDArray | float, velocity: npt.NDArray | float) -> npt.NDArray | float:
+def doppler_shift(wavelength_0: ArrayLike | float, velocity: ArrayLike | float) -> ArrayLike | float:
     """Calculate the Doppler-shifted wavelength for electromagnetic waves.
 
     A negative velocity means that the source is going toward the observer. A positive velocity means the source is
@@ -149,10 +149,10 @@ def doppler_shift(wavelength_0: npt.NDArray | float, velocity: npt.NDArray | flo
     Returns:
         (cm) the wavelength of the source as measured by the observer
     """
-    return wavelength_0 * np.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
+    return wavelength_0 * jnp.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
 
 
-def flux_cm2flux_hz(flux_cm: npt.NDArray | float, wavelength: npt.NDArray | float) -> npt.NDArray | float:
+def flux_cm2flux_hz(flux_cm: ArrayLike | float, wavelength: ArrayLike | float) -> ArrayLike | float:
     """
     Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
     Flux units can be, e.g., erg.s-1.cm-2.
@@ -175,7 +175,7 @@ def flux_cm2flux_hz(flux_cm: npt.NDArray | float, wavelength: npt.NDArray | floa
     return flux_cm * wavelength ** 2 / cst.c
 
 
-def flux_hz2flux_cm(flux_hz: npt.NDArray | float, frequency: npt.NDArray | float) -> npt.NDArray | float:
+def flux_hz2flux_cm(flux_hz: ArrayLike | float, frequency: ArrayLike | float) -> ArrayLike | float:
     """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
     Flux units can be, e.g., erg.s-1.cm-2.
 
@@ -198,7 +198,7 @@ def flux_hz2flux_cm(flux_hz: npt.NDArray | float, frequency: npt.NDArray | float
     return flux_hz * frequency ** 2 / cst.c
 
 
-def flux2irradiance(flux: npt.NDArray | float, source_radius: float, target_distance: float) -> npt.NDArray | float:
+def flux2irradiance(flux: ArrayLike | float, source_radius: float, target_distance: float) -> ArrayLike | float:
     """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
 
     Args:
@@ -212,7 +212,7 @@ def flux2irradiance(flux: npt.NDArray | float, source_radius: float, target_dist
     return flux * (source_radius / target_distance) ** 2
 
 
-def frequency2wavelength(frequency: npt.NDArray | float) -> npt.NDArray | float:
+def frequency2wavelength(frequency: ArrayLike | float) -> ArrayLike | float:
     """Convert frequencies into wavelength in centimeter.
 
     Args:
@@ -224,7 +224,7 @@ def frequency2wavelength(frequency: npt.NDArray | float) -> npt.NDArray | float:
     return cst.c / frequency
 
 
-def hz2um(frequency: npt.NDArray | float) -> npt.NDArray | float:
+def hz2um(frequency: ArrayLike | float) -> ArrayLike | float:
     """Convert frequencies into wavelengths in micrometer.
 
     Args:
@@ -237,11 +237,11 @@ def hz2um(frequency: npt.NDArray | float) -> npt.NDArray | float:
 
 
 def linear_spline_profile(
-    press: npt.NDArray,
-    temperature_points: npt.NDArray,
+    press: ArrayLike,
+    temperature_points: ArrayLike,
     gamma: float,
     nnodes: int = 0
-) -> tuple[npt.NDArray, float]:
+) -> tuple[ArrayLike, float]:
     """
     Compute a linear spline profile for temperature based on pressure points.
 
@@ -261,11 +261,11 @@ def linear_spline_profile(
               based on the linear spline.
             - prior (array-like): Curvature prior values calculated for the spline.
     """
-    interpolated_temps = np.interp(
-        np.log10(press),
-        np.linspace(
-            np.log10(press[0]),
-            np.log10(press[-1]),
+    interpolated_temps = jnp.interp(
+        jnp.log10(press),
+        jnp.linspace(
+            jnp.log10(press[0]),
+            jnp.log10(press[-1]),
             int(nnodes) + 2
         ),
         temperature_points
@@ -278,7 +278,7 @@ def linear_spline_profile(
 
 def make_press_temp(rad_trans_params):
     """Function to make temp"""
-    press_many = np.logspace(-8, 5, 260)
+    press_many = jnp.logspace(-8, 5, 260)
     t_no_ave = temperature_profile_function_guillot_modif(
         press_many,
         1e1 ** rad_trans_params['log_delta'],
@@ -288,7 +288,7 @@ def make_press_temp(rad_trans_params):
     )
 
     # new
-    press_many_new = 1e1 ** running_mean(np.log10(press_many), 25)
+    press_many_new = 1e1 ** running_mean(jnp.log10(press_many), 25)
     t_new = running_mean(t_no_ave, 25)
     index_new = (press_many_new <= 1e3) & (press_many_new >= 1e-6)
     temp_new = t_new[index_new][::2]
@@ -299,11 +299,11 @@ def make_press_temp(rad_trans_params):
 
 def make_press_temp_iso(rad_trans_params):
     """Function to make temp"""
-    press_many = np.logspace(-8, 5, 260)
-    t_no_ave = rad_trans_params['t_equ'] * np.ones_like(press_many)
+    press_many = jnp.logspace(-8, 5, 260)
+    t_no_ave = rad_trans_params['t_equ'] * jnp.ones_like(press_many)
 
     # new
-    press_many_new = 1e1 ** running_mean(np.log10(press_many), 25)
+    press_many_new = 1e1 ** running_mean(jnp.log10(press_many), 25)
     t_new = running_mean(t_no_ave, 25)
     index_new = (press_many_new <= 1e3) & (press_many_new >= 1e-6)
     temp_new = t_new[index_new][::2]
@@ -351,22 +351,22 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     - Madhusudhan, N., & Seager, S. (2009). A Temperature and Abundance Retrieval Method for Exoplanet Atmospheres.
       The Astrophysical Journal, 707(1), 24-39. https://doi.org/10.1088/0004-637X/707/1/24
     """
-    temperatures = np.zeros_like(pressures)
+    temperatures = jnp.zeros_like(pressures)
 
     # Set up masks for the different temperature regions
-    pressure_points = 10**np.array(log_pressure_points)
+    pressure_points = 10**jnp.array(log_pressure_points)
     mask_1 = pressures < pressure_points[1]
     mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
     mask_3 = pressures >= pressure_points[3]
 
     # Find index of pressure closest to the set pressure
-    i_set = np.argmin(np.abs(pressures - pressure_points[4]))
+    i_set = jnp.argmin(jnp.abs(pressures - pressure_points[4]))
     p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = np.log10(pressures)
+    log_p = jnp.log10(pressures)
     log_p_min = log_pressure_points[0]
-    log_p_set_i = np.log10(p_set_i)
+    log_p_set_i = jnp.log10(p_set_i)
 
     T0 = None
     T2 = None
@@ -435,7 +435,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     return temperatures
 
 
-def planck_function_cm(temperature: float, wavelength: npt.NDArray | float) -> npt.NDArray | float:
+def planck_function_cm(temperature: float, wavelength: ArrayLike | float) -> ArrayLike | float:
     """Returns the Planck function :math:`B_{\\lambda}(T)` in units of
     :math:`\\rm erg/s/cm^2/cm/steradian`.
 
@@ -448,13 +448,13 @@ def planck_function_cm(temperature: float, wavelength: npt.NDArray | float) -> n
 
     _planck_function = (
             2. * cst.h * cst.c ** 2. / wavelength ** 5.
-            / (np.exp(cst.h * cst.c / wavelength / cst.kB / temperature) - 1.)
+            / (jnp.exp(cst.h * cst.c / wavelength / cst.kB / temperature) - 1.)
     )
 
     return _planck_function
 
 
-def planck_function_hz(temperature: float, frequency: npt.NDArray | float) -> npt.NDArray | float:
+def planck_function_hz(temperature: float, frequency: ArrayLike | float) -> ArrayLike | float:
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
 
@@ -466,7 +466,7 @@ def planck_function_hz(temperature: float, frequency: npt.NDArray | float) -> np
     """
 
     _planck_function = (
-            2. * cst.h * frequency ** 3. / cst.c ** 2. / (np.exp(cst.h * frequency / cst.kB / temperature) - 1.)
+            2. * cst.h * frequency ** 3. / cst.c ** 2. / (jnp.exp(cst.h * frequency / cst.kB / temperature) - 1.)
     )
 
     return _planck_function
@@ -474,8 +474,8 @@ def planck_function_hz(temperature: float, frequency: npt.NDArray | float) -> np
 
 def planck_function_hz_temperature_derivative(
     temperature: float,
-    frequency: npt.NDArray | float
-) -> npt.NDArray | float:
+    frequency: ArrayLike | float
+) -> ArrayLike | float:
     """Returns the derivative of the Planck function with respect to the temperature in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
     # TODO unused?
@@ -489,19 +489,19 @@ def planck_function_hz_temperature_derivative(
 
     """
     _planck_function = planck_function_hz(temperature, frequency)
-    _planck_function /= np.exp(cst.h * frequency / cst.kB / temperature) - 1.
+    _planck_function /= jnp.exp(cst.h * frequency / cst.kB / temperature) - 1.
     _planck_function *= (
-            np.exp(cst.h * frequency / cst.kB / temperature) * cst.h * frequency / cst.kB / temperature ** 2.
+            jnp.exp(cst.h * frequency / cst.kB / temperature) * cst.h * frequency / cst.kB / temperature ** 2.
     )
 
     return _planck_function
 
 
 def rebin_spectrum(
-    input_wavelengths: npt.NDArray,
-    input_spectrum: npt.NDArray,
-    rebinned_wavelengths: npt.NDArray
-) -> npt.NDArray:
+    input_wavelengths: ArrayLike,
+    input_spectrum: ArrayLike,
+    rebinned_wavelengths: ArrayLike
+) -> ArrayLike:
     """Re-bin the spectrum using the Fortran rebin_spectrum function, and catch errors occurring there.
     The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
 
@@ -515,22 +515,22 @@ def rebin_spectrum(
     """
     rebinned_spectrum = frebin.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
 
-    if np.all(rebinned_spectrum == -1):
+    if jnp.all(rebinned_spectrum == -1):
         raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
-    elif np.any(rebinned_spectrum < 0):
+    elif jnp.any(rebinned_spectrum < 0):
         raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs "
-                         f"(min input spectrum value: {np.min(input_spectrum)}, "
-                         f"min re-binned spectrum value: {np.min(rebinned_spectrum)})")
+                         f"(min input spectrum value: {jnp.min(input_spectrum)}, "
+                         f"min re-binned spectrum value: {jnp.min(rebinned_spectrum)})")
 
     return rebinned_spectrum
 
 
 def rebin_spectrum_bin(
-    input_wavelengths: npt.NDArray,
-    input_spectrum: npt.NDArray,
-    rebinned_wavelengths: npt.NDArray,
-    bin_widths: npt.NDArray
-) -> npt.NDArray:
+    input_wavelengths: ArrayLike,
+    input_spectrum: ArrayLike,
+    rebinned_wavelengths: ArrayLike,
+    bin_widths: ArrayLike
+) -> ArrayLike:
     """Re-bin the spectrum using the Fortran rebin_spectrum_bin function, and catch errors occurring there.
     The fortran rebin function raises non-blocking errors. In that case, the function outputs an array of -1.
 
@@ -545,25 +545,25 @@ def rebin_spectrum_bin(
     """
     rebinned_spectrum = frebin.rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
 
-    if np.all(rebinned_spectrum == -1):
+    if jnp.all(rebinned_spectrum == -1):
         raise ValueError("something went wrong during re-binning (rebin.f90), check the previous messages")
-    elif np.any(rebinned_spectrum < 0):
+    elif jnp.any(rebinned_spectrum < 0):
         raise ValueError(f"negative value in re-binned spectrum, this may be related to the inputs "
-                         f"(min input spectrum value: {np.min(input_spectrum)}, "
-                         f"min re-binned spectrum value: {np.min(rebinned_spectrum)})")
+                         f"(min input spectrum value: {jnp.min(input_spectrum)}, "
+                         f"min re-binned spectrum value: {jnp.min(rebinned_spectrum)})")
 
     return rebinned_spectrum
 
 
 def temperature_profile_function_guillot(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
-    gravities: npt.NDArray,
+    gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     redistribution_coefficient: float = 0.25
-) -> npt.NDArray:
+) -> ArrayLike:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar).
@@ -598,7 +598,7 @@ def temperature_profile_function_guillot(
                           * (
                                   2. / 3.
                                   + 1. / gamma / 3. ** 0.5
-                                  + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma) * np.exp(-gamma * tau * 3. ** 0.5)
+                                  + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma) * jnp.exp(-gamma * tau * 3. ** 0.5)
                           )
                   ) ** 0.25
 
@@ -606,13 +606,13 @@ def temperature_profile_function_guillot(
 
 
 def temperature_profile_function_guillot_dayside(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
-    gravities: npt.NDArray,
+    gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> npt.NDArray:
+) -> ArrayLike:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -644,13 +644,13 @@ def temperature_profile_function_guillot_dayside(
 
 
 def temperature_profile_function_guillot_global(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     infrared_mean_opacity: float,
     gamma: float,
-    gravities: npt.NDArray,
+    gravities: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> npt.NDArray:
+) -> ArrayLike:
     """ Returns a temperature array, in units of K,
     of the same dimensions as the pressure P
     (in bar). For this the temperature model of Guillot (2010)
@@ -682,37 +682,37 @@ def temperature_profile_function_guillot_global(
 
 
 def temperature_profile_function_guillot_global_ret(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     delta: float,
     gamma: float,
     intrinsic_temperature: float,
     equilibrium_temperature: float
-) -> npt.NDArray:
+) -> ArrayLike:
     """Global Guillot P-T formula with kappa/gravity replaced by delta."""
     # TODO what is delta?
-    delta = np.abs(delta)
-    gamma = np.abs(gamma)
-    intrinsic_temperature = np.abs(intrinsic_temperature)
-    equilibrium_temperature = np.abs(equilibrium_temperature)
+    delta = jnp.abs(delta)
+    gamma = jnp.abs(gamma)
+    intrinsic_temperature = jnp.abs(intrinsic_temperature)
+    equilibrium_temperature = jnp.abs(equilibrium_temperature)
     tau = pressures * 1e6 * delta
-    t_irr = equilibrium_temperature * np.sqrt(2.)
+    t_irr = equilibrium_temperature * jnp.sqrt(2.)
     temperature = (0.75 * intrinsic_temperature ** 4. * (2. / 3. + tau)
                    + 0.75 * t_irr ** 4. / 4.
                    * (2. / 3. + 1. / gamma / 3. ** 0.5
                       + (gamma / 3. ** 0.5 - 1. / 3. ** 0.5 / gamma)
-                      * np.exp(-gamma * tau * 3. ** 0.5))) ** 0.25
+                      * jnp.exp(-gamma * tau * 3. ** 0.5))) ** 0.25
     return temperature
 
 
 def temperature_profile_function_guillot_metallic(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     gamma: float,
-    reference_gravity: npt.NDArray,
+    reference_gravity: ArrayLike,
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     infrared_mean_opacity_solar_metallicity: float,
     metallicity: float | None = None
-) -> npt.NDArray:
+) -> ArrayLike:
     """Get a Guillot temperature profile depending on metallicity.
 
     Args:
@@ -746,27 +746,27 @@ def temperature_profile_function_guillot_metallic(
 
 
 def temperature_profile_function_guillot_modif(
-    pressures: npt.NDArray,
+    pressures: ArrayLike,
     delta: float,
     gamma: float,
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     ptrans: float,
     alpha: float
-) -> npt.NDArray:
+) -> ArrayLike:
     """Modified Guillot P-T formula"""
     # TODO how is it modified? Why for?
     return temperature_profile_function_guillot_global_ret(
         pressures,
-        np.abs(delta),
-        np.abs(gamma),
-        np.abs(intrinsic_temperature), np.abs(equilibrium_temperature)
+        jnp.abs(delta),
+        jnp.abs(gamma),
+        jnp.abs(intrinsic_temperature), jnp.abs(equilibrium_temperature)
     ) * (1. - alpha * (1. / (1. + pressures / ptrans)))
 
 
-def temperature_profile_function_isothermal(pressures: npt.NDArray, temperature: float) -> npt.NDArray:
+def temperature_profile_function_isothermal(pressures: ArrayLike, temperature: float) -> ArrayLike:
     # TODO only to temporarily fix methods, change name later
-    return np.ones(pressures.size) * temperature
+    return jnp.ones(pressures.size) * temperature
 
 
 def temperature_profile_function_ret_model(rad_trans_params):
@@ -774,7 +774,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
     Self-luminous retrieval P-T model.
     # TODO find better name
     Args:
-        t3 : np.array([t1, t2, t3])
+        t3 : jnp.array([t1, t2, t3])
             temperature points to be added on top
             radiative Eddington structure (above tau = 0.1).
             Use spline interpolation, t1 < t2 < t3 < tconnect as prior.
@@ -786,7 +786,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
             as prior.
         tint : float
             internal temperature of the Eddington model
-        press : np.ndarray
+        press : jnp.ndarray
             input pressure profile in bar
         conv : bool
             enforce convective adiabat yes/no
@@ -795,7 +795,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         metallicity : float
             metallicity for the nabla_ad interpolation
     Returns:
-        Tret : np.ndarray
+        Tret : jnp.ndarray
             The temperature as a function of atmospheric pressure.
     """
     import copy
@@ -814,8 +814,8 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
     ab, _, nabla_ad = (
         pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-            co_ratio * np.ones_like(tedd),
-            feh * np.ones_like(tedd),
+            co_ratio * jnp.ones_like(tedd),
+            feh * jnp.ones_like(tedd),
             tedd,
             press,
             full=True
@@ -828,9 +828,9 @@ def temperature_profile_function_ret_model(rad_trans_params):
     # Enforce convective adiabat
     if conv:
         # Calculate the current, radiative temperature gradient
-        nab_rad = np.diff(np.log(tedd)) / np.diff(np.log(press_cgs))
+        nab_rad = jnp.diff(jnp.log(tedd)) / jnp.diff(jnp.log(press_cgs))
         # Extend to array of same length as pressure structure
-        nabla_rad = np.ones_like(tedd)
+        nabla_rad = jnp.ones_like(tedd)
         nabla_rad[0] = nab_rad[0]
         nabla_rad[-1] = nab_rad[-1]
         nabla_rad[1:-1] = (nab_rad[1:] + nab_rad[:-1]) / 2.
@@ -847,8 +847,8 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             ab, _, nabla_ad = (
                 pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                    co_ratio * np.ones_like(t_take),
-                    feh * np.ones_like(t_take),
+                    co_ratio * jnp.ones_like(t_take),
+                    feh * jnp.ones_like(t_take),
                     t_take,
                     press,
                     full=True
@@ -859,18 +859,18 @@ def temperature_profile_function_ret_model(rad_trans_params):
             nabla_ad_mean = nabla_ad
             nabla_ad_mean[1:] = (nabla_ad[1:] + nabla_ad[:-1]) / 2.
             # What are the increments in temperature due to convection
-            tnew = nabla_ad_mean[conv_index] * np.mean(np.diff(np.log(press_cgs)))
+            tnew = nabla_ad_mean[conv_index] * jnp.mean(jnp.diff(jnp.log(press_cgs)))
             # What is the last radiative temperature?
-            tstart = np.log(t_take[~conv_index][-1])
+            tstart = jnp.log(t_take[~conv_index][-1])
             # Integrate and translate to temperature from log(temperature)
-            tnew = np.exp(np.cumsum(tnew) + tstart)
+            tnew = jnp.exp(jnp.cumsum(tnew) + tstart)
 
             # Add upper radiative and
             # lower convective part into one single array
             tfinal = copy.copy(t_take)
             tfinal[conv_index] = tnew
 
-            if np.max(np.abs(t_take - tfinal) / t_take) < 0.01:
+            if jnp.max(jnp.abs(t_take - tfinal) / t_take) < 0.01:
                 break
 
     else:
@@ -889,41 +889,41 @@ def temperature_profile_function_ret_model(rad_trans_params):
         if i_intp == 0:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]),
-                                             np.log10(p_bot_spline),
+            support_points_low = jnp.logspace(jnp.log10(press_cgs[0]),
+                                             jnp.log10(p_bot_spline),
                                              4)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
             # radiative+convective solution
-            support_points_high = 10 ** np.arange(np.log10(p_bot_spline),
-                                                  np.log10(press_cgs[-1]),
-                                                  np.diff(np.log10(support_points_low))[0])
+            support_points_high = 10 ** jnp.arange(jnp.log10(p_bot_spline),
+                                                  jnp.log10(press_cgs[-1]),
+                                                  jnp.diff(jnp.log10(support_points_low))[0])
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low) + len(support_points_high) - 1)
+            support_points = jnp.zeros(len(support_points_low) + len(support_points_high) - 1)
             support_points[:4] = support_points_low
             support_points[4:] = support_points_high[1:]
 
         else:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]),
-                                             np.log10(p_bot_spline),
+            support_points_low = jnp.logspace(jnp.log10(press_cgs[0]),
+                                             jnp.log10(p_bot_spline),
                                              7)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
             # radiative+convective solution
-            support_points_high = np.logspace(np.log10(p_bot_spline), np.log10(press_cgs[-1]), 7)
+            support_points_high = jnp.logspace(jnp.log10(p_bot_spline), jnp.log10(press_cgs[-1]), 7)
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
-            support_points = np.zeros(len(support_points_low) + len(support_points_high) - 1)
+            support_points = jnp.zeros(len(support_points_low) + len(support_points_high) - 1)
             support_points[:7] = support_points_low
             support_points[7:] = support_points_high[1:]
 
         # Define the temperature values at the node points.
-        t_support = np.zeros_like(support_points)
+        t_support = jnp.zeros_like(support_points)
 
         if i_intp == 0:
             tfintp = interp1d(press_cgs, tfinal, kind='cubic')
@@ -950,8 +950,8 @@ def temperature_profile_function_ret_model(rad_trans_params):
                 tfintp(support_points[(int(len(support_points_low))):])
 
         # Make the temperature spline interpolation to be returned to the user
-        cs = CubicSpline(np.log10(support_points), t_support)
-        tret = cs(np.log10(press_cgs))
+        cs = CubicSpline(jnp.log10(support_points), t_support)
+        tret = cs(jnp.log10(press_cgs))
 
     tret[tret < 0.0] = 1.0
     # Return the temperature, the pressure at tau = 1,
@@ -975,8 +975,8 @@ def temperature_curvature_prior(press, temps, gamma):
     Returns:
         float: The curvature prior value.
     """
-    weighted_temp_prior = -0.5 * np.sum((temps[2:] - 2 * temps[1:-1] + temps[:-2]) ** 2) / gamma
-    weighted_temp_prior -= 0.5 * np.log(2 * np.pi * gamma)
+    weighted_temp_prior = -0.5 * jnp.sum((temps[2:] - 2 * temps[1:-1] + temps[:-2]) ** 2) / gamma
+    weighted_temp_prior -= 0.5 * jnp.log(2 * jnp.pi * gamma)
 
     return weighted_temp_prior
 
@@ -1013,41 +1013,41 @@ def dtdp_temperature_profile(
         temperatures : array_like
             The temperature profile.
     """
-    id_sub = np.where(press >= 10**top_of_atmosphere_pressure)
+    id_sub = jnp.where(press >= 10**top_of_atmosphere_pressure)
     p_use_sub = press[id_sub]
     num_sub = len(p_use_sub)
 
     # 1.3 pressures of layers
-    layer_pressures = np.logspace(top_of_atmosphere_pressure,
+    layer_pressures = jnp.logspace(top_of_atmosphere_pressure,
                                   bottom_of_atmosphere_pressure,
                                   int(num_layer))
     # 1.4 assemble the P-T slopes for these layers
     # for index in range(num_layer):
     #    layer_pt_slopes[index] = parameters['PTslope_%d'%(num_layer - index)].value
     # 1.5 interpolate the P-T slopes to compute slopes for all layers
-    interp_func = interp1d(np.log10(layer_pressures),
+    interp_func = interp1d(jnp.log10(layer_pressures),
                            layer_pt_slopes,
                            'quadratic')
-    pt_slopes_sub = interp_func(np.log10(p_use_sub))
+    pt_slopes_sub = interp_func(jnp.log10(p_use_sub))
     # 1.6 compute temperatures
-    temperatures_sub = np.ones(num_sub) * np.nan
+    temperatures_sub = jnp.ones(num_sub) * jnp.nan
     temperatures_sub[-1] = t_bottom
 
     # Note: higher index is lower pressure.
     for index in range(1, num_sub):
-        temperatures_sub[-1 - index] = np.exp(
-            np.log(temperatures_sub[-index]) - pt_slopes_sub[-index]
-            * (np.log(p_use_sub[-index]) - np.log(p_use_sub[-1 - index]))
+        temperatures_sub[-1 - index] = jnp.exp(
+            jnp.log(temperatures_sub[-index]) - pt_slopes_sub[-index]
+            * (jnp.log(p_use_sub[-index]) - jnp.log(p_use_sub[-1 - index]))
         )
 
     # 1.7 isothermal in the remaining region, i.e., upper atmosphere
-    temperatures = np.ones_like(press) * temperatures_sub[0]
-    temperatures[id_sub] = np.copy(temperatures_sub)
+    temperatures = jnp.ones_like(press) * temperatures_sub[0]
+    temperatures[id_sub] = jnp.copy(temperatures_sub)
 
     return temperatures
 
 
-def um2hz(wavelength: npt.NDArray | float) -> npt.NDArray | float:
+def um2hz(wavelength: ArrayLike | float) -> ArrayLike | float:
     """Convert wavelengths in micrometer into frequencies.
 
     Args:
@@ -1059,7 +1059,7 @@ def um2hz(wavelength: npt.NDArray | float) -> npt.NDArray | float:
     return frequency2wavelength(wavelength * 1e-4)  # the operation is the same: (c / Hz) -> cm, (c / cm) -> Hz
 
 
-def wavelength2frequency(wavelength: npt.NDArray | float) -> npt.NDArray | float:
+def wavelength2frequency(wavelength: ArrayLike | float) -> ArrayLike | float:
     """Convert wavelengths in centimeter to frequencies.
 
     Args:

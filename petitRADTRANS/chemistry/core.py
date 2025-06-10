@@ -1,6 +1,6 @@
 import copy
 
-import numpy as np
+import jax.numpy as jnp
 
 try:
     from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
@@ -84,8 +84,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
         abundances_interp, mmw, _ = (
             pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                parameters['C/O'].value * np.ones_like(pressures),
-                parameters['Fe/H'].value * np.ones_like(pressures),
+                parameters['C/O'].value * jnp.ones_like(pressures),
+                parameters['Fe/H'].value * jnp.ones_like(pressures),
                 temperatures,
                 pressures,
                 carbon_pressure_quench=pquench_c,
@@ -93,7 +93,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             )
         )
     # Free chemistry abundances
-    msum = np.zeros_like(pressures)
+    msum = jnp.zeros_like(pressures)
 
     if abundances_interp:
         for key, val in abundances_interp.items():
@@ -108,7 +108,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             if easy_chem_name in abundances_interp.keys():
                 msum -= abundances_interp[easy_chem_name]
             abund = 10 ** parameters[species_short_name].value
-            abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
+            abundances_interp[easy_chem_name] = abund * jnp.ones_like(pressures)
             msum += abundances_interp[easy_chem_name]
             continue
 
@@ -159,20 +159,20 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Check to make sure we're using free chemistry
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
-            abundances_interp['H2'] = 10 ** parameters['H2'].value * np.ones_like(pressures)
+            abundances_interp['H2'] = 10 ** parameters['H2'].value * jnp.ones_like(pressures)
 
         else:
             abundances_interp['H2'] = 0.766 * (1.0 - msum)
 
         if 'He' in parameters.keys():
-            abundances_interp['He'] = 10 ** parameters['He'].value * np.ones_like(pressures)
+            abundances_interp['He'] = 10 ** parameters['He'].value * jnp.ones_like(pressures)
 
         else:
             abundances_interp['He'] = 0.234 * (1.0 - msum)
 
         # Imposing strict limit on msum to ensure H2 dominated composition
-        if np.max(msum) > 1.0:
-            print(f"Abundance sum > 1.0, msum={np.max(msum):.2f}")
+        if jnp.max(msum) > 1.0:
+            print(f"Abundance sum > 1.0, msum={jnp.max(msum):.2f}")
             return None, None, None, None
 
         mmw = compute_mean_molar_masses(abundances_interp)
@@ -211,7 +211,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 temperatures,
                 parameters['Fe/H'].value,
                 parameters['C/O'].value,
-                np.mean(mmw)
+                jnp.mean(mmw)
             )
         else:
             p_bases[cname] = fc.simple_cdf_free(
@@ -224,12 +224,12 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Find high resolution pressure grid and indices
     if amr:
-        press_use, small_index = fixed_length_amr(np.array(list(p_bases.values())),
+        press_use, small_index = fixed_length_amr(jnp.array(list(p_bases.values())),
                                                   pressures,
                                                   parameters['pressure_scaling'].value,
                                                   parameters['pressure_width'].value)
     else:
-        small_index = np.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
+        small_index = jnp.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
 
     fseds = {}
 
@@ -244,7 +244,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             else:
                 fseds[cname] = parameters['fsed'].value
 
-            abundances[cloud] = np.zeros_like(temperatures)
+            abundances[cloud] = jnp.zeros_like(temperatures)
             abundances[cloud][pressures < p_bases[cname]] = \
                 clouds[cname] * (
                         pressures[pressures <= p_bases[cname]] / p_bases[cname]

@@ -7,8 +7,8 @@ import re
 import warnings
 
 import h5py
-import numpy as np
-import numpy.typing as npt
+import jax.numpy as jnp
+from jax.typing import ArrayLike
 from molmass import Formula
 
 from petitRADTRANS import __version__ as prt_version
@@ -373,7 +373,7 @@ class Opacity:
 
     @classmethod
     def _before_write(cls, temperature_grid_type: str, molar_mass: float, species_name: [str, tuple[str, ...]],
-                      date_id: str) -> ([float, npt.NDArray[float]], str):
+                      date_id: str) -> ([float, ArrayLike], str):
         from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
         if temperature_grid_type not in cls._temperature_grid_types:
@@ -385,7 +385,7 @@ class Opacity:
 
         if molar_mass is None:
             if not isinstance(species_name, str):
-                molar_mass = np.array([float(get_species_molar_mass(species)) for species in species_name])
+                molar_mass = jnp.array([float(get_species_molar_mass(species)) for species in species_name])
             else:
                 molar_mass = get_species_molar_mass(species_name)
 
@@ -1935,10 +1935,10 @@ class CIAOpacity(Opacity):
             cls,
             file: str,
             colliding_species: tuple[str, ...],
-            alphas: npt.NDArray[float],
-            wavenumbers: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            alphas: ArrayLike,
+            wavenumbers: ArrayLike,
+            pressures: ArrayLike,
+            temperatures: ArrayLike,
             molar_mass: float = None,
             doi: str = '',
             contributor: str = '',
@@ -2016,14 +2016,14 @@ class CIAOpacity(Opacity):
 
             dataset = fh5.create_dataset(
                 name='wlrange',
-                data=np.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
+                data=jnp.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
             )
             dataset.attrs['long_name'] = 'Wavelength range covered'
             dataset.attrs['units'] = 'µm'
 
             dataset = fh5.create_dataset(
                 name='wnrange',
-                data=np.array([wavenumbers.min(), wavenumbers.max()])
+                data=jnp.array([wavenumbers.min(), wavenumbers.max()])
             )
             dataset.attrs['long_name'] = 'Wavenumber range covered'
             dataset.attrs['units'] = 'cm^-1'
@@ -2383,13 +2383,13 @@ class CloudOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            absorption_opacities: npt.NDArray[float],
-            scattering_opacities: npt.NDArray[float],
-            asymmetry_parameters: npt.NDArray[float],
-            particles_densities: npt.NDArray[float],
-            particles_radius_bin_centers: npt.NDArray[float],
-            particles_radius_bin_edges: npt.NDArray[float],
-            wavenumbers: npt.NDArray[float],
+            absorption_opacities: ArrayLike,
+            scattering_opacities: ArrayLike,
+            asymmetry_parameters: ArrayLike,
+            particles_densities: ArrayLike,
+            particles_radius_bin_centers: ArrayLike,
+            particles_radius_bin_edges: ArrayLike,
+            wavenumbers: ArrayLike,
             doi: str = '',
             contributor: str = '',
             description: str = '',
@@ -2506,14 +2506,14 @@ class CloudOpacity(Opacity):
 
             dataset = fh5.create_dataset(
                 name='wlrange',
-                data=np.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
+                data=jnp.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
             )
             dataset.attrs['long_name'] = 'Wavelength range covered'
             dataset.attrs['units'] = 'µm'
 
             dataset = fh5.create_dataset(
                 name='wnrange',
-                data=np.array([wavenumbers.min(), wavenumbers.max()])
+                data=jnp.array([wavenumbers.min(), wavenumbers.max()])
             )
             dataset.attrs['long_name'] = 'Wavenumber range covered'
             dataset.attrs['units'] = 'cm^-1'
@@ -2571,18 +2571,18 @@ class CorrelatedKOpacity(Opacity):
         )
 
     @classmethod
-    def _get_default_rebinning_wavenumber_grid(cls, resolving_power: float) -> npt.NDArray[float]:
+    def _get_default_rebinning_wavenumber_grid(cls, resolving_power: float) -> ArrayLike:
         wavelengths_boundaries = cls._default_rebinning_wavelength_range
         n_spectral_points = int(
-            resolving_power * np.log(
+            resolving_power * jnp.log(
                 cls._default_rebinning_wavelength_range[1]
                 / cls._default_rebinning_wavelength_range[0]
             ) + 1
         )
 
-        return np.logspace(
-            np.log10(1e4 / wavelengths_boundaries[1]),  # um to cm-1
-            np.log10(1e4 / wavelengths_boundaries[0]),  # um to cm-1
+        return jnp.logspace(
+            jnp.log10(1e4 / wavelengths_boundaries[1]),  # um to cm-1
+            jnp.log10(1e4 / wavelengths_boundaries[0]),  # um to cm-1
             n_spectral_points
         )
 
@@ -2654,7 +2654,7 @@ class CorrelatedKOpacity(Opacity):
             print("Successfully binned down all k-tables\n")
 
     @classmethod
-    def exo_k_rebin(cls, input_file: str, resolving_power: float, wavenumber_grid: npt.NDArray[float] = None,
+    def exo_k_rebin(cls, input_file: str, resolving_power: float, wavenumber_grid: ArrayLike = None,
                     rewrite: bool = False) -> [int, None]:
         try:
             import exo_k
@@ -2813,14 +2813,14 @@ class CorrelatedKOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            k_coefficients: npt.NDArray[float],
-            wavenumber_bin_centers: npt.NDArray[float],
-            wavenumber_bin_edges: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            k_coefficients: ArrayLike,
+            wavenumber_bin_centers: ArrayLike,
+            wavenumber_bin_edges: ArrayLike,
+            pressures: ArrayLike,
+            temperatures: ArrayLike,
             temperature_grid_type: str,
-            g_weights: npt.NDArray[float],
-            g_samples: npt.NDArray[float],
+            g_weights: ArrayLike,
+            g_samples: ArrayLike,
             molar_mass: float = None,
             doi: str = '',
             contributor: str = '',
@@ -2954,14 +2954,14 @@ class CorrelatedKOpacity(Opacity):
 
             dataset = fh5.create_dataset(
                 name='wlrange',
-                data=np.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
+                data=jnp.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
             )
             dataset.attrs['long_name'] = 'Wavelength range covered'
             dataset.attrs['units'] = 'µm'
 
             dataset = fh5.create_dataset(
                 name='wnrange',
-                data=np.array([wavenumber_bin_centers.min(), wavenumber_bin_centers.max()])
+                data=jnp.array([wavenumber_bin_centers.min(), wavenumber_bin_centers.max()])
             )
             dataset.attrs['long_name'] = 'Wavenumber range covered'
             dataset.attrs['units'] = 'cm^-1'
@@ -3111,10 +3111,10 @@ class LineByLineOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            cross_sections: npt.NDArray[float],
-            wavenumber_bin_edges: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            cross_sections: ArrayLike,
+            wavenumber_bin_edges: ArrayLike,
+            pressures: ArrayLike,
+            temperatures: ArrayLike,
             temperature_grid_type: str,
             molar_mass: float = None,
             doi: str = '',
@@ -3211,14 +3211,14 @@ class LineByLineOpacity(Opacity):
 
             dataset = fh5.create_dataset(
                 name='wlrange',
-                data=np.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
+                data=jnp.array([wavelength_range[0], wavelength_range[1]]) * 1e4  # cm to um
             )
             dataset.attrs['long_name'] = 'Wavelength range covered'
             dataset.attrs['units'] = 'µm'
 
             dataset = fh5.create_dataset(
                 name='wnrange',
-                data=np.array([wavenumber_bin_edges.min(), wavenumber_bin_edges.max()])
+                data=jnp.array([wavenumber_bin_edges.min(), wavenumber_bin_edges.max()])
             )
             dataset.attrs['long_name'] = 'Wavenumber range covered'
             dataset.attrs['units'] = 'cm^-1'

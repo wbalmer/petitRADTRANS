@@ -1,7 +1,7 @@
 """Stores physical constants in CGS.
 """
 import astropy.constants as a_cst
-import numpy as np
+import jax.numpy as jnp
 import scipy.constants as s_cst
 
 # Defined constants
@@ -9,7 +9,7 @@ c = s_cst.c * 1e2
 h = s_cst.h * 1e7
 kB = s_cst.k * 1e7
 nA = s_cst.N_A
-e = s_cst.e * np.sqrt(1e9 / (4 * s_cst.pi * s_cst.epsilon_0))
+e = s_cst.e * jnp.sqrt(1e9 / (4 * s_cst.pi * s_cst.epsilon_0))
 
 # Measured constants
 G = s_cst.G * 1e3

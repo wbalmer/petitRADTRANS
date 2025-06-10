@@ -24,7 +24,7 @@ All models must take the same set of inputs:
         For example, using the fixed_length_amr function defined below.
 """
 # TODO replace by SpectralModel function
-import numpy as np
+import jax.numpy as jnp
 from species.util.dust_util import apply_ism_ext
 
 from petitRADTRANS.chemistry import clouds
@@ -44,7 +44,7 @@ from petitRADTRANS.physics import (
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 # Global constants to reduce calculations and initializations.
-PGLOBAL = np.logspace(-6, 3, 1000)
+PGLOBAL = jnp.logspace(-6, 3, 1000)
 
 
 def _compute_gravity(parameters):
@@ -123,11 +123,11 @@ def emission_model_diseq(prt_object,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.ndarray
+        wlen_model : ArrayLike
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.ndarray
+        spectrum_model : ArrayLike
             Computed emission spectrum [W/m2/micron]
-        contr_em : Optional, np.ndarray
+        contr_em : Optional, ArrayLike
             Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
@@ -145,7 +145,7 @@ def emission_model_diseq(prt_object,
     gravity, planet_radius = _compute_gravity(parameters)
 
     # Make the P-T profile
-    temp_arr = np.array([t1, t2, t3])
+    temp_arr = jnp.array([t1, t2, t3])
     carbon_to_oxygen = 0
 
     if 'C/O' in parameters.keys():
@@ -167,8 +167,8 @@ def emission_model_diseq(prt_object,
     )
 
     if 'use_easychem' in parameters.keys():
-        temperatures[np.where(temperatures < 40.0)] = 40.0
-        temperatures[np.where(temperatures > 42000.0)] = 42000.0
+        temperatures[jnp.where(temperatures < 40.0)] = 40.0
+        temperatures[jnp.where(temperatures > 42000.0)] = 42000.0
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
@@ -285,11 +285,11 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed emission spectrum [W/m2/micron]
-        contr_em : Optional, np.ndarray
+        contr_em : Optional, ArrayLike
             Emission contribution function, relative contributions for each wavelength and pressure level.
             Only returns the contribution of the clear atmosphere component.
 
@@ -307,13 +307,13 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     t2 = t3 * (1.0 - parameters['T2'].value)
     t1 = t2 * (1.0 - parameters['T1'].value)
     delta = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta'].value)) * 1e6) ** (-parameters['alpha'].value)
-    temp_arr = np.array([t1, t2, t3])
+    temp_arr = jnp.array([t1, t2, t3])
 
     t3_clear = ((3. / 4. * parameters['T_int'].value ** 4. * (0.1 + 2. / 3.)) ** 0.25) * (
                 1.0 - parameters['T3_clear'].value)
     t2_clear = t3_clear * (1.0 - parameters['T2_clear'].value)
     t1_clear = t2_clear * (1.0 - parameters['T1_clear'].value)
-    temps_clear = np.array([t1_clear, t2_clear, t3_clear])
+    temps_clear = jnp.array([t1_clear, t2_clear, t3_clear])
     delta_clear = ((10.0 ** (-3.0 + 5.0 * parameters['log_delta_clear'].value)) * 1e6) ** (
         -parameters['alpha_clear'].value)
     gravity, planet_radius = _compute_gravity(parameters)
@@ -407,7 +407,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
     # Set the cloud abundances to 0 for clear case
     for cloud in prt_object.cloud_species:
         cname = cloud.split('_')[0]
-        abundances_clear[cname] = np.zeros_like(temperatures)
+        abundances_clear[cname] = jnp.zeros_like(temperatures)
 
     wlen_model, flux, additional_outputs = prt_object.calculate_flux(
         temperatures=t_clear,
@@ -490,11 +490,11 @@ def guillot_emission(prt_object,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
@@ -612,11 +612,11 @@ def guillot_emission_add_gaussian_temperature(prt_object,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
@@ -634,13 +634,13 @@ def guillot_emission_add_gaussian_temperature(prt_object,
     )
 
     def gaussian(x, scale, mu, sig):
-        return scale*np.exp(-np.power((x - mu)/sig, 2.)/2)
-    temperature_addition = gaussian(np.log10(p_use),
+        return scale*jnp.exp(-jnp.power((x - mu)/sig, 2.)/2)
+    temperature_addition = gaussian(jnp.log10(p_use),
                                     parameters["temperature_peak"].value,
                                     parameters["temperature_location_log_pressure"].value,
                                     parameters["temperature_width_log_pressure"].value)
     temperatures += temperature_addition
-    safe_inds = np.where(temperatures < 1.0)
+    safe_inds = jnp.where(temperatures < 1.0)
     temperatures[safe_inds] = 1.0
 
     # If in evaluation mode, and PTs are supposed to be plotted
@@ -748,18 +748,18 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
-    temp_arr = np.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
+    temp_arr = jnp.array([parameters[f"T{i}"].value for i in range(parameters['nnodes'].value + 2)])
     if "linear" in parameters.keys():
         temperatures, log_prior_weight = linear_spline_profile(p_use,
                                                                temp_arr,
@@ -870,11 +870,11 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
@@ -883,7 +883,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
 
     num_layer = parameters['N_layers'].value
     # 1.4 assemble the P-T slopes for these layers
-    layer_pt_slopes = np.ones(num_layer) * np.nan
+    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
         layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
 
@@ -1000,11 +1000,11 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
@@ -1013,7 +1013,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
 
     num_layer = parameters['N_layers'].value
     # 1.4 assemble the P-T slopes for these layers
-    layer_pt_slopes = np.ones(num_layer) * np.nan
+    layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
         layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
 
@@ -1130,11 +1130,11 @@ def guillot_transmission(prt_object,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
     """
@@ -1278,11 +1278,11 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned.
@@ -1295,7 +1295,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
     gravity, planet_radius = _compute_gravity(parameters)
 
     # Set up pressure points, guaranteeing P3>P2>P1 >= P_top
-    offset = np.log10(p_use[0])
+    offset = jnp.log10(p_use[0])
     log_p3 = parameters['log_P3'].value - offset
     log_p2 = log_p3 * (1.0 - parameters['P2'].value)
     log_p1 = log_p2 * (1.0 - parameters['P1'].value)
@@ -1421,11 +1421,11 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned.
@@ -1438,7 +1438,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
     gravity, planet_radius = _compute_gravity(parameters)
 
     # Set up pressure points, guaranteeing P3>P2>P1 >= P_top
-    offset = np.log10(p_use[0])
+    offset = jnp.log10(p_use[0])
     log_p3 = parameters['log_P3'].value - offset
     log_p2 = log_p3 * (1.0 - parameters['P2'].value)
     log_p1 = log_p2 * (1.0 - parameters['P1'].value)
@@ -1573,11 +1573,11 @@ def isothermal_transmission(prt_object,
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
             Only the clear atmosphere contribution is returned if patchy clouds are considered.
@@ -1695,11 +1695,11 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
-        wlen_model : np.array
+        wlen_model : jnp.array
             Wavlength array of computed model, not binned to data [um]
-        spectrum_model : np.array
+        spectrum_model : jnp.array
             Computed transmission spectrum planet_radius**2/Rstar**2
-        contr-em : np.ndarray
+        contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
@@ -1779,10 +1779,10 @@ def add_blackbody_cpd_model(parameters, wavelengths):
 
     Args:
         parameters (dict): dictionary of atmospheric and disk parameters
-        wavelengths (np.ndarray): Wavelength grid of atmospheric model in micron
+        wavelengths (ArrayLike): Wavelength grid of atmospheric model in micron
 
     Returns:
-        blackbody_spectrum (np.ndarray): 1D Planck emission spectrum for a circular CPD.
+        blackbody_spectrum (ArrayLike): 1D Planck emission spectrum for a circular CPD.
     """
     if "T_disk_blackbody" in parameters.keys():
         blackbody_spectrum = planck_function_cm(parameters["T_disk_blackbody"].value, wavelengths*1e-4)*1e-7
@@ -1860,16 +1860,16 @@ def calculate_emission_spectrum(prt_object,
     Args:
         prt_object (Radtrans): The Radtrans object used to calculate the spectrum
         parameters (dict): Dictionary of atmospheric parameters.
-        temperatures (np.ndarray): Array of temperatures for each pressure level in the atmosphere
+        temperatures (ArrayLike): Array of temperatures for each pressure level in the atmosphere
         abundances (dict): Dictionary of molecular mass fraction abundances for each level in the atmosphere
-        gravity (np.ndarray): Gravitational acceleration at each pressure level
-        mean_molar_masses (np.ndarray): Mean molecular mass at each pressure level
+        gravity (ArrayLike): Gravitational acceleration at each pressure level
+        mean_molar_masses (ArrayLike): Mean molecular mass at each pressure level
         planet_radius (float): Planet radius in cm
         sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
-        cloud_particles_mean_radii (np.ndarray): Mean particle radius
-        cloud_f_sed (np.ndarray): Sedimentation fraction
-        eddy_diffusion_coefficients (np.ndarray): Vertical mixing strength (Kzz)
-        cloud_hansen_b (np.ndarray): Cloud particle distribution width, hansen distsribution
+        cloud_particles_mean_radii (ArrayLike): Mean particle radius
+        cloud_f_sed (ArrayLike): Sedimentation fraction
+        eddy_diffusion_coefficients (ArrayLike): Vertical mixing strength (Kzz)
+        cloud_hansen_b (ArrayLike): Cloud particle distribution width, hansen distsribution
         cloud_fraction (float) : fraction of planet covered by clouds
         complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
         distribution (string): Which cloud particle size distribution to use
@@ -1957,21 +1957,21 @@ def calculate_transmission_spectrum(prt_object,
     Args:
         prt_object (Radtrans): The Radtrans object used to calculate the spectrum
         parameters (dict): Dictionary of atmospheric parameters.
-        temperatures (np.ndarray): Array of temperatures for each pressure level in the atmosphere
+        temperatures (ArrayLike): Array of temperatures for each pressure level in the atmosphere
         abundances (dict): Dictionary of molecular mass fraction abundances for each level in the atmosphere
-        gravity (np.ndarray): Gravitational acceleration at each pressure level
-        mean_molar_masses (np.ndarray): Mean molecular mass at each pressure level
+        gravity (ArrayLike): Gravitational acceleration at each pressure level
+        mean_molar_masses (ArrayLike): Mean molecular mass at each pressure level
         planet_radius (float):Planet radius in cm
         reference_pressure (float): Pressure at which the planet radius is defined
         opaque_cloud_top_pressure (float): Pressure where an opaque grey cloud deck is placed
         sigma_lnorm (float): Width of the cloud particle size distribution (log-normal)
-        cloud_particles_mean_radii (np.ndarray): Mean particle radius
-        cloud_f_sed (np.ndarray): Sedimentation fraction
-        eddy_diffusion_coefficients (np.ndarray): Vertical mixing strength (Kzz)
+        cloud_particles_mean_radii (ArrayLike): Mean particle radius
+        cloud_f_sed (ArrayLike): Sedimentation fraction
+        eddy_diffusion_coefficients (ArrayLike): Vertical mixing strength (Kzz)
         haze_factor (float): Multiplicative factor on the strength of a power law haze slope
         power_law_opacity_coefficient (float): Exponent for the slope of a power law haze
         power_law_opacity_350nm (float): Strength of the power law scattering at 350nm
-        cloud_hansen_b (np.ndarray): Cloud particle distribution width, hansen distsribution
+        cloud_hansen_b (ArrayLike): Cloud particle distribution width, hansen distsribution
         cloud_fraction (float) : fraction of planet covered by clouds
         complete_coverage_clouds (list(str)) : Which clouds are NOT patchy
         distribution (string): Log normal or hansen particle size distribution
@@ -2036,6 +2036,6 @@ def pglobal_check(press, shape, scaling):
     """
     global PGLOBAL
     if PGLOBAL.shape[0] != int(scaling * shape):
-        PGLOBAL = np.logspace(np.log10(press[0]),
-                              np.log10(press[-1]),
+        PGLOBAL = jnp.logspace(jnp.log10(press[0]),
+                              jnp.log10(press[-1]),
                               int(scaling * shape))

@@ -4,10 +4,32 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a0] - 2024-10-24
-## Changed
-- WORK IN PROGRESS 
-- Transitioning to JAX backend for GPU operations.
+## [4.0.0a1] - 2024-10-24
+### Summary
+pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables 
+faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs. 
+Version 4.0 is still experimental, and should not be used for production work!
+
+### Changed
+- Translated `fortran_radtrans_core` to JAX. 
+- Translated `fortran_rebin` to JAX.
+- Translated `fortran_chemistry` to JAX.
+- Updated `Radtrans` to use JAX arrays and the JAX backend (incomplete).
+- `Retrieval` module should use JAX arrays throughout. 
+- `Chemistry` module should use JAX arrays throughout.
+- `math.py` now uses JAX arrays.
+- `Opacity` module now uses JAX arrays.
+- Breaking change: updated naming of arguments in `retrieval_config` to conform to PEP8 guidelines.
+
+### Added
+- Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
+- Implemented new `LogLiklihood` class to ensure consistent chi2 calculations.
+- Added median filter continuum subtraction.
+- Added savitzky-golay filter continuum subtraction.
+
+### Removed
+- `Data.get_chi2` has been removed and moved to `LogLikelihood`
+
 
 ## [3.3.0a0] - 2025-05-22
 ### Added

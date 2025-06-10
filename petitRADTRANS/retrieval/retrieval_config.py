@@ -2,11 +2,13 @@ import logging
 import os
 
 import numpy as np
+import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval.parameter import Parameter
-
+from petitRADTRANS.retrieval.utils import uniform_prior
 # MPI Multiprocessing
 rank = 0
 comm = None
@@ -47,28 +49,26 @@ class RetrievalConfig:
     """
 
     def __init__(self,
-                 retrieval_name="retrieval_name",
-                 run_mode="retrieval",
-                 amr=False,
-                 scattering_in_emission=False,
-                 pressures=None):
+                 retrieval_name: str = "retrieval_name",
+                 run_mode: str = "retrieval",
+                 amr: str = False,
+                 scattering_in_emission: bool = False,
+                 pressures: ArrayLike | None = None):
 
         self.retrieval_name = retrieval_name
-
-        if run_mode == 'retrieve':
-            run_mode = 'retrieval'  # TODO please no.
-
         self.run_mode = run_mode
 
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
 
         self.amr = amr
+        self.scaling = 1
+        self.width = 1
 
         if pressures is not None:
             self.pressures = pressures
         else:
-            self.pressures = np.logspace(-6, 3, 100)
+            self.pressures = jnp.logspace(-6, 3, 100)
 
         self.scattering_in_emission = scattering_in_emission
         self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
@@ -129,7 +129,7 @@ class RetrievalConfig:
         if nclouds == 0:
             print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
         new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
-        self.amr_pressure = np.logspace(np.log10(self.pressures[0]), np.log10(self.pressures[-1]), new_len)
+        self.amr_pressure = jnp.logspace(jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len)
         self.add_parameter("pressure_scaling", False, value=scaling)
         self.add_parameter("pressure_width", False, value=width)
         self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
@@ -214,7 +214,7 @@ class RetrievalConfig:
 
         return files
 
-    def set_line_species(self, linelist, eq=False, abund_lim=(-6.0, -0.5)):
+    def set_line_species(self, line_species, use_equilibrium_chemistry=False, free_mass_fraction_limits=(-6.0, -0.5)):
         """
         Set RadTrans.line_species
 
@@ -223,102 +223,109 @@ class RetrievalConfig:
         the pRT opacity names, which vary between the c-k line opacities and the line-by-line opacities.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
-        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
+        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
+        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
 
         Args:
-            linelist : List(str)
+            line_species : List(str)
                 The list of species to include in the retrieval
-            eq : bool
+            use_equilibrium_chemistry : bool
                 If false, the retrieval should use free chemistry, and Parameters for the abundance of each
-                species in the linelist will be added to the retrieval. Otherwise, equilibrium chemistry will
+                species in the line_species will be added to the retrieval. Otherwise, equilibrium chemistry will
                 be used. If you need fine control species, use the add_line_species and set up each species
                 individually.
-            abund_lim : Tuple(float,float)
+            free_mass_fraction_limits : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied for
-                each species in linelist. The range of the prior goes from abund_lim[0] to abund_lim[1].
+                each species in line_species. The range of the prior goes from free_mass_fraction_limits[0] to free_mass_fraction_limits[1].
                 The abundance limits must be given in log10 units of the mass fraction.
         """
-        if abund_lim[1] > 0.0:
+        if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
             )
 
-        self.line_species = linelist
+        self.line_species = line_species
 
-        if not eq:
+        if not use_equilibrium_chemistry:
             for spec in self.line_species:
                 spec = spec.split('.', 1)[0]  # remove possible previous spectral info
 
                 self.parameters[spec] = Parameter(
                     spec,
                     True,
-                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: uniform_prior(
+                        x,
+                        free_mass_fraction_limits[0],
+                        free_mass_fraction_limits[1]
+                        )
                 )
 
-    def set_rayleigh_species(self, linelist):
+    def set_rayleigh_species(self, rayleigh_species):
         """
         Set the list of species that contribute to the rayleigh scattering in the pRT object.
 
         Args:
-            linelist : List(str)
+            rayleigh_species : List(str)
                 A list of species that contribute to the rayleigh opacity.
         """
 
-        self.rayleigh_species = linelist
+        self.rayleigh_species = rayleigh_species
 
-    def set_continuum_opacities(self, linelist):
+    def set_continuum_opacities(self, continuum_opacities):
         """
         Set the list of species that contribute to the continuum opacity in the pRT object.
 
         Args:
-            linelist : List(str)
+            continuum_opacities : List(str)
                 A list of species that contribute to the continuum opacity.
         """
 
-        self.continuum_opacities = linelist
+        self.continuum_opacities = continuum_opacities
 
-    def add_line_species(self, species, eq=False, abund_lim=(-7.0, 0.0), fixed_abund=None):
+    def add_line_species(self, species, use_equilibrium_chemistry=False, free_mass_fraction_limits=(-6.0, -0.5), fixed_mass_fraction_value=None):
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
         opacities.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
-        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
+        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
+        so that the limits of the prior range are from free_mass_fraction_limits[0] to abund_lim[1] (ie the actual boundaries).
 
         Args:
             species : str
                 The species to include in the retrieval
-            eq : bool
+            use_equilibrium_chemistry : bool
                 If False, the retrieval should use free chemistry, and Parameters for the abundance of the
                 species will be added to the retrieval. Otherwise, (dis)equilibrium chemistry will be used.
-            abund_lim : Tuple(float,float)
+            free_mass_fraction_limits : Tuple(float,float)
                 If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
-                The range of the prior goes from abund_lim[0] to abund_lim[1]
+                The range of the prior goes from free_mass_fraction_limits[0] to free_mass_fraction_limits[1]
                 The abundance limits must be given in log10 units of the mass fraction.
-            fixed_abund : float
+            fixed_mass_fraction_value : float
                 The log-mass fraction abundance of the species. Currently only supports vertically constant
                 abundances. If this is set, then the species will not be a free parameter in the retrieval.
         """
 
         # parameter passed through loglike is log10 abundance
-        if abund_lim[1] > 0.0:
+        if free_mass_fraction_limits[1] > 0.0:
             raise ValueError(
-                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
             )
 
         self.line_species.append(species)
-        if not eq:
-            if fixed_abund is not None:
+        if not use_equilibrium_chemistry:
+            if fixed_mass_fraction_value is not None:
                 self.parameters[species] = Parameter(species, False,
-                                                     value=fixed_abund)
+                                                     value=fixed_mass_fraction_value)
             else:
                 self.parameters[species] = Parameter(
                     species,
                     True,
-                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: uniform_prior(
+                        x,
+                        free_mass_fraction_limits[0],
+                        free_mass_fraction_limits[1])
                 )
 
     def remove_species_lines(self, species, free=False):
@@ -339,8 +346,14 @@ class RetrievalConfig:
         if free:
             self.parameters.pop(species, None)
 
-    def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
-                          scaling_factor=None, fixed_base=None):
+    def add_cloud_species(self,
+                          species,
+                          use_equilibrium_chemistry=True,
+                          free_mass_fraction_limits=(-3.5, 1.5),
+                          cloud_base_pressure_limits=None,
+                          equilbrium_mass_fraction_scaling_factor=None,
+                          fixed_mass_fraction_value=None,
+                          fixed_base_pressure_value=None):
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
@@ -350,26 +363,26 @@ class RetrievalConfig:
         The limits set the prior ranges, both on a log scale.
 
         NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
-        abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
-        so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
+        abundance limits were set from free_mass_fraction_limits[0] to (free_mass_fraction_limits[0] + free_mass_fraction_limits[1]). This has been changed
+        so that the limits of the prior range are from free_mass_fraction_limits[0] to free_mass_fraction_limits[1] (ie the actual boundaries).
         The same is true for PBase_lim.
 
         Args:
             species : str
                 Name of the pRT cloud species, including the cloud shape tag.
-            eq : bool
+            use_equilibrium_chemistry : bool
                 Does the retrieval model use an equilibrium cloud model. This restricts the available species!
-            abund_lim : tuple(float,float)
+            free_mass_fraction_limits : tuple(float,float)
                 If eq is True, this sets the scaling factor for the equilibrium condensate abundance, typical
                 range would be (-3,1). If eq is false, this sets the range on the actual cloud abundance,
                 with a typical range being (-5,0).
-            p_base_lim : tuple(float,float)
+            cloud_base_pressure_limits : tuple(float,float)
                 Only used if not using an equilibrium model. Sets the limits on the log of the cloud base pressure.
                 Obsolete.
-            fixed_abund : Optional(float)
+            fixed_mass_fraction_value : Optional(float)
                 A vertically constant log mass fraction abundance for the cloud species. If set, this will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds.
-            fixed_base : Optional(float)
+            fixed_base_pressure_value : Optional(float)
                 The log cloud base pressure. If set, fixes this parameter to a constant value, and it will not be
                 a free parameter in the retrieval. Only compatible with non-equilibrium clouds. Not yet compatible
                 with most built in pRT models.
@@ -378,51 +391,60 @@ class RetrievalConfig:
         """
 
         if species.endswith("(c)"):
-            logging.warning("Ensure you set the cloud particle shape, typically with the _cd tag!")
+            logging.warning("Ensure you set the cloud particle shape!")
             logging.warning(species + " was not added to the list of cloud species")
             return
 
         self.cloud_species.append(species)
         cname = species.split('_')[0]
-        if scaling_factor is not None:
+        if equilbrium_mass_fraction_scaling_factor is not None:
             self.parameters['eq_scaling_' + cname] = Parameter(
                 'eq_scaling_' + cname, True,
-                transform_prior_cube_coordinate=lambda x: scaling_factor[0] + (
-                   scaling_factor[1] - scaling_factor[
-                    0]
-                ) * x
+                transform_prior_cube_coordinate=lambda x: uniform_prior(
+                    x,
+                    equilbrium_mass_fraction_scaling_factor[0],
+                    equilbrium_mass_fraction_scaling_factor[1]
+                    )
             )
-        if not eq:
-            if abund_lim[1] > 0.0:
+        if not use_equilibrium_chemistry:
+            if free_mass_fraction_limits[1] > 0.0:
                 raise ValueError(
-                    f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+                    f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
                 )
 
-            if fixed_abund is None:
+            if fixed_mass_fraction_value is None:
                 self.parameters['log_X_cb_' + cname] = Parameter(
                     'log_X_cb_' + cname,
                     True,
-                    transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: uniform_prior(
+                        x,
+                        free_mass_fraction_limits[0],
+                        free_mass_fraction_limits[1]
+                    )
                 )
             else:
                 self.parameters['log_X_cb_' + cname] = Parameter(
                     'log_X_cb_' + cname,
                     False,
-                    value=fixed_abund
+                    value=fixed_mass_fraction_value
                 )
 
-        if p_base_lim is not None or fixed_base is not None:
-            if fixed_base is None:
+        if cloud_base_pressure_limits is not None or fixed_base_pressure_value is not None:
+            if fixed_base_pressure_value is None:
                 self.parameters['log_Pbase_' + cname] = Parameter(
                     'log_Pbase_' + cname,
                     True,
-                    transform_prior_cube_coordinate=lambda x: p_base_lim[0] + (p_base_lim[1] - p_base_lim[0]) * x
+                    transform_prior_cube_coordinate=lambda x: uniform_prior(
+                        x,
+                        cloud_base_pressure_limits[0],
+                        cloud_base_pressure_limits[1]
+                    )
                 )
             else:
                 self.parameters['log_Pbase_' + cname] = Parameter(
                     'log_Pbase_' + cname,
                     False,
-                    value=fixed_base
+                    value=fixed_base_pressure_value
                 )
 
     def add_data(self,
@@ -570,6 +592,7 @@ class RetrievalConfig:
         with open(path) as photometry:
             if photometric_transformation_function is None:
                 try:
+                    # TODO: switch to pyphot library? Lighter weight/less complicated than species.
                     import species as sp
                     from species.phot.syn_phot import SyntheticPhotometry
 
@@ -611,15 +634,14 @@ class RetrievalConfig:
                 if opacity_mode == 'lbl':
                     logging.warning("Are you sure you want a high resolution model for photometry?")
 
-                self.data[name] = Data(
+                self.data[name] = PhotometryData(
                     name,
                     path,
                     model_generating_function=model_generating_function,
                     system_distance=distance,
-                    photometry=True,
                     wavelength_boundaries=wbins,
                     photometric_bin_edges=[wlow, whigh],
-                    data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
+                    data_resolution=jnp.mean([wlow, whigh]) / (whigh - wlow),
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,

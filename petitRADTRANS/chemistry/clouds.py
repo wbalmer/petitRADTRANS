@@ -4,11 +4,10 @@
 import copy
 import warnings
 
-import numpy as np
+import jax.numpy as jnp
 from scipy.interpolate import interp1d
 
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
-
 # metal species
 __metals = ['C', 'N', 'O', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Ti', 'V', 'Fe', 'Ni']
 
@@ -73,7 +72,7 @@ def setup_clouds(pressures, parameters, cloud_species):
     on a per-cloud basis.
 
     Args:
-        pressures : np.ndarray
+        pressures : jnp.ndarray
             The pressure array used to provide the atmospheric grid
         parameters : dict
             The dictionary of parameters passed to the model function. Should contain:
@@ -92,7 +91,7 @@ def setup_clouds(pressures, parameters, cloud_species):
             The width of a log normal particle size distribution.
         fseds : dict, None
             The sedimentation fraction for each cloud species in the atmosphere.
-        kzz : np.ndarray, None
+        kzz : jnp.ndarray, None
             The vertical mixing parameter.
         b_hans : float, None
             The width of a hansen particle size distribution.
@@ -118,7 +117,7 @@ def setup_clouds(pressures, parameters, cloud_species):
 
     for cloud in cloud_species:
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
+            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * jnp.ones_like(pressures)
 
     if not radii:
         radii = None
@@ -127,7 +126,7 @@ def setup_clouds(pressures, parameters, cloud_species):
     fseds = get_fseds(parameters, cloud_species)
 
     if "log_kzz" in parameters.keys():
-        kzz = 10 ** parameters["log_kzz"].value * np.ones_like(pressures)
+        kzz = 10 ** parameters["log_kzz"].value * jnp.ones_like(pressures)
 
     cloud_fraction = 1.0
     complete_coverage_clouds = None
@@ -206,7 +205,7 @@ def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
             output = parameters[parameter_name].value
 
         if shape > 0:
-            output = output * np.ones(shape)
+            output = output * jnp.ones(shape)
 
         output_dictionary[cloud] = output
 
@@ -251,7 +250,7 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
         return return_x_sio(metallicity, co_ratio)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
-        return np.zeros_like(metallicity)
+        return jnp.zeros_like(metallicity)
 
 
 def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
@@ -270,7 +269,7 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
-        return np.zeros_like(metallicity)
+        return jnp.zeros_like(metallicity)
 
 
 def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
@@ -289,7 +288,7 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
-        return np.zeros_like(metallicity)
+        return jnp.zeros_like(metallicity)
 
 
 def return_x_fe(metallicity, co_ratio):
@@ -321,7 +320,7 @@ def return_x_mgsio3(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_mgsio3 = np.min([nfracs_use['Mg'],
+    nfracs_mgsio3 = jnp.min([nfracs_use['Mg'],
                             nfracs_use['Si'],
                             nfracs_use['O'] / 3.])
     masses_mgsio3 = __get_species_molar_mass('Mg') \
@@ -348,7 +347,7 @@ def return_x_mg2sio4(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_mg2sio4 = np.min([
+    nfracs_mg2sio4 = jnp.min([
         nfracs_use['Mg'] / 2.,
         nfracs_use['Si'],
         nfracs_use['O'] / 4.]
@@ -378,7 +377,7 @@ def return_x_mgfesio4(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_mgfesio4 = np.min([
+    nfracs_mgfesio4 = jnp.min([
         nfracs_use['Mg'],
         nfracs_use['Fe'],
         nfracs_use['Si'],
@@ -410,7 +409,7 @@ def return_x_sio(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_sio = np.min([
+    nfracs_sio = jnp.min([
         nfracs_use['Si'],
         nfracs_use['O']]
     )
@@ -438,7 +437,7 @@ def return_x_na2s(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_na2s = np.min([nfracs_use['Na'] / 2.,
+    nfracs_na2s = jnp.min([nfracs_use['Na'] / 2.,
                           nfracs_use['S']])
     masses_na2s = 2. * __get_species_molar_mass('Na') \
         + __get_species_molar_mass('S')
@@ -463,7 +462,7 @@ def return_x_kcl(metallicity, co_ratio):
 
     nfracs_use['O'] = nfracs_use['C'] / co_ratio
 
-    nfracs_kcl = np.min([nfracs_use['K'],
+    nfracs_kcl = jnp.min([nfracs_use['K'],
                          nfracs_use['Cl']])
     masses_kcl = __get_species_molar_mass('K') \
         + __get_species_molar_mass('Cl')
@@ -484,11 +483,11 @@ def return_x_kcl(metallicity, co_ratio):
 #############################################################
 
 def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(15.71 - 47664. / x)
+        return jnp.exp(15.71 - 47664. / x)
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
@@ -496,11 +495,11 @@ def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
 
 
 def return_t_cond_fe_l(metallicity, co_ratio, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(9.86 - 37120. / x)
+        return jnp.exp(9.86 - 37120. / x)
 
     x_fe = return_x_fe(metallicity, co_ratio)
 
@@ -511,7 +510,7 @@ def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
     p1, t1 = return_t_cond_fe(metallicity, co_ratio, mmw)
     p2, t2 = return_t_cond_fe_l(metallicity, co_ratio, mmw)
 
-    ret_p = np.zeros_like(p1)
+    ret_p = jnp.zeros_like(p1)
     index = p1 < p2
     ret_p[index] = p1[index]
     ret_p[~index] = p2[~index]
@@ -520,21 +519,21 @@ def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
 
 
 def return_t_cond_fe_free(x_fe, mmw=2.33):
-    t = np.linspace(100., 12000., 1200)
+    t = jnp.linspace(100., 12000., 1200)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(15.71 - 47664. / x)
+        return jnp.exp(15.71 - 47664. / x)
 
     return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
 
 def return_t_cond_fe_l_free(x_fe, mmw=2.33):
-    t = np.linspace(100., 12000., 1200)
+    t = jnp.linspace(100., 12000., 1200)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(9.86 - 37120. / x)
+        return jnp.exp(9.86 - 37120. / x)
 
     return p_vap(t) / (x_fe * mmw / __get_species_molar_mass('Fe')), t
 
@@ -542,7 +541,7 @@ def return_t_cond_fe_l_free(x_fe, mmw=2.33):
 def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
     p1, t1 = return_t_cond_fe_free(x_fe, mmw)
     p2, t2 = return_t_cond_fe_l_free(x_fe, mmw)
-    ret_p = np.zeros_like(p1)
+    ret_p = jnp.zeros_like(p1)
     index = p1 < p2
     ret_p[index] = p1[index]
     ret_p[~index] = p2[~index]
@@ -551,11 +550,11 @@ def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
 
 
 def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(25.37 - 58663. / x)
+        return jnp.exp(25.37 - 58663. / x)
 
     xmgsio3 = return_x_mgsio3(metallicity, co_ratio)
 
@@ -567,7 +566,7 @@ def return_t_cond_mgsio3(metallicity, co_ratio, mmw=2.33):
 
 
 def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Visscher 2010 condensation curve
     def p_vap(x):
@@ -578,12 +577,12 @@ def return_t_cond_mg2sio4(metallicity, co_ratio, mmw=2.33):
 
 
 def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Taken from Ackerman & Marley (2001) including their erratum
 
     def p_vap(x):
-        return np.exp(25.37 - 58663. / x)
+        return jnp.exp(25.37 - 58663. / x)
 
     m_mgsio3 = __get_species_molar_mass('Mg') \
         + __get_species_molar_mass('Si') \
@@ -593,11 +592,11 @@ def return_t_cond_mgsio3_free(x_mgsio3, mmw=2.33):
 
 
 def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # Taken from Ackerman & Marley (2001) including their erratum
     def p_vap(x):
-        return np.exp(25.37 - 58663. / x)
+        return jnp.exp(25.37 - 58663. / x)
 
     m_mg2sio4 = 2 * __get_species_molar_mass('Mg') \
         + __get_species_molar_mass('Si') \
@@ -608,7 +607,7 @@ def return_t_cond_mg2sio4_free(x_mg2sio4, mmw=2.33):
 
 def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
     # Taken from Charnay+2018
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
     # This is OK: there are more S than Na atoms at solar abundance ratios
@@ -625,7 +624,7 @@ def return_t_cond_na2s(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     # Taken from Charnay+2018
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     # This is the partial pressure of Na, so /2 to get the partial pressure of the hypothetical Na2S gas particles
     # This is OK: there are more S than Na atoms at solar abundance ratios
@@ -634,7 +633,7 @@ def return_t_cond_na2s_free(x_na2s, mmw=2.33):
     # Definitely not strictly correct, but should be good enough for ~ solar compositions. [+- 1 for Fe/H]
     # Assumes constant vertical abundance
     def p_vap(x):
-        return 1e1 ** (8.55 - 13889. / x - 0.5 * (np.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
+        return 1e1 ** (8.55 - 13889. / x - 0.5 * (jnp.log10(2 * x_na2s * mmw / m_na2s) + 5.7)) / 2
 
     m_na2s = 2. * __get_species_molar_mass('Na') \
         + __get_species_molar_mass('S')
@@ -644,7 +643,7 @@ def return_t_cond_na2s_free(x_na2s, mmw=2.33):
 
 def return_t_cond_kcl(metallicity, co_ratio, mmw=2.33):
     # Taken from Charnay+2018
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     def p_vap(x):
         return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
@@ -659,7 +658,7 @@ def return_t_cond_kcl(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_kcl_free(x_kcl, mmw=2.33):
     # Taken from Charnay+2018
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     def p_vap(x):
         return 1e1 ** (7.611 - 11382. / x)  # TODO check if this p_vap is alright
@@ -672,10 +671,10 @@ def return_t_cond_kcl_free(x_kcl, mmw=2.33):
 
 def return_t_cond_sio(metallicity, co_ratio, mmw=2.33):
     # Taken from Wetzel+2013
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     def p_vap(x):                        # conversion to bar
-        return np.exp(33.848 - 42648./x)*1e-6
+        return jnp.exp(33.848 - 42648./x)*1e-6
 
     xsio = return_x_sio(metallicity, co_ratio)
 
@@ -687,10 +686,10 @@ def return_t_cond_sio(metallicity, co_ratio, mmw=2.33):
 
 def return_t_cond_sio_free(x_sio, mmw=2.33):
     # Taken from Wetzel+2013
-    t = np.linspace(100., 10000., 1000)
+    t = jnp.linspace(100., 10000., 1000)
 
     def p_vap(x):                        # conversion to bar
-        return np.exp(33.848 - 42648./x)*1e-6
+        return jnp.exp(33.848 - 42648./x)*1e-6
 
     m_sio = __get_species_molar_mass('Si') \
         + __get_species_molar_mass('O')
@@ -713,7 +712,7 @@ def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -728,7 +727,7 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
         tcond_on_input_grid = tcond_p(press)
     except ValueError:
         print(pc)
-        return np.min(press)
+        return jnp.min(press)
 
     t_diff = tcond_on_input_grid - temp
     diff_vec = t_diff[1:] * t_diff[:-1]
@@ -738,7 +737,7 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -752,7 +751,7 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
         tcond_p = interp1d(pc, tc)
     except ValueError:
         warnings.warn("Could not interpolate pressures and temperatures!")
-        return np.min(press)
+        return jnp.min(press)
 
     tcond_on_input_grid = tcond_p(press)
 
@@ -764,7 +763,7 @@ def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -784,7 +783,7 @@ def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -798,7 +797,7 @@ def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
         tcond_p = interp1d(p_c, t_c)
     except ValueError:
         warnings.warn("Could not interpolate pressures and temperatures!")
-        return np.min(press)
+        return jnp.min(press)
 
     t_cond_on_input_grid = tcond_p(press)
 
@@ -810,7 +809,7 @@ def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -830,7 +829,7 @@ def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -850,7 +849,7 @@ def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -871,7 +870,7 @@ def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -891,7 +890,7 @@ def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -912,7 +911,7 @@ def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -932,7 +931,7 @@ def simple_cdf_sio(press, temp, metallicity, co_ratio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
 
@@ -953,6 +952,6 @@ def simple_cdf_sio_free(press, temp, x_sio, mmw=2.33):
         p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
         p_cloud = p_clouds[-1]
     else:
-        p_cloud = np.min(press)
+        p_cloud = jnp.min(press)
 
     return p_cloud
