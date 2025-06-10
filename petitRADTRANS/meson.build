@@ -4,6 +4,7 @@ subdir('cli')
 subdir('config')
 subdir('opacities')
 subdir('plotlib')
+subdir('radtrans_core')
 subdir('retrieval')
 subdir('slurm_runs')
 subdir('stellar_spectra')
@@ -16,13 +17,6 @@ py.install_sources([
     'radtrans.py',
     'spectral_model.py',
     'utils.py',
-    'jax_radtrans.py',
-    'jax_physics.py',
-    'jax_test_feautrier.py',
-    'jax_math.py',
-    'jax_cloud_utils.py',
-    'jax_rayleigh_scattering.py',
-    'jax_interpolate_line_opacities.py',
     '_input_data_loader.py',
     '__debug.py',
     '__file_conversion.py',

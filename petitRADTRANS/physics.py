@@ -1,5 +1,6 @@
 """Stores useful physical functions.
 """
+# TODO: split off temperature profile functions?
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from scipy.interpolate import interp1d, PchipInterpolator

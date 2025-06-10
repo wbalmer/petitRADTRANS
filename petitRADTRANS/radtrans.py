@@ -7,6 +7,9 @@ import warnings
 from typing import Any
 
 import h5py
+import jax.numpy as jnp
+from jax import jit, vmap, lax
+from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
@@ -15,27 +18,25 @@ from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_inputs import fortran_inputs as finput
+#from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 # noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+#from petitRADTRANS.fortran_radiative_transfer_core import fortran_radiative_transfer_core as fcore
+
+from petitRADTRANS.radiative_transfer_core import radiative_transfer_core, physics_core, cloud_core 
+from petitRADTRANS.radiative_transfer_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
+from petitRADTRANS.radiative_transfer_core.interpolate_line_opacities import interpolate_line_opacities
+
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
 from petitRADTRANS.utils import intersection_indices, LockedDict
-import petitRADTRANS.jax_radtrans as jrt
-import petitRADTRANS.jax_physics as jphys
-from petitRADTRANS.jax_rayleigh_scattering import compute_rayleigh_scattering_opacities
-from petitRADTRANS.jax_interpolate_line_opacities import interpolate_line_opacities
-from time import time
+
 from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
 
-import jax.numpy as jnp
-from jax import grad, jit, vmap, lax, ShapeDtypeStruct, pure_callback
-from jax import Array
-from jax.typing import ArrayLike
+
 
 class Radtrans:
     r"""Calculate spectra using a given set of opacities.
@@ -1734,7 +1735,7 @@ class Radtrans:
     @staticmethod
     def _combine_ck_opacities(opacities, g_gauss, weights_gauss):
         # TODO: write/use jax implementation
-        opacities = opacities.at[:, :, 0, :].set(fcore.combine_ck_opacities(
+        opacities = opacities.at[:, :, 0, :].set(radiative_transfer_core.combine_ck_opacities(
             opacities,
             g_gauss,
             weights_gauss
@@ -1793,7 +1794,7 @@ class Radtrans:
     def _compute_ck_flux(frequencies, temperatures, weights_gauss,
                          emission_cos_angle_grid, emission_cos_angle_grid_weights, optical_depths, return_contribution):
         #start = time()
-        """flux, emission_contribution = fcore.compute_ck_flux(
+        """flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
             frequencies,
             temperatures,
             weights_gauss,
@@ -1835,7 +1836,7 @@ class Radtrans:
         clouds_scattering_opacities,
         clouds_particles_asymmetry_parameters
     ):
-        r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90.
+        r"""This function reimplements calc_cloud_opas from fortran_radiative_transfer_core.f90.
         For some reason it runs faster in python than in fortran, so we'll use this from now on.
         This function integrates the cloud opacity through the different layers of the atmosphere to get the total
         optical depth, scattering and anisotropic fraction.
@@ -2017,7 +2018,7 @@ class Radtrans:
                 # TODO: Write hansen cloud jax function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    fcore.compute_cloud_hansen_opacities(
+                    radiative_transfer_core.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
                         _cloud_species_mass_fractions,
@@ -2064,7 +2065,7 @@ class Radtrans:
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
                 # TODO: write cloud radius jax functions
-                _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius(
+                _cloud_particles_mean_radii = radiative_transfer_core.compute_cloud_particles_mean_radius(
                     reference_gravity,
                     atmospheric_densities,
                     _cloud_particles_density,
@@ -2091,7 +2092,7 @@ class Radtrans:
                     )
             else:
                 # TODO: write jax cloud radius function
-                _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius_hansen(
+                _cloud_particles_mean_radii = radiative_transfer_core.compute_cloud_particles_mean_radius_hansen(
                     reference_gravity,
                     atmospheric_densities,
                     _cloud_particles_density,
@@ -2105,7 +2106,7 @@ class Radtrans:
                 # TODO: write jax hansen cloud function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    fcore.compute_cloud_hansen_opacities(
+                    radiative_transfer_core.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
                         _cloud_species_mass_fractions,
@@ -2122,7 +2123,7 @@ class Radtrans:
         # TODO write jax cloud opacitity interpolation
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
          cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
-            fcore.interpolate_cloud_opacities(
+            radiative_transfer_core.interpolate_cloud_opacities(
                 clouds_total_absorption_opacities,
                 clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor,
@@ -2170,7 +2171,7 @@ class Radtrans:
                     Surface gravity in cgs. Vertically constant for emission
                     spectra.
         """
-        return fcore.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)
+        return radiative_transfer_core.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)
 
     @staticmethod
     def _compute_feautrier_radiative_transfer(frequency_bins_edges, temperatures, weights_gauss,
@@ -2606,7 +2607,7 @@ class Radtrans:
 
         atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         # TODO: write jax hydrostatic eq function
-        radius_hydrostatic_equilibrium = fcore.compute_radius_hydrostatic_equilibrium(
+        radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
             pressures,
             reference_gravity,
             atmospheric_densities,
@@ -2816,7 +2817,7 @@ class Radtrans:
                                                     scattering_in_transmission, variable_gravity):
         # TODO: write jax transmission spectrum function
         transmission_contribution, radius_hydrostatic_equilibrium = (
-            fcore.compute_transmission_spectrum_contribution(
+            radiative_transfer_core.compute_transmission_spectrum_contribution(
                 opacities,
                 temperatures,
                 pressures,
@@ -4519,18 +4520,13 @@ class Radtrans:
             species = f['mol_name'][:]
             species = [s.decode('utf-8') for s in species]
 
-                # Update keys one-by-one to keep the LockedDict
-                self._cias_loaded_opacities[collision]['molecules'] = species
-                self._cias_loaded_opacities[collision]['weight'] = jnp.prod(f['mol_mass'][:])
-                self._cias_loaded_opacities[collision]['lambda'] = wavelengths
-                self._cias_loaded_opacities[collision]['temperature'] = f['t'][:]
-                self._cias_loaded_opacities[collision]['alpha'] = jnp.transpose(
-                    f['alpha'][:]
-                )[::-1, :]  # (wavelength, temperature), correct ordering
-
-            print(" Done.")
-
-        print(" Successfully loaded all CIA opacities")
+            return (
+                species,
+                jnp.prod(f['mol_mass'][:]),  # weight
+                wavelengths,
+                f['t'][:],  # temperatures
+                np.transpose(f['alpha'][:])[::-1, :]  # alpha (wavelength, temperature), correct ordering
+            )
 
     def load_cloud_opacities(self, path_input_data):
         """ Load the cloud opacities.
@@ -4583,15 +4579,15 @@ class Radtrans:
                 clouds_particles_radii_bins = _cloud_particles_radii_bins
                 clouds_particles_radii = _cloud_particles_radii
 
-                    clouds_absorption_opacities = jnp.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
-                    clouds_scattering_opacities = jnp.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
-                    clouds_asymmetry_parameters = jnp.zeros(
-                        (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
-                    )
+                clouds_absorption_opacities = jnp.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
+                clouds_scattering_opacities = jnp.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
+                clouds_asymmetry_parameters = jnp.zeros(
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                )
 
                 clouds_particles_densities = clouds_particles_densities.at[i].set(f['particles_density'][()])
                 clouds_absorption_opacities = clouds_absorption_opacities.at[:, :, i].set(f['absorption_opacities'][:])
