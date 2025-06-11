@@ -20,7 +20,7 @@ import petitRADTRANS
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
-from petitRADTRANS.radtrans_core.spectrum_utils import continuum_subtract_spectrum, convolve, rebin_spectrum_bin
+from petitRADTRANS.radtrans_core.spectrum_utils import continuum_subtract_spectrum, convolve, filter_spectrum_with_spline, rebin_spectrum_bin
 from petitRADTRANS.math import running_mean
 
 from petitRADTRANS.opacities import CorrelatedKOpacity
@@ -39,7 +39,6 @@ from petitRADTRANS.retrieval.sampler import (Sampler,
                                              JAXNSShardedStaticNestedSampler)
 
 from petitRADTRANS.utils import flatten_object, list_str2str
-from petitRADTRANS.math import filter_spectrum_with_spline
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
 load_mpi = True

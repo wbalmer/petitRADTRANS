@@ -1,5 +1,4 @@
 import abc
-import pymultinest
 import os
 import json
 import warnings
@@ -14,14 +13,17 @@ except ImportError:
     comm = None
     rank = 0
 
-# Ultranest imports
+try:
+    import pymultinest
+except ImportError:
+    pymultinest = None
+
 try:
     import ultranest
     from ultranest.mlfriends import RobustEllipsoidRegion, MLFriends
 except ImportError:
     ultranest = None  # Mark ultranest as not available
 
-# JAXNS imports
 try:
     import jax
     from jax import random, tree
@@ -113,7 +115,7 @@ class PymultinestSampler(Sampler):
         )
 
         if rank == 0:
-            self.analyzer = pymultinest.Analyzer(outputfiles_basename=, n_params=ndim)
+            self.analyzer = pymultinest.Analyzer(outputfiles_basename=f"{self.retrieval_name}_", n_params=ndim)
         return self.analyzer
 
     def pretty_print(self, free_parameter_names, prefix):

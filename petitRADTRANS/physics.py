@@ -137,7 +137,7 @@ def cubic_spline_profile(
     return interpolated_temps, prior
 
 
-def doppler_shift(wavelength_0: ArrayLike | float, velocity: ArrayLike | float) -> ArrayLike | float:
+def doppler_shift(wavelength_0: [ArrayLike, float], velocity: [ArrayLike, float]) -> [ArrayLike, float]:
     """Calculate the Doppler-shifted wavelength for electromagnetic waves.
 
     A negative velocity means that the source is going toward the observer. A positive velocity means the source is
@@ -153,7 +153,7 @@ def doppler_shift(wavelength_0: ArrayLike | float, velocity: ArrayLike | float) 
     return wavelength_0 * jnp.sqrt((1 + velocity / cst.c) / (1 - velocity / cst.c))
 
 
-def flux_cm2flux_hz(flux_cm: ArrayLike | float, wavelength: ArrayLike | float) -> ArrayLike | float:
+def flux_cm2flux_hz(flux_cm: [ArrayLike, float], wavelength: [ArrayLike, float]) -> [ArrayLike, float]:
     """
     Convert a flux from [flux units]/cm to [flux units]/Hz at a given wavelength.
     Flux units can be, e.g., erg.s-1.cm-2.
@@ -176,7 +176,7 @@ def flux_cm2flux_hz(flux_cm: ArrayLike | float, wavelength: ArrayLike | float) -
     return flux_cm * wavelength ** 2 / cst.c
 
 
-def flux_hz2flux_cm(flux_hz: ArrayLike | float, frequency: ArrayLike | float) -> ArrayLike | float:
+def flux_hz2flux_cm(flux_hz: [ArrayLike, float], frequency: [ArrayLike, float]) -> [ArrayLike, float]:
     """Convert a flux from [flux units]/Hz to [flux units]/cm at a given frequency.
     Flux units can be, e.g., erg.s-1.cm-2.
 
@@ -199,7 +199,7 @@ def flux_hz2flux_cm(flux_hz: ArrayLike | float, frequency: ArrayLike | float) ->
     return flux_hz * frequency ** 2 / cst.c
 
 
-def flux2irradiance(flux: ArrayLike | float, source_radius: float, target_distance: float) -> ArrayLike | float:
+def flux2irradiance(flux: [ArrayLike, float], source_radius: float, target_distance: float) -> [ArrayLike, float]:
     """Calculate the spectral irradiance of a spherical source on a target from its flux (spectral radiosity).
 
     Args:
@@ -213,7 +213,7 @@ def flux2irradiance(flux: ArrayLike | float, source_radius: float, target_distan
     return flux * (source_radius / target_distance) ** 2
 
 
-def frequency2wavelength(frequency: ArrayLike | float) -> ArrayLike | float:
+def frequency2wavelength(frequency: [ArrayLike, float]) -> [ArrayLike, float]:
     """Convert frequencies into wavelength in centimeter.
 
     Args:
@@ -225,7 +225,7 @@ def frequency2wavelength(frequency: ArrayLike | float) -> ArrayLike | float:
     return cst.c / frequency
 
 
-def hz2um(frequency: ArrayLike | float) -> ArrayLike | float:
+def hz2um(frequency: [ArrayLike, float]) -> [ArrayLike, float]:
     """Convert frequencies into wavelengths in micrometer.
 
     Args:
@@ -436,7 +436,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     return temperatures
 
 
-def planck_function_cm(temperature: float, wavelength: ArrayLike | float) -> ArrayLike | float:
+def planck_function_cm(temperature: float, wavelength: [ArrayLike, float]) -> [ArrayLike, float]:
     """Returns the Planck function :math:`B_{\\lambda}(T)` in units of
     :math:`\\rm erg/s/cm^2/cm/steradian`.
 
@@ -455,7 +455,7 @@ def planck_function_cm(temperature: float, wavelength: ArrayLike | float) -> Arr
     return _planck_function
 
 
-def planck_function_hz(temperature: float, frequency: ArrayLike | float) -> ArrayLike | float:
+def planck_function_hz(temperature: float, frequency: [ArrayLike, float]) -> [ArrayLike, float]:
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
 
@@ -475,8 +475,8 @@ def planck_function_hz(temperature: float, frequency: ArrayLike | float) -> Arra
 
 def planck_function_hz_temperature_derivative(
     temperature: float,
-    frequency: ArrayLike | float
-) -> ArrayLike | float:
+    frequency: [ArrayLike, float]
+) -> [ArrayLike, float]:
     """Returns the derivative of the Planck function with respect to the temperature in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
     # TODO unused?
@@ -712,7 +712,7 @@ def temperature_profile_function_guillot_metallic(
     intrinsic_temperature: float,
     equilibrium_temperature: float,
     infrared_mean_opacity_solar_metallicity: float,
-    metallicity: float | None = None
+    metallicity: [float, None] = None
 ) -> ArrayLike:
     """Get a Guillot temperature profile depending on metallicity.
 
@@ -1048,7 +1048,7 @@ def dtdp_temperature_profile(
     return temperatures
 
 
-def um2hz(wavelength: ArrayLike | float) -> ArrayLike | float:
+def um2hz(wavelength: [ArrayLike, float]) -> [ArrayLike, float]:
     """Convert wavelengths in micrometer into frequencies.
 
     Args:
@@ -1060,7 +1060,7 @@ def um2hz(wavelength: ArrayLike | float) -> ArrayLike | float:
     return frequency2wavelength(wavelength * 1e-4)  # the operation is the same: (c / Hz) -> cm, (c / cm) -> Hz
 
 
-def wavelength2frequency(wavelength: ArrayLike | float) -> ArrayLike | float:
+def wavelength2frequency(wavelength: [ArrayLike, float]) -> [ArrayLike, float]:
     """Convert wavelengths in centimeter to frequencies.
 
     Args:

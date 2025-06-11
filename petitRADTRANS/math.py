@@ -2,14 +2,14 @@
 """
 import numpy as np
 import jax
-import jax.numpy.typing as jnpt
+from jax.typing import ArrayLike
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
 from scipy.special import lambertw
 # TODO: replace scipy and fortran functions with JAX
 
 
-def bayes_factor2sigma(bayes_factor: float) -> float | jax.typing.ArrayLike[jnp.floating]:
+def bayes_factor2sigma(bayes_factor: float) -> [float, ArrayLike]:
     """
     Convert a Bayes factor, or "evidence", into a sigma significance. For Bayes factor higher than exp(25), the function
     is approximated with a square root function.
@@ -51,7 +51,7 @@ def bayes_factor2sigma(bayes_factor: float) -> float | jax.typing.ArrayLike[jnp.
         return sigma
 
 
-def box_car_conv(array: jax.typing.ArrayLike, points: jax.typing.ArrayLike) -> jax.typing.ArrayLike:
+def box_car_conv(array: ArrayLike, points: ArrayLike) -> ArrayLike:
     res = jnp.zeros_like(array)
     len_arr = len(array)
 
@@ -71,27 +71,27 @@ def box_car_conv(array: jax.typing.ArrayLike, points: jax.typing.ArrayLike) -> j
 
 
 def calculate_chi2(
-    data: float | jax.typing.ArrayLike,
-    model: float | jax.typing.ArrayLike,
-    uncertainties: float | jax.typing.ArrayLike
+    data: [float, ArrayLike],
+    model: [float, ArrayLike],
+    uncertainties: [float, ArrayLike]
 ) -> float:
     return float(jnp.sum(((data - model) / uncertainties) ** 2))
 
 
 def calculate_reduced_chi2(
-    data: float | jax.typing.ArrayLike,
-    model: float | jax.typing.ArrayLike,
-    uncertainties: float | jax.typing.ArrayLike,
+    data: [float, ArrayLike],
+    model: [float, ArrayLike],
+    uncertainties: [float, ArrayLike],
     degrees_of_freedom: int = 0
-) -> float | jax.typing.ArrayLike:
+) -> [float, ArrayLike]:
     return calculate_chi2(data, model, uncertainties) / (jnp.size(data) - degrees_of_freedom)
 
 
 def calculate_uncertainty(
-    derivatives: jax.typing.ArrayLike,
-    uncertainties: jax.typing.ArrayLike,
-    covariance_matrix: jax.typing.ArrayLike = None
-) -> jax.typing.ArrayLike | None:
+    derivatives: ArrayLike,
+    uncertainties: ArrayLike,
+    covariance_matrix: ArrayLike = None
+) -> [ArrayLike, None]:
     """
     Calculate the uncertainty of a function f(x, y, ...) with uncertainties on x, y, ... and Pearson's correlation
     coefficients between x, y, ...
@@ -134,7 +134,7 @@ def calculate_uncertainty(
     return None
 
 
-def compute_resolving_power(array: jax.typing.ArrayLike[float]) -> float:
+def compute_resolving_power(array: ArrayLike) -> float:
     """Compute the mean resolving power of an array.
 
     Args:
@@ -150,7 +150,7 @@ def compute_resolving_power(array: jax.typing.ArrayLike[float]) -> float:
     )
 
 
-def feature_scaling(array: jax.typing.ArrayLike, min_value: float = 0.0, max_value: float = 1.0) -> jax.typing.ArrayLike:
+def feature_scaling(array: ArrayLike, min_value: float = 0.0, max_value: float = 1.0) -> ArrayLike:
     """Bring all values of array between a min and max value.
 
     Args:
@@ -164,7 +164,7 @@ def feature_scaling(array: jax.typing.ArrayLike, min_value: float = 0.0, max_val
     return min_value + ((array - jnp.min(array)) * (max_value - min_value)) / (jnp.max(array) - jnp.min(array))
 
 
-def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> jax.typing.ArrayLike:
+def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> ArrayLike:
     """Compute a 1D Gaussian convolution kernel.
     To be used with scipy.ndimage.convolve1d.
 
@@ -188,7 +188,7 @@ def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> jax.typing.ArrayL
     return phi_x / phi_x.sum()
 
 
-def gaussian_weights_running(sigmas: jax.typing.ArrayLike, truncate: float = 4.0) -> jax.typing.ArrayLike:
+def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0) -> ArrayLike:
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
     Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
@@ -217,7 +217,7 @@ def longitude2phase(longitude: float):
     return longitude / (2 * jnp.pi)
 
 
-def mean_uncertainty(uncertainties: jax.typing.ArrayLike) -> float:
+def mean_uncertainty(uncertainties: ArrayLike) -> float:
     """Calculate the uncertainty of the mean of an array.
 
     Args:
@@ -229,7 +229,7 @@ def mean_uncertainty(uncertainties: jax.typing.ArrayLike) -> float:
     return jnp.sqrt(jnp.sum(uncertainties ** 2)) / jnp.size(uncertainties)
 
 
-def median_uncertainties(uncertainties: jax.typing.ArrayLike) -> float:
+def median_uncertainties(uncertainties: ArrayLike) -> float:
     """Calculate the uncertainty of the median of an array.
 
     Demonstration:
@@ -251,7 +251,7 @@ def median_uncertainties(uncertainties: jax.typing.ArrayLike) -> float:
         * jnp.sqrt(jnp.pi * jnp.size(uncertainties) / (2 * (jnp.size(uncertainties) - 1)))
 
 
-def normalize(array: jax.typing.ArrayLike, axis: int = None) -> jax.typing.ArrayLike:
+def normalize(array: ArrayLike, axis: int = None) -> ArrayLike:
     return (array - jnp.min(array, axis=axis)) / (jnp.max(array, axis=axis) - jnp.min(array, axis=axis))
 
 
@@ -264,7 +264,7 @@ def phase2longitude(phase: float, rad2deg: bool = False):
     return longitude
 
 
-def prt_resolving_space(start, stop, resolving_power) -> jax.typing.ArrayLike:
+def prt_resolving_space(start, stop, resolving_power) -> ArrayLike:
     """Return numbers evenly spaced at the specified resolving power.
 
     Args:
@@ -339,7 +339,7 @@ def resolving_space(start, stop, resolving_power):
     return jnp.array(samples)
 
 
-def running_mean(x: jax.typing.ArrayLike, n: int) -> jax.typing.ArrayLike:
+def running_mean(x: ArrayLike, n: int) -> ArrayLike:
     cum_sum = jnp.cumsum(jnp.insert(x, 0, 0))
 
     return (cum_sum[n:] - cum_sum[:-n]) / float(n)

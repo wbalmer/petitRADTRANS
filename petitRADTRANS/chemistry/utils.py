@@ -4,7 +4,7 @@ import warnings
 
 import jax
 import jax.numpy as jnp
-import numpy.typing as npt
+from jax.typing import ArrayLike
 from scipy.interpolate import PchipInterpolator
 
 from petitRADTRANS.chemistry.prt_molmass import (
@@ -174,7 +174,7 @@ def abundance_curvature_prior(press, abundance, gamma):
     return weighted_abund_prior
 
 
-def compute_pressure_nodes(pressure_array, mode='even', nnodes: int | None = 0, points_list=None):
+def compute_pressure_nodes(pressure_array, mode='even', nnodes: [int, None] = 0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
 
@@ -846,7 +846,7 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
     return mass_fractions
 
 
-def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, jnp.ndarray[float]], neglect_he: bool = False,
+def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, ArrayLike], neglect_he: bool = False,
                                      only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 

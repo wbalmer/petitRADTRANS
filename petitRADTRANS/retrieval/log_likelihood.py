@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 from jax import jit, lax
 from scipy.ndimage import gaussian_filter
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
@@ -7,11 +8,11 @@ from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 
 class LogLikelihood:
     def __init__(self,
-                 model_spectrum: jax.Array,
-                 data_spectrum: jax.Array,
+                 model_spectrum: ArrayLike,
+                 data_spectrum: ArrayLike,
                  n_free_parameters: int,
-                 data_uncertainties: jax.Array = None,
-                 data_covariance: jax.Array = None):
+                 data_uncertainties: ArrayLike = None,
+                 data_covariance: ArrayLike = None):
         """
         Initializes the LogLikelihood calculator.
 

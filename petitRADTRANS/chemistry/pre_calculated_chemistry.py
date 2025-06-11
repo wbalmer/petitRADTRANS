@@ -20,12 +20,12 @@ class InterpolateChemistry:
     using JAX for numerical operations.
     """
     def __init__(self):
-        self.chemistry_table: jax.typing.ArrayLike | None = None
-        self.n_species: int | None = None
-        self.n_temperatures: int | None = None
-        self.n_pressures: int | None = None
-        self.n_co_ratios: int | None = None
-        self.n_metallicities: int | None = None
+        self.chemistry_table: [ArrayLike, None] = None
+        self.n_species: [int, None] = None
+        self.n_temperatures: [int, None] = None
+        self.n_pressures: [int, None] = None
+        self.n_co_ratios: [int, None] = None
+        self.n_metallicities: [int, None] = None
 
     def read_dat_chemical_table(self, path_input_data: str,
                                 n_metallicities: int, n_co_ratios: int,
@@ -224,14 +224,14 @@ class PreCalculatedEquilibriumChemistryTable:
     def __init__(self):
         self._loaded: bool = False
 
-        self.log10_metallicities: jax.typing.ArrayLike | None = None
-        self.co_ratios: jax.typing.ArrayLike | None = None
-        self.temperatures: jax.typing.ArrayLike | None = None
-        self.pressures: jax.typing.ArrayLike | None = None
-        self.species: tuple[str, ...] | None = None
-        self.mass_fractions: jax.typing.ArrayLike | None = None
-        self.nabla_adiabatic: jax.typing.ArrayLike | None = None
-        self.mean_molar_masses: jax.typing.ArrayLike | None = None
+        self.log10_metallicities: [ArrayLike, None] = None
+        self.co_ratios: [ArrayLike, None] = None
+        self.temperatures: [ArrayLike, None] = None
+        self.pressures: [ArrayLike, None] = None
+        self.species: [tuple[str, ...], None] = None
+        self.mass_fractions: [ArrayLike, None] = None
+        self.nabla_adiabatic: [ArrayLike, None] = None
+        self.mean_molar_masses: [ArrayLike, None] = None
 
     @staticmethod
     def get_default_file(path_input_data: str = None) -> str:

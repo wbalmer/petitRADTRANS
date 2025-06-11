@@ -9,8 +9,8 @@ from jax import config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 import numpy as np
 from functools import partial
 import petitRADTRANS.physical_constants as cst
-import petitRADTRANS.radiative_transfer_core.physics_core
-import petitRADTRANS.radiative_transfer_core.linalg
+import petitRADTRANS.radtrans_core.physics_core as physics_core
+import petitRADTRANS.radtrans_core.linalg as linalg
 
 CST_PI = jnp.pi  # Or the specific precision from Fortran
 TINIEST = jnp.finfo(jnp.float32).tiny

@@ -42,8 +42,8 @@ except Exception as e:
 # --- Import JAX and Fortran functions ---
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.fortran_radtrans_core import math as fmath # For Fortran tridag
-import petitRADTRANS.jax_radtrans as jrt
-import petitRADTRANS.jax_physics as jphys # For JAX Planck functions etc.
+import petitRADTRANS.radtrans_core.radtrans_core as jrt
+import petitRADTRANS.radtrans_core.physics_core as jphys # For JAX Planck functions etc.
 import petitRADTRANS.physical_constants as cst
 
 

@@ -32,7 +32,7 @@ except Exception as e:
 FORTRAN_AVAILABLE = True
 
 from petitRADTRANS.fortran_radtrans_core import physics as fphys
-import petitRADTRANS.jax_physics as jphys
+import petitRADTRANS.radtrans_core.physics_core as jphys
 
 # --- Import Fortran wrappers ---
 # IMPORTANT: Replace this with the actual import mechanism for your compiled Fortran code.

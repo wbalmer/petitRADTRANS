@@ -22,9 +22,9 @@ from petitRADTRANS.config import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 #from petitRADTRANS.fortran_radiative_transfer_core import fortran_radiative_transfer_core as fcore
 
-from petitRADTRANS.radiative_transfer_core import radiative_transfer_core, physics_core, cloud_core 
-from petitRADTRANS.radiative_transfer_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
-from petitRADTRANS.radiative_transfer_core.interpolate_line_opacities import interpolate_line_opacities
+from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core 
+from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
+from petitRADTRANS.radtrans_core.interpolate_line_opacities import interpolate_line_opacities
 
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.physics import (
