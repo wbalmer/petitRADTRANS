@@ -28,7 +28,7 @@ from petitRADTRANS.physics import wavelength2frequency
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
-from petitRADTRANS.retrieval.data import Data
+from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
 from petitRADTRANS.retrieval.retrieval_config import RetrievalConfig
 from petitRADTRANS.retrieval.utils import get_pymultinest_sample_dict
@@ -778,7 +778,7 @@ class Retrieval:
                 if data.external_radtrans_reference is not None:
                     summary.write(f"    external_pRT_reference = {data.external_radtrans_reference}\n")
 
-                if data.photometry:
+                if isinstance(data, PhotometryData):
                     summary.write(f"    photometric width = {data.photometry_range[0]:.4f}"
                                   + f"--{data.photometry_range[1]:.4f} um\n")
                     summary.write("    Photometric transform function = "
@@ -3436,7 +3436,7 @@ class Retrieval:
         if not self.use_mpi or rank == 0:
             fig, ax = plt.subplots(figsize=(10, 6))
             for name, data in self.configuration.data.items():
-                if data.photometry:
+                if isinstance(data, PhotometryData):
                     wavelengths = np.mean(data.photometric_bin_edges)
                 else:
                     wavelengths = data.wavelengths
@@ -3997,7 +3997,7 @@ class Retrieval:
             Add the data used in the retrieval to the ax object
             """
             xerr = None
-            if data.photometry:
+            if isinstance(data, PhotometryData):
                 xerr = wavelengths_bins/2
             ax.errorbar(
                 wavelengths,
@@ -4128,7 +4128,7 @@ class Retrieval:
                     cax.axhline(0.7, c='k', ls='--')
 
             for name, data in self.configuration.data.items():
-                if not data.photometry:
+                if not isinstance(data, PhotometryData):
                     wavelengths, flux, error, wavelengths_bins = rebin_data(
                         self.configuration.plot_kwargs["resolution"],
                         data.wavelengths,
@@ -4178,7 +4178,7 @@ class Retrieval:
                 if f"{data.name}_b" in self.configuration.parameters.keys():
                     error = np.sqrt(error**2 + 10 ** self.best_fit_parameters[f"{data.name}_b"].value)
 
-                if not data.photometry:
+                if not isinstance(data, PhotometryData):
                     if data.external_radtrans_reference is None:
                         # Convolved and binned spectra are stored in dictionary
                         best_fit_binned = self.best_fit_spectra[name][1]
@@ -4201,13 +4201,13 @@ class Retrieval:
                             best_fit_binned = best_fit_binned[0]
                         except Exception:
                             pass
-                if data.subtract_continuum:
+                if False:
                     # TODO: figure out a good way to pass through the continuum subtraction method
                     best_fit_binned = continuum_subtract_spectrum(wavelengths, self.best_fit_spectra[name][1], self.best_fit_parameters, method='spline', name=data.name)
                     best_fit_spectrum = continuum_subtract_spectrum(best_fit_wavelengths, best_fit_spectrum, self.best_fit_parameters, method='spline', name=data.name)
 
 
-                marker = 'o' if not data.photometry else 's'
+                marker = 'o' if not isinstance(data, PhotometryData) else 's'
                 label = data.name
                 for i in range(len(flux)):
                     if i > 0:
@@ -4216,7 +4216,7 @@ class Retrieval:
                     color_i = 'C0'
                     ecolor = 'C0'
                     alpha = 0.9
-                    if data.photometry:
+                    if isinstance(data, PhotometryData):
                         color_i = 'grey'
                         ecolor = 'grey'
                         label = None

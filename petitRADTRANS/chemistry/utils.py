@@ -478,7 +478,7 @@ def fill_atmosphere(mass_fractions: dict[str, jax.typing.ArrayLike], filling_spe
 
         # Update mass fractions
         for species in mass_fractions_i:
-            filled_mass_fractions[species][i] = mass_fractions_i[species]
+            filled_mass_fractions[species] = filled_mass_fractions[species].at[i].set(mass_fractions_i[species])
 
     # Re-add cloud mass fractions
     for species, mass_fraction in mass_fractions.items():

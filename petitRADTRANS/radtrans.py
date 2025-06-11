@@ -2628,8 +2628,8 @@ class Radtrans:
             temperatures: temperatures in each atmospheric layer
             mass_fractions: dictionary of the Rayleigh scattering species mass fractions
         """
-        wavelengths_angstroem = jnp.array(cst.c / frequencies * 1e8, dtype='d') # 
-        rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype='d') # 
+        wavelengths_angstroem = jnp.array(cst.c / frequencies * 1e8, dtype='d')
+        rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype='d')
 
         base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
 
@@ -2642,7 +2642,7 @@ class Radtrans:
             rayleigh_scattering_opacities += haze_factor * compute_rayleigh_scattering_opacities(
                 species,
                 base_species_mass_fractions[species],
-                wavelengths_angstrom,
+                wavelengths_angstroem,
                 mean_molar_masses,
                 temperatures,
                 pressures
@@ -2653,8 +2653,8 @@ class Radtrans:
     @staticmethod
     def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
                                      opacities, continuum_opacities_scattering, scattering_in_emission):
-        # TODO test implementation, should this function be in jrt or jphys?
-        opacities_rosseland = jphys.compute_rosseland_opacities(
+        # TODO test implementation, should this function be in jrt or physics_core?
+        opacities_rosseland = physics_core.compute_rosseland_opacities(
             opacities[:, :, 0, :],
             temperatures,
             weights_gauss,
@@ -2764,14 +2764,14 @@ class Radtrans:
         diff_s = diff_s.at[1:, 1:].set(- r_ik[1:, 1:] + r_ik[1:, :-1])
 
         # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
-        transparencies = jnp.einsum('ijkl,ml', transparencies, diff_s, out=transparencies, optimize=True)
+        transparencies = jnp.einsum('ijkl,ml', transparencies, diff_s)
 
         # Delete unnecessary intermediate array
         del diff_s
 
         # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
         transparencies *= -1
-        transparencies = jnp.exp(transparencies, out=transparencies)
+        transparencies = jnp.exp(transparencies)
 
         if weights_gauss.size == 1:
             # Get rid of the g-dimension
@@ -4751,7 +4751,7 @@ class Radtrans:
 
             if line_by_line_opacity_sampling > 1:
                 # Ensure that down-sampled wavelength upper bound >= requested wavelength upper bound
-                selection[0] = selection[0].subtract(line_by_line_opacity_sampling - 1)  # array is ordered by increasing wavenumber
+                selection = selection.at[0].subtract(line_by_line_opacity_sampling - 1)  # array is ordered by increasing wavenumber
 
             line_opacities_grid = f['xsecarr'][:, :, selection[0]:selection[-1] + 1]
 

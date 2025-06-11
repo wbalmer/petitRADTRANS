@@ -867,7 +867,7 @@ def plot_cloud_condensation_curves(metallicities, co_ratios, pressures=None, tem
 
 
 def plot_data(fig, ax, data, resolution=None, scaling=1.0):
-    if not data.photometry:
+    if not isinstance(data, PhotometryData):
         try:
             # Sometimes this fails, I'm not super sure why.
             resolution_data = np.mean(data.wavelengths[1:] / np.diff(data.wavelengths))
@@ -911,10 +911,10 @@ def plot_data(fig, ax, data, resolution=None, scaling=1.0):
         offset = data.offset
 
     flux = (flux * scale) - offset
-    if data.photometry:
+    if isinstance(data, PhotometryData):
         marker = 's'
 
-    if not data.photometry:
+    if not isinstance(data, PhotometryData):
         ax.errorbar(wlen,
                     flux * scaling,
                     yerr=error * scaling * errscale,

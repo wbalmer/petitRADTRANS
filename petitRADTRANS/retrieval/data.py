@@ -4,6 +4,7 @@ import os
 import warnings
 
 import jax.numpy as jnp
+from numpy import genfromtxt
 from jax.typing import ArrayLike
 from astropy.io import fits
 
@@ -228,8 +229,8 @@ class Data:
                     self.wavelength_bin_widths = wavelength_bin_widths
                 else:
                     self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                    self.wavelength_bin_widths[:-1] = jnp.diff(self.wavelengths)
-                    self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1].set(jnp.diff(self.wavelengths))
+                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1].set(self.wavelength_bin_widths[-2])
             else:
                 if wavelength_boundaries is not None:
                     self.wavelength_boundaries = wavelength_boundaries
@@ -260,14 +261,12 @@ class Data:
                 All the characters occurring on a line after a comment are discarded
         """
 
-        if self.photometry:
-            return
-        obs = jnp.genfromtxt(path, delimiter=delimiter, comments=comments)
+        obs = jnp.array(genfromtxt(path, delimiter=delimiter, comments=comments))
         # Input sanity checks
         if jnp.isnan(obs).any():
-            obs = jnp.genfromtxt(path)
+            obs = jnp.array(genfromtxt(path))
         if len(obs.shape) < 2:
-            obs = jnp.genfromtxt(path, comments=comments)
+            obs = jnp.array(genfromtxt(path, comments=comments))
         if obs.shape[1] == 4:
             self.wavelengths = obs[:, 0]
             self.wavelength_bin_widths = obs[:, 1]
@@ -275,7 +274,7 @@ class Data:
             self.uncertainties = obs[:, 3]
             return
         elif obs.shape[1] != 3:
-            obs = jnp.genfromtxt(path)
+            obs = jnp.array(genfromtxt(path))
 
         # Warnings and errors
         if obs.shape[1] < 3:
@@ -326,9 +325,6 @@ class Data:
         """
 
         from astropy.io import fits
-
-        if self.photometry:
-            return
 
         self.wavelengths = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
         self.spectrum = fits.getdata(path, 'SPECTRUM').field("FLUX")
@@ -403,8 +399,8 @@ class Data:
 
     def update_bins(self, wlens):
         self.wavelength_bin_widths = jnp.zeros_like(wlens)
-        self.wavelength_bin_widths[:-1] = jnp.diff(wlens)
-        self.wavelength_bin_widths[-1] = self.wavelength_bin_widths[-2]
+        self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1].set(jnp.diff(wlens))
+        self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1].set(self.wavelength_bin_widths[-2])
 
     def scale_to_distance(self, new_dist):
         """
@@ -684,12 +680,12 @@ class TimeSeriesData(Data):
                 The character used to indicate the start of a comment.
                 All the characters occurring on a line after a comment are discarded
         """
-        obs = jnp.genfromtxt(path, delimiter=delimiter, comments=comments)
+        obs = jnp.array(genfromtxt(path, delimiter=delimiter, comments=comments))
         # Input sanity checks
         if jnp.isnan(obs).any():
-            obs = jnp.genfromtxt(path)
+            obs = jnp.array(genfromtxt(path))
         if len(obs.shape) < 2:
-            obs = jnp.genfromtxt(path, comments=comments)
+            obs = jnp.array(genfromtxt(path, comments=comments))
         if obs.shape[1] == 4:
             wavelengths = obs[:, 0]
             wavelength_bin_widths = obs[:, 1]
@@ -697,7 +693,7 @@ class TimeSeriesData(Data):
             uncertainties = obs[:, 3]
             return wavelengths, wavelength_bin_widths, spectrum, uncertainties
         elif obs.shape[1] != 3:
-            obs = jnp.genfromtxt(path)
+            obs = jnp.array(genfromtxt(path))
 
         # Warnings and errors
         if obs.shape[1] < 3:
@@ -716,7 +712,7 @@ class TimeSeriesData(Data):
         spectrum = obs[:, 1]
         uncertainties = obs[:, 2]
         wavelength_bin_widths = jnp.zeros_like(wavelengths)
-        wavelength_bin_widths[:-1] = jnp.diff(wavelengths)
-        wavelength_bin_widths[-1] = wavelength_bin_widths[-2]
+        wavelength_bin_widths = wavelength_bin_widths.at[:-1].set(jnp.diff(wavelengths))
+        wavelength_bin_widths = wavelength_bin_widths.at[-1].set(wavelength_bin_widths[-2])
         return wavelengths, wavelength_bin_widths, spectrum, uncertainties
          
