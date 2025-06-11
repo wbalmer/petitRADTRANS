@@ -4,7 +4,7 @@ JAX implementation of fortran_core.core
 """
 import jax.numpy as jnp
 from jax import config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
-
+from jax.typing import ArrayLike
 
 import numpy as np
 from functools import partial
@@ -222,13 +222,13 @@ def calculate_ck_emission_contribution(
 
 @partial(jit, static_argnames=("return_contribution"))
 def compute_ck_flux(
-        frequencies,
-        temperatures,
-        weights_gauss,
-        emission_cos_angles,
-        emission_cos_angles_weights,
-        optical_depths,
-        return_contribution):
+        frequencies: ArrayLike,
+        temperatures: ArrayLike,
+        weights_gauss: ArrayLike,
+        emission_cos_angles: ArrayLike,
+        emission_cos_angles_weights: ArrayLike,
+        optical_depths: ArrayLike,
+        return_contribution: bool = False):
     """_summary_
 
     Args:
@@ -385,7 +385,7 @@ vmapped_m_approximate_ng_source = vmap(
 
 # --- Main Feautrier Radiative Transfer JAX Function ---
 @partial(jit, static_argnames=(
-    "emission_geometry_str", "return_contribution",
+    "adaptive_feautrier_iterations", "emission_geometry_str", "return_contribution",
     "iter_scat_max", "n_iterations_min_convergence"
 ))
 def compute_feautrier_radiative_transfer(
@@ -401,8 +401,9 @@ def compute_feautrier_radiative_transfer(
     reflectances,           # (n_freq_bins,)
     emissivities,           # (n_freq_bins,)
     # Static parameters for JIT compilation
-    emission_geometry_str: str,
-    return_contribution: bool,
+    adaptive_feautrier_iterations: bool = False, 
+    emission_geometry_str: str = "dayside_ave",
+    return_contribution: bool = False,
     iter_scat_max: int = 1000,
     n_iterations_min_convergence: int = 9,  # Renamed from n_iterations_min
     convergence_threshold: float = 1e-3
@@ -443,6 +444,8 @@ def compute_feautrier_radiative_transfer(
         n_layers (int): Static. Number of atmospheric layers.
         n_angles (int): Static. Number of emission angles for quadrature.
         n_g (int): Static. Number of g-ordinates in the k-distribution.
+        adaptive_feautrier_iterations: Not yet implemented. Maybe not possible
+            in JAX.
         emission_geometry_str (str): Static. Specifies the emission geometry.
             Options: 'dayside_ave', 'planetary_ave', 'non-isotropic'.
         return_contribution (bool): Static. If True, attempts to calculate the

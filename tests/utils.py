@@ -200,7 +200,6 @@ def make_petitradtrans_test_config_file(filename):
                     'rest_frame_velocity_shift_bounds': (-10e5, 10e5),
                     'mid_transit_time_bounds': (-600, 600),
                     'sample_spectrum_output': False,
-                    'ultranest': False,
                     'sampling_efficiency': 0.8,
                     'n_live_points': 50,
                     'n_live_points_spectral_model': 15,

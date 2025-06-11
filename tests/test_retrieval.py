@@ -251,8 +251,7 @@ def test_simple_retrieval():
     retrieval = petitRADTRANS.retrieval.Retrieval(
         run_definition,
         output_directory=tests_results_directory,
-        evaluate_sample_spectra=test_parameters['retrieval_parameters']['sample_spectrum_output'],
-        ultranest=test_parameters['retrieval_parameters']['ultranest']  # if False, use PyMultiNest
+        evaluate_sample_spectra=test_parameters['retrieval_parameters']['sample_spectrum_output']
     )
 
     retrieval.run(

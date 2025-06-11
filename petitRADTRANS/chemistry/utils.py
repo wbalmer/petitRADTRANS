@@ -4,6 +4,7 @@ import warnings
 
 import jax
 import jax.numpy as jnp
+from numpy import argsort
 from jax.typing import ArrayLike
 from scipy.interpolate import PchipInterpolator
 
@@ -903,7 +904,7 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, ArrayLike],
         for symbol, amount in elements.items()
     }
 
-    sorted_elements_indices = jnp.argsort(list(_elemental_abundances.keys()))
+    sorted_elements_indices = argsort(list(_elemental_abundances.keys()))
 
     elemental_abundances = {
         list(_elemental_abundances.keys())[i]: list(_elemental_abundances.values())[i]

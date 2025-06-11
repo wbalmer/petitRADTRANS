@@ -8,7 +8,7 @@ from typing import Any
 
 import h5py
 import jax.numpy as jnp
-from jax import jit, vmap, lax
+from jax import jit, vmap, lax, config
 from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
@@ -37,7 +37,7 @@ from petitRADTRANS.physics import (
 )
 
 JAX_DTYPE = jnp.float32
-if jax.config.jax_enable_x64:
+if config.jax_enable_x64:
     JAX_DTYPE = jnp.float64
 
 
@@ -1284,7 +1284,7 @@ class Radtrans:
 
         #start = time()
         optical_depths, photon_destruction_probabilities, relative_cloud_scaling_factor = None,None,None
-        optical_depths = jrt.compute_species_optical_depths(reference_gravity,self._pressures,opacities)
+        optical_depths = radiative_transfer_core.compute_species_optical_depths(reference_gravity,self._pressures,opacities)
         #end = time()
         #jnp.save("jax_optical_depths",jax_optical_depths)
         #print(f"JAX optical depths: {end-start}")
@@ -1812,7 +1812,7 @@ class Radtrans:
 
         #jnp.save("fortran_optical_depths",optical_depths)
 
-        flux, emission_contribution = jrt.compute_ck_flux(
+        flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
             frequencies,
             temperatures,
             weights_gauss,
@@ -2181,9 +2181,9 @@ class Radtrans:
                                               emission_cos_angle_grid, emission_cos_angle_grid_weights,
                                               optical_depths, photon_destruction_probabilities,
                                               emission_geometry, stellar_intensity, star_irradiation_cos_angle,
-                                              reflectances, emissivities, return_contribution):
+                                              reflectances, emissivities, adaptive_feautrier_iterations, return_contribution):
         # TODO: finish JAX implementation
-        flux, emission_contribution = jrt.compute_feautrier_radiative_transfer(
+        flux, emission_contribution = radiative_transfer_core.compute_feautrier_radiative_transfer(
             frequency_bins_edges,
             temperatures,
             weights_gauss,
@@ -2358,7 +2358,7 @@ class Radtrans:
         # and leave compute_optical_depths to be compiled without
         # needing lax.cond
         optical_depths, photon_destruction_probabilities = \
-            jrt.compute_optical_depths(
+            radiative_transfer_core.compute_optical_depths(
                 reference_gravity,
                 pressures,
                 opacities,
@@ -2656,7 +2656,7 @@ class Radtrans:
     @staticmethod
     def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
                                      opacities, continuum_opacities_scattering, scattering_in_emission):
-        # TODO test implementation, should this function be in jrt or physics_core?
+        # TODO test implementation, should this function be in radiative_transfer_core or physics_core?
         opacities_rosseland = physics_core.compute_rosseland_opacities(
             opacities[:, :, 0, :],
             temperatures,
@@ -3433,6 +3433,7 @@ class Radtrans:
             cloud_photosphere_median_optical_depth: float = None,
             cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
+            adaptive_feautrier_iterations: bool = False,
             irradiation_geometry: str = 'dayside_ave',
             emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
             stellar_intensities: ArrayLike = None,
@@ -3451,6 +3452,7 @@ class Radtrans:
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
             return_opacities: bool = False,
+            return_abundances: bool = False
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
 
@@ -4077,7 +4079,7 @@ class Radtrans:
 
         # TODO test jax implementation
         opacities_planck = (
-            jrt.compute_planck_opacities(
+            radiative_transfer_core.compute_planck_opacities(
                 opacities[:, :, :1, :],
                 temperatures,
                 self._lines_loaded_opacities['weights_gauss'],
@@ -4304,6 +4306,7 @@ class Radtrans:
         )
 
         # Calculate the transit radii
+        # TODO is this the same as calc_transit_radii from radiative_transfer_core?
         transit_radii, radius_hydrostatic_equilibrium, transmission_contribution = self._calculate_transit_radii(
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
@@ -4320,7 +4323,7 @@ class Radtrans:
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
             # TODO implement with JAX
-            opacities[0][:, :, 0] = opacities[1]
+            opacities = opacities[0].at[:, :, 0].set(opacities[1])
             opacities = opacities[0]  # get rid of the now useless cloudy case
             continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
 

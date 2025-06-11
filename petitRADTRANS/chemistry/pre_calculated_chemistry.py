@@ -107,113 +107,113 @@ class InterpolateChemistry:
             log_abundances = jnp.log10(jnp.maximum(abundances_slice, 1e-99)) # Clamp to avoid log(0) or log(<0)
             self.chemistry_table = self.chemistry_table.at[:self.n_species-2, ...].set(log_abundances)
 
-    def interpolate_chemical_table(self,
-                                   co_ratios: jax.typing.ArrayLike,           # (n_layers,)
-                                   log10_metallicities: jax.typing.ArrayLike, # (n_layers,)
-                                   temperatures: jax.typing.ArrayLike,        # (n_layers,)
-                                   pressures: jax.typing.ArrayLike,           # (n_layers,)
-                                   largest_co_ratios_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
-                                   largest_metallicities_indices: jax.typing.ArrayLike,  # (n_layers,) int, 1-based
-                                   largest_temperatures_indices: jax.typing.ArrayLike,   # (n_layers,) int, 1-based
-                                   largest_pressures_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
-                                   table_metallicities: jax.typing.ArrayLike, # (n_metallicities_table_axis,)
-                                   table_co_ratios: jax.typing.ArrayLike,     # (n_co_ratios_table_axis,)
-                                   table_pressures: jax.typing.ArrayLike,     # (n_pressures_table_axis,)
-                                   table_temperatures: jax.typing.ArrayLike,  # (n_temperatures_table_axis,)
-                                   is_mass_fraction: bool
-                                  ) -> jax.typing.ArrayLike:
-        """
-        Performs 4D linear interpolation on the chemical table for n_layers.
-        Input indices (largest_..._indices) are 1-based and point to the upper
-        bound of the interpolation cell.
-        """
-        if self.chemistry_table is None or self.n_species is None:
-            raise ValueError("Chemistry table not loaded. Call read_dat_chemical_table first.")
 
-        # Convert 1-based Fortran indices (upper bound of cell) to 0-based JAX indices
-        idx_T_up_0based   = largest_temperatures_indices - 1
-        idx_P_up_0based   = largest_pressures_indices - 1
-        idx_CO_up_0based  = largest_co_ratios_indices - 1
-        idx_FeH_up_0based = largest_metallicities_indices - 1
+def interpolate_chemical_table(
+        co_ratios: jax.typing.ArrayLike,            # (n_layers,)
+        log10_metallicities: jax.typing.ArrayLike,  # (n_layers,)
+        temperatures: jax.typing.ArrayLike,         # (n_layers,)
+        pressures: jax.typing.ArrayLike,            # (n_layers,)
+        largest_co_ratios_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
+        largest_metallicities_indices: jax.typing.ArrayLike,  # (n_layers,) int, 1-based
+        largest_temperatures_indices: jax.typing.ArrayLike,   # (n_layers,) int, 1-based
+        largest_pressures_indices: jax.typing.ArrayLike,      # (n_layers,) int, 1-based
+        table_metallicities: jax.typing.ArrayLike,  # (n_metallicities_table_axis,)
+        table_co_ratios: jax.typing.ArrayLike,      # (n_co_ratios_table_axis,)
+        table_pressures: jax.typing.ArrayLike,      # (n_pressures_table_axis,)
+        table_temperatures: jax.typing.ArrayLike,   # (n_temperatures_table_axis,)
+        chemistry_table: jax.typing.ArrayLike,      # (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
+        is_mass_fraction: bool
+        ) -> jax.typing.ArrayLike:
+    """
+    Performs 4D linear interpolation on the chemical table for n_layers.
+    Input indices (largest_..._indices) are 1-based and point to the upper
+    bound of the interpolation cell.
+    """
+
+    # Convert 1-based Fortran indices (upper bound of cell) to 0-based JAX indices
+    idx_T_up_0based   = largest_temperatures_indices - 1
+    idx_P_up_0based   = largest_pressures_indices - 1
+    idx_CO_up_0based  = largest_co_ratios_indices - 1
+    idx_FeH_up_0based = largest_metallicities_indices - 1
+    
+    # Ensure table axes are JAX arrays
+    table_T_jax = jnp.asarray(table_temperatures)
+    table_P_jax = jnp.asarray(table_pressures)
+    table_CO_jax = jnp.asarray(table_co_ratios)
+    table_FeH_jax = jnp.asarray(table_metallicities)
+
+    # Define the core interpolation logic for a single layer
+    def _interpolate_single_layer(target_co, target_log_feh, target_T, target_P,
+                                    idx_T_up, idx_P_up, idx_CO_up, idx_FeH_up):
         
-        # Ensure table axes are JAX arrays
-        table_T_jax = jnp.asarray(table_temperatures)
-        table_P_jax = jnp.asarray(table_pressures)
-        table_CO_jax = jnp.asarray(table_co_ratios)
-        table_FeH_jax = jnp.asarray(table_metallicities)
+        # Determine 0-based lower and upper indices for each dimension
+        # These are scalar integer JAX arrays for a single layer computation
+        t_indices   = jnp.array([idx_T_up - 1, idx_T_up])
+        p_indices   = jnp.array([idx_P_up - 1, idx_P_up])
+        co_indices  = jnp.array([idx_CO_up - 1, idx_CO_up])
+        feh_indices = jnp.array([idx_FeH_up - 1, idx_FeH_up])
 
-        # Define the core interpolation logic for a single layer
-        def _interpolate_single_layer(target_co, target_log_feh, target_T, target_P,
-                                      idx_T_up, idx_P_up, idx_CO_up, idx_FeH_up):
+        # It's crucial that indices are within bounds.
+        # Gather the 8 corner values from the chemistry table for interpolation
+        # self.chemistry_table shape: (n_species, n_temp, n_press, n_co, n_metal)
+        # intp_bound shape: (n_species, 2_T, 2_P, 2_CO, 2_FeH)
+        # The index arrays (t_indices etc.) select along their respective dimensions.
+        intp_bound = chemistry_table[
+            :,
+            t_indices[:, None, None, None],  
+            p_indices[None, :, None, None],  
+            co_indices[None, None, :, None], 
+            feh_indices[None, None, None, :] 
+        ]
+
+        # Gather the grid coordinates for these corner points
+        coords_T   = table_T_jax[t_indices]
+        coords_P   = table_P_jax[p_indices]
+        coords_CO  = table_CO_jax[co_indices]
+        coords_FeH = table_FeH_jax[feh_indices]
+
+        # Helper for 1D linear interpolation
+        def _linear_interp_1d(y_corners, x_corners, x_target):
+            # y_corners: (..., 2), x_corners: (2,), x_target: scalar
+            y0, y1 = y_corners[..., 0], y_corners[..., 1]
+            x0, x1 = x_corners[0], x_corners[1]
             
-            # Determine 0-based lower and upper indices for each dimension
-            # These are scalar integer JAX arrays for a single layer computation
-            t_indices   = jnp.array([idx_T_up - 1, idx_T_up])
-            p_indices   = jnp.array([idx_P_up - 1, idx_P_up])
-            co_indices  = jnp.array([idx_CO_up - 1, idx_CO_up])
-            feh_indices = jnp.array([idx_FeH_up - 1, idx_FeH_up])
+            delta_x = x1 - x0
+            # Handle collapsed interval (delta_x == 0) to avoid NaN/Inf
+            # If delta_x is 0, it implies x0=x1. Result should be y0.
+            weight = jnp.where(delta_x == 0.0, 0.0, (x_target - x0) / delta_x)
+            return y0 + (y1 - y0) * weight
 
-            # It's crucial that indices are within bounds.
-            # Gather the 8 corner values from the chemistry table for interpolation
-            # self.chemistry_table shape: (n_species, n_temp, n_press, n_co, n_metal)
-            # intp_bound shape: (n_species, 2_T, 2_P, 2_CO, 2_FeH)
-            # The index arrays (t_indices etc.) select along their respective dimensions.
-            intp_bound = self.chemistry_table[
-                :,
-                t_indices[:, None, None, None],  
-                p_indices[None, :, None, None],  
-                co_indices[None, None, :, None], 
-                feh_indices[None, None, None, :] 
-            ]
+        # Perform sequential 1D interpolations
+        interp_val = _linear_interp_1d(intp_bound, coords_FeH, target_log_feh) # Along FeH
+        interp_val = _linear_interp_1d(interp_val, coords_CO, target_co)       # Along C/O
+        interp_val = _linear_interp_1d(interp_val, coords_P, target_P)         # Along Pressure
+        interp_val = _linear_interp_1d(interp_val, coords_T, target_T)         # Along Temperature
+        # interp_val now has shape (n_species,)
 
-            # Gather the grid coordinates for these corner points
-            coords_T   = table_T_jax[t_indices]
-            coords_P   = table_P_jax[p_indices]
-            coords_CO  = table_CO_jax[co_indices]
-            coords_FeH = table_FeH_jax[feh_indices]
+        # Replace NaN with -50.0 (as in Fortran)
+        return jnp.where(jnp.isnan(interp_val), -50.0, interp_val)
 
-            # Helper for 1D linear interpolation
-            def _linear_interp_1d(y_corners, x_corners, x_target):
-                # y_corners: (..., 2), x_corners: (2,), x_target: scalar
-                y0, y1 = y_corners[..., 0], y_corners[..., 1]
-                x0, x1 = x_corners[0], x_corners[1]
-                
-                delta_x = x1 - x0
-                # Handle collapsed interval (delta_x == 0) to avoid NaN/Inf
-                # If delta_x is 0, it implies x0=x1. Result should be y0.
-                weight = jnp.where(delta_x == 0.0, 0.0, (x_target - x0) / delta_x)
-                return y0 + (y1 - y0) * weight
+    # Vectorize the single_layer interpolation over all layers
+    # Inputs are (n_layers, ...)
+    # Output will be (n_layers, n_species)
+    chemical_table_interp_flat = jax.vmap(
+        _interpolate_single_layer,
+        in_axes=(0, 0, 0, 0, 0, 0, 0, 0)  # Map over the first axis of all 8 input arrays
+    )(co_ratios, log10_metallicities, temperatures, pressures,
+        idx_T_up_0based, idx_P_up_0based, idx_CO_up_0based, idx_FeH_up_0based)
 
-            # Perform sequential 1D interpolations
-            interp_val = _linear_interp_1d(intp_bound, coords_FeH, target_log_feh) # Along FeH
-            interp_val = _linear_interp_1d(interp_val, coords_CO, target_co)       # Along C/O
-            interp_val = _linear_interp_1d(interp_val, coords_P, target_P)         # Along Pressure
-            interp_val = _linear_interp_1d(interp_val, coords_T, target_T)         # Along Temperature
-            # interp_val now has shape (n_species,)
+    # Transpose to Fortran's output shape: (n_species, n_layers)
+    chemical_table_interp = jnp.transpose(chemical_table_interp_flat, (1, 0))
 
-            # Replace NaN with -50.0 (as in Fortran)
-            return jnp.where(jnp.isnan(interp_val), -50.0, interp_val)
-
-        # Vectorize the single_layer interpolation over all layers
-        # Inputs are (n_layers, ...)
-        # Output will be (n_layers, n_species)
-        chemical_table_interp_flat = jax.vmap(
-            _interpolate_single_layer,
-            in_axes=(0, 0, 0, 0, 0, 0, 0, 0)  # Map over the first axis of all 8 input arrays
-        )(co_ratios, log10_metallicities, temperatures, pressures,
-          idx_T_up_0based, idx_P_up_0based, idx_CO_up_0based, idx_FeH_up_0based)
-
-        # Transpose to Fortran's output shape: (n_species, n_layers)
-        chemical_table_interp = jnp.transpose(chemical_table_interp_flat, (1, 0))
-
-        # If is_mass_fraction, convert back from log space (for abundances)
-        # The Fortran code applies 10** to all species if is_mass_fraction is true.
-        # This means MMW and nabla_ad (if present, and were linear) also get 10**.
-        # This is a direct translation of the provided Fortran.
-        if is_mass_fraction:
-            chemical_table_interp = 10.0**chemical_table_interp
-            
-        return chemical_table_interp
+    # If is_mass_fraction, convert back from log space (for abundances)
+    # The Fortran code applies 10** to all species if is_mass_fraction is true.
+    # This means MMW and nabla_ad (if present, and were linear) also get 10**.
+    # This is a direct translation of the provided Fortran.
+    if is_mass_fraction:
+        chemical_table_interp = 10.0**chemical_table_interp
+        
+    return chemical_table_interp
 
 
 class PreCalculatedEquilibriumChemistryTable:
@@ -274,20 +274,22 @@ class PreCalculatedEquilibriumChemistryTable:
         pressures: ArrayLike = jnp.array(pressures).reshape(-1)
 
         # Apply boundary treatment
-        co_ratios[co_ratios <= jnp.min(self.co_ratios)] = jnp.min(self.co_ratios) + 1e-6
-        co_ratios[co_ratios >= jnp.max(self.co_ratios)] = jnp.max(self.co_ratios) - 1e-6
+        co_ratios = co_ratios.at[co_ratios <= jnp.min(self.co_ratios)].set(jnp.min(self.co_ratios) + 1e-6)
+        co_ratios = co_ratios.at[co_ratios >= jnp.max(self.co_ratios)].set(np.max(self.co_ratios) - 1e-6)
 
-        log10_metallicities[log10_metallicities <= jnp.min(self.log10_metallicities)] =\
+        log10_metallicities = log10_metallicities.at[log10_metallicities <= jnp.min(self.log10_metallicities)].set(
             jnp.min(self.log10_metallicities) + 1e-6
-        log10_metallicities[log10_metallicities >= jnp.max(self.log10_metallicities)] =\
+        )
+        log10_metallicities = log10_metallicities.at[log10_metallicities >= jnp.max(self.log10_metallicities)].set(
             jnp.max(self.log10_metallicities) - 1e-6
+        )
 
-        temperatures[temperatures <= jnp.min(self.temperatures)] = jnp.min(self.temperatures) + 1e-6
-        temperatures[temperatures >= jnp.max(self.temperatures)] = jnp.max(self.temperatures) - 1e-6
+        temperatures = temperatures.at[temperatures <= jnp.min(self.temperatures)].set(jnp.min(self.temperatures) + 1e-6)
+        temperatures = temperatures.at[temperatures >= jnp.max(self.temperatures)].set(jnp.max(self.temperatures) - 1e-6)
 
-        pressures[pressures <= jnp.min(self.pressures)] = (
+        pressures = pressures.at[pressures <= jnp.min(self.pressures)].set(
             jnp.min(self.pressures) + 1e-6)
-        pressures[pressures >= jnp.max(self.pressures)] = (
+        pressures = pressures.at[pressures >= jnp.max(self.pressures)].set(
             jnp.max(self.pressures) - 1e-6)
 
         # Get interpolation indices
@@ -296,7 +298,7 @@ class PreCalculatedEquilibriumChemistryTable:
         temps_large_int = jnp.searchsorted(self.temperatures, temperatures) + 1
         pressures_large_int = jnp.searchsorted(self.pressures, pressures) + 1
 
-        _mass_fractions = InterpolateChemistry.interpolate_chemical_table(
+        _mass_fractions = interpolate_chemical_table(
             co_ratios,
             log10_metallicities,
             temperatures,
@@ -320,7 +322,7 @@ class PreCalculatedEquilibriumChemistryTable:
             mass_fractions[name] = _mass_fractions[id_]
 
         if full:
-            mean_molar_masses = InterpolateChemistry.interpolate_chemical_table(
+            mean_molar_masses = interpolate_chemical_table(
                 co_ratios,
                 log10_metallicities,
                 temperatures,
@@ -337,7 +339,7 @@ class PreCalculatedEquilibriumChemistryTable:
                 False
             )[0]
 
-            nabla_adiabatic = InterpolateChemistry.interpolate_chemical_table(
+            nabla_adiabatic = interpolate_chemical_table(
                 co_ratios,
                 log10_metallicities,
                 temperatures,
@@ -360,11 +362,10 @@ class PreCalculatedEquilibriumChemistryTable:
         # Carbon quenching, assumes pressures_goal is sorted in ascending order
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > jnp.min(pressures):
-                q_index = jnp.min(
-                    (
-                        jnp.searchsorted(pressures, carbon_pressure_quench),
-                        pressures.size - 1
-                    )
+                q_index = jnp.min([
+                    jnp.searchsorted(pressures, carbon_pressure_quench)[0],
+                    pressures.size - 1
+                ]
                 )
 
                 methane_abb = mass_fractions['CH4']
@@ -373,13 +374,15 @@ class PreCalculatedEquilibriumChemistryTable:
                 mass_fractions['CH4'] = methane_abb
 
                 co_abb = mass_fractions['CO']
-                co_abb[pressures < carbon_pressure_quench] = \
+                co_abb = co_abb.at[pressures < carbon_pressure_quench].set(
                     mass_fractions['CO'][q_index]
+                )
                 mass_fractions['CO'] = co_abb
 
                 h2o_abb = mass_fractions['H2O']
-                h2o_abb[pressures < carbon_pressure_quench] = \
+                h2o_abb = h2o_abb.at[pressures < carbon_pressure_quench].set(
                     mass_fractions['H2O'][q_index]
+                )
                 mass_fractions['H2O'] = h2o_abb
 
         if full:
@@ -413,7 +416,7 @@ class PreCalculatedEquilibriumChemistryTable:
             self.pressures = f['pressures'][()]
 
             self.species = f['species'][()]
-            self.species = jnp.array([name.decode('utf-8') for name in self.species])
+            self.species = [name.decode('utf-8') for name in self.species]
 
             self.mass_fractions = f['mass_fractions'][()]
             self.mean_molar_masses = f['mean_molar_masses'][()]
