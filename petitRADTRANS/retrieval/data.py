@@ -117,7 +117,7 @@ class Data:
                  wavelength_boundaries=None,
                  scale=False,
                  scale_err=False,
-                 offset_bool=False,
+                 offset_bool=False,  # TODO Remove
                  line_opacity_mode='c-k',
                  radtrans_grid=False,  # TODO: get rid of this as a parameter?
                  concatenate_flux_epochs_variability=False,
@@ -188,7 +188,6 @@ class Data:
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
-        self.subtract_continuum = subtract_continuum
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -jnp.inf

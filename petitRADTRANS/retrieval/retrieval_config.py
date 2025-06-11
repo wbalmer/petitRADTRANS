@@ -357,7 +357,7 @@ class RetrievalConfig:
         """
         This function adds a single cloud species to the list of species. Optionally,
         it will add parameters to allow for a retrieval using an ackermann-marley model.
-        If an equilibrium condensation model is used in th retrieval model function (eq=True),
+        If an equilibrium condensation model is used in th retrieval model function (use_equilibrium_chemistry=True),
         then a parameter is added that scales the equilibrium cloud abundance, as in Molliere (2020).
         If eq is false, two parameters are added, the cloud abundnace and the cloud base pressure.
         The limits set the prior ranges, both on a log scale.
@@ -457,12 +457,6 @@ class RetrievalConfig:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
-                 resample=False,
-                 subtract_continuum=False,
-                 radvel=False,
-                 photometry=False,
-                 photometric_transformation_function=None,
-                 photometric_bin_edges=None,
                  wavelength_boundaries=None,
                  external_radtrans_reference=None,
                  line_opacity_mode='c-k',
@@ -473,6 +467,7 @@ class RetrievalConfig:
                  spectrum=None,
                  uncertainties=None,
                  mask=None,
+                 covariance=None,
                  concatenate_flux_epochs_variability=False,
                  variability_atmospheric_column_model_flux_return_mode=False,
                  atmospheric_column_flux_mixer=None):
@@ -523,11 +518,6 @@ class RetrievalConfig:
             scale=scale,
             scale_err=scale_err,
             offset_bool=offset_bool,
-            resample=resample,
-            subtract_continuum=subtract_continuum,
-            photometry=photometry,
-            photometric_transformation_function=photometric_transformation_function,
-            photometric_bin_edges=photometric_bin_edges,
             wavelength_boundaries=wavelength_boundaries,
             external_radtrans_reference=external_radtrans_reference,
             line_opacity_mode=line_opacity_mode,
@@ -537,13 +527,12 @@ class RetrievalConfig:
             wavelengths=wavelengths,
             spectrum=spectrum,
             uncertainties=uncertainties,
+            covariance=covariance,
             mask=mask,
-            concatenate_flux_epochs_variability=concatenate_flux_epochs_variability,
-            variability_atmospheric_column_model_flux_return_mode=variability_atmospheric_column_model_flux_return_mode,
-            atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
         )
 
-    def add_photometry(self, path,
+    def add_photometry(self,
+                       path,
                        model_generating_function,
                        model_resolution=10,
                        distance=None,

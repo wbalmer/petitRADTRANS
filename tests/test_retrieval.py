@@ -97,8 +97,8 @@ def init_run():
 
     run_definition_simple.set_line_species(
         test_parameters['spectrum_parameters']['line_species_correlated_k'],
-        eq=False,
-        abund_lim=(
+        use_equilibrium_chemistry=False,
+        free_mass_fraction_limits=(
             test_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][0],
             test_parameters['retrieval_parameters']['log10_species_mass_fractions_bounds'][1]
         )  # prior: min = abund_lim[0], max = min + abund_lim[1]

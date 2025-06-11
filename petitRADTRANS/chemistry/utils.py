@@ -550,15 +550,15 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
 
         sum_weights = 0
     else:
-        sum_weights = jnp.sum(list(filling_species.values()), axis=0)
+        sum_weights = jnp.sum(jnp.array(list(filling_species.values())), axis=0)
 
     # Calculate the sums
     mass_fraction_to_fill = 1 - (
-        jnp.sum([
+        jnp.sum(jnp.array([
             mass_fraction
             for species, mass_fraction in mass_fractions.items()
             if species not in filling_species
-        ])
+        ]))
     )
 
     last_species = list(filling_species.keys())[-1]

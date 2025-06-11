@@ -5,7 +5,7 @@ import jax.scipy.special as jsp # For gamma function
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans_core.radiative_transfer_core import integrate_opacities
-from petitRADTRANS.radtrans_core.radiative_transfer_core import linear_fit
+from petitRADTRANS.radtrans_core.linalg import linear_fit
 
 
 @jit
