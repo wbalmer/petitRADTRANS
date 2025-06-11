@@ -36,6 +36,9 @@ from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
 
+JAX_DTYPE = jnp.float32
+if jax.config.jax_enable_x64:
+    JAX_DTYPE = jnp.float64
 
 
 class Radtrans:
@@ -3118,10 +3121,10 @@ class Radtrans:
         Returns:
             A (wavelength, temperature) array containing the CIA opacities.
         """
-        weights = jnp.array(collision_dict['weight'],dtype=jnp.float64)
-        alphas = jnp.array(collision_dict['alpha'],dtype=jnp.float64)
-        binned_temperatures = jnp.array(collision_dict['temperature'],dtype=jnp.float64)
-        binned_wavelengths = jnp.array(collision_dict['lambda'],dtype=jnp.float64)
+        weights = jnp.array(collision_dict['weight'], dtype=JAX_DTYPE)
+        alphas = jnp.array(collision_dict['alpha'], dtype=JAX_DTYPE)
+        binned_temperatures = jnp.array(collision_dict['temperature'], dtype=JAX_DTYPE)
+        binned_wavelengths = jnp.array(collision_dict['lambda'], dtype=JAX_DTYPE)
 
         
         factor = combined_mass_fractions / weights \
