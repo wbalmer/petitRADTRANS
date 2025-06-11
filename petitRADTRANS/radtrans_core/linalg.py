@@ -10,6 +10,7 @@ from  petitRADTRANS.fortran_radtrans_core import math as fmath
 
 @jit
 def wrap_tridag(a, b, c, r, I_plus, I_minus):
+    # deprecated
     # Set initial value of r
     # freq, struct, glen, nmu
     r_updated = jnp.zeros((r.shape[0], r.shape[1], r.shape[2], I_plus.shape[2]))
@@ -105,3 +106,38 @@ def _thomas_backward_substitution_body(i, x_carry, nf, cc, bc_fwd, dc_fwd):
     x_val = (dc_fwd[idx] - cc[idx] * x_carry[idx+1]) / bc_fwd[idx]
     x_carry = x_carry.at[idx].set(x_val)
     return x_carry
+
+
+@jit
+def linear_fit(x, y):
+    """
+    Calculate slope and y-axis intercept of x,y data, assuming zero error on data.
+    Translated from Fortran linear_fit.
+
+    Args:
+        x: 1D array of x values.
+        y: 1D array of y values.
+
+    Returns:
+        Tuple (a, b) where a is the y-intercept and b is the slope.
+    """
+    ndata = x.shape[0]
+    sum_x = jnp.sum(x)
+    sum_y = jnp.sum(y)
+    sum_xy = jnp.sum(x * y)
+    sum_x_sq = jnp.sum(x**2)
+
+    # Fortran: b = (sum(x)*sum(y)/dble(ndata) - sum(x*y))/ &
+    #             (sum(x)**2d0/dble(ndata) - sum(x**2d0))
+    denominator = sum_x**2 / ndata - sum_x_sq
+    # Handle potential division by zero if all x values are the same
+    b = lax.cond(
+        jnp.abs(denominator) < 1e-15,  # Use a small tolerance
+        lambda: 0.0,  # If denominator is zero, slope is effectively zero
+        lambda: (sum_x * sum_y / ndata - sum_xy) / denominator
+    )
+
+    # Fortran: a = sum(y-b*x)/dble(ndata)
+    a = jnp.sum(y - b * x) / ndata
+
+    return a, b

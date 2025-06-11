@@ -22,6 +22,7 @@ Version 4.0 is still experimental, and should not be used for production work!
 - `Opacity` module now uses JAX arrays.
 - Breaking change: updated naming of arguments in `retrieval_config` to conform to PEP8 guidelines.
 - Convolution, binning and continuum subtraction functions consolidated to `radtrans_core.spectrum_utils.py`.
+- Fortran cloud subroutines now found in `radtrans_core.cloud_core`.
 
 ### Added
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
