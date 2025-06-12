@@ -362,15 +362,15 @@ class PreCalculatedEquilibriumChemistryTable:
         # Carbon quenching, assumes pressures_goal is sorted in ascending order
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > jnp.min(pressures):
-                q_index = jnp.min([
+                q_index = jnp.clip(
                     jnp.searchsorted(pressures, carbon_pressure_quench),
-                    pressures.size - 1
-                ]
+                    0, pressures.size - 1
                 )
 
                 methane_abb = mass_fractions['CH4']
-                methane_abb[pressures < carbon_pressure_quench] = \
+                methane_abb = methane_abb.at[pressures < carbon_pressure_quench].set(
                     mass_fractions['CH4'][q_index]
+                )
                 mass_fractions['CH4'] = methane_abb
 
                 co_abb = mass_fractions['CO']

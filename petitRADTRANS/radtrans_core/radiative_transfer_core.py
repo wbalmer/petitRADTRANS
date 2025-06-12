@@ -946,7 +946,7 @@ def compute_radius_hydrostatic_equilibrium(
         atmosphere_densities,
         reference_pressure,
         planet_radius,
-        variable_gravity):
+        variable_gravity=True):
     """Calculate the radius at hydrostatic equilibrium from the pressure grid."""
     n_layers = pressures.shape[0]
     inv_rho = 1.0 / (atmosphere_densities + TINIEST)
@@ -1185,9 +1185,21 @@ def compute_transit_radii(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
-def compute_transmission_spectrum_contribution():
+def compute_transmission_spectrum_contribution(
+        opacities,
+        temperatures,
+        pressures,
+        reference_gravity,
+        mean_molar_masses,
+        reference_pressure,
+        planet_radius,
+        weights_gauss,
+        scattering_in_transmission,
+        continuum_opacities_scattering,
+        variable_gravity
+    ):
     # TODO
-    return
+    return np.zeros((temperatures.shape[0],opacities.shape[1]))
 
 
 @jit
