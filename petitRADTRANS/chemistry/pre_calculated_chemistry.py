@@ -363,7 +363,7 @@ class PreCalculatedEquilibriumChemistryTable:
         if carbon_pressure_quench is not None:
             if carbon_pressure_quench > jnp.min(pressures):
                 q_index = jnp.min([
-                    jnp.searchsorted(pressures, carbon_pressure_quench)[0],
+                    jnp.searchsorted(pressures, carbon_pressure_quench),
                     pressures.size - 1
                 ]
                 )

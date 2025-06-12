@@ -1191,7 +1191,7 @@ def compute_transmission_spectrum_contribution():
 
 
 @jit
-def integrate_opacities(intp_ind, n_cloud_wavelengths, n_layers, kappa, lambd, l_bord1, l_bord2):
+def integrate_opacities(intp_ind, kappa, lambd, l_bord1, l_bord2):
     """Calculate the integral of a linearly interpolated function kappa."""
 
     kappa_integ = kappa[intp_ind, :] * (l_bord2 - l_bord1) + \

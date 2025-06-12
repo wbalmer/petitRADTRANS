@@ -31,3 +31,8 @@ import petitRADTRANS.retrieval
 import petitRADTRANS.retrieval.preparing
 import petitRADTRANS.utils
 import petitRADTRANS.math
+
+import jax
+jax.config.update("jax_enable_x64", True)
+
+

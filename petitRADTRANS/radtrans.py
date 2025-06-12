@@ -2123,7 +2123,6 @@ class Radtrans:
                     )
 
         # Take into account anisotropy (= 1 - asymmetry_parameter)
-        # TODO write jax cloud opacitity interpolation
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
          cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
             cloud_core.interpolate_cloud_opacities(

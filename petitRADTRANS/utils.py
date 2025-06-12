@@ -6,6 +6,8 @@ import sys
 import warnings
 
 import h5py
+import jax.numpy as jnp
+from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
 
@@ -120,6 +122,12 @@ def check_all_close(a, b, **kwargs):
     elif isinstance(a, str):
         if a != b:
             raise AssertionError(f"'{a}' != '{b}'")
+    elif isinstance(a, ArrayLike):
+        if not jnp.allclose(a, b, **kwargs):
+            raise AssertionError(f"a and b are not close enough\n"
+                                 f"{a=}\n"
+                                 f"{b=}\n"
+                                 f"{kwargs}")
     elif not isinstance(a, np.ndarray) and hasattr(a, '__iter__'):
         for i, value in enumerate(a):
             check_all_close(value, b[i], **kwargs)
