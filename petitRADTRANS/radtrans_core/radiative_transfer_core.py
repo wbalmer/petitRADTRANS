@@ -1086,16 +1086,15 @@ def compute_transit_radii(
             * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
             layers)
     """
-    n_frequencies = jnp.size(opacities, axis=1)
 
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
-    pressures = pressures * 1e6  # bar to cgs
+    pressures_cgs = pressures * 1e6  # bar to cgs
     reference_pressure = reference_pressure * 1e6  # bar to cgs
 
     atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
-        pressures=pressures,
+        pressures=pressures_cgs,
         reference_gravity=reference_gravity,
         atmosphere_densities=atmospheric_densities,
         reference_pressure=reference_pressure,
@@ -1114,28 +1113,15 @@ def compute_transit_radii(
     # Currently it is kept at the values of the Fortran implementation, such that
     # unit tests are still being passed.
     #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
-    rho = (pressures * 1e6  # bar to cgs
-            * mean_molar_masses * cst.amu / cst.kB / temperatures)
+    rho = (pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures)
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
     # Reminder: when calling this function, continuum absorption opacities have already
     # been added to line_struc_kappas.
     continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, continuum_opacities_scattering.shape[0], 1, pressures.size))
 
-    # Calculate the inverse mean free paths (g, species, frequencies, levels)
-    #if copy_opacities:
-    #    transparencies = copy.deepcopy(opacities)  # opacities will not be modified, but memory usage is increased
-    #else:
-    #    transparencies = opacities  # opacities will be modified
-    transparencies = opacities
-
-    def summed_opacities(transparencies, continuum_opa_scat_reshaped, rho):
-        transparencies = transparencies[:, :, :1, :] * rho
-        transparencies += continuum_opa_scat_reshaped * rho
-        return transparencies
-
     #def all_opacities(transparencies, continuum_opa_scat_reshaped, rho):
-    transparencies = transparencies*rho
+    transparencies = opacities*rho
     transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped * rho)
     #    return transparencies
 
@@ -1166,17 +1152,19 @@ def compute_transit_radii(
     transparencies *= -1
     transparencies = jnp.exp(transparencies)
 
-    transparencies = lax.cond(weights_gauss.size == 1,
-                                lambda: transparencies[0],
-                                lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
-                                )
+    transparencies = lax.cond(
+        weights_gauss.size == 1,
+        lambda: transparencies[0],
+        lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
+        )
 
     transparencies = jnp.swapaxes(transparencies, 1, 0)  # (species, frequencies, levels)
 
-    transparencies = lax.cond(transparencies.shape[0] == 1,
-                                lambda: transparencies[0],
-                                lambda: jnp.prod(transparencies, axis=0)
-                                )
+    transparencies = lax.cond(
+        transparencies.shape[0] == 1,
+        lambda: transparencies[0],
+        lambda: jnp.prod(transparencies, axis=0)
+    )
 
     # Calculate transparencies (1 - transmittances)
     transparencies *= -1
@@ -1238,16 +1226,14 @@ def compute_transit_radii_summed(
             * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
             layers)
     """
-    n_frequencies = jnp.size(opacities, axis=1)
-
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
-    pressures = pressures * 1e6  # bar to cgs
+    pressures_cgs = pressures * 1e6  # bar to cgs
     reference_pressure = reference_pressure * 1e6  # bar to cgs
 
     atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
-        pressures=pressures,
+        pressures=pressures_cgs,
         reference_gravity=reference_gravity,
         atmosphere_densities=atmospheric_densities,
         reference_pressure=reference_pressure,
@@ -1255,7 +1241,6 @@ def compute_transit_radii_summed(
         variable_gravity=variable_gravity
     )
 
-    radius_hydrostatic_equilibrium = jnp.array(radius_hydrostatic_equilibrium, dtype='d') # 
     is_negative_condition = radius_hydrostatic_equilibrium < 0.
     first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.) # Index of first True
     replacement_value = radius_hydrostatic_equilibrium[first_non_negative_idx]
@@ -1265,23 +1250,17 @@ def compute_transit_radii_summed(
     # TODO: replace values here with cst.amu and cst.kB.
     # Currently it is kept at the values of the Fortran implementation, such that
     # unit tests are still being passed.
-    #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
-    rho = (pressures * 1e6  # bar to cgs
-            * mean_molar_masses * cst.amu / cst.kB / temperatures)
+    # cst.amu        # cst.kB  # the Fortran values are different from the cst values
+    rho = (pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures)
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
     # Reminder: when calling this function, continuum absorption opacities have already
     # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, continuum_opacities_scattering.shape[0], 1, pressures.size))
+    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape(
+        (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
+        )
 
-    # Calculate the inverse mean free paths (g, species, frequencies, levels)
-    #if copy_opacities:
-    #    transparencies = copy.deepcopy(opacities)  # opacities will not be modified, but memory usage is increased
-    #else:
-    #    transparencies = opacities  # opacities will be modified
-    transparencies = opacities
-
-    transparencies = transparencies[:, :, :1, :] * rho
+    transparencies = opacities[:, :, :1, :] * rho
     transparencies += continuum_opa_scat_reshaped * rho
 
     # Calculate average mean free path between neighboring layers for later integration
