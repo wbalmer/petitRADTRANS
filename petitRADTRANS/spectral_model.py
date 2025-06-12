@@ -1857,7 +1857,7 @@ class SpectralModel(Radtrans):
 
     @staticmethod
     def compute_equilibrium_mass_fractions(pressures, temperatures, co_ratio, metallicity,
-                                           carbon_pressure_quench=None):
+                                           carbon_pressure_quench=None, numpy_compatible=True):
         """Use the per-calculated chemical table to calculate major species mass fractions at equilibrium.
 
         Args:
@@ -1894,7 +1894,8 @@ class SpectralModel(Radtrans):
                 temperatures=temperatures,
                 pressures=pressures,
                 carbon_pressure_quench=carbon_pressure_quench,
-                full=False  # no need for nabla_adiabatic or the mean molar mass
+                full=False,  # no need for nabla_adiabatic or the mean molar mass
+                numpy_compatible=True
             )
         )
 
@@ -2063,7 +2064,8 @@ class SpectralModel(Radtrans):
                 temperatures=temperatures,
                 co_ratio=co_ratio,
                 metallicity=metallicity,
-                carbon_pressure_quench=carbon_pressure_quench
+                carbon_pressure_quench=carbon_pressure_quench,
+                numpy_compatible=True
             )
 
         # Add non-imposed mass fractions to mass fractions

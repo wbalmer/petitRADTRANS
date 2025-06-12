@@ -247,7 +247,8 @@ class PreCalculatedEquilibriumChemistryTable:
 
     def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
                                    temperatures: iter, pressures: iter,
-                                   carbon_pressure_quench: float = None, full: bool = False):
+                                   carbon_pressure_quench: float = None, full: bool = False,
+                                   numpy_compatible=False):
         """Interpolate mass fractions from a pre-calculated table to the desired parameters.
 
         Args:
@@ -384,6 +385,11 @@ class PreCalculatedEquilibriumChemistryTable:
                     mass_fractions['H2O'][q_index]
                 )
                 mass_fractions['H2O'] = h2o_abb
+        if numpy_compatible:
+            for key, value in mass_fractions.items():
+                mass_fractions[key] = np.array(value)
+            mean_molar_masses = np.array(mean_molar_masses)
+            nabla_adiabatic = np.array(nabla_adiabatic)
 
         if full:
             return mass_fractions, mean_molar_masses, nabla_adiabatic

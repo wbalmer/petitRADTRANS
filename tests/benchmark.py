@@ -9,7 +9,8 @@ import os
 import sys
 
 import h5py
-
+from jax import config
+config.update("jax_enable_x64", True)
 from .context import petitRADTRANS
 from .utils import tests_references_directory, tests_error_directory
 
@@ -157,6 +158,7 @@ class Benchmark:
         relative_tolerance: relative tolerance to use when comparing the outputs with those of the reference file.
         name: name of the benchmark. By default, the name of the function that instantiated the Benchmark is used.
     """
+
     _make_reference_file = False
     _reference_file_rewrite = False
 

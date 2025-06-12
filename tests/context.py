@@ -1,6 +1,9 @@
 import os
 import sys
 
+import jax
+jax.config.update("jax_enable_x64", True)
+
 # Ensure that we are testing the package installed (*not* the development) files
 del sys.path[0]  # remove current directory from searching path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # add the package directory at the end
@@ -32,7 +35,6 @@ import petitRADTRANS.retrieval.preparing
 import petitRADTRANS.utils
 import petitRADTRANS.math
 
-import jax
-jax.config.update("jax_enable_x64", True)
+
 
 

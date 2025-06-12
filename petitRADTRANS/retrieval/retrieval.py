@@ -2184,9 +2184,9 @@ class Retrieval:
                 warnings.warn("The path to the output files is very long. "
                               "This can cause problems for MultiNest...", RuntimeWarning)
 
-            if self.retrieval_configuration.run_mode == 'retrieval':
+            if self.configuration.run_mode == 'retrieval':
                 if rank == 0:
-                    print(f"Starting PyMultiNest retrieval: {self.retrieval_configuration.retrieval_name}")
+                    print(f"Starting PyMultiNest retrieval: {self.configuration.retrieval_name}")
                     print(f"Output directory: {os.path.join(self.output_directory, 'out_PMN')}")
                     with open(prefix + 'params.json', 'w') as f:
                         json.dump(self._free_parameter_names_cache, f, indent=4)

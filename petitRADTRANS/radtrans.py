@@ -1657,7 +1657,7 @@ class Radtrans:
         if self.__sum_opacities and len(self._line_species) > 1:
             # TODO: modify Radtrans transit radii calc for JAX, move to rtcore. 
             # It's a better implementation.
-            transit_radii, radius_hydrostatic_equilibrium = self._compute_transit_radii(
+            transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii_summed(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -1667,8 +1667,7 @@ class Radtrans:
                 reference_gravity=reference_gravity,
                 reference_pressure=reference_pressure,
                 planet_radius=planet_radius,
-                variable_gravity=variable_gravity,
-                summed_species_opacities=True,
+                variable_gravity=variable_gravity
             )
 
             # TODO: contribution function calculation with python-only implementation
@@ -1690,7 +1689,7 @@ class Radtrans:
                     )
                 )
         else:
-            transit_radii, radius_hydrostatic_equilibrium = self._compute_transit_radii(
+            transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
                 pressures=self._pressures * 1e-6,  # cgs to bar
@@ -1700,8 +1699,7 @@ class Radtrans:
                 reference_gravity=reference_gravity,
                 reference_pressure=reference_pressure,
                 planet_radius=planet_radius,
-                variable_gravity=variable_gravity,
-                summed_species_opacities=False,
+                variable_gravity=variable_gravity
             )
 
             # TODO: contribution function calculation with python-only implementation
@@ -1898,7 +1896,6 @@ class Radtrans:
         cloud_anisotropic_fraction = jnp.true_divide(
             cloud_anisotropic_fraction,
             _cloud_scattering_opacities,
-            out=jnp.zeros_like(_cloud_scattering_opacities),
             where=_cloud_scattering_opacities > 1e-200,
         )
 
@@ -2084,7 +2081,6 @@ class Radtrans:
                         clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
-                # TODO: write jax cloud radius function
                 _cloud_particles_mean_radii = cloud_core.compute_cloud_particles_mean_radius_hansen(
                     reference_gravity,
                     atmospheric_densities,
@@ -2099,7 +2095,7 @@ class Radtrans:
                 # TODO: write jax hansen cloud function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    cloud_core.compute_cloud_hansen_opacities(
+                    radiative_transfer_core.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
                         _cloud_species_mass_fractions,
@@ -2390,7 +2386,7 @@ class Radtrans:
                     _continuum_opacities_scattering = jnp.zeros(
                         continuum_opacities_scattering.shape, dtype='d') #
 
-                optical_depths[:, :, :1, :], photon_destruction_probabilities = (  # the :1 is necessary to get +1 ndim
+                temp_opt_depths, photon_destruction_probabilities = (  # the :1 is necessary to get +1 ndim
                     Radtrans._compute_optical_depths(
                         pressures=pressures,
                         reference_gravity=reference_gravity,
@@ -2399,6 +2395,7 @@ class Radtrans:
                         scattering_in_emission=scattering_in_emission
                     )
                 )
+                optical_depths = optical_depths.at[:, :, :1, :].set(temp_opt_depths)
             # Handle cases without any absorbers, where opacities are zero
             if not absorber_present:
                 print('No absorbers present, setting the photon destruction probability in the atmosphere to 1.')
@@ -2657,154 +2654,6 @@ class Radtrans:
 
         return opacities_rosseland
 
-    @staticmethod
-    @partial(jit, static_argnames=("variable_gravity", "summed_species_opacities"))
-    def _compute_transit_radii(
-        opacities, continuum_opacities_scattering, pressures, temperatures, weights_gauss, mean_molar_masses,
-        reference_gravity, reference_pressure, planet_radius, variable_gravity=True, summed_species_opacities=False
-    ):
-        """Calculate the planetary transmission spectrum.
-            # TODO complete docstring
-            Args:
-                opacities:
-                continuum_opacities_scattering:
-                pressures:
-                temperatures:
-                weights_gauss:
-                mean_molar_masses:
-                    Mean molecular weight in units of amu.
-                    (1-d numpy array, same length as pressure array).
-                reference_gravity (float):
-                    Atmospheric gravitational acceleration at reference pressure and radius in units of
-                    dyne/cm^2
-                reference_pressure (float):
-                    Reference pressure in bar.
-                planet_radius (float):
-                    Planet radius in cm.
-                variable_gravity (bool):
-                    If True, gravity in the atmosphere will vary proportional to 1/r^2, where r is the planet
-                    radius.
-                summed_species_opacities (bool):
-                    If True, it is assumed that the given opacities contains the summed opacities of all species.
-                    This is the case in line-by-line.
-                copy_opacities (bool):
-                    If True, a new array will be created for the transparencies, distinct from the opacities. This
-                    increases memory usage. Not needed anymore with JAX, arrays are immutable.
-
-            Returns:
-                * transmission radius in cm (1-d numpy array, as many elements as wavelengths)
-                * planet radius as function of atmospheric pressure (1-d numpy array, as many elements as atmospheric
-                layers)
-        """
-        n_frequencies = jnp.size(opacities, axis=1)
-
-        # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
-        # (temperature, pressure, mmw), gravity, reference pressure and radius.
-        radius_hydrostatic_equilibrium = Radtrans._compute_radius_hydrostatic_equilibrium(
-            pressures=pressures,
-            temperatures=temperatures,
-            mean_molar_masses=mean_molar_masses,
-            reference_gravity=reference_gravity,
-            reference_pressure=reference_pressure,
-            planet_radius=planet_radius,
-            variable_gravity=variable_gravity
-        )
-
-        radius_hydrostatic_equilibrium = jnp.array(radius_hydrostatic_equilibrium, dtype='d') # 
-        is_negative_condition = radius_hydrostatic_equilibrium < 0.
-        first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.) # Index of first True
-        replacement_value = radius_hydrostatic_equilibrium[first_non_negative_idx]
-        radius_hydrostatic_equilibrium = jnp.where(is_negative_condition, replacement_value, radius_hydrostatic_equilibrium)
-
-        # Calculate the density
-        # TODO: replace values here with cst.amu and cst.kB.
-        # Currently it is kept at the values of the Fortran implementation, such that
-        # unit tests are still being passed.
-        #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
-        rho = (pressures * 1e6  # bar to cgs
-               * mean_molar_masses * cst.amu / cst.kB / temperatures)
-
-        # Bring continuum scattering opacities in right shape for matrix operations later.
-        # Reminder: when calling this function, continuum absorption opacities have already
-        # been added to line_struc_kappas.
-        continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, continuum_opacities_scattering.shape[0], 1, pressures.size))
-
-        # Calculate the inverse mean free paths (g, species, frequencies, levels)
-        #if copy_opacities:
-        #    transparencies = copy.deepcopy(opacities)  # opacities will not be modified, but memory usage is increased
-        #else:
-        #    transparencies = opacities  # opacities will be modified
-        transparencies = opacities
-
-        def summed_opacities(transparencies, continuum_opa_scat_reshaped, rho):
-            transparencies = transparencies[:, :, :1, :] * rho
-            transparencies += continuum_opa_scat_reshaped * rho
-            return transparencies
-
-        #def all_opacities(transparencies, continuum_opa_scat_reshaped, rho):
-        transparencies = transparencies*rho
-        transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped * rho)
-        #    return transparencies
-
-        #transparencies = lax.cond(summed_species_opacities, summed_opacities, all_opacities,
-        #                          transparencies, continuum_opa_scat_reshaped, rho)
-
-        # Calculate average mean free path between neighboring layers for later integration
-        # Factor 1/2 is omitted because it cancels with effective planet area integration below.
-        transparencies = transparencies.at[:, :, :, 1:].add(transparencies[:, :, :, :-1])
-
-        # Prepare matrix for delta path lengths during optical depth integration
-        diff_s = jnp.zeros((pressures.size, pressures.size))
-
-        # Calculate matrix of delta path lengths
-        r_ik = (radius_hydrostatic_equilibrium.reshape(1, pressures.size) ** 2.
-                - radius_hydrostatic_equilibrium.reshape(pressures.size, 1) ** 2.)
-        r_ik = r_ik.at[r_ik < 0.].set(0.)
-        r_ik = jnp.sqrt(r_ik)
-        diff_s = diff_s.at[1:, 1:].set(- r_ik[1:, 1:] + r_ik[1:, :-1])
-
-        # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
-        transparencies = jnp.einsum('ijkl,ml', transparencies, diff_s)
-
-        # Delete unnecessary intermediate array
-        del diff_s
-
-        # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
-        transparencies *= -1
-        transparencies = jnp.exp(transparencies)
-
-        transparencies = lax.cond(weights_gauss.size == 1,
-                                  lambda: transparencies[0],
-                                  lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
-                                  )
-
-        transparencies = jnp.swapaxes(transparencies, 1, 0)  # (species, frequencies, levels)
-
-        transparencies = lax.cond(transparencies.shape[0] == 1,
-                                 lambda: transparencies[0],
-                                 lambda: jnp.prod(transparencies, axis=0)
-        )
-
-        # Calculate transparencies (1 - transmittances)
-        transparencies *= -1
-        transparencies += 1
-
-        # Annulus radius increments
-        annulus_radius_increments = -jnp.diff(radius_hydrostatic_equilibrium)
-
-        # Integrate effective area, 2 pi omitted:
-        # - 2 cancels with 1/2 of average inverse mean free path above
-        # - pi cancels when calculating the radius from the area below
-        transparencies *= radius_hydrostatic_equilibrium
-        transparencies = transparencies.at[:, 1:].add(transparencies[:, :-1])
-        transparencies = transparencies[:, 1:]  # get rid of unnecessary layer
-        transparencies *= annulus_radius_increments
-        transit_radii = jnp.sum(transparencies, axis=1)  # (frequencies)
-
-        # Transform area to transmission radius
-        transit_radii = jnp.sqrt(transit_radii + radius_hydrostatic_equilibrium[-1] ** 2.)
-
-        return transit_radii, radius_hydrostatic_equilibrium
 
     @staticmethod
     def _compute_transmission_spectrum_contribution(transit_radii, pressures, temperatures, mean_molar_masses,
