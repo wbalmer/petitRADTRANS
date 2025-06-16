@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a4] - 2024-10-24
+## [4.0.0a5] - 2024-10-24
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables 
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs. 
@@ -33,6 +33,7 @@ to within 1%.
 - Implemented new `LogLiklihood` class to ensure consistent chi2 calculations.
 - Added median filter continuum subtraction.
 - Added savitzky-golay filter continuum subtraction.
+- JAXed contributionn functions
 
 ### Removed
 - `Data.get_chi2` has been removed and moved to `LogLikelihood`
