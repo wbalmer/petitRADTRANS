@@ -125,7 +125,7 @@ def compute_cloud_particles_mean_radius(
     cloud_dens_flat = jnp.tile(clouds_particles_densities, n_layers)
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
-    f_sed_flat = jnp.tile(f_seds, n_layers)
+    f_sed_flat = f_seds.flatten()
     #lax.cond(
     #    f_seds.shape == cloud_dens_flat.shape,
     #    lambda: f_seds,
@@ -177,12 +177,9 @@ def compute_cloud_particles_mean_radius_hansen(
     cloud_dens_flat = jnp.tile(clouds_particles_densities, n_layers)
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
-    f_sed_flat = jnp.tile(f_seds, n_layers)
-    #lax.cond(
-    #    f_seds.shape == cloud_dens_flat.shape,
-    #    lambda: f_seds,
-    #    lambda: jnp.tile(f_seds, n_layers))
-    b_hansen_flat = jnp.tile(clouds_b_hansen, n_layers)
+    f_sed_flat = f_seds.flatten()
+    b_hansen_flat = clouds_b_hansen.flatten()
+    #b_hansen_flat = jnp.tile(clouds_b_hansen, n_layers)
     #lax.cond(
     #    b_hansen_flat.shape == cloud_dens_flat.shape,
     #    lambda: clouds_b_hansen,

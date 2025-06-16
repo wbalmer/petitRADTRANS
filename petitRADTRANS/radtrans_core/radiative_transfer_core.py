@@ -750,7 +750,7 @@ def compute_feautrier_radiative_transfer(
     # Extract final values from the loop state.
     # The I_H_gfal_prev and J_planet_scat_gfl_prev in the final_loop_state
     # are the I_H_gfal_current and J_planet_scat_gfl_current from the last completed iteration.
-    _, _, I_H_gfal_final, _, _, _, _, _, _ = final_loop_state
+    source, _, I_H_gfal_final, _, _, _, _, _, _ = final_loop_state
 
     # --- 6. Calculate Flux ---
     # flux_f (n_freq_bins) = sum_g sum_a (-I_H_gfal(g,f,a,l=0) * pi_4 * w_gauss_g * mu_w_a)
@@ -761,20 +761,111 @@ def compute_feautrier_radiative_transfer(
         axis=(0, 2)  # Sum over g and angles
     )
 
-    # --- 7. Contribution Function (if return_contribution) ---
     emission_contribution_lf = jnp.zeros((n_layers, n_freq_bins))
-    if return_contribution:
-        # Logic similar to Fortran:
-        # transm_mu_gfl = exp(-optical_depths_in / emission_cos_angles)
-        # transm_all_fl = sum_g (transm_mu_gfl * weights_gauss_g)
-        # r_source_fl = sum_g (final_source_lgf (transposed to g,f,l) * weights_gauss_g)
-        # Loop over angles i_mu:
-        #   contrib_lf +=
-        # (r_source_fl(l) + r_source_fl(l+1)) * (transm_all_fl(l) - transm_all_fl(l+1)) * mu * mu_w
-        #   Handle surface term carefully.
-        # Normalize contrib_lf.
-        # This part needs careful translation of the loops and sums.
-        pass  # Placeholder for detailed implementation
+
+    # --- 7. Contribution Function (if return_contribution) ---
+    def compute_emission_contribution_feautrier_jax():
+        """
+        Calculates the emission contribution function based on the Feautrier method outputs.
+
+        Args:
+            optical_depths: Total optical depth from top of atmosphere to each layer interface.
+                            Shape (n_g, n_frequencies, n_layers).
+            source: Converged source function (mean intensity J_nu) from Feautrier iterations.
+                    Shape (n_layers, n_g, n_frequencies).
+            weights_gauss: Weights for correlated-k g-space integration. Shape (n_g).
+            emission_cos_angles: Cosines of emission angles. Shape (n_angles).
+            emission_cos_angles_weights: Weights for angular quadrature. Shape (n_angles).
+
+        Returns:
+            emission_contribution_final: Normalized contribution of each layer to the
+                                        emission spectrum at each frequency.
+                                        Shape (n_layers, n_frequencies).
+        """
+        n_frequencies = optical_depths_in.shape[1]
+        n_layers = optical_depths_in.shape[2]
+        n_angles = emission_cos_angles.shape[0]
+
+        # Initialize accumulator for emission contributions
+        initial_emission_contribution = jnp.zeros((n_layers, n_frequencies))
+
+        # Loop over emission angles (i_mu)
+        def i_mu_loop_body(i_mu, current_emission_contribution_acc):
+            mu_val = emission_cos_angles[i_mu]
+            mu_weight_val = emission_cos_angles_weights[i_mu]
+
+            # Transmissions from each layer interface to space for the current angle mu_val
+            # optical_depths_in: (g, freq, layer)
+            transm_mu = jnp.exp(-optical_depths_in / mu_val)  # Shape: (g, freq, layer)
+
+            # Integrate transmission over g-space (axis 0)
+            # weights_gauss needs to be broadcastable: (g, 1, 1)
+            transm_all_for_mu = jnp.sum(transm_mu * weights_gauss[:, None, None], axis=0)
+            # transm_all_for_mu: Shape (freq, layer)
+
+            # Transpose for easier layer-wise operations: (layer, freq)
+            transm_all_for_mu_T = transm_all_for_mu.T
+
+            # G-integrated source function S_nu (layer-resolved)
+            # source: (layer, g, freq)
+            # weights_gauss needs to be broadcastable: (1, g, 1)
+            r_source_g_integrated = jnp.sum(source * weights_gauss[:, None, None], axis=0)
+            # r_source_g_integrated: Shape (freq, layers)
+            r_source_g_integrated = r_source_g_integrated.T
+
+            # Contribution from intermediate layers (Fortran: i_str = 1 to n_layers-1)
+            # These are layers 0 to n_layers-2 in 0-based indexing.
+            # Term: (S_i + S_{i+1}) * (T_i - T_{i+1}) * mu * weight_mu
+            # Note: The Fortran code for contribution does not have the 0.5 factor
+            #       that often appears with (S_i + S_{i+1})/2.
+            term1_mid = r_source_g_integrated[:-1, :] + r_source_g_integrated[1:, :]
+            term2_mid = transm_all_for_mu_T[:-1, :] - transm_all_for_mu_T[1:, :]
+
+            contrib_mid_layers_this_mu = (term1_mid * term2_mid) * mu_val * mu_weight_val
+            # contrib_mid_layers_this_mu: Shape (n_layers-1, n_frequencies)
+
+            # Contribution from the last layer (Fortran: n_layers)
+            # This is layer n_layers-1 in 0-based indexing.
+            # Term: 2 * S_last_layer * T_last_layer * mu * weight_mu
+            # (Interpreting Fortran's `2d0*I_minus` as `2d0*r(n_layers)` based on compute_ck_flux analogy)
+            r_last_layer = r_source_g_integrated[n_layers - 1, :]  # Shape: (n_frequencies)
+            transm_last_layer = transm_all_for_mu_T[n_layers - 1, :]  # Shape: (n_frequencies)
+
+            contrib_last_layer_this_mu = (2.0 * r_last_layer * transm_last_layer * mu_val * mu_weight_val)
+            # contrib_last_layer_this_mu: Shape (n_frequencies)
+
+            # Accumulate contributions for this angle
+            current_emission_contribution_acc = current_emission_contribution_acc.at[:-1, :].add(
+                contrib_mid_layers_this_mu
+                )
+            current_emission_contribution_acc = current_emission_contribution_acc.at[n_layers - 1, :].add(
+                contrib_last_layer_this_mu
+                )
+
+            return current_emission_contribution_acc
+
+        # Perform the loop over angles
+        accumulated_emission_contribution = lax.fori_loop(
+            0, n_angles, i_mu_loop_body, initial_emission_contribution
+        )
+
+        # Normalize the contributions for each frequency column to sum to 1
+        sum_contrib_per_freq = jnp.sum(accumulated_emission_contribution, axis=0, keepdims=True) 
+
+        # Avoid division by zero if sum_contrib is zero for any frequency
+        emission_contribution_final = jnp.where(
+            jnp.abs(sum_contrib_per_freq) < 1e-100,  # Check for effectively zero sum
+            0.0,  # Or 1.0/n_layers if equipartition is desired for zero total contribution
+            accumulated_emission_contribution / sum_contrib_per_freq
+        )
+
+        return emission_contribution_final
+
+    emission_contribution_lf = lax.cond(
+        return_contribution,
+        compute_emission_contribution_feautrier_jax,
+        lambda: emission_contribution_lf
+    )
 
     return flux_f, emission_contribution_lf
 
@@ -1102,9 +1193,8 @@ def compute_transit_radii(
         variable_gravity=variable_gravity
     )
 
-    radius_hydrostatic_equilibrium = jnp.array(radius_hydrostatic_equilibrium, dtype='d') # 
     is_negative_condition = radius_hydrostatic_equilibrium < 0.
-    first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.) # Index of first True
+    first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.)  # Index of first True
     replacement_value = radius_hydrostatic_equilibrium[first_non_negative_idx]
     radius_hydrostatic_equilibrium = jnp.where(is_negative_condition, replacement_value, radius_hydrostatic_equilibrium)
 
@@ -1118,15 +1208,12 @@ def compute_transit_radii(
     # Bring continuum scattering opacities in right shape for matrix operations later.
     # Reminder: when calling this function, continuum absorption opacities have already
     # been added to line_struc_kappas.
-    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape((1, continuum_opacities_scattering.shape[0], 1, pressures.size))
+    continuum_opa_scat_reshaped = continuum_opacities_scattering.reshape(
+        (1, continuum_opacities_scattering.shape[0], 1, pressures.size)
+        )
 
-    #def all_opacities(transparencies, continuum_opa_scat_reshaped, rho):
     transparencies = opacities*rho
     transparencies = transparencies.at[:, :, :1, :].add(continuum_opa_scat_reshaped * rho)
-    #    return transparencies
-
-    #transparencies = lax.cond(summed_species_opacities, summed_opacities, all_opacities,
-    #                          transparencies, continuum_opa_scat_reshaped, rho)
 
     # Calculate average mean free path between neighboring layers for later integration
     # Factor 1/2 is omitted because it cancels with effective planet area integration below.
@@ -1142,16 +1229,16 @@ def compute_transit_radii(
     r_ik = jnp.sqrt(r_ik)
     diff_s = diff_s.at[1:, 1:].set(- r_ik[1:, 1:] + r_ik[1:, :-1])
 
-    # Calculate optical depths (out is used for in-place calculations to reduce memory usage)
+    # Calculate optical depths
     transparencies = jnp.einsum('ijkl,ml', transparencies, diff_s)
 
     # Delete unnecessary intermediate array
     del diff_s
 
     # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
-    transparencies *= -1
-    transparencies = jnp.exp(transparencies)
+    transparencies = jnp.exp(-1 * transparencies)
 
+    # Integrate over g if c-k
     transparencies = lax.cond(
         weights_gauss.size == 1,
         lambda: transparencies[0],
@@ -1284,8 +1371,7 @@ def compute_transit_radii_summed(
     del diff_s
 
     # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
-    transparencies *= -1
-    transparencies = jnp.exp(transparencies)
+    transparencies = jnp.exp(-1 * transparencies)
 
     transparencies = lax.cond(weights_gauss.size == 1,
                                 lambda: transparencies[0],
@@ -1458,22 +1544,224 @@ def compute_transit_radii_fortran(
     return transit_radii, radius_hydrostatic_equilibrium
 
 
+@partial(jit, static_argnames=["variable_gravity", "scattering_in_transmission"] )
 def compute_transmission_spectrum_contribution(
-        opacities,
-        temperatures,
-        pressures,
-        reference_gravity,
-        mean_molar_masses,
-        reference_pressure,
-        planet_radius,
-        weights_gauss,
-        transit_area,
-        scattering_in_transmission,
-        continuum_opacities_scattering,
+    opacities,  # (n_g, n_frequencies, n_species, n_layers)
+    temperatures,  # (n_layers)
+    pressures,  # (n_layers)
+    reference_gravity,
+    mean_molar_masses,  # (n_layers)
+    reference_pressure,  # scalar, in bar
+    planet_radius,  # scalar, in cm
+    weights_gauss,  # (n_g)
+    transit_radii_squared,  # (n_frequencies) -> R_eff^2 with all layers
+    continuum_opacities_scattering,  # (n_frequencies, n_layers)
+    scattering_in_transmission=True,  # boolean
+    variable_gravity=True,  # boolean
+):
+    """
+    JAX version of the Fortran subroutine compute_transmission_spectrum_contribution.
+    Calculates the contribution of each atmospheric layer to the transmission spectrum.
+    Uses lax.cond for conditional operations based on scattering_in_transmission.
+    """
+    n_g = opacities.shape[0]
+    n_frequencies = opacities.shape[1]
+    n_species = opacities.shape[2]
+    n_layers = opacities.shape[3]
+
+    P0_cgs = reference_pressure * 1e6
+    pressures_cgs = pressures * 1e6
+    rho = (mean_molar_masses * cst.amu * pressures_cgs) / (cst.kB * temperatures)
+
+    radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
+        pressures_cgs, reference_gravity, rho, P0_cgs, planet_radius,
         variable_gravity
-    ):
-    # TODO
-    return np.zeros((temperatures.shape[0], opacities.shape[1]))
+    )
+    R_sq = radius_hydrostatic_equilibrium**2
+
+    def loop_body_leave_out_layer(i_leave_str_idx, _):
+        current_opacities = opacities.at[..., i_leave_str_idx].set(0.0)
+        
+        # --- Conditionally set current_continuum_scattering for the left-out layer ---
+        def set_continuum_scattering_true_branch(operands):
+            _cos, _idx = operands
+            return _cos.at[:, _idx].set(0.0)
+
+        def set_continuum_scattering_false_branch(operands):
+            _cos, _ = operands
+            return _cos # Return original if no scattering
+
+        current_continuum_scattering_eff = lax.cond(
+            scattering_in_transmission,
+            set_continuum_scattering_true_branch,
+            set_continuum_scattering_false_branch,
+            (continuum_opacities_scattering, i_leave_str_idx)
+        )
+        # If not scattering_in_transmission, continuum_opacities_scattering might not be used
+        # or could be zeros. If it's zeros, the above is fine.
+        # If it's non-zero but scattering_in_transmission is False, we should ensure it's effectively zeroed.
+        # A safer approach if continuum_opacities_scattering might be non-zero when flag is False:
+        current_continuum_scattering_for_calc = lax.cond(
+            scattering_in_transmission,
+            lambda cos_in: cos_in.at[:, i_leave_str_idx].set(0.0),
+            lambda cos_in: jnp.zeros_like(cos_in), # Ensure it's zero if flag is false
+            continuum_opacities_scattering
+        )
+
+
+        rho_exp = rho[None, None, None, :]
+        alpha_t2_current = (current_opacities[..., :-1] * rho_exp[..., :-1] +
+                            current_opacities[..., 1:] * rho_exp[..., 1:])
+
+        # --- Conditionally calculate alpha_t2_scat_current ---
+        alpha_t2_scat_operands = (rho, current_continuum_scattering_for_calc, n_frequencies, n_layers)
+
+        def true_alpha_t2_scat_branch(ops):
+            _rho, _ccs, _, _ = ops
+            _rho_exp_scat = _rho[None, :]
+            return (_ccs[:, :-1] * _rho_exp_scat[:, :-1] +
+                    _ccs[:, 1:] * _rho_exp_scat[:, 1:])
+
+        def false_alpha_t2_scat_branch(ops):
+            _, _, _n_freq, _n_layers_ops = ops # Renamed to avoid conflict
+            return jnp.zeros((_n_freq, _n_layers_ops - 1))
+
+        alpha_t2_scat_current = lax.cond(
+            scattering_in_transmission,
+            true_alpha_t2_scat_branch,
+            false_alpha_t2_scat_branch,
+            alpha_t2_scat_operands
+        )
+
+        t_graze_current_init = jnp.zeros((n_g, n_frequencies, n_species, n_layers))
+        t_graze_scat_current_init = jnp.zeros((n_frequencies, n_layers))
+
+        def i_str_loop_body_for_t_graze(i_str_f_minus_2, current_t_grazes_tuple):
+            current_t_graze_accum, current_t_graze_scat_accum = current_t_grazes_tuple
+            i_str_f = i_str_f_minus_2 + 2
+            R_impact_sq_curr = R_sq[i_str_f - 1]
+
+            def j_str_loop_body_for_t_graze(j_str_f_minus_1, grazes_sum_for_i_str_tuple):
+                t_graze_sum_gas, t_graze_sum_scat = grazes_sum_for_i_str_tuple
+                j_str_f = j_str_f_minus_1 + 1
+                idx_j_alpha = j_str_f - 1
+
+                s_outer = jnp.sqrt(jnp.maximum(0., R_sq[j_str_f - 1] - R_impact_sq_curr))
+                s_inner = lax.cond(
+                    (j_str_f + 1) == i_str_f,
+                    lambda _: 0.0,
+                    lambda _: jnp.sqrt(jnp.maximum(0., R_sq[j_str_f] - R_impact_sq_curr)),
+                    operand=None
+                )
+                path_in_shell = s_outer - s_inner
+
+                t_graze_sum_gas += alpha_t2_current[..., idx_j_alpha] * path_in_shell
+
+                # --- Conditionally update t_graze_scat_sum ---
+                def update_t_graze_scat_sum_true(ops):
+                    _tgs_sum, _alpha_val, _path = ops
+                    return _tgs_sum + _alpha_val * _path
+
+                def update_t_graze_scat_sum_false(ops):
+                    _tgs_sum, _, _ = ops
+                    return _tgs_sum
+
+                t_graze_sum_scat_ops = (t_graze_sum_scat, alpha_t2_scat_current[:, idx_j_alpha], path_in_shell)
+                t_graze_sum_scat = lax.cond(
+                    scattering_in_transmission,
+                    update_t_graze_scat_sum_true,
+                    update_t_graze_scat_sum_false,
+                    t_graze_sum_scat_ops
+                )
+                return t_graze_sum_gas, t_graze_sum_scat
+
+            initial_sums_for_i_str_gas = jnp.zeros_like(alpha_t2_current[..., 0])
+            initial_sums_for_i_str_scat = jnp.zeros_like(alpha_t2_scat_current[:, 0]) # Always init, even if not used
+
+            final_t_graze_sum_gas, final_t_graze_sum_scat = lax.fori_loop(
+                0, i_str_f - 1, j_str_loop_body_for_t_graze, 
+                (initial_sums_for_i_str_gas, initial_sums_for_i_str_scat)
+            )
+
+            current_t_graze_accum = current_t_graze_accum.at[..., i_str_f - 1].set(final_t_graze_sum_gas)
+
+            # --- Conditionally update current_t_graze_scat_accum ---
+            def update_scat_accum_true(ops):
+                _acc, _val, _idx = ops
+                return _acc.at[:, _idx].set(_val)
+
+            def update_scat_accum_false(ops):
+                _acc, _, _ = ops
+                return _acc
+
+            current_t_graze_scat_accum_ops = (current_t_graze_scat_accum, final_t_graze_sum_scat, i_str_f - 1)
+            current_t_graze_scat_accum = lax.cond(
+                scattering_in_transmission,
+                update_scat_accum_true,
+                update_scat_accum_false,
+                current_t_graze_scat_accum_ops
+            )
+            return current_t_graze_accum, current_t_graze_scat_accum
+
+        t_graze_current, t_graze_scat_current = lax.fori_loop(
+            0, n_layers - 1, i_str_loop_body_for_t_graze,
+            (t_graze_current_init, t_graze_scat_current_init)
+        )
+
+        exp_t_graze = jnp.exp(-t_graze_current)
+        T_gas_spec_contrib = jnp.sum(exp_t_graze * weights_gauss[:, None, None, None], axis=0)
+        T_gas_total = jnp.prod(T_gas_spec_contrib, axis=1)
+
+        # --- Conditionally calculate T_scat_eff ---
+        # T_gas_total is shape (n_frequencies, n_layers)
+        # t_graze_scat_current is shape (n_frequencies, n_layers)
+        def compute_T_scat_eff_true(ops):
+            _t_graze_scat, _ = ops 
+            return jnp.exp(-_t_graze_scat)
+
+        def compute_T_scat_eff_false(ops):
+            _, _T_gas_total_template = ops
+            return jnp.ones_like(_T_gas_total_template)
+
+        T_scat_eff_ops = (t_graze_scat_current, T_gas_total)
+        T_scat_eff = lax.cond(
+            scattering_in_transmission,
+            compute_T_scat_eff_true,
+            compute_T_scat_eff_false,
+            T_scat_eff_ops
+        )
+
+        T_layer_freq = T_gas_total * T_scat_eff
+        t_graze_wlen_int_temp = T_layer_freq.T
+
+        y_val = (1.0 - t_graze_wlen_int_temp) * radius_hydrostatic_equilibrium[:, None]
+        delta_R = radius_hydrostatic_equilibrium[:-1] - radius_hydrostatic_equilibrium[1:]
+        integrand_terms = (y_val[:-1, :] + y_val[1:, :]) * delta_R[:, None]
+        integral_val = jnp.sum(integrand_terms, axis=0)
+        transit_radii_temp_sq = integral_val + R_sq[-1]
+
+        contrib_for_this_layer = transit_radii_squared - transit_radii_temp_sq
+        return contrib_for_this_layer
+
+    def accumulate_contributions_loop(i_leave_str_idx, contributions_array):
+        contrib_for_this_layer = loop_body_leave_out_layer(i_leave_str_idx, None)
+        contributions_array = contributions_array.at[i_leave_str_idx, :].set(contrib_for_this_layer)
+        return contributions_array
+
+    initial_contributions_array = jnp.zeros((n_layers, n_frequencies))
+    transmission_contribution_raw = lax.fori_loop(
+        0, n_layers, accumulate_contributions_loop, initial_contributions_array
+    )
+
+    sum_contrib = jnp.sum(transmission_contribution_raw, axis=0, keepdims=True)
+
+    transmission_contribution_final = jnp.where(
+        sum_contrib == 0,
+        0.0,
+        transmission_contribution_raw / sum_contrib
+    )
+
+    return transmission_contribution_final, radius_hydrostatic_equilibrium
 
 
 @jit

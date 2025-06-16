@@ -747,7 +747,8 @@ class Radtrans:
                 if opaque_cloud_top_pressure is not None:
                     # TODO why '+=' and not '='?  # noqa E501
                     # TODO JAXify with multiple indices
-                    cloud_continuum_opacities[1][:, pressures > opaque_cloud_top_pressure * 1e6] += 1e99  # TODO why '+=' and not '='?  # noqa E501
+                    cloud_continuum_opacities[1] = cloud_continuum_opacities[1].at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99)  
+                    # TODO why '+=' and not '='?  # noqa E501
 
                 (cloud_continuum_opacities[1], cloud_continuum_opacities_scattering[1],
                  cloud_scattering_opacities[1], cloud_absorption_opacities[1],
@@ -1655,7 +1656,6 @@ class Radtrans:
 
         # Calculate the transmission spectrum
         if self.__sum_opacities and len(self._line_species) > 1:
-            # TODO: modify Radtrans transit radii calc for JAX, move to rtcore. 
             # It's a better implementation.
             transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii_summed(
                 opacities=opacities,
@@ -1670,7 +1670,6 @@ class Radtrans:
                 variable_gravity=variable_gravity
             )
 
-            # TODO: contribution function calculation with python-only implementation
             if return_contributions:
                 transmission_contribution, radius_hydrostatic_equilibrium = (
                     self._compute_transmission_spectrum_contribution(
@@ -1702,7 +1701,6 @@ class Radtrans:
                 variable_gravity=variable_gravity
             )
 
-            # TODO: contribution function calculation with python-only implementation
             if return_contributions:
                 transmission_contribution, radius_hydrostatic_equilibrium = (
                     self._compute_transmission_spectrum_contribution(
@@ -1892,11 +1890,14 @@ class Radtrans:
         _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
         _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
         cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-
+        _cloud_scattering_opacities = jnp.where(
+            _cloud_scattering_opacities < 1e-200,
+            1e-200,
+            _cloud_scattering_opacities
+            )
         cloud_anisotropic_fraction = jnp.true_divide(
             cloud_anisotropic_fraction,
-            _cloud_scattering_opacities,
-            where=_cloud_scattering_opacities > 1e-200,
+            _cloud_scattering_opacities
         )
 
         _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
@@ -1940,11 +1941,11 @@ class Radtrans:
         """
         # Initialization
         n_clouds = len(cloud_species_mass_fractions)
-        _cloud_species_mass_fractions = jnp.zeros((pressures.size, n_clouds), dtype='d') # 
+        _cloud_species_mass_fractions = jnp.zeros((pressures.size, n_clouds))
         cloud_absorption_opacities = None
         cloud_anisotropic_scattering_opacities = None
-        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds), dtype='d') # 
-        _cloud_particles_density = jnp.zeros(n_clouds, dtype='d') # 
+        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds))
+        _cloud_particles_density = jnp.zeros(n_clouds)
         atmospheric_densities = pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         if continuum_opacities is None:
@@ -1960,18 +1961,19 @@ class Radtrans:
                         f"but was of shape {jnp.shape(cloud_hansen_b)}"
                     )
             elif isinstance(cloud_hansen_b, dict):
-                cloud_hansen_b = jnp.array(list(cloud_hansen_b.values()), dtype='d') # .T
+                cloud_hansen_b = jnp.array(list(cloud_hansen_b.values()))
             elif isinstance(cloud_hansen_b, float):
                 cloud_hansen_b = jnp.array(
-                    jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1)),
-                    dtype='d').T # 
+                    jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1))).T
             else:
                 raise ValueError(f"The Hansen distribution width (cloud_hansen_b) must be an array, a dict, "
                                  f"or a float, but is of type '{type(cloud_hansen_b)}' ({cloud_hansen_b})")
 
         # Initialize cloud species mass fractions, densities, and mean radii
         for i_spec, cloud_name in enumerate(cloud_species_mass_fractions):
-            _cloud_species_mass_fractions = _cloud_species_mass_fractions.at[:, i_spec].set(cloud_species_mass_fractions[cloud_name])
+            _cloud_species_mass_fractions = _cloud_species_mass_fractions.at[:, i_spec].set(
+                cloud_species_mass_fractions[cloud_name]
+                )
 
             if clouds_particles_porosity_factor is not None:
                 _cloud_particles_density = _cloud_particles_density.at[i_spec].set(
@@ -1979,17 +1981,20 @@ class Radtrans:
                     * (1 - clouds_particles_porosity_factor[cloud_name])
                 )
             else:
-                _cloud_particles_density = _cloud_particles_density.at[i_spec].set(clouds_loaded_opacities['particles_densities'])
+                _cloud_particles_density = _cloud_particles_density.at[i_spec].set(
+                    clouds_loaded_opacities['particles_densities']
+                    )
 
             if cloud_particles_mean_radii is not None:
-                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_particles_mean_radii[cloud_name])
+                _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(
+                    cloud_particles_mean_radii[cloud_name]
+                    )
             elif cloud_hansen_a is not None:
                 _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_name])
 
         # Calculate cloud opacities
         if cloud_particles_mean_radii is not None or cloud_hansen_a is not None:
             if cloud_particles_radius_distribution == "lognormal":
-                # TODO: move cloud function to jax cloud module
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
@@ -2005,7 +2010,6 @@ class Radtrans:
                         clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
-                # TODO: Write hansen cloud jax function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     cloud_core.compute_cloud_hansen_opacities(
@@ -2051,10 +2055,10 @@ class Radtrans:
                     f_seds = f_seds.at[i_spec].set(cloud_f_sed[cloud])
                 elif not hasattr(cloud_f_sed, '__iter__'):
                     f_seds = f_seds.at[i_spec].set(cloud_f_sed)
-
+            f_seds = jnp.tile(f_seds, (pressures.size, 1))
+            
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
-                # TODO: write cloud radius jax functions
                 _cloud_particles_mean_radii = cloud_core.compute_cloud_particles_mean_radius(
                     reference_gravity,
                     atmospheric_densities,
@@ -2092,7 +2096,6 @@ class Radtrans:
                     eddy_diffusion_coefficients
                 )
 
-                # TODO: write jax hansen cloud function
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     radiative_transfer_core.compute_cloud_hansen_opacities(
@@ -2586,26 +2589,6 @@ class Radtrans:
 
         return jnp.tile(power_law_opacities, (n_layers, 1)).T  # (p, wavelengths)
 
-    @staticmethod
-    @partial(jit, static_argnames=("variable_gravity"))
-    def _compute_radius_hydrostatic_equilibrium(
-        pressures, temperatures, mean_molar_masses, reference_gravity, reference_pressure, planet_radius,
-        variable_gravity=True
-    ):
-        pressures = pressures * 1e6  # bar to cgs
-        reference_pressure = reference_pressure * 1e6  # bar to cgs
-
-        atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
-        radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
-            pressures=pressures,
-            reference_gravity=reference_gravity,
-            atmosphere_densities=atmospheric_densities,
-            reference_pressure=reference_pressure,
-            planet_radius=planet_radius,
-            variable_gravity=variable_gravity
-        )
-
-        return radius_hydrostatic_equilibrium
 
     @staticmethod
     def _compute_rayleigh_scattering_opacities(
@@ -2660,8 +2643,7 @@ class Radtrans:
                                                     reference_gravity, reference_pressure, planet_radius,
                                                     weights_gauss, opacities, continuum_opacities_scattering,
                                                     scattering_in_transmission, variable_gravity):
-        # TODO: write jax transmission spectrum function
-        transmission_contribution, radius_hydrostatic_equilibrium = (
+        transmission_contribution, radius_hydrostatic_equilibrium = \
             radiative_transfer_core.compute_transmission_spectrum_contribution(
                 opacities,
                 temperatures,
@@ -2672,11 +2654,10 @@ class Radtrans:
                 planet_radius,
                 weights_gauss,
                 transit_radii ** 2,
-                scattering_in_transmission,
                 continuum_opacities_scattering,
+                scattering_in_transmission,
                 variable_gravity
             )
-        )
 
         return transmission_contribution, radius_hydrostatic_equilibrium
 
@@ -3731,14 +3712,15 @@ class Radtrans:
         """
         self.__set_sum_opacities(emission=True)
 
-        radius_hydrostatic_equilibrium = self._compute_radius_hydrostatic_equilibrium(
-            pressures=self._pressures * 1e-6,
-            temperatures=temperatures,
-            mean_molar_masses=mean_molar_masses,
+        atmospheric_densities = self._pressures * 1e6 * mean_molar_masses * cst.amu / cst.kB / temperatures
+        radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
+            pressures=self._pressures,
             reference_gravity=reference_gravity,
-            planet_radius=planet_radius,
-            reference_pressure=self._pressures[-1] * 1e-6,
+            atmosphere_densities=atmospheric_densities,
+            reference_pressure=self._pressures[-1],
+            planet_radius=planet_radius
         )
+
 
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
 
@@ -4148,7 +4130,6 @@ class Radtrans:
         )
 
         # Calculate the transit radii
-        # TODO is this the same as calc_transit_radii from radiative_transfer_core?
         transit_radii, radius_hydrostatic_equilibrium, transmission_contribution = self._calculate_transit_radii(
             temperatures=temperatures,
             mean_molar_masses=mean_molar_masses,
@@ -4164,7 +4145,6 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
-            # TODO implement with JAX
             opacities = opacities[0].at[:, :, 0].set(opacities[1])
             opacities = opacities[0]  # get rid of the now useless cloudy case
             continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
