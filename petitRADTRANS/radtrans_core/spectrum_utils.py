@@ -13,6 +13,8 @@ from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 """
 JAX Implementation of fortran_convolve and fortran_rebin
 """
+
+
 def continuum_subtract_spectrum(
         wavelengths: ArrayLike,
         spectrum: ArrayLike,
@@ -341,6 +343,7 @@ def _raise_incomplete_wavelength_range(input_array, output_array):
                       f"input interval: {input_array[0]} -- {input_array[-1]}\n"
                       f"required interval: {output_array[0]} -- {output_array[-1]}") 
 
+
 @jit
 def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     n_rebin = rebinned_wavelengths.size
@@ -361,6 +364,7 @@ def rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths):
     
     rebinned_spectrum = rebinning_interpolation(input_wavelengths, input_spectrum, rebin_bin_low, rebin_bin_high, n_rebin)
     return rebinned_spectrum
+
 
 @jit
 def rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths):
@@ -391,36 +395,3 @@ def savgol_filter_spectrum(spectrum, window_length: int = 10, polyorder: int = 3
         mode=mode
     )
     return spectrum - savgol_filtered_spectrum
-
-"""
-# Example usage:
-input_wavelengths = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
-input_spectrum = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
-rebinned_wavelengths = jnp.array([2.5, 3.5, 5.5, 6.5])
-bin_widths = jnp.array([1.0, 0.2, 0.6, 1.2])
-
-rebinned_spectrum = rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
-print(rebinned_spectrum)
-
-rebinned_spectrum_bin = rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
-print(rebinned_spectrum_bin)
-
-from time import time
-start = time()
-rebinned_spectrum = fortran_rebin.rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
-#print(rebinned_spectrum)
-
-end = time()
-ft = end-start
-print(f"Fortran rebin: {end-start} s")
-rebinned_spectrum_bin = fortran_rebin.rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
-print(rebinned_spectrum_bin)
-
-start = time()
-rebinned_spectrum = rebin_spectrum(input_wavelengths, input_spectrum, rebinned_wavelengths)
-end = time()
-print(f"JAX rebin: {end-start} s")
-print(f"Ratio = {ft/(end-start)}")
-rebinned_spectrum_bin = rebin_spectrum_bin(input_wavelengths, input_spectrum, rebinned_wavelengths, bin_widths)
-
-"""

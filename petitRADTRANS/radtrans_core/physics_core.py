@@ -70,6 +70,7 @@ def compute_star_planck_function_integral(temperatures, frequencies):
     """
     return compute_planck_function_integral(temperatures, frequencies)
 
+
 @partial(jit, static_argnums=(4,))
 def compute_rosseland_opacities(
         opacities,

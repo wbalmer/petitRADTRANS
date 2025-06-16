@@ -3,7 +3,7 @@ from jax import jit,vmap,lax
 
 import petitRADTRANS.physical_constants as cst
 
-abundance_threshold = 1e-60
+ABUNDANCE_THRESHOLD = 1e-60
 
 @jit
 def H2_rayleigh(wavelengths_angstroem, mass_fractions):
@@ -26,7 +26,7 @@ def H2_rayleigh(wavelengths_angstroem, mass_fractions):
     # Compute opacities, avoiding unnecessary zeros
     rayleigh_scattering_opacities = factor[:, None] * mass_fractions
     rayleigh_scattering_opacities = jnp.where(
-        rayleigh_scattering_opacities < abundance_threshold, 
+        rayleigh_scattering_opacities < ABUNDANCE_THRESHOLD, 
         0.0, 
         rayleigh_scattering_opacities
     )
@@ -41,7 +41,7 @@ def He_rayleigh(wavelengths_angstroem,mass_fractions):
     Args:
         wavelengths_angstroem: JAX array of wavelengths in Angstroms.
         mass_fractions: JAX array of mass fractions for each layer.
-        abundance_threshold: Threshold below which opacity is set to zero.
+        ABUNDANCE_THRESHOLD: Threshold below which opacity is set to zero.
 
     Returns:
         JAX array of Rayleigh scattering opacities for each wavelength and layer.
@@ -70,7 +70,7 @@ def He_rayleigh(wavelengths_angstroem,mass_fractions):
 
     # Apply abundance threshold
     rayleigh_scattering_opacities = jnp.where(
-        mass_fractions[None, :] < abundance_threshold,
+        mass_fractions[None, :] < ABUNDANCE_THRESHOLD,
         0.0,
         rayleigh_scattering_opacities
     )
@@ -91,7 +91,7 @@ def h2o_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
     
     @jit
     def H2O_rayleigh_single_layer(i_str):
-        #if mass_fractions[i_str] < abundance_threshold:
+        #if mass_fractions[i_str] < ABUNDANCE_THRESHOLD:
         #    return jnp.zeros(n_frequencies)
         
         retVal = (
@@ -139,12 +139,11 @@ def h2o_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
                     (((nm1 + 1)**2 - 1) / ((nm1 + 1)**2 + 2))**2 * fk / mass_h2o * 
                     mass_fractions[i_str])
         return jnp.where(jnp.isnan(result), 0, result).T
-    return vmap(H2O_rayleigh_single_layer)(jnp.arange(mass_fractions.shape[0]))
+    return vmap(H2O_rayleigh_single_layer)(jnp.arange(mass_fractions.shape[0])).T
+
 
 @jit
 def co2_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures):
-    # Preallocate output array (required for JIT)
-
     rayleigh_scattering_opacities = jnp.zeros((wavelengths_angstroem.size, mass_fractions.size))
     d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
     lambda_cm = wavelengths_angstroem * 1e-8
@@ -173,12 +172,11 @@ def co2_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
         
         return new_opacities
 
-    # Use lax.fori_loop for JIT-compatible loop 
     rayleigh_scattering_opacities = lax.fori_loop(
         0,
         mass_fractions.size,
         lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > abundance_threshold,
+            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
             compute_opacity,
             lambda i_str, opacities: opacities,  # No-op if condition fails
             i_str,
@@ -227,7 +225,7 @@ def o2_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressu
         0,
         mass_fractions.size,
         lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > abundance_threshold,
+            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
             compute_opacity,
             lambda i_str, opacities: opacities,  # No-op if condition fails
             i_str,
@@ -283,7 +281,7 @@ def n2_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressu
         0,
         mass_fractions.size,
         lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > abundance_threshold,
+            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
             compute_opacity,
             lambda i_str, opacities: opacities,  # No-op if condition fails
             i_str,
@@ -332,7 +330,7 @@ def co_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressu
         0,
         mass_fractions.size,
         lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > abundance_threshold,
+            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
             compute_opacity,
             lambda i_str, opacities: opacities,  # No-op if condition fails
             i_str,
@@ -378,7 +376,7 @@ def ch4_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
         0,
         mass_fractions.size,
         lambda i_str, opacities: lax.cond(
-            mass_fractions[i_str] > abundance_threshold,
+            mass_fractions[i_str] > ABUNDANCE_THRESHOLD,
             compute_opacity,
             lambda i_str, opacities: opacities,  # No-op if condition fails
             i_str,
@@ -411,7 +409,7 @@ def compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_a
         rayleigh_scattering_opacities = ch4_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures)
 
     rayleigh_scattering_opacities = jnp.where(
-            mass_fractions[None, :] < abundance_threshold,
+            mass_fractions[None, :] < ABUNDANCE_THRESHOLD,
             0.0,
             rayleigh_scattering_opacities
         )

@@ -1,6 +1,8 @@
 import importlib.metadata
 import os
 import sys
+import jax
+jax.config.update("jax_enable_x64", True)
 
 __version__ = importlib.metadata.version("petitRADTRANS")
 
