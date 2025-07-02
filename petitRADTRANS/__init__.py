@@ -3,6 +3,7 @@ import os
 import sys
 import jax
 jax.config.update("jax_enable_x64", True)
+os.environ["DYLB_LIBRARY_PATH"] = "/Users/nasedkin/Software/Multinest/lib"
 
 __version__ = importlib.metadata.version("petitRADTRANS")
 

@@ -27,6 +27,7 @@ from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core 
 from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
 from petitRADTRANS.radtrans_core.interpolate_line_opacities import interpolate_line_opacities
+from petitRADTRANS.fortran_inputs import fortran_inputs as fin #interpolate_line_opacities # For Fortran tridag
 
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.physics import (
@@ -548,12 +549,12 @@ class Radtrans:
         if cloud_fraction == 0:
             return False
 
+        add_cloud_opacity = False
         if len(self._cloud_species) > 0:
             for i_spec in range(len(self._cloud_species)):
                 if jnp.any(mass_fractions[self._cloud_species[i_spec]] > 0):
                     add_cloud_opacity = True  # add cloud opacity only if there are actually clouds
-
-        return False
+        return add_cloud_opacity
 
     @staticmethod
     def __compute_additional_continuum_opacities(
@@ -729,6 +730,7 @@ class Radtrans:
                 continuum_opacities=cloud_continuum_opacities,
                 return_cloud_contribution=return_cloud_contribution
             )
+            
 
             # Opacities with only the clouds with complete coverage (will be treated as standard continuum opacities)
             if len(complete_coverage_clouds) > 0:
@@ -1804,7 +1806,8 @@ class Radtrans:
             weights_gauss,
             emission_cos_angle_grid,
             emission_cos_angle_grid_weights,
-            optical_depths
+            optical_depths,
+            return_contribution=return_contribution
         )
         #jend = time()
         #jnp.save("jax_flux",jflux)
@@ -2989,16 +2992,19 @@ class Radtrans:
             
             for i, species in enumerate(line_opacities_grid):
                 line_opacities_tp_grid = \
-                    line_opacities_temperature_pressure_grid[species].reshape(line_opacities_temperature_grid_size[species],line_opacities_pressure_grid_size[species],2)
+                    line_opacities_temperature_pressure_grid[species].reshape(
+                        line_opacities_temperature_grid_size[species],
+                        line_opacities_pressure_grid_size[species],
+                        2)
                 line_opacities = line_opacities.at[:, :, i, :].set(interpolate_line_opacities(
                     pressures,
                     temperatures,
                     line_opacities_tp_grid,
-                    line_opacities_grid[species],
+                    line_opacities_grid[species]
                 ))
         else:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, 1, n_layers), dtype='d')#
+                (n_g, n_frequencies, 1, n_layers))
 
         return line_opacities
 

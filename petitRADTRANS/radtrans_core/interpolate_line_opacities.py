@@ -58,39 +58,39 @@ def interpolate_line_opacities(pressures, temperatures, temperature_pressure_gri
     d_temperatures = temperature_pressure_grid[j_t1_p0, 0] - temperature_pressure_grid[j_t0_p0, 0]
 
     # Handle division by zero
-    dx_0 = jnp.where(d_pressures_t0 == 0.0, 
-                     0.0,  
+    dx_0 = jnp.where(d_pressures_t0 == 0.0,
+                     0.0,
                      (pressures - temperature_pressure_grid[j_t0_p0, 1]) / d_pressures_t0)
-    dx_1 = jnp.where(d_pressures_t1 == 0.0, 
-                     0.0, 
+    dx_1 = jnp.where(d_pressures_t1 == 0.0,
+                     0.0,
                      (pressures - temperature_pressure_grid[j_t1_p0, 1]) / d_pressures_t1)
-    t_factor = jnp.where(d_temperatures == 0, 
+    t_factor = jnp.where(d_temperatures == 0,
                          0,
                          (temperatures - temperature_pressure_grid[j_t0_p0, 0]) / d_temperatures)
 
     # Interpolate along pressure
     y_t_lows = y_p_low_t0 + dx_0 * (y_p_high_t0 - y_p_low_t0)
-    y_t_lows = jnp.where(pressures>jnp.max(temperature_pressure_grid[:,1]),
-                                       y_p_high_t0,
-                                       y_t_lows)
-    y_t_lows = jnp.where(pressures<jnp.min(temperature_pressure_grid[:,1]),
-                                       y_p_low_t0,
-                                       y_t_lows)
-    
+    y_t_lows = jnp.where(pressures > jnp.max(temperature_pressure_grid[:, 1]),
+                         y_p_high_t0,
+                         y_t_lows)
+    y_t_lows = jnp.where(pressures < jnp.min(temperature_pressure_grid[:, 1]),
+                         y_p_low_t0,
+                         y_t_lows)
+
     y_t_highs = y_p_low_t1 + dx_1 * (y_p_high_t1 - y_p_low_t1)
-    y_t_highs = jnp.where(pressures>jnp.max(temperature_pressure_grid[:,1]),
-                                       y_p_high_t1,
-                                       y_t_highs)
-    y_t_highs = jnp.where(pressures<jnp.min(temperature_pressure_grid[:,1]),
-                                       y_p_low_t1,
-                                       y_t_highs)
-    
+    y_t_highs = jnp.where(pressures > jnp.max(temperature_pressure_grid[:,1]),
+                          y_p_high_t1,
+                          y_t_highs)
+    y_t_highs = jnp.where(pressures < jnp.min(temperature_pressure_grid[:,1]),
+                          y_p_low_t1,
+                          y_t_highs)
+
     # Interpolate along temperature
-    interpolated_opacities = y_t_lows + t_factor[ None, None, :] * (y_t_highs - y_t_lows)
-    interpolated_opacities = jnp.where(temperatures>jnp.max(temperature_pressure_grid[:,0]),
+    interpolated_opacities = y_t_lows + t_factor[None, None, :] * (y_t_highs - y_t_lows)
+    interpolated_opacities = jnp.where(temperatures > jnp.max(temperature_pressure_grid[:, 0]),
                                        y_t_highs,
                                        interpolated_opacities)
-    interpolated_opacities = jnp.where(temperatures<jnp.min(temperature_pressure_grid[:,0]),
+    interpolated_opacities = jnp.where(temperatures < jnp.min(temperature_pressure_grid[:, 0]),
                                        y_t_lows,
                                        interpolated_opacities)
     return interpolated_opacities
