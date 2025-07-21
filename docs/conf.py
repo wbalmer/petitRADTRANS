@@ -35,11 +35,11 @@ autodoc_mock_imports = [
 # -- Project information -----------------------------------------------------
 
 project = 'petitRADTRANS'
-copyright = u'2019-2024, the pRT team'
+copyright = u'2019-2025, the pRT team'
 author = u'pRT team'
 
 # The full version, including alpha/beta/rc tags
-release = '3.2.0a34'
+release = '3.2.0a35'
 
 
 # -- General configuration ---------------------------------------------------
