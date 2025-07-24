@@ -3914,7 +3914,7 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
     elif not isinstance(rank, int):
         raise TypeError(
             f"MPI rank must be of type '{int.__name__}', not {type(rank)}\n"
-            f"This is likely a code error and not a user error, report this to "
+            f"This is likely a code error and not a user error, you may report this to "
             f"https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
         )
 
