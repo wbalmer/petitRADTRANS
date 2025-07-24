@@ -46,7 +46,7 @@ if load_mpi:
     except ImportError:
         MPI = None
         comm = None
-        rank = None
+        rank = 0
 
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
@@ -3902,6 +3902,12 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
             print("Done.")
 
             print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
+    elif not isinstance(rank, int):
+        raise TypeError(
+            f"MPI rank must be of type '{int.__name__}', not {type(rank)}\n"
+            f"This is likely a code error and not a user error, report this to "
+            f"https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
+        )
 
     if comm is not None:  # wait for the main process to finish the binning down
         comm.barrier()
