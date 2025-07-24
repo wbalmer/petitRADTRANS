@@ -11,11 +11,6 @@
         - .gitlab-ci.yml
         - petitRADTRANS/**/*
         - tests/**/*
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "mpi4py_fix"'
-      changes:
-        - .gitlab-ci.yml
-        - petitRADTRANS/**/*
-        - tests/**/*
 
 stages:
   - build
