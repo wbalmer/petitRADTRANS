@@ -46,7 +46,7 @@ if load_mpi:
     except ImportError:
         MPI = None
         comm = None
-        rank = None
+        rank = 0
 
 
 def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
@@ -111,6 +111,7 @@ def __print_skipping_message(hdf5_opacity_file):
 
 def _chemical_table_dat2h5(path_input_data=petitradtrans_config_parser.get_input_data_path(), rewrite=False,
                            old_paths=False, clean=False):
+    # noinspection PyUnresolvedReferences
     from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
 
     # Read in parameters of chemistry grid
@@ -359,10 +360,10 @@ def _continuum_cia_dat2h5(path_input_data=petitradtrans_config_parser.get_input_
         print(f"  Read CIA opacities for {key}...")
         cia_directory = os.path.join(input_directory, key)
 
-        if os.path.isdir(cia_directory) is False:
+        if not os.path.isdir(cia_directory):
             raise FileNotFoundError(f"CIA directory '{cia_directory}' do not exists")
 
-        if os.path.isdir(cia_dir) is False:
+        if not os.path.isdir(cia_dir):
             raise FileNotFoundError(f"CIA isotopologue directory '{cia_dir}' do not exists")
 
         cia_wavelength_grid, cia_temperature_grid, cia_alpha_grid, \
@@ -2799,6 +2800,7 @@ def continuum_clouds_opacities_dat2h5_external_species(path_to_species_opacity_f
                                                        doi=None,
                                                        description=None,
                                                        wavelength_limit=None):
+    # noinspection PyUnresolvedReferences
     from petitRADTRANS.fortran_inputs import fortran_inputs as finput
 
     n_cloud_wavelength_bins = len(np.genfromtxt(os.path.join(path_to_species_opacity_folder, 'opa_0001.dat'))[:, 0])
@@ -3091,6 +3093,8 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
     wavenumbers_petitradtrans_file = os.path.join(
         path_input_data, 'opacities', 'lines', 'line_by_line', 'wavenumber_grid.petitRADTRANS.h5'
     )
+
+    wavenumbers_petitradtrans_line_by_line = np.empty(0)
 
     if not os.path.isfile(wavenumbers_petitradtrans_file):
         print("Generating petitRADTRANS wavenumber grid... ", end='')
@@ -3734,7 +3738,7 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
     wavenumbers = np.linspace(wavenumber_start, wavenumber_end, cross_sections.size)
 
     # Handle insufficient wavelength coverage
-    d_wavenumbers = np.mean(np.diff(wavenumbers))
+    d_wavenumbers = float(np.mean(np.diff(wavenumbers)))
 
     if wavenumber_start > wavenumbers_petitradtrans_line_by_line[selection[0]]:
         warnings.warn(
@@ -3744,7 +3748,12 @@ def load_dace(file, file_extension, molmass, wavelength_file=None, wavenumbers_p
           f"\nOpacities set to 0 within {wavenumbers_petitradtrans_line_by_line[selection[0]]}--{wavenumber_start} cm-1"
         )
         wavenumbers = np.insert(
-            wavenumbers, 0, [wavenumbers_petitradtrans_line_by_line[selection[0]], wavenumber_start - d_wavenumbers]
+            wavenumbers,
+            0,
+            [
+                wavenumbers_petitradtrans_line_by_line[selection[0]],
+                wavenumber_start - d_wavenumbers
+            ]
         )
         cross_sections = np.insert(cross_sections, 0, [0, 0])
 
@@ -3902,6 +3911,12 @@ def rebin_ck_line_opacities(input_file, target_resolving_power, wavenumber_grid=
             print("Done.")
 
             print(f"Successfully binned down k-table into '{output_file}' (R = {target_resolving_power})")
+    elif not isinstance(rank, int):
+        raise TypeError(
+            f"MPI rank must be of type '{int.__name__}', not {type(rank)}\n"
+            f"This is likely a code error and not a user error, you may report this to "
+            f"https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
+        )
 
     if comm is not None:  # wait for the main process to finish the binning down
         comm.barrier()
