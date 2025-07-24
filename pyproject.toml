@@ -41,7 +41,6 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-    "mpi4py",
     "exo_k"
 ]
 
@@ -53,6 +52,7 @@ Changelog = "https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/CHANGEL
 
 [project.optional-dependencies]
 retrieval = [
+    "mpi4py",
     "requests",
     "skycalc-cli",
     "matplotlib",
