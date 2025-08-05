@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 ## [3.2.1a2] - 2025-08-05
 ### Fixed
 - Crash when rebinning line opacities if `mpi4py` is not installed.
-- Crash when rebinning line opacities when `emcee` mode is activated.
+- Crash when rebinning line opacities when `emcee` mode is activated ([issue 119](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/119)).
 
 ## [3.2.0] - 2025-05-30
 ### Added
