@@ -17,9 +17,10 @@ from petitRADTRANS.cli.prt_cli import get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict, list_str2str
 
-if os.environ.get("pRT_emcee_mode") == 'True':  # TODO make use of config_parser instead
-    pass
-else:
+comm = None
+rank = 0
+
+if os.environ.get("pRT_emcee_mode") != 'True':  # TODO make use of config_parser instead
     # MPI Multiprocessing
     try:
         from mpi4py import MPI
@@ -28,8 +29,6 @@ else:
         rank = comm.Get_rank()
     except ImportError:
         MPI = None
-        comm = None
-        rank = 0
 
 
 class Opacity:
