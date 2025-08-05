@@ -30,7 +30,7 @@ def compute_turbulent_settling_speed(
         Turbulent settling speed (cm.s-1).
     """
     # constants
-    diameter = 2.827e-8 # TODO: find out what this constant is
+    diameter = 2.827e-8  # TODO: find out what this constant is
     epsilon = 59.7 * cst.kB
 
     # N_Knudsen: Knudsen number
@@ -94,11 +94,17 @@ def compute_turbulent_settling_speed(
 
     return turbulent_settling_speed_ret
 
+
 @jit
 def compute_cloud_particles_mean_radius(
-    reference_gravity, atmospheric_densities, clouds_particles_densities,
-    temperatures, mean_molar_masses, f_seds,
-    cloud_particle_radius_distribution_std, eddy_diffusion_coefficients
+    reference_gravity,
+    atmospheric_densities,
+    clouds_particles_densities,
+    temperatures,
+    mean_molar_masses,
+    f_seds,
+    cloud_particle_radius_distribution_std,
+    eddy_diffusion_coefficients
 ):
     """
     Calculates the mean radius of cloud particles for each layer and species.
@@ -126,10 +132,6 @@ def compute_cloud_particles_mean_radius(
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
     f_sed_flat = f_seds.flatten()
-    #lax.cond(
-    #    f_seds.shape == cloud_dens_flat.shape,
-    #    lambda: f_seds,
-    #    lambda: jnp.tile(f_seds, n_layers))
     eddy_diff_flat = jnp.repeat(eddy_diffusion_coefficients, n_clouds)
 
     # Vmap the core function over the flattened dimension
@@ -146,6 +148,7 @@ def compute_cloud_particles_mean_radius(
     cloud_particles_mean_radii = mean_radius_flat.reshape((n_layers, n_clouds))
 
     return cloud_particles_mean_radii
+
 
 @jit
 def compute_cloud_particles_mean_radius_hansen(
@@ -179,11 +182,6 @@ def compute_cloud_particles_mean_radius_hansen(
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
     f_sed_flat = f_seds.flatten()
     b_hansen_flat = clouds_b_hansen.flatten()
-    #b_hansen_flat = jnp.tile(clouds_b_hansen, n_layers)
-    #lax.cond(
-    #    b_hansen_flat.shape == cloud_dens_flat.shape,
-    #    lambda: clouds_b_hansen,
-    #    lambda: jnp.tile(clouds_b_hansen, n_layers))
     eddy_diff_flat = jnp.repeat(eddy_diffusion_coefficients, n_clouds)
 
     # Vmap the core function over the flattened dimension
@@ -199,6 +197,101 @@ def compute_cloud_particles_mean_radius_hansen(
     clouds_a_hansen = a_hansen_flat.reshape((n_layers, n_clouds))
 
     return clouds_a_hansen
+
+
+@jit
+def compute_cloud_log_normal_particles_distribution_opacities(
+    atmosphere_densities,
+    clouds_particles_densities,
+    clouds_mass_fractions,
+    cloud_particles_mean_radii,
+    cloud_particles_distribution_std,
+    cloud_particles_radii_bins,
+    cloud_particles_radii,
+    clouds_absorption_opacities,
+    clouds_scattering_opacities,
+    clouds_particles_asymmetry_parameters
+):
+    r"""This function reimplements calc_cloud_opas from fortran_radiative_transfer_core.f90.
+    For some reason it runs faster in python than in fortran, so we'll use this from now on.
+    This function integrates the cloud opacity through the different layers of the atmosphere to get the total
+    optical depth, scattering and anisotropic fraction.
+    # TODO optical depth or opacity?
+
+    Author: Francois Rozet
+
+    Args:
+        atmosphere_densities:
+            Density of the atmosphere at each of its layer
+        clouds_particles_densities:
+            Density of each cloud particles
+        clouds_mass_fractions:
+            Mass fractions of each cloud at each atmospheric layer
+        cloud_particles_mean_radii:
+            Mean radius of each cloud particles at each atmospheric layer
+        cloud_particles_distribution_std:
+            Standard deviation of the log-normal cloud particles distribution
+        cloud_particles_radii_bins:
+            Bins of the particles cloud radii grid
+        cloud_particles_radii:
+            Particles cloud radii grid
+        clouds_absorption_opacities:
+            Cloud absorption opacities (radius grid, wavelength grid, clouds)
+        clouds_scattering_opacities:
+            Cloud scattering opacities (radius grid, wavelength grid, clouds)
+        clouds_particles_asymmetry_parameters:
+            Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+
+    Returns:
+
+    """
+    n = (  # (n_layers, n_clouds)
+            3.0
+            * clouds_mass_fractions
+            * atmosphere_densities[:, None]
+            / (4.0 * jnp.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
+            * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
+    )
+
+    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
+    dn_dr = (  # (n_radii, n_layers, n_clouds)
+        n / (
+            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) 
+            * jnp.log(cloud_particles_distribution_std)
+        )
+        * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
+    )
+
+    integrand_scale = (  # (n_radii, n_layers, n_clouds)
+            (4.0 * jnp.pi / 3.0)
+            * cloud_particles_radii[:, None, None] ** 3
+            * clouds_particles_densities
+            * dn_dr
+    )
+
+    integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+    integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+    integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
+
+    widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]  # (n_radii, 1, 1, 1)
+
+    _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
+    _cloud_scattering_opacities = jnp.where(
+        _cloud_scattering_opacities < 1e-200,
+        1e-200,
+        _cloud_scattering_opacities
+        )
+    cloud_anisotropic_fraction = jnp.true_divide(
+        cloud_anisotropic_fraction,
+        _cloud_scattering_opacities
+    )
+
+    _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
+    _cloud_scattering_opacities = _cloud_scattering_opacities / atmosphere_densities
+
+    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_anisotropic_fraction
 
 
 @jit
@@ -444,11 +537,8 @@ def particle_radius(
     result_radius = lax.cond(
         root_not_bracketed,
         lambda: 1e-17,
-        lambda: c_final # c_final is the 'c' from the last iteration
+        lambda: c_final  # c_final is the 'c' from the last iteration
     )
-    # if (iter == ITMAX) then
-    #    write(*,*) 'warning: maximum number of bisection root iterations reached!'
-    # end if
 
     return result_radius
 

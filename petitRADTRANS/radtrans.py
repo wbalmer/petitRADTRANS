@@ -19,15 +19,12 @@ from scipy.interpolate import interp1d
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
-# noinspection PyUnresolvedReferences
-#from petitRADTRANS.fortran_inputs import fortran_inputs as finput
-# noinspection PyUnresolvedReferences
-#from petitRADTRANS.fortran_radiative_transfer_core import fortran_radiative_transfer_core as fcore
+from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
+from petitRADTRANS.fortran_inputs import fortran_inputs as fin 
 
-from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core 
+from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core
 from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
 from petitRADTRANS.radtrans_core.interpolate_line_opacities import interpolate_line_opacities
-from petitRADTRANS.fortran_inputs import fortran_inputs as fin #interpolate_line_opacities # For Fortran tridag
 
 from petitRADTRANS.opacities.opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity, Opacity
 from petitRADTRANS.physics import (
@@ -141,7 +138,7 @@ class Radtrans:
         # Initialize properties
         if pressures is None:
             warnings.warn("pressure was not set, initializing one layer at 1 bar")
-            pressures = jnp.array([1.0])  # bar
+            pressures = jnp.array([1.0], dtype=JAX_DTYPE)  # bar
 
         self._pressures = pressures * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
 
@@ -172,7 +169,7 @@ class Radtrans:
         self._scattering_in_emission = scattering_in_emission
 
         if wavelength_boundaries is None:
-            self._wavelength_boundaries = jnp.array([0.05, 300.])  # um
+            self._wavelength_boundaries = jnp.array([0.05, 300.], dtype=JAX_DTYPE)  # um
         else:
             self.__check_wavelength_boundaries(wavelength_boundaries)
             self._wavelength_boundaries = wavelength_boundaries
@@ -202,8 +199,8 @@ class Radtrans:
                 'temperature_grid_size': {},
                 'pressure_grid_size': {},
                 'opacity_grid': {},
-                'g_gauss': jnp.array(jnp.ones(1), dtype='d'), #
-                'weights_gauss': jnp.array(jnp.ones(1), dtype='d') # 
+                'g_gauss': jnp.array(jnp.ones(1)),
+                'weights_gauss': jnp.array(jnp.ones(1))
             }
         )
 
@@ -572,7 +569,7 @@ class Radtrans:
         # Add optional absorption opacity from outside
         if additional_absorption_opacities_function is None:
             if cloud_photosphere_median_optical_depth is not None:
-                cloud_absorption_opacities = jnp.zeros((frequencies.size, pressures.size))
+                cloud_absorption_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         else:
             additional_absorption_opacities = additional_absorption_opacities_function(
                 hz2um(frequencies),
@@ -587,7 +584,7 @@ class Radtrans:
         # Add optional scattering opacity from outside
         if additional_scattering_opacities_function is None:
             if cloud_photosphere_median_optical_depth is not None:
-                cloud_scattering_opacities = jnp.zeros((frequencies.size, pressures.size))
+                cloud_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         else:
             additional_scattering_opacities = additional_scattering_opacities_function(
                 hz2um(frequencies),
@@ -640,7 +637,7 @@ class Radtrans:
         cloud_opacities = None
         _cloud_particles_mean_radii = None
 
-        cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size))
+        cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         cloud_continuum_opacities_scattering = 0
 
         # Add opaque cloud deck opacity
@@ -740,7 +737,7 @@ class Radtrans:
                     if species not in complete_coverage_clouds:
                         clear_cloud_species_mass_fractions[species] *= 0
 
-                cloud_continuum_opacities = [cloud_continuum_opacities, jnp.zeros((frequencies.size, pressures.size))]
+                cloud_continuum_opacities = [cloud_continuum_opacities, jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)]
                 cloud_continuum_opacities_scattering = [cloud_continuum_opacities_scattering, None]
                 cloud_scattering_opacities = [cloud_scattering_opacities, None]
                 cloud_absorption_opacities = [cloud_absorption_opacities, None]
@@ -791,7 +788,7 @@ class Radtrans:
         cias_loaded_opacities, gas_continuum_contributors, gray_opacity
     ):
         # Reset
-        continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype='d')
+        continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
 
         # Add CIA opacities
         continuum_opacities += (
@@ -831,7 +828,7 @@ class Radtrans:
         rayleigh_species, haze_factor
     ):
         # Reset
-        continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype='d')
+        continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         scattering_in_transmission = False
 
         # Add rayleigh scattering opacities
@@ -1392,11 +1389,11 @@ class Radtrans:
         # Initialization
         if len(self._line_species) > 0:
             line_species_mass_fractions = jnp.zeros(
-                (self._pressures.size, len(self._line_species)), dtype='d')# 
+                (self._pressures.size, len(self._line_species)), dtype=JAX_DTYPE)
         else:
             # If there are no specified line species then we need at least an array to contain the continuum opacities
             line_species_mass_fractions = jnp.zeros(
-                (self._pressures.size, 1), dtype='d') #
+                (self._pressures.size, 1), dtype=JAX_DTYPE)
 
         # Fill line mass fraction dictionary with provided mass fraction dictionary
         for i_spec in range(len(self._line_species)):
@@ -1652,13 +1649,12 @@ class Radtrans:
         """
         if copy_opacities:
             transmission_contribution = jnp.zeros(
-                (jnp.size(self._pressures), self._frequencies.size), dtype='d') #
+                (jnp.size(self._pressures), self._frequencies.size), dtype=JAX_DTYPE)
         else:
             transmission_contribution = None
 
         # Calculate the transmission spectrum
         if self.__sum_opacities and len(self._line_species) > 1:
-            # It's a better implementation.
             transit_radii, radius_hydrostatic_equilibrium = radiative_transfer_core.compute_transit_radii_summed(
                 opacities=opacities,
                 continuum_opacities_scattering=continuum_opacities_scattering,
@@ -1725,7 +1721,6 @@ class Radtrans:
 
     @staticmethod
     def _combine_ck_opacities(opacities, g_gauss, weights_gauss):
-        # TODO: write/use jax implementation
         opacities = opacities.at[:, :, 0, :].set(radiative_transfer_core.combine_ck_opacities(
             opacities,
             g_gauss,
@@ -1784,21 +1779,6 @@ class Radtrans:
     @staticmethod
     def _compute_ck_flux(frequencies, temperatures, weights_gauss,
                          emission_cos_angle_grid, emission_cos_angle_grid_weights, optical_depths, return_contribution):
-        #start = time()
-        """flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
-            frequencies,
-            temperatures,
-            weights_gauss,
-            emission_cos_angle_grid,
-            emission_cos_angle_grid_weights,
-            optical_depths,
-            return_contribution
-        )"""
-        #end = time()
-        #jnp.save("fortran_flux",flux)
-        #jstart = time()
-
-        #jnp.save("fortran_optical_depths",optical_depths)
 
         flux, emission_contribution = radiative_transfer_core.compute_ck_flux(
             frequencies,
@@ -1807,106 +1787,10 @@ class Radtrans:
             emission_cos_angle_grid,
             emission_cos_angle_grid_weights,
             optical_depths,
-            return_contribution=return_contribution
+            return_contribution
         )
-        #jend = time()
-        #jnp.save("jax_flux",jflux)
-        #print(f"Fortran: {end-start} s\nJAX: {jend-jstart} s")"""
         return flux, emission_contribution
 
-    @staticmethod
-    @jit
-    def _compute_cloud_log_normal_particles_distribution_opacities(
-        atmosphere_densities,
-        clouds_particles_densities,
-        clouds_mass_fractions,
-        cloud_particles_mean_radii,
-        cloud_particles_distribution_std,
-        cloud_particles_radii_bins,
-        cloud_particles_radii,
-        clouds_absorption_opacities,
-        clouds_scattering_opacities,
-        clouds_particles_asymmetry_parameters
-    ):
-        r"""This function reimplements calc_cloud_opas from fortran_radiative_transfer_core.f90.
-        For some reason it runs faster in python than in fortran, so we'll use this from now on.
-        This function integrates the cloud opacity through the different layers of the atmosphere to get the total
-        optical depth, scattering and anisotropic fraction.
-        # TODO optical depth or opacity?
-        # TODO Move to jax cloud module
-
-        Author: Francois Rozet
-
-        Args:
-            atmosphere_densities:
-                Density of the atmosphere at each of its layer
-            clouds_particles_densities:
-                Density of each cloud particles
-            clouds_mass_fractions:
-                Mass fractions of each cloud at each atmospheric layer
-            cloud_particles_mean_radii:
-                Mean radius of each cloud particles at each atmospheric layer
-            cloud_particles_distribution_std:
-                Standard deviation of the log-normal cloud particles distribution
-            cloud_particles_radii_bins:
-                Bins of the particles cloud radii grid
-            cloud_particles_radii:
-                Particles cloud radii grid
-            clouds_absorption_opacities:
-                Cloud absorption opacities (radius grid, wavelength grid, clouds)
-            clouds_scattering_opacities:
-                Cloud scattering opacities (radius grid, wavelength grid, clouds)
-            clouds_particles_asymmetry_parameters:
-                Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
-
-        Returns:
-
-        """
-        n = (  # (n_layers, n_clouds)
-                3.0
-                * clouds_mass_fractions
-                * atmosphere_densities[:, None]
-                / (4.0 * jnp.pi * clouds_particles_densities * (cloud_particles_mean_radii ** 3))
-                * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
-        )
-
-        diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
-        dn_dr = (  # (n_radii, n_layers, n_clouds)
-            n
-            / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) * jnp.log(cloud_particles_distribution_std))
-            * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
-        )
-
-        integrand_scale = (  # (n_radii, n_layers, n_clouds)
-                (4.0 * jnp.pi / 3.0)
-                * cloud_particles_radii[:, None, None] ** 3
-                * clouds_particles_densities
-                * dn_dr
-        )
-
-        integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
-        integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
-        integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
-
-        widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]  # (n_radii, 1, 1, 1)
-
-        _cloud_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-        _cloud_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-        cloud_anisotropic_fraction = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))  # (n_wavelengths, n_layers)
-        _cloud_scattering_opacities = jnp.where(
-            _cloud_scattering_opacities < 1e-200,
-            1e-200,
-            _cloud_scattering_opacities
-            )
-        cloud_anisotropic_fraction = jnp.true_divide(
-            cloud_anisotropic_fraction,
-            _cloud_scattering_opacities
-        )
-
-        _cloud_absorption_opacities = _cloud_absorption_opacities / atmosphere_densities
-        _cloud_scattering_opacities = _cloud_scattering_opacities / atmosphere_densities
-
-        return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_anisotropic_fraction
 
     @staticmethod
     def _compute_cloud_opacities(
@@ -1944,15 +1828,15 @@ class Radtrans:
         """
         # Initialization
         n_clouds = len(cloud_species_mass_fractions)
-        _cloud_species_mass_fractions = jnp.zeros((pressures.size, n_clouds))
+        _cloud_species_mass_fractions = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
         cloud_absorption_opacities = None
         cloud_anisotropic_scattering_opacities = None
-        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds))
-        _cloud_particles_density = jnp.zeros(n_clouds)
+        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+        _cloud_particles_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
         atmospheric_densities = pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
 
         if continuum_opacities is None:
-            continuum_opacities = jnp.zeros((frequency_bins_edges.size - 1, pressures.size))
+            continuum_opacities = jnp.zeros((frequency_bins_edges.size - 1, pressures.size), dtype=JAX_DTYPE)
 
         # Initialize Hansen's b coefficient
         if "hansen" in cloud_particles_radius_distribution.lower():
@@ -1960,14 +1844,14 @@ class Radtrans:
                 if not cloud_hansen_b.shape == (pressures.size, n_clouds):
                     raise ValueError(
                         "cloud_hansen_b must be a float, a dictionary with arrays for each cloud species, "
-                        f"or a numpy array with shape {(pressures.shape[0], n_clouds)}, "
+                        f"or an array with shape {(pressures.shape[0], n_clouds)}, "
                         f"but was of shape {jnp.shape(cloud_hansen_b)}"
                     )
             elif isinstance(cloud_hansen_b, dict):
-                cloud_hansen_b = jnp.array(list(cloud_hansen_b.values()))
+                cloud_hansen_b = jnp.array(list(cloud_hansen_b.values()), dtype=JAX_DTYPE)
             elif isinstance(cloud_hansen_b, float):
                 cloud_hansen_b = jnp.array(
-                    jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1))).T
+                    jnp.tile(cloud_hansen_b * jnp.ones_like(pressures), (n_clouds, 1)), dtype=JAX_DTYPE).T
             else:
                 raise ValueError(f"The Hansen distribution width (cloud_hansen_b) must be an array, a dict, "
                                  f"or a float, but is of type '{type(cloud_hansen_b)}' ({cloud_hansen_b})")
@@ -2000,7 +1884,7 @@ class Radtrans:
             if cloud_particles_radius_distribution == "lognormal":
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
+                    cloud_core.compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
@@ -2051,7 +1935,7 @@ class Radtrans:
                 )
 
             # Initialize f_seds
-            f_seds = jnp.zeros(n_clouds)
+            f_seds = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
 
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
                 if isinstance(cloud_f_sed, dict):
@@ -2075,7 +1959,7 @@ class Radtrans:
 
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
+                    cloud_core.compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
@@ -2158,7 +2042,6 @@ class Radtrans:
         base, the optical depth is constant and equal to the value at the cloud
         base.
         # TODO complete docstring
-        # TODO write as jax function
 
             Args:
                 reference_gravity (float):
@@ -2223,14 +2106,14 @@ class Radtrans:
             f2 = -197.789 + 190.266 * jnp.log10(lamb_use) - 67.9775 * jnp.log10(lamb_use) ** 2. \
                 + 10.6913 * jnp.log10(lamb_use) ** 3. - 0.625151 * jnp.log10(lamb_use) ** 4.
 
-            ret_val = jnp.zeros_like(wavelengths)
+            ret_val = jnp.zeros_like(wavelengths, dtype=JAX_DTYPE)
             ret_val= ret_val.at[index].set(1e-26 * electron_partial_pressure * 1e1 ** (
                     f0 + f1 * jnp.log10(theta) + f2 * jnp.log10(theta) ** 2.))
             return ret_val
 
         else:
 
-            return jnp.zeros_like(wavelengths)
+            return jnp.zeros_like(wavelengths, dtype=JAX_DTYPE)
 
     @staticmethod
     @jit
@@ -2259,7 +2142,7 @@ class Radtrans:
             2.78701e-23
         ]
 
-        ret_val = jnp.zeros_like(wavelengths_bin_edges[1:])
+        ret_val = jnp.zeros_like(wavelengths_bin_edges[1:], dtype=JAX_DTYPE)
 
         index = right <= 1.64e4
 
@@ -2294,7 +2177,7 @@ class Radtrans:
 
         ret_val = jnp.array(jnp.zeros(len(wavelengths) * len(pressures)).reshape(
             len(wavelengths),
-            len(pressures)), dtype='d') # 
+            len(pressures)), dtype=JAX_DTYPE)
 
         # Calculate electron number fraction
         m_e = cst.e_molar_mass  # (AMU)
@@ -2344,10 +2227,6 @@ class Radtrans:
     @staticmethod
     def _compute_optical_depths(pressures, reference_gravity, opacities, continuum_opacities_scattering,
                                 scattering_in_emission):
-        # TODO: complete jax implementation
-        # Probably want to test scattering_in_emission here,
-        # and leave compute_optical_depths to be compiled without
-        # needing lax.cond
         optical_depths, photon_destruction_probabilities = \
             radiative_transfer_core.compute_optical_depths(
                 reference_gravity,
@@ -2369,7 +2248,7 @@ class Radtrans:
                                         photospheric_cloud_optical_depths=None,
                                         absorber_present=True,
                                         **custom_cloud_parameters):
-        optical_depths = jnp.zeros(opacities.shape, dtype='d') # 
+        optical_depths = jnp.zeros(opacities.shape, dtype=JAX_DTYPE)
         photon_destruction_probabilities = None
         relative_cloud_scaling_factor = None
 
@@ -2390,8 +2269,7 @@ class Radtrans:
                     _continuum_opacities_scattering = continuum_opacities_scattering
                 else:
                     _continuum_opacities_scattering = jnp.zeros(
-                        continuum_opacities_scattering.shape, dtype='d') #
-
+                        continuum_opacities_scattering.shape, dtype=JAX_DTYPE)
                 temp_opt_depths, photon_destruction_probabilities = (  # the :1 is necessary to get +1 ndim
                     Radtrans._compute_optical_depths(
                         pressures=pressures,
@@ -2431,17 +2309,17 @@ class Radtrans:
                                                         cloud_anisotropic_scattering_opacities,
                                                         cloud_absorption_opacities,
                                                         photospheric_cloud_optical_depths, scattering_in_emission):
-        optical_depths = jnp.zeros(opacities.shape, dtype='d') # 
+        optical_depths = jnp.zeros(opacities.shape, dtype=JAX_DTYPE)
         relative_cloud_scaling_factor = None
 
         if scattering_in_emission:
             continuum_opacities_scattering_emission = copy.deepcopy(continuum_opacities_scattering)
         else:
-            continuum_opacities_scattering_emission = jnp.zeros(continuum_opacities_scattering.shape)
+            continuum_opacities_scattering_emission = jnp.zeros(continuum_opacities_scattering.shape, dtype=JAX_DTYPE)
 
         n_species = opacities.shape[2]
 
-        _mass_fractions_1 = jnp.ones((pressures.size, n_species))
+        _mass_fractions_1 = jnp.ones((pressures.size, n_species), dtype=JAX_DTYPE)
 
         if cloud_anisotropic_scattering_opacities is not None and cloud_absorption_opacities is not None:
             # Calculate continuum scattering opacity without clouds
@@ -2469,11 +2347,11 @@ class Radtrans:
             return optical_depths, photon_destruction_probabilities, None
 
         # Calculate optical depths for cloud only
-        total_tau_cloud = jnp.zeros_like(optical_depths)
+        total_tau_cloud = jnp.zeros_like(optical_depths, dtype=JAX_DTYPE)
 
         # Reduce total (absorption) line opacity by continuum absorption opacity
         # (those two were added in before)
-        mock_line_cloud_continuum_only = jnp.zeros_like(opacities)
+        mock_line_cloud_continuum_only = jnp.zeros_like(opacities, dtype=JAX_DTYPE)
 
         mock_line_cloud_continuum_only = Radtrans._combine_opacities(
             line_species_mass_fractions=_mass_fractions_1,
@@ -2603,8 +2481,8 @@ class Radtrans:
             temperatures: temperatures in each atmospheric layer
             mass_fractions: dictionary of the Rayleigh scattering species mass fractions
         """
-        wavelengths_angstroem = jnp.array(cst.c / frequencies * 1e8, dtype='d')
-        rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype='d')
+        wavelengths_angstroem = jnp.array(frequency2wavelength(frequencies) * 1e8, dtype=JAX_DTYPE)
+        rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
 
         base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
 
@@ -2789,9 +2667,9 @@ class Radtrans:
         else:
             warnings.warn("no opacity source given (lines, CIA, or clouds), "
                           "setting frequency grid using the mean of wavelength boundaries (1 element)")
-            frequency_bins_edges = jnp.zeros(2)
-            frequency_bins_edges = frequency_bins_edges.at[0].set(cst.c / self._wavelength_boundaries[1] * 1e4)  # um to cm
-            frequency_bins_edges = frequency_bins_edges.at[1].set(cst.c / self._wavelength_boundaries[0] * 1e4)  # um to cm
+            frequency_bins_edges = jnp.zeros(2, dtype=JAX_DTYPE)
+            frequency_bins_edges = frequency_bins_edges.at[0].set(wavelength2frequency(self._wavelength_boundaries[1] * 1e-4))  # um to cm
+            frequency_bins_edges = frequency_bins_edges.at[1].set(wavelength2frequency(self._wavelength_boundaries[0] * 1e-4))  # um to cm
             frequencies = jnp.mean(frequency_bins_edges)
 
         return frequencies, frequency_bins_edges
@@ -2841,7 +2719,9 @@ class Radtrans:
         if sampling > 1:
             frequencies = frequencies[::sampling]
 
-        frequency_bins_edges = jnp.array(cst.c / Radtrans.compute_bins_edges(cst.c / frequencies), dtype='d') # 
+        frequency_bins_edges = jnp.array(
+            wavelength2frequency(Radtrans.compute_bins_edges(frequency2wavelength(frequencies))), dtype=JAX_DTYPE
+        )
 
         return frequencies, frequency_bins_edges
 
@@ -2880,7 +2760,7 @@ class Radtrans:
         if wavelengths[-1] < self._wavelength_boundaries[1]:
             delta_log_wavelength = jnp.diff(jnp.log10(wavelengths))[-1]
 
-            add_high = 1e1 ** jnp.arange(
+            add_high = 10 ** jnp.arange(
                 jnp.log10(wavelengths[-1]),
                 jnp.log10(self._wavelength_boundaries[-1]) + delta_log_wavelength,
                 delta_log_wavelength
@@ -2911,12 +2791,11 @@ class Radtrans:
                 jnp.less(frequency2wavelength(frequencies), self._wavelength_boundaries[1] * 1e-4)  # um to cm
             ))[0]
 
-            frequencies = jnp.array(frequencies[indices_within_boundaries], dtype='d')
+            frequencies = jnp.array(frequencies[indices_within_boundaries], dtype=JAX_DTYPE)
 
             # Get the corresponding frequencies bin edges, +2 is to catch the upper bin edge
             frequency_bins_edges = jnp.array(
-                frequency_bins_edges[indices_within_boundaries[0]:indices_within_boundaries[-1] + 2],
-                dtype='d'
+                frequency_bins_edges[indices_within_boundaries[0]:indices_within_boundaries[-1] + 2], dtype=JAX_DTYPE
             )
         elif self._line_opacity_mode == 'lbl':
             frequency_grid = um2hz(wavelengths[::-1])
@@ -2988,7 +2867,7 @@ class Radtrans:
 
         if n_line_species > 0:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, n_line_species, n_layers), dtype='d') #
+                (n_g, n_frequencies, n_line_species, n_layers), dtype=JAX_DTYPE)
             
             for i, species in enumerate(line_opacities_grid):
                 line_opacities_tp_grid = \
@@ -3004,7 +2883,7 @@ class Radtrans:
                 ))
         else:
             line_opacities = jnp.zeros(
-                (n_g, n_frequencies, 1, n_layers))
+                (n_g, n_frequencies, 1, n_layers), dtype=JAX_DTYPE)
 
         return line_opacities
 
@@ -3144,7 +3023,7 @@ class Radtrans:
                             )
 
                         if _default_mass_fractions is None:
-                            _default_mass_fractions = {species: jnp.zeros(self.pressures.size)}
+                            _default_mass_fractions = {species: jnp.zeros(self.pressures.size, dtype=JAX_DTYPE)}
 
                         # Use the first line species in order to keep the resolving power consistent in all spectra
                         if opacity != 'line_species':
@@ -3451,21 +3330,21 @@ class Radtrans:
                     star_radius=star_radius
                 )
             else:
-                stellar_intensities = jnp.zeros_like(self._frequencies)
+                stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
 
         if reflectances is None:
-            reflectances = jnp.zeros_like(self._frequencies)
+            reflectances = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(reflectances) == 0:
-            reflectances = reflectances * jnp.ones_like(self._frequencies)
+            reflectances = reflectances * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.size(reflectances) != self._frequencies.size:
             raise ValueError(f"reflectance must be a scalar "
                              f"or of the same size than frequencies ({self._frequencies.size}), "
                              f"but is of size {jnp.size(reflectances)}")
 
         if emissivities is None:
-            emissivities = jnp.ones_like(self._frequencies)
+            emissivities = jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(emissivities) == 0:
-            emissivities = emissivities * jnp.ones_like(self._frequencies)
+            emissivities = emissivities * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.size(emissivities) != self._frequencies.size:
             raise ValueError(f"emissivity must be a scalar "
                              f"or of the same size than frequencies ({self._frequencies.size}), "
@@ -3504,9 +3383,8 @@ class Radtrans:
             )
         )
 
-        # TODO Fix Ansisotropic scattering
-        #if auto_anisotropic_cloud_scattering:
-        #    self._anisotropic_cloud_scattering = 'auto'
+        if auto_anisotropic_cloud_scattering:
+            self._anisotropic_cloud_scattering = 'auto'
 
         (_opacities, _continuum_opacities_scattering,
          _cloud_anisotropic_scattering_opacities, _cloud_absorption_opacities) = self.__get_base_opacities(
@@ -3696,7 +3574,8 @@ class Radtrans:
             cloud_photosphere_median_optical_depth: float,
             cloud_anisotropic_scattering_opacities: ArrayLike,
             cloud_absorption_opacities: ArrayLike,
-            optical_depths: ArrayLike = None
+            optical_depths: ArrayLike = None,
+            cloud_photosphere_wavelength_boundaries: ArrayLike = None
     ) -> ArrayLike:
         """Calculate the photosphere radius.
         TODO complete docstring
@@ -3718,7 +3597,7 @@ class Radtrans:
         """
         self.__set_sum_opacities(emission=True)
 
-        atmospheric_densities = self._pressures * 1e6 * mean_molar_masses * cst.amu / cst.kB / temperatures
+        atmospheric_densities = self._pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
             pressures=self._pressures,
             reference_gravity=reference_gravity,
@@ -3730,7 +3609,7 @@ class Radtrans:
 
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
 
-        photosphere_radius = jnp.zeros(self._frequencies.size)
+        photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
 
         if self.__sum_opacities:
             if optical_depths is None:
@@ -3907,7 +3786,6 @@ class Radtrans:
             )
         )
 
-        # TODO test jax implementation
         opacities_planck = (
             radiative_transfer_core.compute_planck_opacities(
                 opacities[:, :, :1, :],
@@ -4384,7 +4262,7 @@ class Radtrans:
 
             hdf5_files.append(hdf5_file)
 
-        clouds_particles_densities = jnp.zeros(len(hdf5_files))
+        clouds_particles_densities = jnp.zeros(len(hdf5_files), dtype=JAX_DTYPE)
         clouds_absorption_opacities = None
         clouds_scattering_opacities = None
         clouds_asymmetry_parameters = None
@@ -4413,13 +4291,13 @@ class Radtrans:
                 clouds_particles_radii = _cloud_particles_radii
 
                 clouds_absorption_opacities = jnp.zeros(
-                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files)), dtype=JAX_DTYPE
                 )
                 clouds_scattering_opacities = jnp.zeros(
-                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files)), dtype=JAX_DTYPE
                 )
                 clouds_asymmetry_parameters = jnp.zeros(
-                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files))
+                    (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files)), dtype=JAX_DTYPE
                 )
 
                 clouds_particles_densities = clouds_particles_densities.at[i].set(_cloud_particles_densities)
@@ -4438,25 +4316,25 @@ class Radtrans:
         clouds_scattering_opacities = clouds_scattering_opacities.at[clouds_scattering_opacities < 0.].set(0.)
 
         self._clouds_loaded_opacities['particles_densities'] = (
-            jnp.array(clouds_particles_densities, dtype='d') # 
+            jnp.array(clouds_particles_densities, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['absorption_opacities'] = (
-            jnp.array(clouds_absorption_opacities, dtype='d') # 
+            jnp.array(clouds_absorption_opacities, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['scattering_opacities'] = (
-            jnp.array(clouds_scattering_opacities, dtype='d') # 
+            jnp.array(clouds_scattering_opacities, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['particles_asymmetry_parameters'] = (
-            jnp.array(clouds_asymmetry_parameters, dtype='d') # 
+            jnp.array(clouds_asymmetry_parameters, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['wavelengths'] = (
-            jnp.array(cloud_wavelengths, dtype='d') # 
+            jnp.array(cloud_wavelengths, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['particles_radii_bins'] = (
-            jnp.array(clouds_particles_radii_bins, dtype='d') # 
+            jnp.array(clouds_particles_radii_bins, dtype=JAX_DTYPE)
         )
         self._clouds_loaded_opacities['particles_radii'] = (
-            jnp.array(clouds_particles_radii, dtype='d') # 
+            jnp.array(clouds_particles_radii, dtype=JAX_DTYPE)
         )
 
         print(" Successfully loaded all clouds opacities")
@@ -4516,42 +4394,63 @@ class Radtrans:
             n_temperatures = len(f['t'][:])
             n_pressures = len(f['p'][:])
 
-            # Swap axes to correctly load ExoMol tables.
-            k_table = jnp.array(f['kcoeff'])
+            # Reshape k-table to petitRADTRANS format
             k_table = jnp.swapaxes(k_table, 0, 1)
-            k_table2 = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
-            k_table2 = jnp.swapaxes(k_table2, 0, 2)
-            k_table2 = k_table2[:, ::-1, :]
+            k_table = k_table.reshape((n_pressures * n_temperatures, n_wavelengths, 16))
+            k_table = jnp.swapaxes(k_table, 0, 2)
+            k_table = k_table[:, ::-1, :]
 
-            # Initialize an empty array that has the same spectral entries as
-            # pRT object has nominally. Only fill those values where the ExoMol tables
-            # have entries.
-            ret_val = jnp.zeros(
-                g_size * frequencies.size * temperature_pressure_grid_size
-            ).reshape(
-                (g_size, frequencies.size, 1, temperature_pressure_grid_size)
+            indices_opacities, indices_file = Radtrans.__get_frequency_grids_intersection_indices(
+                frequencies=frequencies,
+                file_frequencies=_frequencies,
+                tolerate_grid_misalignment=True
             )
-            index_fill = (frequencies <= _frequencies[0] * (1. + 1e-10)) & \
-                         (frequencies >= _frequencies[-1] * (1. - 1e-10))
-            index_use = (_frequencies <= frequencies[0] * (1. + 1e-10)) & \
-                        (_frequencies >= frequencies[-1] * (1. - 1e-10))
 
-            if jnp.nonzero(index_fill)[0].size != jnp.nonzero(index_use)[0].size:
-                raise ValueError(
-                    f"frequencies size mismatch: value frequency array of size {jnp.nonzero(index_fill)[0].size} "
-                    f"cannot be broadcast to indexing result of size {jnp.nonzero(index_use)[0].size}\n"
-                    f"This may be caused by loading opacities of different resolving power")
+            if np.nonzero(indices_file)[0].size != np.nonzero(indices_opacities)[0].size:
+                grid_misalignment: bool = False
 
-            ret_val = ret_val.at[:, index_fill, 0, :].set(k_table2[:, index_use, :])
+                if np.nonzero(indices_file)[0].size == frequencies.size - 1:
+                    indices_file = cls._handle_grid_misalignment(
+                        indices=indices_file,
+                        frequencies_reference=frequencies,
+                        frequencies_test=_frequencies
+                    )
+                    grid_misalignment = True
+                elif np.nonzero(indices_opacities)[0].size == np.nonzero(indices_file)[0].size - 1:
+                    indices_opacities = cls._handle_grid_misalignment(
+                        indices=indices_opacities,
+                        frequencies_reference=_frequencies,
+                        frequencies_test=frequencies
+                    )
+                    grid_misalignment = True
 
-            ret_val = ret_val.at[ret_val < 0.].set(0.)
+                if grid_misalignment:
+                    max_relative_difference = jnp.max(
+                        jnp.abs(frequencies[indices_opacities] / _frequencies[indices_file] - 1)
+                    )
+                    spectral_info = Opacity.split_species_spectral_info(os.path.basename(file_path_hdf5))[1]
+                    resolving_power = Opacity.split_spectral_info(spectral_info)[0]
+                    resolving_power = Opacity.get_resolving_power_from_string(resolving_power)
+
+                    if max_relative_difference > cls._frequency_grid_misalignment_tolerance / resolving_power:
+                        warnings.warn(
+                            f"maximum frequency grid misalignment from file ({max_relative_difference}) "
+                            f"is larger than tolerated "
+                            f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
+                            f"expect inaccuracies in spectral features location\n"
+                            f"To remove this warning, ensure that your correlated-k opacity files "
+                            f"have similar wavenumber grids"
+                        )
+
+            # Fill opacity array
+            opacities = jnp.zeros((g_size, frequencies.size, 1, temperature_pressure_grid_size), dtype=JAX_DTYPE)
+            opacities = opacities.at[:, indices_opacities, 0, :].set(k_table[:, indices_file, :])
+            opacities = jnp.where(opacities < 0, 0., opacities)
 
             # Divide by mass to convert cross-sections to opacities
             mol_mass_inv = 1 / (f['mol_mass'][()] * cst.amu)
 
-        line_opacities_grid = ret_val * mol_mass_inv
-
-        # line_opacities_grid = line_opacities_grid[:, :, jnp.newaxis, :]
+        line_opacities_grid = opacities * mol_mass_inv
 
         return line_opacities_grid
 
@@ -4617,17 +4516,9 @@ class Radtrans:
 
             # Fill opacity array
             _line_opacities_grid = jnp.zeros(
-                (line_opacities_grid.shape[0], line_opacities_grid.shape[1], frequencies.size)
+                (line_opacities_grid.shape[0], line_opacities_grid.shape[1], frequencies.size), dtype=JAX_DTYPE
             )
             _line_opacities_grid = _line_opacities_grid.at[:, :, indices_opacities].set(line_opacities_grid[:, :, indices_file])
-            
-            # TODO figure out what all of this was for
-            #line_opacities_grid = jnp.swapaxes(line_opacities_grid, 0, 1)  # (t, p, wvl)
-            #line_opacities_grid = line_opacities_grid.reshape(
-            #    (line_opacities_grid.shape[0] * line_opacities_grid.shape[1], line_opacities_grid.shape[2])
-            #)  # (tp, wvl)
-            #line_opacities_grid = jnp.swapaxes(line_opacities_grid, 0, 1)  # (wvl, tp)
-            #line_opacities_grid = line_opacities_grid[jnp.newaxis, :, jnp.newaxis, :]  # (g, wvl, species, tp)
             del line_opacities_grid
         else:
             _line_opacities_grid = line_opacities_grid
@@ -4673,9 +4564,9 @@ class Radtrans:
 
                     # Convert into F-ordered array for more efficient processing in the Fortran modules
                     self._lines_loaded_opacities['g_gauss'] = jnp.array(
-                        self._lines_loaded_opacities['g_gauss'], dtype='d')#
+                        self._lines_loaded_opacities['g_gauss'], dtype=JAX_DTYPE)
                     self._lines_loaded_opacities['weights_gauss'] = jnp.array(
-                        self._lines_loaded_opacities['weights_gauss'], dtype='d')#
+                        self._lines_loaded_opacities['weights_gauss'], dtype=JAX_DTYPE)
 
                 # Load temperature-pressure grid
                 (
@@ -4707,7 +4598,7 @@ class Radtrans:
 
                 # Convert into F-ordered array for more efficient processing in the Fortran modules
                 self._lines_loaded_opacities['opacity_grid'][species] = \
-                    jnp.array(self._lines_loaded_opacities['opacity_grid'][species][:, :, 0, :], dtype='d') # 
+                    jnp.array(self._lines_loaded_opacities['opacity_grid'][species][:, :, 0, :], dtype=JAX_DTYPE)
 
             print(" Successfully loaded all line opacities")
 
@@ -4718,7 +4609,7 @@ class Radtrans:
             pressure_grid = f['p'][:]
             temperature_grid = f['t'][:]
 
-        ret_val = jnp.zeros((temperature_grid.size * pressure_grid.size, 2))
+        ret_val = jnp.zeros((temperature_grid.size * pressure_grid.size, 2), dtype=JAX_DTYPE)
 
         for i_t in range(temperature_grid.size):
             for i_p in range(pressure_grid.size):
@@ -4734,7 +4625,7 @@ class Radtrans:
 
     @staticmethod
     def rebin_star_spectrum(star_spectrum, star_wavelengths, wavelengths):
-        add_stellar_flux = jnp.zeros(100)
+        add_stellar_flux = jnp.zeros(100, dtype=JAX_DTYPE)
         add_wavelengths = jnp.logspace(jnp.log10(1.0000002e-02), 2, 100)
 
         wavelengths_interp = jnp.append(star_wavelengths, add_wavelengths)

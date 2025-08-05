@@ -1183,6 +1183,7 @@ def compute_transit_radii(
     pressures_cgs = pressures * 1e6  # bar to cgs
     reference_pressure = reference_pressure * 1e6  # bar to cgs
 
+    print("transit_radii: ref_pres", reference_pressure)
     atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures=pressures_cgs,
@@ -1199,10 +1200,6 @@ def compute_transit_radii(
     radius_hydrostatic_equilibrium = jnp.where(is_negative_condition, replacement_value, radius_hydrostatic_equilibrium)
 
     # Calculate the density
-    # TODO: replace values here with cst.amu and cst.kB.
-    # Currently it is kept at the values of the Fortran implementation, such that
-    # unit tests are still being passed.
-    #                           cst.amu        # cst.kB  # the Fortran values are different from the cst values
     rho = (pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures)
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
@@ -1623,8 +1620,8 @@ def compute_transmission_spectrum_contribution(
                     _ccs[:, 1:] * _rho_exp_scat[:, 1:])
 
         def false_alpha_t2_scat_branch(ops):
-            _, _, _n_freq, _n_layers_ops = ops # Renamed to avoid conflict
-            return jnp.zeros((_n_freq, _n_layers_ops - 1))
+            #_, _, _n_freq, _n_layers_ops = ops  # Renamed to avoid conflict
+            return jnp.zeros((n_frequencies, n_layers - 1))
 
         alpha_t2_scat_current = lax.cond(
             scattering_in_transmission,
