@@ -643,7 +643,7 @@ def compute_feautrier_radiative_transfer(
         r_gfal = jnp.repeat(current_source_gfl[:, :, None, :], n_angles, axis=2)  # (g,f,a,l)
 
         reflection_term_gf = surf_refl_2[None, :] *\
-            jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2) # sum over angles
+            jnp.sum(current_I_plus_surface_gfa * mu_weight_a[None, None, :], axis=2)  # sum over angles
         I_minus_boundary_gf = I_surface_no_scattering_gf + reflection_term_gf
 
         r_gfal_surface = 0.5 * (current_I_plus_surface_gfa + I_minus_boundary_gf[:, :, None])  # (g,f,a)
@@ -898,17 +898,12 @@ def compute_optical_depths(
     """
 
     def scattering_function():
-        photon_destruction_probabilities = jnp.ones(opacities[:, :, 0, :].shape)
-        _opacities = opacities.copy()
-        for i_g in range(opacities.shape[0]):
-            _opacities = _opacities.at[i_g, :, 0, :].add(
-                continuum_opacities_scattering
-            )
-            photon_destruction_probabilities = photon_destruction_probabilities.at[i_g, :, :].set(
-                continuum_opacities_scattering / _opacities[i_g, :, 0, :]
-            )
-
-        photon_destruction_probabilities = 1 - photon_destruction_probabilities
+        # Add continuum scattering to the first species (assumed at index 0)
+        _opacities = opacities.at[:, :, 0, :].add(continuum_opacities_scattering)
+        # Compute photon destruction probabilities for all g, freq, press
+        total_opac = _opacities[:, :, 0, :]
+        photon_destruction_probabilities = continuum_opacities_scattering / total_opac
+        photon_destruction_probabilities = 1.0 - photon_destruction_probabilities
         return photon_destruction_probabilities, _opacities
 
     def false_function():
@@ -919,14 +914,18 @@ def compute_optical_depths(
         scattering_function,
         false_function
     )
-    optical_depth = jnp.zeros(opacities.shape)
-    for i_struc in range(1, opacities.shape[3]):
-        optical_depth = optical_depth.at[i_struc].set(
-            optical_depth[i_struc-1]
-            + (_opacities[i_struc]+_opacities[i_struc-1])
-            / 2.0
-            / reference_gravity*(pressures[i_struc]-pressures[i_struc-1]))
-    return optical_depth, photon_destruction_probabilities
+
+    photon_destruction_probabilities = jnp.clip(photon_destruction_probabilities, 0.0, 1.0)
+
+    # Vectorized optical depth calculation
+    pressure_diffs = pressures[1:] - pressures[:-1]  # (n_layers-1,)
+    avg_opacities = (_opacities[..., 1:] + _opacities[..., :-1]) / 2.0  # (..., n_layers-1)
+    d_optical_depths = avg_opacities * pressure_diffs / reference_gravity  # (..., n_layers-1)
+    # Pad with zeros at the start for cumulative sum
+    d_optical_depths_padded = jnp.pad(d_optical_depths, [(0, 0)] * (d_optical_depths.ndim - 1) + [(1, 0)])
+    optical_depths = jnp.cumsum(d_optical_depths_padded, axis=-1)
+
+    return optical_depths, photon_destruction_probabilities
 
 
 @jit
@@ -1165,9 +1164,6 @@ def compute_transit_radii(
             variable_gravity (bool):
                 If True, gravity in the atmosphere will vary proportional to 1/r^2, where r is the planet
                 radius.
-            summed_species_opacities (bool):
-                If True, it is assumed that the given opacities contains the summed opacities of all species.
-                This is the case in line-by-line.
             copy_opacities (bool):
                 If True, a new array will be created for the transparencies, distinct from the opacities. This
                 increases memory usage. Not needed anymore with JAX, arrays are immutable.
@@ -1183,8 +1179,7 @@ def compute_transit_radii(
     pressures_cgs = pressures * 1e6  # bar to cgs
     reference_pressure = reference_pressure * 1e6  # bar to cgs
 
-    print("transit_radii: ref_pres", reference_pressure)
-    atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
+    atmospheric_densities = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures=pressures_cgs,
         reference_gravity=reference_gravity,
@@ -1315,7 +1310,7 @@ def compute_transit_radii_summed(
     pressures_cgs = pressures * 1e6  # bar to cgs
     reference_pressure = reference_pressure * 1e6  # bar to cgs
 
-    atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
+    atmospheric_densities = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures=pressures_cgs,
         reference_gravity=reference_gravity,

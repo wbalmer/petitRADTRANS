@@ -3,7 +3,7 @@ JAX implementation of fortran_core.physics
 """
 import jax.numpy as jnp
 import warnings
-from jax import jit, vmap, lax
+from jax import jit, vmap, lax, debug
 from functools import partial
 
 import petitRADTRANS.physical_constants as cst
@@ -165,9 +165,11 @@ def compute_planck_function_integral(temperatures, frequencies):
         warnings.warn("Frequencies are not in descending order. This may lead to incorrect results.")
         return _compute_planck_function_integral(temperatures, jnp.flip(frequencies))
     return lax.cond(
-        frequencies[1] > frequencies[0],
-        lambda: reverse_frequencies(temperatures, frequencies),
-        lambda: _compute_planck_function_integral(temperatures, frequencies)
+        frequencies[1] < frequencies[0],
+        _compute_planck_function_integral,
+        reverse_frequencies,
+        temperatures,
+        frequencies
     )
 
 

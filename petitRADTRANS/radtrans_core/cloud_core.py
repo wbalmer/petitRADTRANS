@@ -91,7 +91,6 @@ def compute_turbulent_settling_speed(
         lambda _: turbulent_settling_speed_ret,
         None
     )
-
     return turbulent_settling_speed_ret
 
 

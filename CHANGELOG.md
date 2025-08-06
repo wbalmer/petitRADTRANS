@@ -4,13 +4,21 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a5] - 2024-10-24
+## [4.0.0a6] - 2025-08-06
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables 
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs. 
 Version 4.0 is still experimental, and should not be used for production work!
-As of version 4.0.0a3 most functionality should "work". Tests still fail, but most results are correct
-to within 1%.
+As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct
+to within <0.01%.
+
+### TODO
+- Finish reimplementing contribution functions.
+- Fix opacity shape bug in radtrans.py (mostly affects smart_clear_opacities when swapping elements).
+- Feautrier is only accurate to 0.01% (relative). Should be better numerically.
+- Finish updating retrieval module.
+- Finish implementing hansen cloud opacities
+- Still a small bug with the calculating cloud/scattering opacities.
 
 ### Changed
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.

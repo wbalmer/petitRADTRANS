@@ -1287,6 +1287,7 @@ class Radtrans:
             # TODO investigate bug with scattering and low VMR near surface
             # Only use 0 index for species because for lbl or test_ck_shuffle_comp = True
             # everything has been moved into the 0th index
+            
             flux, emission_contribution = self._compute_feautrier_radiative_transfer(
                 frequency_bins_edges=self._frequency_bins_edges,
                 temperatures=temperatures,
@@ -1501,8 +1502,9 @@ class Radtrans:
             _cloud_scattering_opacities = None
 
         if len(complete_coverage_clouds) > 0:
-            cloud_absorption_opacities = cloud_absorption_opacities.at[1].set(_cloud_absorption_opacities)
-            cloud_scattering_opacities = cloud_absorption_opacities.at[1].set(_cloud_scattering_opacities)
+            # cloud_absorption_opacities is a list
+            cloud_absorption_opacities[1] = _cloud_absorption_opacities
+            cloud_scattering_opacities[1] = _cloud_scattering_opacities
         else:
             cloud_absorption_opacities = _cloud_absorption_opacities
             cloud_scattering_opacities = _cloud_scattering_opacities
@@ -1791,7 +1793,6 @@ class Radtrans:
         )
         return flux, emission_contribution
 
-
     @staticmethod
     def _compute_cloud_opacities(
         pressures, temperatures, frequency_bins_edges,
@@ -1833,7 +1834,7 @@ class Radtrans:
         cloud_anisotropic_scattering_opacities = None
         _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
         _cloud_particles_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
-        atmospheric_densities = pressures / cst.kB / temperatures * mean_molar_masses * cst.amu
+        atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
 
         if continuum_opacities is None:
             continuum_opacities = jnp.zeros((frequency_bins_edges.size - 1, pressures.size), dtype=JAX_DTYPE)
@@ -1935,14 +1936,14 @@ class Radtrans:
                 )
 
             # Initialize f_seds
-            f_seds = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
+            f_seds = jnp.zeros((pressures.size,n_clouds), dtype=JAX_DTYPE)
 
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
                 if isinstance(cloud_f_sed, dict):
-                    f_seds = f_seds.at[i_spec].set(cloud_f_sed[cloud])
+                    f_seds = f_seds.at[:, i_spec].set(cloud_f_sed[cloud])
                 elif not hasattr(cloud_f_sed, '__iter__'):
-                    f_seds = f_seds.at[i_spec].set(cloud_f_sed)
-            f_seds = jnp.tile(f_seds, (pressures.size, 1))
+                    f_seds = f_seds.at[:, i_spec].set(cloud_f_sed)
+            #f_seds = jnp.tile(f_seds, (pressures.size, 1))
             
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
@@ -2051,13 +2052,7 @@ class Radtrans:
         return radiative_transfer_core.compute_species_optical_depths(reference_gravity, pressures, cloud_opacities)
 
     @staticmethod
-    def _compute_feautrier_radiative_transfer(frequency_bins_edges, temperatures, weights_gauss,
-                                              emission_cos_angle_grid, emission_cos_angle_grid_weights,
-                                              optical_depths, photon_destruction_probabilities,
-                                              emission_geometry, stellar_intensity, star_irradiation_cos_angle,
-                                              reflectances, emissivities, adaptive_feautrier_iterations, return_contribution):
-        # TODO: finish JAX implementation
-        flux, emission_contribution = radiative_transfer_core.compute_feautrier_radiative_transfer(
+    def _compute_feautrier_radiative_transfer(
             frequency_bins_edges,
             temperatures,
             weights_gauss,
@@ -2065,15 +2060,31 @@ class Radtrans:
             emission_cos_angle_grid_weights,
             optical_depths,
             photon_destruction_probabilities,
+            emission_geometry,
             stellar_intensity,
             star_irradiation_cos_angle,
             reflectances,
             emissivities,
             adaptive_feautrier_iterations,
-            emission_geometry,
-            return_contribution
-        )
+            return_contribution):
 
+        # Call the core Feautrier radiative transfer function
+        flux, emission_contribution = radiative_transfer_core.compute_feautrier_radiative_transfer(
+            frequencies_bin_edges=frequency_bins_edges,
+            temperatures=temperatures,
+            weights_gauss=weights_gauss,
+            emission_cos_angles=emission_cos_angle_grid,
+            emission_cos_angles_weights=emission_cos_angle_grid_weights,
+            optical_depths_in=optical_depths,
+            photon_destruction_probabilities_in=photon_destruction_probabilities,
+            stellar_intensity=stellar_intensity,
+            star_irradiation_cos_angle=star_irradiation_cos_angle,
+            reflectances=reflectances,
+            emissivities=emissivities,
+            adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+            emission_geometry_str=emission_geometry,
+            return_contribution=return_contribution
+        )
         return flux, emission_contribution
 
     @staticmethod
@@ -3420,8 +3431,13 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
-            # TODO figure out how to do this with JAX (may need temp arrays)
-            opacities[0][:, :, 0] = opacities[1], opacities[0][:, :, 0]
+            # opacities is a list of two elements, the first one is cloudy and the second one is clear
+            # TODO: opacities[0].shape != opacities[1].shape
+            #       this is a workaround to make it work, but it should be fixed in the future
+            opacities[0] = opacities[0].at[:, :, 0, :].set(opacities[1])
+            opacities[1] = opacities[0][:, :, 0, :]
+            # This is the original implementation
+            #opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
 
             if not return_opacities and not return_photosphere_radius:  # get rid of the now useless cloudy case
                 opacities = opacities[0]
@@ -3467,8 +3483,9 @@ class Radtrans:
 
             if return_opacities or return_photosphere_radius:
                 # Swap clear opacities with cloudy opacities
-                # TODO same as above, figure out how to swap with JAX
-                opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
+                # TODO: This probably won't work until the opacity shapes are fixed
+                opacities[0] = opacities[0].at[:, :, 0, :].set(opacities[1])
+                opacities[1] = opacities[0][:, :, 0, :]
                 _opacities = opacities[0]
                 _continuum_opacities_scattering = continuum_opacities_scattering[0]
 
@@ -4029,7 +4046,8 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
-            opacities = opacities[0].at[:, :, 0].set(opacities[1])
+            # opacities is a list of two elements, the first one is cloudy and the second one is clear
+            opacities[0] = opacities[0].at[:, :, 0].set(opacities[1])
             opacities = opacities[0]  # get rid of the now useless cloudy case
             continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
 
@@ -4300,10 +4318,10 @@ class Radtrans:
                     (clouds_particles_radii.size, cloud_wavelengths.size, len(hdf5_files)), dtype=JAX_DTYPE
                 )
 
-                clouds_particles_densities = clouds_particles_densities.at[i].set(_cloud_particles_densities)
-                clouds_absorption_opacities = clouds_absorption_opacities.at[:, :, i].set(_cloud_absorption_opacities)
-                clouds_scattering_opacities = clouds_scattering_opacities.at[:, :, i].set(_cloud_scattering_opacities)
-                clouds_asymmetry_parameters = clouds_asymmetry_parameters.at[:, :, i].set(_cloud_asymmetry_parameters)
+            clouds_particles_densities = clouds_particles_densities.at[i].set(_cloud_particles_densities)
+            clouds_absorption_opacities = clouds_absorption_opacities.at[:, :, i].set(_cloud_absorption_opacities)
+            clouds_scattering_opacities = clouds_scattering_opacities.at[:, :, i].set(_cloud_scattering_opacities)
+            clouds_asymmetry_parameters = clouds_asymmetry_parameters.at[:, :, i].set(_cloud_asymmetry_parameters)
 
             print(" Done.")
 

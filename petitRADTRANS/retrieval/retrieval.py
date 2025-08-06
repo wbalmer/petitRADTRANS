@@ -2196,7 +2196,7 @@ class Retrieval:
                 'sampling_efficiency': sampler_kwargs.pop('sampling_efficiency', 0.8),
                 'const_efficiency_mode': sampler_kwargs.pop('const_efficiency_mode', False),
                 'n_live_points': sampler_kwargs.pop('n_live_points', 400),
-                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance', 0.5,
+                'evidence_tolerance': sampler_kwargs.pop('evidence_tolerance',
                                                          sampler_kwargs.pop('log_z_convergence', 0.5)),
                 'n_iter_before_update': sampler_kwargs.pop('n_iter_before_update', 50),
                 'resume': sampler_kwargs.pop('resume', False),
