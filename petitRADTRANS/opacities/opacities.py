@@ -17,9 +17,10 @@ from petitRADTRANS.cli.prt_cli import get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 from petitRADTRANS.utils import LockedDict, list_str2str
 
-if os.environ.get("pRT_emcee_mode") == 'True':  # TODO make use of config_parser instead
-    pass
-else:
+comm = None
+rank = 0
+
+if os.environ.get("pRT_emcee_mode") != 'True':  # TODO make use of config_parser instead
     # MPI Multiprocessing
     try:
         from mpi4py import MPI
@@ -28,8 +29,6 @@ else:
         rank = comm.Get_rank()
     except ImportError:
         MPI = None
-        comm = None
-        rank = 0
 
 
 class Opacity:
@@ -96,11 +95,13 @@ class Opacity:
     _wavelength_separator: str = '-'
 
     # Patterns
+    __sl: str = '\\'  # prevent Pycharm from complaining in regex patterns
+
     _amorphous_structure_id_pattern: re.Pattern = re.compile(r'[A-Z]{1,5}')  # up to 5 capital letters
     _charge_pattern: re.Pattern = re.compile(
         r'(' + rf'({_charge_separator})?' + r'(\d{0,3})?'
         + r'['
-        + '\\' + rf'{"///".join(_charge_symbols)}'.replace('///', '\\')
+        + __sl + rf'{"///".join(_charge_symbols)}'.replace('///', '\\')
         + rf'{"".join(_charge_chars)}'
         + r'])$'
     )
@@ -115,28 +116,30 @@ class Opacity:
         + rf'\d+(\.\d+)?{_wavelength_units})?'
     )
 
+    # noinspection RegExpDuplicateAlternationBranch
     _name_pattern = re.compile(
         r'^'  # must start ...
         r'(\d{0,3}[A-Z])'  # ... with up to 3 digits or an uppercase character
         r'(\d|[A-Z]|[a-z]|'  # isotope number and element symbol (note: there is no opacities for e-)
-        + _colliding_species_separator +
-        r'(?!' + _isotope_separator + r')|'  # ensure that the separator is not repeated
-        + _isotope_separator +
-        r'(?!' + _isotope_separator + r')|'  # ensure that the separator is not repeated
-                                      r'\[|])*'  # list of isotopes and their number, can be separated by "-"
-                                      r'('  # "[" and "]" can be used as well
-        + _isotope_separator + _natural_abundance_string +  # indicate a mix of isotopologues
-        r')?'  # (natural abundance string is optional)
+        + _colliding_species_separator  # colliding species separated by "--"
+        + r'(?!' + _isotope_separator + r')|'  # ensure that the colliding species separator is not repeated ("---")
+        + _isotope_separator  # isotopes separated by "-"
+        + r'(?!' + _isotope_separator + r')|'  # ensure that the isotope separator is not repeated ("--")
+        + r'\[|]'  # "[" and "]" can be used as well
+        + r')*'  # zero or more of all the above
+        + r'('
+        + _isotope_separator + _natural_abundance_string  # natural abundance (mix of isotopologues) indicator
+        + r')?'  # (natural abundance string is optional)
         r'('  # begin charge formatting
         + _charge_separator + r'?'  # can be separated with a "_"
                               r'(\d{1,3})?'  # can have a charge number of up to 3 digits
-                              r'[' + _minus_char + _plus_char + '\\' + _minus_symbol + '\\' + _plus_symbol + r']'
-                                                                                       r')?'  # end charge formatting
-                                                                                       r'('  # begin cloud formatting
-                                                                                       r'('
+                              r'[' + _minus_char + _plus_char + __sl + _minus_symbol + __sl + _plus_symbol + r']'
+        + r')?'  # end charge formatting
+        + r'('  # begin cloud formatting
+        + r'('  # liquid cloud formatting
         + _liquid_matter_state.replace('(', r'\(').replace(')', r'\)') +  # liquid state
         r')'  # no additional information required for liquid state
-        r'|('
+        r'|('  # solid cloud formatting
         + _solid_matter_state.replace('(', r'\(').replace(')', r'\)') +  # solid state
         r')' + _solid_structure_separator +
         r'('  # for solid states, it must be specified if the solid is crystalline or amorphous
@@ -150,7 +153,7 @@ class Opacity:
         r')'  # end solid state extra info
         r')?'  # end cloud formatting (optional)
         r'(' + _source_separator + r'(\d|[A-Z]|[a-z]|-)+)?'  # source or method (optional)
-                                   r'(' + '\\' + _spectral_information_separator + '('  # begin spectral sampling type
+                                   r'(' + __sl + _spectral_information_separator + '('  # begin spectral sampling type
         + _constant_resolving_power +
         r'|'
         + _constant_delta_wavelength +
@@ -162,8 +165,8 @@ class Opacity:
         r'('  # begin wavelength range formatting
         + _wavelength_range_separator +
         r'\d+(\.\d+)?' + _wavelength_separator + rf'\d+(\.\d+)?{_wavelength_units}'  # spectral range (min-max) in um
-                                                 r')?'  # end wavelength range formatting (optional)
-                                                 r'$'  # all the string must match this pattern
+        + r')?'  # end wavelength range formatting (optional)
+        + r'$'  # all the string must match this pattern
     )
 
     # Default resolving powers
@@ -2639,7 +2642,7 @@ class CorrelatedKOpacity(Opacity):
                 rewrite=rewrite
             )
 
-            if state is None:
+            if state == 0:
                 success = True
             elif state == -1:
                 success = False
@@ -2655,7 +2658,7 @@ class CorrelatedKOpacity(Opacity):
 
     @classmethod
     def exo_k_rebin(cls, input_file: str, resolving_power: float, wavenumber_grid: ArrayLike = None,
-                    rewrite: bool = False) -> [int, None]:
+                    rewrite: bool = False) -> int:
         try:
             import exo_k
         except ImportError:
@@ -2715,6 +2718,7 @@ class CorrelatedKOpacity(Opacity):
         if comm is not None:  # wait for the main process to finish the binning down
             comm.barrier()
 
+        return 0
     @classmethod
     def from_species(
             cls,

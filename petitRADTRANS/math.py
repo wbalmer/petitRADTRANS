@@ -356,4 +356,3 @@ def sigma2bayes_factor(sigma: float) -> float:
     rho = 1 - erf(sigma / jnp.sqrt(2))
     return - 1 / (jnp.exp(1) * rho * jnp.log(rho))
 
-
