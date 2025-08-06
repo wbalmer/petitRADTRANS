@@ -362,7 +362,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
                 red_fac_aniso_integ)
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_max,
-                cloud_wavelengths[index_min],
+                cloud_wavelengths[index_max],
                 HIT_border_lamb[HIT_i_lamb + 1],
                 kappa_integ,
                 kappa_scat_integ,

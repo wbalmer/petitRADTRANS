@@ -21,6 +21,7 @@ from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 from petitRADTRANS.fortran_inputs import fortran_inputs as fin 
+from petitRADTRANS.fortran_radtrans_core import cloud_utils as fcloud_utils
 
 from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core
 from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
