@@ -167,8 +167,7 @@ def emission_model_diseq(prt_object,
     )
 
     if 'use_easychem' in parameters.keys():
-        temperatures[jnp.where(temperatures < 40.0)] = 40.0
-        temperatures[jnp.where(temperatures > 42000.0)] = 42000.0
+        temperatures = jnp.clip(temperatures, 40, 40000)
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
@@ -885,7 +884,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
     # 1.4 assemble the P-T slopes for these layers
     layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
-        layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
+        layer_pt_slopes = layer_pt_slopes.at[index].set(parameters[f'PTslope_{num_layer - index}'].value)
 
     top_of_atmosphere_presure = -3
     bottom_of_atmosphere_presure = 3
@@ -1015,7 +1014,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
     # 1.4 assemble the P-T slopes for these layers
     layer_pt_slopes = jnp.ones(num_layer) * jnp.nan
     for index in range(num_layer):
-        layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
+        layer_pt_slopes = layer_pt_slopes.at[index].set(parameters[f'PTslope_{num_layer - index}'].value)
 
     temperatures = power_law_temperature_profile(
         p_use,

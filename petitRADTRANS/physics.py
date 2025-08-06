@@ -426,13 +426,13 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
             (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
         ) ** (1 / beta_points[1])
 
-    temperatures[mask_1] = T0 + (
+    temperatures = temperatures.at[mask_1].set(T0 + (
         (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
-    ) ** (1 / beta_points[0])
-    temperatures[mask_2] = T2 + (
+    ) ** (1 / beta_points[0]))
+    temperatures = temperatures.at[mask_2].set(T2 + (
         (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
-    ) ** (1 / beta_points[1])
-    temperatures[mask_3] = T3
+    ) ** (1 / beta_points[1]))
+    temperatures = temperatures.at[mask_3].set(T3)
     return temperatures
 
 
@@ -832,9 +832,9 @@ def temperature_profile_function_ret_model(rad_trans_params):
         nab_rad = jnp.diff(jnp.log(tedd)) / jnp.diff(jnp.log(press_cgs))
         # Extend to array of same length as pressure structure
         nabla_rad = jnp.ones_like(tedd)
-        nabla_rad[0] = nab_rad[0]
-        nabla_rad[-1] = nab_rad[-1]
-        nabla_rad[1:-1] = (nab_rad[1:] + nab_rad[:-1]) / 2.
+        nabla_rad = nabla_rad.at[0].set(nab_rad[0])
+        nabla_rad = nabla_rad.at[-1].set(nab_rad[-1])
+        nabla_rad = nabla_rad.at[1:-1].set((nab_rad[1:] + nab_rad[:-1]) / 2.)
 
         # Where is the atmosphere convectively unstable?
         conv_index = nabla_rad > nabla_ad
@@ -858,7 +858,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Calculate the average nabla_ad between the layers
             nabla_ad_mean = nabla_ad
-            nabla_ad_mean[1:] = (nabla_ad[1:] + nabla_ad[:-1]) / 2.
+            nabla_ad_mean = nabla_ad_mean.at[1:].set((nabla_ad[1:] + nabla_ad[:-1]) / 2.)
             # What are the increments in temperature due to convection
             tnew = nabla_ad_mean[conv_index] * jnp.mean(jnp.diff(jnp.log(press_cgs)))
             # What is the last radiative temperature?
@@ -869,7 +869,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
             # Add upper radiative and
             # lower convective part into one single array
             tfinal = copy.copy(t_take)
-            tfinal[conv_index] = tnew
+            tfinal = tfinal.at[conv_index].set(tnew)
 
             if jnp.max(jnp.abs(t_take - tfinal) / t_take) < 0.01:
                 break
@@ -903,15 +903,15 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
             support_points = jnp.zeros(len(support_points_low) + len(support_points_high) - 1)
-            support_points[:4] = support_points_low
-            support_points[4:] = support_points_high[1:]
+            support_points = support_points.at[:4].set(support_points_low)
+            support_points = support_points.at[4:].set(support_points_high[1:])
 
         else:
-
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = jnp.logspace(jnp.log10(press_cgs[0]),
-                                             jnp.log10(p_bot_spline),
-                                             7)
+            support_points_low = jnp.logspace(
+                jnp.log10(press_cgs[0]),
+                jnp.log10(p_bot_spline),
+                7)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
@@ -920,8 +920,8 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
             support_points = jnp.zeros(len(support_points_low) + len(support_points_high) - 1)
-            support_points[:7] = support_points_low
-            support_points[7:] = support_points_high[1:]
+            support_points = support_points.at[:7].set(support_points_low)
+            support_points = support_points.at[7:].set(support_points_high[1:])
 
         # Define the temperature values at the node points.
         t_support = jnp.zeros_like(support_points)
@@ -929,32 +929,32 @@ def temperature_profile_function_ret_model(rad_trans_params):
         if i_intp == 0:
             tfintp = interp1d(press_cgs, tfinal, kind='cubic')
             # The temperature at p_bot_spline (from the radiative-convective solution)
-            t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
+            t_support = t_support.at[int(len(support_points_low)) - 1].set(tfintp(p_bot_spline))
             # The temperature at pressures below p_bot_spline (free parameters)
-            t_support[:(int(len(support_points_low)) - 1)] = t3
+            t_support = t_support.at[:(int(len(support_points_low)) - 1)].set(t3)
             # t_support[:3] = tfintp(support_points_low)
             # The temperature at pressures above p_bot_spline
             # (from the radiative-convective solution)
-            t_support[int(len(support_points_low)):] = \
+            t_support = t_support.at[int(len(support_points_low)):].set(
                 tfintp(support_points[(int(len(support_points_low))):])
-
+            )
         else:
             tfintp1 = interp1d(press_cgs, tret, kind='cubic')  # TODO possible reference before assignment
-            t_support[:(int(len(support_points_low)) - 1)] = \
+            t_support = t_support.at[:(int(len(support_points_low)) - 1)].set(
                 tfintp1(support_points[:(int(len(support_points_low)) - 1)])
-
+            )
             tfintp = interp1d(press_cgs, tfinal)
             # The temperature at p_bot_spline (from the radiative-convective solution)
-            t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
+            t_support - t_support.at[int(len(support_points_low)) - 1].set(tfintp(p_bot_spline))
             # print('diff', t_connect_calc - tfintp(p_bot_spline))
-            t_support[int(len(support_points_low)):] = \
+            t_support = t_support.at[int(len(support_points_low)):].set(
                 tfintp(support_points[(int(len(support_points_low))):])
-
+            )
         # Make the temperature spline interpolation to be returned to the user
         cs = CubicSpline(jnp.log10(support_points), t_support)
         tret = cs(jnp.log10(press_cgs))
 
-    tret[tret < 0.0] = 1.0
+    tret = jnp.where(tret < 0.0, 1.0, tret)
     # Return the temperature, the pressure at tau = 1,
     # and the temperature at the connection point.
     # The last two are needed for the priors on the P-T profile.
@@ -1032,19 +1032,18 @@ def dtdp_temperature_profile(
     pt_slopes_sub = interp_func(jnp.log10(p_use_sub))
     # 1.6 compute temperatures
     temperatures_sub = jnp.ones(num_sub) * jnp.nan
-    temperatures_sub[-1] = t_bottom
+    temperatures_sub = temperatures_sub.at[-1].set(t_bottom)
 
     # Note: higher index is lower pressure.
     for index in range(1, num_sub):
-        temperatures_sub[-1 - index] = jnp.exp(
+        temperatures_sub = temperatures_sub.at[-1 - index].set(jnp.exp(
             jnp.log(temperatures_sub[-index]) - pt_slopes_sub[-index]
             * (jnp.log(p_use_sub[-index]) - jnp.log(p_use_sub[-1 - index]))
-        )
+        ))
 
     # 1.7 isothermal in the remaining region, i.e., upper atmosphere
     temperatures = jnp.ones_like(press) * temperatures_sub[0]
-    temperatures[id_sub] = jnp.copy(temperatures_sub)
-
+    temperatures = temperatures.at[id_sub].set(temperatures_sub)
     return temperatures
 
 
