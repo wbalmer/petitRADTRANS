@@ -245,11 +245,9 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 fseds[cname] = parameters['fsed'].value
 
             abundances[cloud] = jnp.zeros_like(temperatures)
-            abundances[cloud][pressures < p_bases[cname]] = \
-                clouds[cname] * (
-                        pressures[pressures <= p_bases[cname]] / p_bases[cname]
-                ) ** fseds[cname]
-
+            abundances[cloud] = jnp.where(pressures < p_bases[cname],
+                                          clouds[cname] * (pressures / p_bases[cname]) ** fseds[cname],
+                                          0.0)
             abundances[cloud] = abundances[cloud][small_index]
 
     for species in line_species:
@@ -268,10 +266,10 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 continue
         if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
-            abunds_change_rainout = copy.copy(abundances_interp[easy_chem_name] / 2.)
+            abunds_change_rainout = abundances_interp[easy_chem_name] / 2.
             if 'Fe(c)' in p_bases.keys() and 'use_easychem' not in parameters.keys():
                 index_ro = pressures < p_bases['Fe(c)']  # Must have iron cloud
-                abunds_change_rainout[index_ro] = 0.
+                abunds_change_rainout = abunds_change_rainout.at[index_ro].set(0.)
             abundances[species] = abunds_change_rainout[small_index]
         abundances[species] = abundances_interp[easy_chem_name][small_index]
     abundances['H2'] = abundances_interp['H2'][small_index]
