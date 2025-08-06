@@ -1,5 +1,5 @@
 import numpy as np
-from jax import jit, vmap, lax
+from jax import jit, vmap, lax, debug
 import jax.numpy as jnp
 import jax.scipy.special as jsp # For gamma function
 
@@ -130,6 +130,7 @@ def compute_cloud_particles_mean_radius(
     cloud_dens_flat = jnp.tile(clouds_particles_densities, n_layers)
     temp_flat = jnp.repeat(temperatures, n_clouds)
     mean_molar_mass_flat = jnp.repeat(mean_molar_masses, n_clouds)
+
     f_sed_flat = f_seds.flatten()
     eddy_diff_flat = jnp.repeat(eddy_diffusion_coefficients, n_clouds)
 
@@ -255,7 +256,7 @@ def compute_cloud_log_normal_particles_distribution_opacities(
     diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
     dn_dr = (  # (n_radii, n_layers, n_clouds)
         n / (
-            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi) 
+            cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
             * jnp.log(cloud_particles_distribution_std)
         )
         * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
@@ -302,35 +303,30 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
     n_cloud_wavelengths, n_layers = cloud_absorption_opacities.shape
     n_frequencies_bins = frequencies_bin_edges.shape[0]
 
+    # frequency bin edges - 1 because we're interpolating to the bin centres
     clouds_final_absorption_opacities = jnp.zeros((n_frequencies_bins - 1, n_layers))
     cloud_anisotropic_extinctions = jnp.zeros((n_frequencies_bins - 1, n_layers))
     cloud_isotropic_extinctions = jnp.zeros((n_frequencies_bins - 1, n_layers))
     cloud_scattering_reduction_factor_out = jnp.zeros((n_frequencies_bins - 1, n_layers))
 
+    # Wavelengths
     HIT_border_lamb = cst.c / frequencies_bin_edges
 
     def loop_body(HIT_i_lamb, carry):
+        # Loop over every output frequency bin
         (clouds_final_absorption_opacities,
          cloud_anisotropic_extinctions,
          cloud_isotropic_extinctions,
          cloud_scattering_reduction_factor_out) = carry
 
-        intp_index_small_min = jnp.clip(
-            ((jnp.log10(HIT_border_lamb[HIT_i_lamb]) - jnp.log10(cloud_wavelengths[0])).astype(int)
-                / jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0])
-                * (n_cloud_wavelengths-1)),
-            0, n_cloud_wavelengths - 2
-            ).astype(int)
-        intp_index_small_max = jnp.clip(
-            ((jnp.log10(HIT_border_lamb[HIT_i_lamb + 1]) - jnp.log10(cloud_wavelengths[0])).astype(int)
-                / jnp.log10(cloud_wavelengths[-1] / cloud_wavelengths[0])
-                * (n_cloud_wavelengths-1)),
-            0, n_cloud_wavelengths - 2
-            ).astype(int)
+        # Find the indices of the cloud wavelengths that are closest to 
+        # the HIT border wavelengths for this bin
+        intp_index_small_min = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb]))
+        intp_index_small_max = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb+1]))
 
         def integrate_section(start_index, lambda_low, lambda_high, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
             start_index = start_index.astype(int)
-            
+            # One iteration of the integration for the opacities, scatetring and reduction factors.
             kappa_integ += integrate_opacities(
                 start_index,
                 cloud_absorption_opacities,
@@ -355,6 +351,8 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
         def integrate_twice(index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
+            # Used for the last bins
+            # Runs if (intp_index_small_max - intp_index_small_min) == 1
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_min,
                 HIT_border_lamb[HIT_i_lamb],
@@ -372,6 +370,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
         def inner_loop_body(carry):
+            # Used between the first and the last bins
             new_small_ind, kappa_integ, kappa_scat_integ, red_fac_aniso_integ = carry
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 new_small_ind,
@@ -383,6 +382,8 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
             return new_small_ind + 1, kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
         def integrate_and_loop(index_min, index_max, kappa_integ, kappa_scat_integ, red_fac_aniso_integ):
+            # Used between the first and the last bins
+            # Runs while (intp_index_small_max - intp_index_small_min) != (0 or 1)
             kappa_integ, kappa_scat_integ, red_fac_aniso_integ = integrate_section(
                 index_min,
                 HIT_border_lamb[HIT_i_lamb],
@@ -407,10 +408,12 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
                 red_fac_aniso_integ)
             return kappa_integ, kappa_scat_integ, red_fac_aniso_integ
 
+        # Initialize the arrays for the integrated values
         kappa_integ = jnp.zeros(n_layers)
         kappa_scat_integ = jnp.zeros(n_layers)
         red_fac_aniso_integ = jnp.zeros(n_layers)
 
+        # Loop over the cloud opacity wavelength bins
         kappa_integ, kappa_scat_integ, red_fac_aniso_integ = lax.cond(
             (intp_index_small_max - intp_index_small_min) == 0,
             lambda: integrate_section(
@@ -431,13 +434,12 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
                 red_fac_aniso_integ)
             )
 
+        # Normalisation to bin width
         kappa_integ = kappa_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
         kappa_scat_integ = kappa_scat_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
         red_fac_aniso_integ = red_fac_aniso_integ / (HIT_border_lamb[HIT_i_lamb + 1] - HIT_border_lamb[HIT_i_lamb])
 
-        # kappa_tot_integ = kappa_tot_integ.at[HIT_i_lamb, :].set(kappa_integ)
-        # kappa_tot_scat_integ = kappa_tot_scat_integ.at[HIT_i_lamb, :].set(kappa_scat_integ)
-
+        # Add the integrated values to the final arrays
         clouds_final_absorption_opacities = clouds_final_absorption_opacities.at[HIT_i_lamb, :].add(kappa_integ)
         cloud_anisotropic_extinctions =\
             cloud_anisotropic_extinctions.at[HIT_i_lamb, :].add(kappa_integ + (kappa_scat_integ * red_fac_aniso_integ))
@@ -457,6 +459,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
              cloud_isotropic_extinctions,
              cloud_scattering_reduction_factor_out)
 
+    # Loop over the output frequency bins
     (clouds_final_absorption_opacities,
      cloud_anisotropic_extinctions,
      cloud_isotropic_extinctions,

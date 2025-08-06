@@ -744,10 +744,7 @@ class Radtrans:
                 cloud_opacities = [cloud_opacities, None]
 
                 if opaque_cloud_top_pressure is not None:
-                    # TODO why '+=' and not '='?  # noqa E501
-                    # TODO JAXify with multiple indices
                     cloud_continuum_opacities[1] = cloud_continuum_opacities[1].at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99)  
-                    # TODO why '+=' and not '='?  # noqa E501
 
                 (cloud_continuum_opacities[1], cloud_continuum_opacities_scattering[1],
                  cloud_scattering_opacities[1], cloud_absorption_opacities[1],
@@ -1573,7 +1570,7 @@ class Radtrans:
 
         if self.__use_smart_clear_opacities:
             # Store the clear opacities
-            _opacities_clear = copy.deepcopy(opacities[:, :, 0])  # opacities of 1st species times MMR + clear continuum
+            _opacities_clear = opacities[:, :, 0]  # opacities of 1st species times MMR + clear continuum
 
             # Add cloud scattering opacities
             continuum_opacities_scattering = \
@@ -1941,10 +1938,8 @@ class Radtrans:
             for i_spec, cloud in enumerate(cloud_species_mass_fractions):
                 if isinstance(cloud_f_sed, dict):
                     f_seds = f_seds.at[:, i_spec].set(cloud_f_sed[cloud])
-                elif not hasattr(cloud_f_sed, '__iter__'):
+                else: # or array with length of number of atmospheric layers, or scalar.
                     f_seds = f_seds.at[:, i_spec].set(cloud_f_sed)
-            #f_seds = jnp.tile(f_seds, (pressures.size, 1))
-            
             # Calculate cloud_particles_mean_radii then cloud opacities
             if cloud_particles_radius_distribution == "lognormal":
                 _cloud_particles_mean_radii = cloud_core.compute_cloud_particles_mean_radius(
