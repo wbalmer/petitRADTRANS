@@ -2,6 +2,7 @@ import numpy as np
 from jax import jit, vmap, lax, debug
 import jax.numpy as jnp
 import jax.scipy.special as jsp # For gamma function
+from jax.scipy.ndimage import map_coordinates
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans_core.radiative_transfer_core import integrate_opacities
@@ -296,6 +297,59 @@ def compute_cloud_log_normal_particles_distribution_opacities(
 
 @jit
 def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opacities,
+                                cloud_scattering_reduction_factor, cloud_wavelengths,
+                                frequencies_bin_edges):
+    #TODO: just read in wavelength centers
+    edges_wlen = cst.c/frequencies_bin_edges * 1e4
+    bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen)/2.0  # nm
+
+    transformed_wavelength_coords = (((bin_centers - cloud_wavelengths[0])/cloud_wavelengths[-1]) 
+                                     * cloud_wavelengths.shape[0]).astype(int)
+    pressure_coords = jnp.linspace(
+        0,
+        cloud_absorption_opacities.shape[1]-1,
+        cloud_absorption_opacities.shape[1]
+        )
+    coordinate_grid = jnp.meshgrid(
+        transformed_wavelength_coords,
+        pressure_coords,
+        indexing='ij'
+        )
+
+    cloud_absorption_opacities_output = map_coordinates(
+        cloud_absorption_opacities,
+        coordinate_grid,
+        order=1,
+        mode='nearest'
+        )
+    cloud_scattering_opacities_output = map_coordinates(
+        cloud_scattering_opacities,
+        coordinate_grid,
+        order=1,
+        mode='nearest'
+        )
+    cloud_scattering_reduction_factor_output = map_coordinates(
+        cloud_scattering_reduction_factor,
+        coordinate_grid,
+        order=1,
+        mode='nearest'
+        )
+    
+    cloud_anisotropic_extinctions = (
+        cloud_absorption_opacities_output
+        + (cloud_scattering_opacities_output * cloud_scattering_reduction_factor_output)
+        )
+    cloud_isotropic_extinctions = cloud_anisotropic_extinctions + cloud_scattering_opacities_output
+
+    return (cloud_absorption_opacities_output,
+            cloud_anisotropic_extinctions,
+            cloud_scattering_reduction_factor_output,
+            cloud_isotropic_extinctions
+            )
+
+
+@jit
+def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scattering_opacities,
                                 cloud_scattering_reduction_factor, cloud_wavelengths,
                                 frequencies_bin_edges):
     """Interpolate cloud opacities to actual radiative transfer wavelength grid."""
