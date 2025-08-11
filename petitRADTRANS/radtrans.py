@@ -2005,7 +2005,6 @@ class Radtrans:
                 clouds_loaded_opacities['wavelengths'],
                 frequency_bins_edges
             )
-
         if anisotropic_cloud_scattering:
             continuum_opacities_scattering = cloud_anisotropic_extinctions - cloud_final_absorption_opacities
         else:

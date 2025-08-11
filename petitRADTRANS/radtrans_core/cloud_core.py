@@ -300,16 +300,26 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
                                 cloud_scattering_reduction_factor, cloud_wavelengths,
                                 frequencies_bin_edges):
     #TODO: just read in wavelength centers
-    edges_wlen = cst.c/frequencies_bin_edges * 1e4
+    #TODO Read in pressure coords
+
+    edges_wlen = cst.c/frequencies_bin_edges # cm
     bin_centers = edges_wlen[1:] - jnp.diff(edges_wlen)/2.0  # nm
 
-    transformed_wavelength_coords = (((bin_centers - cloud_wavelengths[0])/cloud_wavelengths[-1]) 
-                                     * cloud_wavelengths.shape[0]).astype(int)
+    def interp_index(bin_center):
+        idx = jnp.searchsorted(cloud_wavelengths, bin_center, side='left')
+        idx = jnp.clip(idx, 1, cloud_wavelengths.shape[0] - 1)
+        x0 = cloud_wavelengths[idx - 1]
+        x1 = cloud_wavelengths[idx]
+        # Linear interpolation for fractional index
+        frac = (bin_center - x0) / (x1 - x0 + 1e-30)
+        return (idx - 1) + frac
+
+    transformed_wavelength_coords = vmap(interp_index)(bin_centers)  # shape (n_bins,)
     pressure_coords = jnp.linspace(
         0,
         cloud_absorption_opacities.shape[1]-1,
-        cloud_absorption_opacities.shape[1]
-        )
+        cloud_absorption_opacities.shape[1],
+        dtype=int)
     coordinate_grid = jnp.meshgrid(
         transformed_wavelength_coords,
         pressure_coords,
