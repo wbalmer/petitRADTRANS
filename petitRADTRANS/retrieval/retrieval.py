@@ -3555,6 +3555,14 @@ class Retrieval:
                 p_use_dict[name] = parameters_use
                 sample_use_dict[name] = copy.copy(samples_use)
 
+            # Ensure that we want something to be plotted
+            _plot_indices = [value.size for value in p_plot_inds.values()]
+
+            if np.max(_plot_indices) == 0:
+                print('No parameter to be plotted, skipping corner plot...')
+
+                return fig
+
             output_file = self.get_base_figure_name() + '_corner_plot.pdf'
             # from Plotting
             fig = contour_corner(
