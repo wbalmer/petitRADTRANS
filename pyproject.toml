@@ -10,7 +10,7 @@ requires = [
 
 [project]
 name = "petitRADTRANS"
-version = "3.2.1a2"
+version = "3.2.1a3"
 description = "Exoplanet spectral synthesis tool for retrievals"
 authors = [
     {name = "Paul Mollière", email = "molliere@mpia.de"},
