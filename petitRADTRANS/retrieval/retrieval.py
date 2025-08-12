@@ -3559,7 +3559,11 @@ class Retrieval:
             _plot_indices = [value.size for value in p_plot_inds.values()]
 
             if np.max(_plot_indices) == 0:
-                print('No parameter to be plotted, skipping corner plot...')
+                print(
+                    "No parameter to be plotted "
+                    "(all Retrieval parameters 'plot_to_corner' attribute are set to False), "
+                    "skipping corner plot..."
+                )
 
                 return fig
 
