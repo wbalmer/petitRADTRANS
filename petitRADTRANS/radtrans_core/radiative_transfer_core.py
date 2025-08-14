@@ -386,28 +386,27 @@ vmapped_m_approximate_ng_source = vmap(
 # --- Main Feautrier Radiative Transfer JAX Function ---
 @partial(jit, static_argnames=(
     "adaptive_feautrier_iterations", "emission_geometry_str", "return_contribution",
-    "iter_scat_max", "n_iterations_min_convergence"
+    "iter_scat_max",
 ))
 def compute_feautrier_radiative_transfer(
-    frequencies_bin_edges,  # (n_frequencies_bin_edges,)
-    temperatures,           # (n_layers,)
-    weights_gauss,          # (n_g,)
-    emission_cos_angles,    # (n_angles,)
-    emission_cos_angles_weights,  # (n_angles,)
-    optical_depths_in,      # (n_g, n_freq_bins, n_layers)
-    photon_destruction_probabilities_in,  # (n_g, n_freq_bins, n_layers)
-    stellar_intensity,      # (n_freq_bins,)
-    star_irradiation_cos_angle,  # scalar
-    reflectances,           # (n_freq_bins,)
-    emissivities,           # (n_freq_bins,)
-    # Static parameters for JIT compilation
-    adaptive_feautrier_iterations: bool = False, 
-    emission_geometry_str: str = "dayside_ave",
-    return_contribution: bool = False,
-    iter_scat_max: int = 1000,
-    n_iterations_min_convergence: int = 9,  # Renamed from n_iterations_min
-    convergence_threshold: float = 1e-3
-):
+        frequencies_bin_edges,  # (n_frequencies_bin_edges,)
+        temperatures,           # (n_layers,)
+        weights_gauss,          # (n_g,)
+        emission_cos_angles,    # (n_angles,)
+        emission_cos_angles_weights,  # (n_angles,)
+        optical_depths_in,      # (n_g, n_freq_bins, n_layers)
+        photon_destruction_probabilities_in,  # (n_g, n_freq_bins, n_layers)
+        stellar_intensity,      # (n_freq_bins,)
+        star_irradiation_cos_angle,  # scalar
+        reflectances,           # (n_freq_bins,)
+        emissivities,           # (n_freq_bins,)
+        # Static parameters for JIT compilation
+        adaptive_feautrier_iterations: bool = True,
+        emission_geometry_str: str = "dayside_ave",
+        return_contribution: bool = False,
+        iter_scat_max: int = 1000,
+        convergence_threshold: float = 1e-3
+        ):
     """Computes the atmospheric emission spectrum using the Feautrier method.
 
     This function solves the radiative transfer equation for a plane-parallel
@@ -469,7 +468,7 @@ def compute_feautrier_radiative_transfer(
     # --- Constants and Precomputations ---
     n_g, n_freq_bins, n_layers = photon_destruction_probabilities_in.shape
     n_angles = emission_cos_angles.shape[0]
-    pi_4 = 4.0 * CST_PI
+    pi_4 = 4.0 * jnp.pi
     inv_del_tau_min = 1e10  # From Fortran
     inv_del_tau_min_half = inv_del_tau_min * 0.5
 
@@ -511,6 +510,15 @@ def compute_feautrier_radiative_transfer(
 
     # Clamp photon destruction probabilities
     photon_destruction_probabilities_gfl = jnp.maximum(photon_destruction_probabilities_gfl, 1e-10)
+
+    n_iterations_min_convergence = lax.cond(
+        adaptive_feautrier_iterations,
+        lambda: jnp.clip(
+            1 + jnp.max(1/photon_destruction_probabilities_gfl),
+            4,  # should do ng acceleration at least once
+            9).astype(int),
+        lambda: 9
+    )
 
     # --- 2. Planck Function Integral ---
     # planck_integral_lf: (n_layers, n_freq_bins)
@@ -712,7 +720,7 @@ def compute_feautrier_radiative_transfer(
         )
 
         # Convergence check based on relative change in total I_H at the top boundary
-        total_I_H_top_prev = jnp.sum(I_H_gfal_prev[:, :, :, 0], axis=(0, 2)) # Sum over g and angles
+        total_I_H_top_prev = jnp.sum(I_H_gfal_prev[:, :, :, 0], axis=(0, 2))  # Sum over g and angles
         total_I_H_top_current = jnp.sum(I_H_gfal_current[:, :, :, 0], axis=(0, 2))
         max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
         new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
@@ -1037,7 +1045,29 @@ def compute_radius_hydrostatic_equilibrium(
         reference_pressure,
         planet_radius,
         variable_gravity=True):
-    """Calculate the radius at hydrostatic equilibrium from the pressure grid."""
+    """
+    Calculate the radius at hydrostatic equilibrium for a planetary atmosphere.
+
+    This function integrates the hydrostatic equilibrium equation to compute the radius
+    at each atmospheric layer, given the pressure grid, atmospheric density profile,
+    reference gravity, reference pressure, and planet radius.
+
+    Args:
+        pressures (jax.Array): 1D array of atmospheric pressures in cgs units (dyne/cm^2).
+                               Shape: (n_layers,).
+        reference_gravity (float): Reference gravity in cgs units (cm/s^2).
+        atmosphere_densities (jax.Array): 1D array of atmospheric densities in cgs units (g/cm^3).
+                                          Shape: (n_layers,).
+        reference_pressure (float): Reference pressure in cgs units (dyne/cm^2).
+        planet_radius (float): Planet radius in cm.
+        variable_gravity (bool, optional): If True, gravity varies as 1/r^2 with radius.
+                                           If False, gravity is constant throughout the atmosphere.
+
+    Returns:
+        jax.Array: 1D array of radius values at each atmospheric layer in cm.
+                   Shape: (n_layers,).
+    """
+
     n_layers = pressures.shape[0]
     inv_rho = 1.0 / (atmosphere_densities + TINIEST)
     dtype = pressures.dtype
@@ -1177,14 +1207,14 @@ def compute_transit_radii(
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
     pressures_cgs = pressures * 1e6  # bar to cgs
-    reference_pressure = reference_pressure * 1e6  # bar to cgs
+    reference_pressure_cgs = reference_pressure * 1e6  # bar to cgs
 
     atmospheric_densities = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures=pressures_cgs,
         reference_gravity=reference_gravity,
         atmosphere_densities=atmospheric_densities,
-        reference_pressure=reference_pressure,
+        reference_pressure=reference_pressure_cgs,
         planet_radius=planet_radius,
         variable_gravity=variable_gravity
     )
@@ -1234,7 +1264,7 @@ def compute_transit_radii(
     transparencies = lax.cond(
         weights_gauss.size == 1,
         lambda: transparencies[0],
-        lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
+        lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss)
         )
 
     transparencies = jnp.swapaxes(transparencies, 1, 0)  # (species, frequencies, levels)
@@ -1308,28 +1338,24 @@ def compute_transit_radii_summed(
     # Calculate planetary radius in hydrostatic equilibrium, using the atmospheric structure
     # (temperature, pressure, mmw), gravity, reference pressure and radius.
     pressures_cgs = pressures * 1e6  # bar to cgs
-    reference_pressure = reference_pressure * 1e6  # bar to cgs
+    reference_pressure_cgs = reference_pressure * 1e6  # bar to cgs
 
     atmospheric_densities = pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures
     radius_hydrostatic_equilibrium = compute_radius_hydrostatic_equilibrium(
         pressures=pressures_cgs,
         reference_gravity=reference_gravity,
         atmosphere_densities=atmospheric_densities,
-        reference_pressure=reference_pressure,
+        reference_pressure=reference_pressure_cgs,
         planet_radius=planet_radius,
         variable_gravity=variable_gravity
     )
 
     is_negative_condition = radius_hydrostatic_equilibrium < 0.
-    first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.) # Index of first True
+    first_non_negative_idx = jnp.argmax(radius_hydrostatic_equilibrium >= 0.)  # Index of first True
     replacement_value = radius_hydrostatic_equilibrium[first_non_negative_idx]
     radius_hydrostatic_equilibrium = jnp.where(is_negative_condition, replacement_value, radius_hydrostatic_equilibrium)
 
     # Calculate the density
-    # TODO: replace values here with cst.amu and cst.kB.
-    # Currently it is kept at the values of the Fortran implementation, such that
-    # unit tests are still being passed.
-    # cst.amu        # cst.kB  # the Fortran values are different from the cst values
     rho = (pressures_cgs * mean_molar_masses * cst.amu / cst.kB / temperatures)
 
     # Bring continuum scattering opacities in right shape for matrix operations later.
@@ -1365,17 +1391,19 @@ def compute_transit_radii_summed(
     # Calculate transmittances (exp(-optical_depths), out is used for in-place calculations to reduce memory usage)
     transparencies = jnp.exp(-1 * transparencies)
 
-    transparencies = lax.cond(weights_gauss.size == 1,
-                                lambda: transparencies[0],
-                                lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
-                                )
+    transparencies = lax.cond(
+        weights_gauss.size == 1,
+        lambda: transparencies[0],
+        lambda: jnp.einsum('ijkl,i', transparencies, weights_gauss, optimize=True)
+        )
 
     transparencies = jnp.swapaxes(transparencies, 1, 0)  # (species, frequencies, levels)
 
-    transparencies = lax.cond(transparencies.shape[0] == 1,
-                                lambda: transparencies[0],
-                                lambda: jnp.prod(transparencies, axis=0)
-                                )
+    transparencies = lax.cond(
+        transparencies.shape[0] == 1,
+        lambda: transparencies[0],
+        lambda: jnp.prod(transparencies, axis=0)
+        )
 
     # Calculate transparencies (1 - transmittances)
     transparencies *= -1

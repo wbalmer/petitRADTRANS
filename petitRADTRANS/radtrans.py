@@ -643,9 +643,8 @@ class Radtrans:
 
         # Add opaque cloud deck opacity
         if opaque_cloud_top_pressure is not None:
-            # TODO why '+=' and not '='?  # noqa E501
             cloud_continuum_opacities = \
-                cloud_continuum_opacities.at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99) 
+                cloud_continuum_opacities.at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99)
 
         # Add power law opacity
         if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
@@ -728,7 +727,6 @@ class Radtrans:
                 continuum_opacities=cloud_continuum_opacities,
                 return_cloud_contribution=return_cloud_contribution
             )
-            
 
             # Opacities with only the clouds with complete coverage (will be treated as standard continuum opacities)
             if len(complete_coverage_clouds) > 0:
@@ -1395,19 +1393,19 @@ class Radtrans:
                 (self._pressures.size, 1), dtype=JAX_DTYPE)
 
         # Fill line mass fraction dictionary with provided mass fraction dictionary
-        for i_spec in range(len(self._line_species)):
+        for i_spec, species in enumerate(self._line_species):
             # Check if user provided the detailed line absorber name or if line absorber name should be matched exactly
-            if self._line_species[i_spec] in mass_fractions:
+            if species in mass_fractions:
                 line_species_mass_fractions = \
-                    line_species_mass_fractions.at[:, i_spec].set(mass_fractions[self._line_species[i_spec]])
+                    line_species_mass_fractions.at[:, i_spec].set(mass_fractions[species])
             else:
-                default_species, spectral_info = Opacity.split_species_spectral_info(self._line_species[i_spec])
+                default_species, spectral_info = Opacity.split_species_spectral_info(species)
 
                 if default_species in mass_fractions:
                     line_species_mass_fractions = \
                         line_species_mass_fractions.at[:, i_spec].set(mass_fractions[default_species])
                 else:
-                    raise ValueError(f"line species '{self._line_species[i_spec]}' not found in mass fractions dict "
+                    raise ValueError(f"line species '{species}' not found in mass fractions dict "
                                      f"(listed species: {list(mass_fractions.keys())}")
 
         # Continuum opacities
@@ -1896,9 +1894,10 @@ class Radtrans:
                         clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
             else:
+                #TODO: Implement hansen cloud opas
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    cloud_core.compute_cloud_hansen_opacities(
+                    fcore.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
                         _cloud_species_mass_fractions,
@@ -1980,9 +1979,10 @@ class Radtrans:
                     eddy_diffusion_coefficients
                 )
 
+                #TODO: Implement hansen cloud opas
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    radiative_transfer_core.compute_cloud_hansen_opacities(
+                    fcore.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
                         _cloud_species_mass_fractions,
@@ -1998,7 +1998,7 @@ class Radtrans:
         # Take into account anisotropy (= 1 - asymmetry_parameter)
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
          cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
-            cloud_core.interpolate_cloud_opacities(
+            fcore.interpolate_cloud_opacities(
                 clouds_total_absorption_opacities,
                 clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor,
@@ -2080,6 +2080,23 @@ class Radtrans:
             emission_geometry_str=emission_geometry,
             return_contribution=return_contribution
         )
+
+        """flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
+            frequency_bins_edges,
+            temperatures,
+            weights_gauss,
+            emission_cos_angle_grid,
+            emission_cos_angle_grid_weights,
+            optical_depths,
+            photon_destruction_probabilities,
+            emission_geometry,
+            stellar_intensity,
+            star_irradiation_cos_angle,
+            reflectances,
+            emissivities,
+            adaptive_feautrier_iterations,
+            return_contribution
+        )"""
         return flux, emission_contribution
 
     @staticmethod
@@ -2245,15 +2262,17 @@ class Radtrans:
         return optical_depths, photon_destruction_probabilities
 
     @staticmethod
-    def _compute_optical_depths_wrapper(pressures,
-                                        reference_gravity,
-                                        opacities,
-                                        continuum_opacities_scattering,
-                                        scattering_in_emission,
-                                        sum_opacities,
-                                        photospheric_cloud_optical_depths=None,
-                                        absorber_present=True,
-                                        **custom_cloud_parameters):
+    def _compute_optical_depths_wrapper(
+            pressures,
+            reference_gravity,
+            opacities,
+            continuum_opacities_scattering,
+            scattering_in_emission,
+            sum_opacities,
+            photospheric_cloud_optical_depths=None,
+            absorber_present=True,
+            **custom_cloud_parameters
+        ):
         optical_depths = jnp.zeros(opacities.shape, dtype=JAX_DTYPE)
         photon_destruction_probabilities = None
         relative_cloud_scaling_factor = None
@@ -2476,7 +2495,6 @@ class Radtrans:
 
         return jnp.tile(power_law_opacities, (n_layers, 1)).T  # (p, wavelengths)
 
-
     @staticmethod
     def _compute_rayleigh_scattering_opacities(
         rayleigh_species, pressures, temperatures, mass_fractions, mean_molar_masses, frequencies, haze_factor=1.0
@@ -2512,7 +2530,6 @@ class Radtrans:
     @staticmethod
     def _compute_rosseland_opacities(frequency_bins_edges, temperatures, weights_gauss,
                                      opacities, continuum_opacities_scattering, scattering_in_emission):
-        # TODO test implementation, should this function be in radiative_transfer_core or physics_core?
         opacities_rosseland = physics_core.compute_rosseland_opacities(
             opacities[:, :, 0, :],
             temperatures,
@@ -2534,7 +2551,7 @@ class Radtrans:
             radiative_transfer_core.compute_transmission_spectrum_contribution(
                 opacities,
                 temperatures,
-                pressures,
+                pressures * 1e-6,
                 reference_gravity,
                 mean_molar_masses,
                 reference_pressure,
@@ -2815,6 +2832,59 @@ class Radtrans:
 
         return frequencies, frequency_bins_edges
     
+    """@staticmethod
+    def _interpolate_cia(
+        collision_dict, combined_mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
+    ):
+        Interpolate CIA cross-sections onto the Radtrans (wavelength, temperature) grid and convert it into
+        opacities.
+
+        Args:
+            combined_mass_fractions: combined mass fractions of the colliding species
+                e.g., for H2-He and an atmosphere with H2 and He MMR of respectively 0.74 and 0.24,
+                combined_mas_fractions = 0.74 * 0.24
+                combined_mas_fractions is divided by the combined weight (e.g. for H2 and He, 2 * 4 AMU^2), so there is
+                no units issue.
+
+        Returns:
+            A (wavelength, temperature) array containing the CIA opacities.
+        
+        factor = (
+            combined_mass_fractions / collision_dict['weight']
+            * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+        )
+
+        log10_alpha = np.log10(collision_dict['alpha'])
+
+        if collision_dict['temperature'].shape[0] > 1:
+            # Interpolation on temperatures for each wavelength point
+            interpolating_function = interp1d(
+                x=collision_dict['temperature'],
+                y=log10_alpha,
+                kind='linear',
+                bounds_error=False,
+                fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
+            )
+
+            cia_opacities = np.exp(interpolating_function(temperatures) * np.log(10))
+
+            interpolating_function = interp1d(
+                x=collision_dict['lambda'],
+                y=cia_opacities,
+                kind='linear',
+                bounds_error=False,
+                fill_value=sys.float_info.min,
+                axis=0
+            )
+
+            cia_opacities = interpolating_function(frequency2wavelength(frequencies))
+            cia_opacities[cia_opacities < sys.float_info.min] = 0
+
+            return cia_opacities * factor
+        else:
+            raise ValueError(f"petitRADTRANS require a rectangular CIA table, "
+                             f"table shape was {collision_dict['temperature'].shape}")"""
+        
     @staticmethod
     def _interpolate_cia(
         collision_dict, combined_mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
@@ -2837,9 +2907,10 @@ class Radtrans:
         binned_temperatures = jnp.array(collision_dict['temperature'], dtype=JAX_DTYPE)
         binned_wavelengths = jnp.array(collision_dict['lambda'], dtype=JAX_DTYPE)
 
-        
-        factor = combined_mass_fractions / weights \
+        factor = (
+            combined_mass_fractions / weights
             * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
+        )
 
         log10_alpha = jnp.log10(alphas)
 
@@ -2859,8 +2930,6 @@ class Radtrans:
         cia_opacities = jnp.where(cia_frequency_interpolated < sys.float_info.min, 0, cia_frequency_interpolated)
 
         return cia_opacities * factor
-
-
 
     @staticmethod
     def _interpolate_species_opacities(
@@ -3615,9 +3684,8 @@ class Radtrans:
             reference_gravity=reference_gravity,
             atmosphere_densities=atmospheric_densities,
             reference_pressure=self._pressures[-1],
-            planet_radius=planet_radius
+            planet_radius=planet_radius,
         )
-
 
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
 
