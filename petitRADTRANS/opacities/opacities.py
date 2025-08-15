@@ -509,7 +509,7 @@ class Opacity:
                                           f"(sampling: {file_sampling}, range: {file_range})")
 
                         # Add the current file to the filename matches if the conditions apply
-                        if _filename in _file:
+                        if _file.startswith(_filename):
                             if filename_source != '':
                                 if filename_source != file_source:
                                     continue
