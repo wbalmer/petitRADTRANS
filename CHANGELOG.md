@@ -4,11 +4,13 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.1a3] - 2025-08-11
+## [3.2.1a4] - 2025-08-15
 ### Fixed
 - Crash when rebinning line opacities if `mpi4py` is not installed.
 - Crash when rebinning line opacities when `emcee` mode is activated ([issue 119](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/119)).
 - Confusing error message when using function `retrieval.plot_corner` with no parameter ([issue 120](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/120)).
+- Incorrect behaviour: loading opacities with a species name matching multiple opacity files always results in trying to load the default species file, if it exists.
+- Opacity files with invalid name starts can be considered valid.
 
 ## [3.2.0] - 2025-05-30
 ### Added
