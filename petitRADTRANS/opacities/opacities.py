@@ -360,7 +360,7 @@ class Opacity:
         return isotope_groups
 
     @staticmethod
-    def __single_separator_split(string: str, separator: str, value_error_message: str = None) -> (str, str):
+    def __single_separator_split(string: str, separator: str, value_error_message: str = None) -> tuple[str, str]:
         _split = string.split(separator, 1)
 
         if len(_split) == 1:
@@ -376,7 +376,7 @@ class Opacity:
 
     @classmethod
     def _before_write(cls, temperature_grid_type: str, molar_mass: float, species_name: str | tuple[str, ...],
-                      date_id: str) -> ([float, npt.NDArray[float]], str):
+                      date_id: str) -> tuple[float | npt.NDArray[float], str]:
         from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
         if temperature_grid_type not in cls._temperature_grid_types:
@@ -403,7 +403,7 @@ class Opacity:
     @classmethod
     def _init_species_name_elements(
             cls, name: str, species: str, natural_abundance: str, charge: str
-    ) -> (str, bool, int):
+    ) -> tuple[str, bool, int]:
         name = cls.modify_isotope_numbers(
             species=name,
             mode='add',
@@ -554,9 +554,11 @@ class Opacity:
                 if len(matching_files) == 0:
                     if display_other_files:
                         files_str = "\n".join(files)
-                        warnings.warn(f"no file matching name '{filename}' found in directory '{full_path}'\n"
-                                      f"Available files are:\n"
-                                      f"{files_str}")
+                        warnings.warn(
+                            f"no file matching name '{filename}' found in directory '{full_path}'\n"
+                            f"Available files are:\n"
+                            f"{files_str}"
+                        )
 
                     return []
                 elif len(matching_files) == 1:
@@ -1165,7 +1167,7 @@ class Opacity:
             isotope_pattern: str = None,
             natural_abundance_string: str = None,
             colliding_species_separator: str = None
-    ) -> (str, str, str, str):
+    ) -> tuple[str, str, str, str]:
         if isotope_separator is None:
             isotope_separator = cls._isotope_separator
 
@@ -1511,8 +1513,6 @@ class Opacity:
 
                 if mode == 'remove':
                     return species
-            else:
-                raise ValueError(f"iter isotopes mode must be 'add'|'remove', but was '{mode}'")
 
         # Handle regular case
         colliding_species = species.split(colliding_species_separator)  # CIA case
@@ -1557,7 +1557,7 @@ class Opacity:
         )
 
     @classmethod
-    def split_cloud_info(cls, cloud_info: str) -> (str, str, str):
+    def split_cloud_info(cls, cloud_info: str) -> tuple[str, str, str]:
         if ')' not in cloud_info:
             raise ValueError(
                 f"no matter state found in cloud info '{cloud_info}'; "
@@ -1644,7 +1644,7 @@ class Opacity:
         return name, natural_abundance, charge, cloud_info, source, spectral_info
 
     @classmethod
-    def split_species_charge(cls, species: str, replace_symbol_with_char: bool = False) -> (str, str):
+    def split_species_charge(cls, species: str, replace_symbol_with_char: bool = False) -> tuple[str, str]:
         # Extract charge symbol
         charge_pattern_match = re.findall(cls._charge_pattern, species)
         charge = ''
@@ -1674,7 +1674,7 @@ class Opacity:
         return name, charge
 
     @staticmethod
-    def split_species_cloud_info(species: str) -> (str, str):
+    def split_species_cloud_info(species: str) -> tuple[str, str]:
         cloud_info = ''
         _split = species.split('(', 1)
 
@@ -1687,7 +1687,7 @@ class Opacity:
         return name, cloud_info
 
     @classmethod
-    def split_species_source(cls, species: str) -> (str, str):
+    def split_species_source(cls, species: str) -> tuple[str, str]:
         _split = species.split(cls._source_separator, 1)
 
         if len(_split) == 1:
@@ -1699,7 +1699,7 @@ class Opacity:
         return name, source
 
     @classmethod
-    def split_species_spectral_info(cls, species: str) -> (str, str):
+    def split_species_spectral_info(cls, species: str) -> tuple[str, str]:
         _split = species.split(cls._spectral_information_separator, 1)
 
         if len(_split) == 1:
@@ -1711,7 +1711,7 @@ class Opacity:
         return name, spectral_info
 
     @classmethod
-    def split_spectral_sampling_info(cls, spectral_sampling_info: str) -> (str, str):
+    def split_spectral_sampling_info(cls, spectral_sampling_info: str) -> tuple[str, str]:
         spectral_sampling_type = None
         spectral_sampling_value = None
 
@@ -1729,7 +1729,7 @@ class Opacity:
         return spectral_sampling_type, spectral_sampling_value
 
     @classmethod
-    def split_spectral_info(cls, spectral_info: str) -> (str, str):
+    def split_spectral_info(cls, spectral_info: str) -> tuple[str, str]:
         _split = spectral_info.split(cls._wavelength_range_separator, 1)
 
         if len(_split) == 1:
@@ -1741,7 +1741,7 @@ class Opacity:
         return spectral_sampling_info, wavelength_range_info
 
     @classmethod
-    def split_wavelength_range_info(cls, wavelength_range_info: str) -> (str, str):
+    def split_wavelength_range_info(cls, wavelength_range_info: str) -> tuple[str, str]:
         _split = wavelength_range_info.split(cls._wavelength_separator, 1)
 
         if len(_split) == 1:
@@ -2038,7 +2038,7 @@ class CloudOpacity(Opacity):
     _default_resolving_power: float = Opacity._default_cloud_resolving_power
     _default_wavelength_range: tuple[float, float] = (0.1, 250.0)
 
-    _default_file_names: LockedDict[str, str] = LockedDict.build_and_lock({
+    _default_file_names: LockedDict = LockedDict.build_and_lock({
         'Al2O3(s)_crystalline': 'Al2-O3-NatAbund(s)_crystalline_000.R39_0.1-250mu',
         'Fe(s)_amorphous': 'Fe-NatAbund(s)_amorphous.R39_0.1-250mu',
         'Fe(s)_crystalline': 'Fe-NatAbund(s)_crystalline_000.R39_0.1-250mu',
@@ -2692,8 +2692,8 @@ class CorrelatedKOpacity(Opacity):
                 species=species,
                 spectral_sampling_type='R',
                 spectral_sampling=resolving_power,
-                wavelength_min=wavelength_min,
-                wavelength_max=wavelength_max,
+                wavelength_min=float(wavelength_min),
+                wavelength_max=float(wavelength_max),
                 category=cls._default_category
             )
 
