@@ -2,6 +2,7 @@
 JAX implementation of fortran_core.core
 - rayleigh scattering moved to jax_rayleigh_scattering
 """
+import sys
 import jax.numpy as jnp
 from jax import config, jit, vmap, lax, ShapeDtypeStruct, pure_callback, debug
 from jax.typing import ArrayLike
@@ -725,6 +726,12 @@ def compute_feautrier_radiative_transfer(
         max_rel_change = jnp.max(1 - total_I_H_top_prev / total_I_H_top_current)
         new_converged_flag = (iter_idx > n_iterations_min_convergence) &\
             (max_rel_change < convergence_threshold)
+
+        debug.print("Iteration {}", iter_idx)
+        debug.print("r_gfal {}", r_gfal)
+        debug.print("new_I_plus_surface_gfa {}", new_I_plus_surface_gfa)
+        debug.print("total_I_H_top_current {}", total_I_H_top_current)
+        debug.print("final_updated_source_gfl {}", final_updated_source_gfl)
 
         # Update loop state
         next_loop_state = (final_updated_source_gfl, new_I_plus_surface_gfa, I_H_gfal_current,
