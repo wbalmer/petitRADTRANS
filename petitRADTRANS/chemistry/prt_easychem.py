@@ -3,6 +3,7 @@ import numpy as np
 
 
 def get_easychem_abundances(pressures, temperatures, line_species, cloud_species, parameters, AMR=False):
+    # TODO jit
     metallicity = None
     carbon_to_oxygen = None
 
@@ -85,6 +86,7 @@ def update_atom_abundances(atom_abundances_list, atom_name_list, parameters):
 
 
 def get_exoatmos_abundances(pressures, temperatures, parameters, AMR=False):
+    # TODO jit
     exo = parameters['exoatmos'].value
     metallicity = None
 

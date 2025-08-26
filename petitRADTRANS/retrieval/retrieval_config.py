@@ -7,8 +7,14 @@ from jax.typing import ArrayLike
 
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data, PhotometryData, TimeSeriesData
-from petitRADTRANS.retrieval.parameter import Parameter
+from petitRADTRANS.opacities.opacities import Opacity
+from petitRADTRANS.retrieval.jax_parameter import Parameter
 from petitRADTRANS.retrieval.utils import uniform_prior
+
+# Import prior distributions
+import tensorflow_probability.substrates.jax as tfp
+tfpd = tfp.distributions
+
 # MPI Multiprocessing
 rank = 0
 comm = None
@@ -51,13 +57,15 @@ class RetrievalConfig:
     def __init__(self,
                  retrieval_name: str = "retrieval_name",
                  run_mode: str = "retrieval",
+                 sampler_type='pymultinest',
                  amr: str = False,
                  scattering_in_emission: bool = False,
                  pressures: ArrayLike | None = None):
 
         self.retrieval_name = retrieval_name
         self.run_mode = run_mode
-
+        self.sampler_type = sampler_type
+        
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
 
@@ -136,7 +144,17 @@ class RetrievalConfig:
 
         return self.amr_pressure
 
-    def add_parameter(self, name, free, value=None, transform_prior_cube_coordinate=None):
+    def add_parameter(
+            self,
+            name,
+            is_free_parameter,
+            value=None,
+            distribution=None,
+            plot_in_corner=False,
+            corner_ranges=None,
+            corner_transform=None,
+            transform_prior_cube_coordinate=None,
+            corner_label=None):
         """
         This function adds a Parameter (see parameter.py) to the dictionary of parameters. A Parameter
         has a name and a boolean parameter to set whether it is a free or fixed parameter during the retrieval.
@@ -155,8 +173,17 @@ class RetrievalConfig:
                 Typically given as a lambda function.
         """
 
-        self.parameters[name] = Parameter(name, free, value,
-                                          transform_prior_cube_coordinate=transform_prior_cube_coordinate)
+        self.parameters[name] = Parameter(
+            name=name,
+            is_free_parameter=is_free_parameter,
+            value=value,
+            distribution=distribution,
+            plot_in_corner=plot_in_corner,
+            corner_ranges=corner_ranges,
+            corner_transform=corner_transform,
+            transform_prior_cube_coordinate=transform_prior_cube_coordinate,
+            corner_label=corner_label
+            )
 
     @staticmethod
     def list_available_line_species():
@@ -214,7 +241,12 @@ class RetrievalConfig:
 
         return files
 
-    def set_line_species(self, line_species, use_equilibrium_chemistry=False, free_mass_fraction_limits=(-6.0, -0.5)):
+    def set_line_species(
+            self,
+            line_species,
+            use_equilibrium_chemistry=False,
+            free_mass_fraction_limits=(-6.0, -0.5),
+            plot_in_corner=True):
         """
         Set RadTrans.line_species
 
@@ -247,18 +279,32 @@ class RetrievalConfig:
         self.line_species = line_species
 
         if not use_equilibrium_chemistry:
-            for spec in self.line_species:
-                spec = spec.split('.', 1)[0]  # remove possible previous spectral info
+            for species in self.line_species:
+                species_info = Opacity.split_species_all_info(species)
+                species_name = species_info[0]  # remove possible previous spectral info
 
-                self.parameters[spec] = Parameter(
-                    spec,
-                    True,
-                    transform_prior_cube_coordinate=lambda x: uniform_prior(
-                        x,
-                        free_mass_fraction_limits[0],
-                        free_mass_fraction_limits[1]
-                        )
-                )
+                if self.sampler_type == 'pymultinest':
+                    self.parameters[species] = Parameter(
+                        name=species,
+                        is_free_parameter=True,
+                        transform_prior_cube_coordinate=lambda x: uniform_prior(
+                            x,
+                            free_mass_fraction_limits[0],
+                            free_mass_fraction_limits[1]
+                            ),
+                        plot_in_corner=plot_in_corner,
+                        corner_label=species_name,
+                        corner_ranges=free_mass_fraction_limits
+                    )
+                else:
+                    self.parameters[species] = Parameter(
+                        name=species,
+                        is_free_parameter=True,
+                        distribution=tfpd.Uniform(low=free_mass_fraction_limits[0], high=free_mass_fraction_limits[1]),
+                        plot_in_corner=plot_in_corner,
+                        corner_label=species_name,
+                        corner_ranges=free_mass_fraction_limits
+                    )
 
     def set_rayleigh_species(self, rayleigh_species):
         """
@@ -282,7 +328,15 @@ class RetrievalConfig:
 
         self.continuum_opacities = continuum_opacities
 
-    def add_line_species(self, species, use_equilibrium_chemistry=False, free_mass_fraction_limits=(-6.0, -0.5), fixed_mass_fraction_value=None):
+    def add_line_species(
+            self,
+            species,
+            use_equilibrium_chemistry=False,
+            free_mass_fraction_limits=(-6.0, -0.5),
+            fixed_mass_fraction_value=None,
+            plot_in_corner=True,
+            corner_label=None,
+            corner_ranges=None):
         """
         This function adds a single species to the pRT object that will define the line opacities of the model.
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
@@ -315,18 +369,41 @@ class RetrievalConfig:
 
         self.line_species.append(species)
         if not use_equilibrium_chemistry:
+            species_info = Opacity.split_species_all_info(species)
+            species_name = species_info[0]  # remove possible previous spectral info
+            if corner_label is None:
+                corner_label = species_name
+            if corner_ranges is None:
+                corner_ranges = free_mass_fraction_limits
             if fixed_mass_fraction_value is not None:
-                self.parameters[species] = Parameter(species, False,
-                                                     value=fixed_mass_fraction_value)
-            else:
                 self.parameters[species] = Parameter(
                     species,
-                    True,
-                    transform_prior_cube_coordinate=lambda x: uniform_prior(
-                        x,
-                        free_mass_fraction_limits[0],
-                        free_mass_fraction_limits[1])
-                )
+                    False,
+                    value=fixed_mass_fraction_value,
+                    plot_in_corner=False)
+            else:
+                if self.sampler_type == 'pymultinest':
+                    self.parameters[species] = Parameter(
+                        name=species,
+                        is_free_parameter=True,
+                        transform_prior_cube_coordinate=lambda x: uniform_prior(
+                            x,
+                            free_mass_fraction_limits[0],
+                            free_mass_fraction_limits[1]
+                            ),
+                        plot_in_corner=plot_in_corner,
+                        corner_label=corner_label,
+                        corner_ranges=corner_ranges
+                    )
+                else:
+                    self.parameters[species] = Parameter(
+                        name=species,
+                        is_free_parameter=True,
+                        distribution=tfpd.Uniform(low=free_mass_fraction_limits[0], high=free_mass_fraction_limits[1]),
+                        plot_in_corner=plot_in_corner,
+                        corner_label=corner_label,
+                        corner_ranges=corner_ranges
+                    )
 
     def remove_species_lines(self, species, free=False):
         """
@@ -398,14 +475,25 @@ class RetrievalConfig:
         self.cloud_species.append(species)
         cname = species.split('_')[0]
         if equilbrium_mass_fraction_scaling_factor is not None:
-            self.parameters['eq_scaling_' + cname] = Parameter(
-                'eq_scaling_' + cname, True,
-                transform_prior_cube_coordinate=lambda x: uniform_prior(
-                    x,
-                    equilbrium_mass_fraction_scaling_factor[0],
-                    equilbrium_mass_fraction_scaling_factor[1]
+            if self.sampler_type == 'pymultinest':
+                self.parameters['eq_scaling_' + cname] = Parameter(
+                    'eq_scaling_' + cname,
+                    True,
+                    transform_prior_cube_coordinate=lambda x: uniform_prior(
+                        x,
+                        equilbrium_mass_fraction_scaling_factor[0],
+                        equilbrium_mass_fraction_scaling_factor[1]
+                        )
+                )
+            else:
+                self.parameters['eq_scaling_' + cname] = Parameter(
+                    'eq_scaling_' + cname,
+                    True,
+                    distribution=tfpd.Uniform(
+                        low=equilbrium_mass_fraction_scaling_factor[0],
+                        high=equilbrium_mass_fraction_scaling_factor[1]
                     )
-            )
+                )
         if not use_equilibrium_chemistry:
             if free_mass_fraction_limits[1] > 0.0:
                 raise ValueError(
@@ -413,15 +501,25 @@ class RetrievalConfig:
                 )
 
             if fixed_mass_fraction_value is None:
-                self.parameters['log_X_cb_' + cname] = Parameter(
-                    'log_X_cb_' + cname,
-                    True,
-                    transform_prior_cube_coordinate=lambda x: uniform_prior(
-                        x,
-                        free_mass_fraction_limits[0],
-                        free_mass_fraction_limits[1]
+                if self.sampler_type == 'pymultinest':
+                    self.parameters['log_X_cb_' + cname] = Parameter(
+                        'log_X_cb_' + cname,
+                        True,
+                        transform_prior_cube_coordinate=lambda x: uniform_prior(
+                            x,
+                            free_mass_fraction_limits[0],
+                            free_mass_fraction_limits[1]
+                        )
                     )
-                )
+                else:
+                    self.parameters['log_X_cb_' + cname] = Parameter(
+                        'log_X_cb_' + cname,
+                        True,
+                        distribution=tfpd.Uniform(
+                            low=free_mass_fraction_limits[0],
+                            high=free_mass_fraction_limits[1]
+                        )
+                    )
             else:
                 self.parameters['log_X_cb_' + cname] = Parameter(
                     'log_X_cb_' + cname,
@@ -431,15 +529,25 @@ class RetrievalConfig:
 
         if cloud_base_pressure_limits is not None or fixed_base_pressure_value is not None:
             if fixed_base_pressure_value is None:
-                self.parameters['log_Pbase_' + cname] = Parameter(
-                    'log_Pbase_' + cname,
-                    True,
-                    transform_prior_cube_coordinate=lambda x: uniform_prior(
-                        x,
-                        cloud_base_pressure_limits[0],
-                        cloud_base_pressure_limits[1]
+                if self.sampler_type == 'pymultinest':
+                    self.parameters['log_Pbase_' + cname] = Parameter(
+                        'log_Pbase_' + cname,
+                        True,
+                        transform_prior_cube_coordinate=lambda x: uniform_prior(
+                            x,
+                            cloud_base_pressure_limits[0],
+                            cloud_base_pressure_limits[1]
+                        )
                     )
-                )
+                else:
+                    self.parameters['log_Pbase_' + cname] = Parameter(
+                        'log_Pbase_' + cname,
+                        True,
+                        distribution=tfpd.Uniform(
+                            low=cloud_base_pressure_limits[0],
+                            high=cloud_base_pressure_limits[1]
+                        )
+                    )
             else:
                 self.parameters['log_Pbase_' + cname] = Parameter(
                     'log_Pbase_' + cname,

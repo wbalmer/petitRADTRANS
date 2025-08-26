@@ -155,6 +155,7 @@ class Retrieval:
 
         # PMN analysis 
         self.analyzer = None
+        self.sampler = None
 
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dictionary = {}
@@ -467,17 +468,19 @@ class Retrieval:
         else:  # assume that the 'parameters' argument is the list of parameters values in the correct order
             for parameter_name in configuration_parameters:
                 if configuration_parameters[parameter_name].is_free_parameter:
-                    lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
-                    upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
+                    if configuration_parameters[parameter_name].transform_prior_cube_coordinate is not None:
+                        # TODO: tfp distributions enforce this natively?
+                        lower_boundary = configuration_parameters[parameter_name].get_param_uniform(0)
+                        upper_boundary = configuration_parameters[parameter_name].get_param_uniform(1)
 
-                    if lower_boundary > upper_boundary:
-                        upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
+                        if lower_boundary > upper_boundary:
+                            upper_boundary, lower_boundary = lower_boundary, upper_boundary  # swap boundaries
 
-                    if not (lower_boundary <= parameters[i_p] <= upper_boundary):
-                        warnings.warn(
-                            f"value given for parameter '{parameter_name}' ({parameters[i_p]}) "
-                            f"is not within its prior boundaries ({lower_boundary} to {upper_boundary})"
-                        )
+                        if not (lower_boundary <= parameters[i_p] <= upper_boundary):
+                            warnings.warn(
+                                f"value given for parameter '{parameter_name}' ({parameters[i_p]}) "
+                                f"is not within its prior boundaries ({lower_boundary} to {upper_boundary})"
+                            )
 
                     configuration_parameters[parameter_name].set_param(parameters[i_p])
                     i_p += 1
@@ -654,9 +657,9 @@ class Retrieval:
 
             retrieval_configuration.add_parameter(
                 name=parameter.name,
-                free=True,  # fixed parameters must be stored within the Data.model_generating_function
+                is_free_parameter=True,  # fixed parameters must be stored within the Data.model_generating_function
                 value=None,
-                transform_prior_cube_coordinate=parameter.prior_function
+                transform_prior_cube_coordinate=parameter.prior_function,
             )
 
         # Add the data to the RetrievalConfig
@@ -702,8 +705,14 @@ class Retrieval:
             summary.write(f"pRT v{petitRADTRANS.__version__}\n")
             summary.write(self.output_directory + '\n')
             
-            #summary.write(f"Live points: {self.n_live_points}\n\n")
-            # TODO: generic sampler parameters
+            summary.write("\n")
+            summary.write("Sampler Parameters\n")
+            if self.sampler is not None:
+                summary.write(f"    sampler = {self.sampler.__class__.__name__}\n")
+            if sampler_parameters is not None:
+                for key, value in sampler_parameters.items():
+                    summary.write(f"    {key} = {value}\n")
+            summary.write("\n")
 
             summary.write("Fixed Parameters\n")
 
@@ -736,14 +745,19 @@ class Retrieval:
 
             for key, value in self.configuration.parameters.items():
                 if value.is_free_parameter:
-                    low = value.transform_prior_cube_coordinate(0.0000001)
-                    high = value.transform_prior_cube_coordinate(0.9999999)
+                    if value.transform_prior_cube_coordinate is not None:
+                        low = value.transform_prior_cube_coordinate(0.0000001)
+                        high = value.transform_prior_cube_coordinate(0.9999999)
 
-                    if value.corner_transform is not None:
-                        low = value.corner_transform(low)
-                        high = value.corner_transform(high)
+                        if value.corner_transform is not None:
+                            low = value.corner_transform(low)
+                            high = value.corner_transform(high)
+                        summary.write(f"    {key} = {low:3f}, {high:3f}\n")
 
-                    summary.write(f"    {key} = {low:3f}, {high:3f}\n")
+                    elif value.distribution is not None:
+                        summary.write(f"    {key} = {value.distribution.name}\n")
+                        for dist_param, dist_param_value in value.distribution.parameters.items():
+                            summary.write(f"        {dist_param} = {dist_param_value}\n")
 
             summary.write('\n')
             summary.write("Data\n")
@@ -1505,15 +1519,23 @@ class Retrieval:
     def get_parameters_prior_mid_range_values(self) -> npt.NDArray[float]:
         """Return the prior mid-range values of the free parameters.
         """
-        n_free_parameters = 0
-
+        cube = []
+        jaxns = False
         for parameter_name, parameter in self.configuration.parameters.items():
             if parameter.is_free_parameter:
-                n_free_parameters += 1
+                if parameter.distribution is not None:
+                    jaxns = True
+                    if parameter.distribution.name.lower() == 'uniform':
+                        cube.append((parameter.distribution.low + parameter.distribution.high) / 2.)
+                    else:
+                        cube.append(parameter.distribution.mean)
+                else:
+                    cube.append(0.5)
 
-        cube = 0.5 * np.ones(n_free_parameters)
-
-        return self.prior(cube)
+        if jaxns:
+            return cube
+        else:
+            return self.prior(cube)
 
     def get_quantile_parameters(self, quantile: float) -> dict[str, float]:
         """Return the given quantile of the retrieved parameters' posteriors.
@@ -1855,10 +1877,11 @@ class Retrieval:
         # Update model parameters with the retrieval cube drawn values
         i = 0  # free parameters enumerator
 
-        for parameter in self.configuration.parameters:
-            if self.configuration.parameters[parameter].is_free_parameter:
-                self.configuration.parameters[parameter].set_param(cube[i])
-                i += 1
+        if self.configuration.sampler_type == 'pymultinest':
+            for parameter in self.configuration.parameters:
+                if self.configuration.parameters[parameter].is_free_parameter:
+                    self.configuration.parameters[parameter].set_param(cube[i])
+                    i += 1
 
         for data_name, data in self.configuration.data.items():
             if per_datapoint:
@@ -1875,7 +1898,7 @@ class Retrieval:
             if data_name + "_b" in self.configuration.parameters.keys():
                 data.bval = self.configuration.parameters[data_name + "_b"].value
 
-            if self.pt_plot_mode and data_name == self.configuration.plot_kwargs['take_PTs_from']:
+            """if self.pt_plot_mode and data_name == self.configuration.plot_kwargs['take_PTs_from']:
                 # Get the PT profile
                 use_obj = data.radtrans_object
                 if data.external_radtrans_reference is not None:
@@ -1893,7 +1916,7 @@ class Retrieval:
 
                 return pressures, temperatures
             elif self.pt_plot_mode:
-                continue
+                continue"""
 
             if data.external_radtrans_reference is None:
                 # Compute the model
@@ -2060,9 +2083,10 @@ class Retrieval:
                 if self.evaluate_sample_spectra:
                     self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
                 else:
-                    convolved = convolve(wavelengths_model,
-                                              spectrum_model,
-                                              data.data_resolution)
+                    convolved = convolve(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.data_resolution)
                     binned = rebin_spectrum_bin(
                             wavelengths_model,
                             convolved,
@@ -2098,8 +2122,8 @@ class Retrieval:
             log_likelihood = tiny
             log_prior = 0
 
-        if self.ultranest and np.isinf(log_likelihood + log_prior):
-            return invalid_value
+        #if self.ultranest and np.isinf(log_likelihood + log_prior):
+        #    return invalid_value
 
         if not return_model:
             if self.print_log_likelihood_for_debugging:
@@ -2136,12 +2160,12 @@ class Retrieval:
         return params
 
     def prior_model_jaxns(self):
-        for key, parameter in self.configuration.parmeters.items():
+        for key, parameter in self.configuration.parameters.items():
             parameter.set_prior()
             parameter.value = yield parameter.prior_sample
-        return self.configuration.parmeters
+        return self.configuration.parameters
 
-    def run(self, sampler_type: str = "pymultinest", sampler_object: Sampler = None, **sampler_kwargs):
+    def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
         Run mode for the class. Uses pynultinest to sample parameter space
         and produce standard PMN outputs.
@@ -2156,6 +2180,7 @@ class Retrieval:
                     jaxnsshardedstaticsestedsampler - Requires JAXNS. Advanced option for JAXNS
                     ultranest - Requires ultranest. Implements.
         """
+        sampler_type = self.configuration.sampler_type
         print(f"Starting retrieval {self.configuration.retrieval_name} with {sampler_type}")
         if MPI is None and sampler_type == 'pymultinest':
             print("Unable to import mpi4py, using slow (single process) mode for pymultinest.")
@@ -2176,6 +2201,7 @@ class Retrieval:
             comm.barrier()
 
         if sampler_object is not None:
+            self.sampler = sampler_object
             self.latest_sampler_results = sampler_object.run_sampler(**sampler_kwargs)
 
         elif sampler_type.lower() == 'pymultinest':
@@ -2229,8 +2255,8 @@ class Retrieval:
                 if hasattr(analyzer, 'get_stats'):
                     statistics = analyzer.get_stats()
                     self.generate_retrieval_summary(
-                        statistics, n_live_points=pmn_args['n_live_points'],
-                        sampling_efficiency=pmn_args['sampling_efficiency']
+                        statistics,
+                        sampler_parameters=pmn_args
                     )
                 else:
                     warnings.warn("PymultinestSampler did not return a standard analyzer. Cannot generate summary.")
@@ -2245,7 +2271,7 @@ class Retrieval:
             )
             self.latest_sampler_results = sampler.run_sampler(**sampler_kwargs)
             sampler.pretty_print_results()
-        elif sampler_type.lower() == 'jaxnestedsampler':
+        elif (sampler_type.lower() == 'jaxnestedsampler') or (sampler_type.lower() == 'jaxns'):
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
             jaxns_kwargs = {
@@ -2273,6 +2299,10 @@ class Retrieval:
             )
             sampler.run_sampler(jit=jit, **jaxns_kwargs)
             self.latest_sampler_results = sampler.get_results()
+            self.generate_retrieval_summary(
+                self.latest_sampler_results,
+                sampler_parameters=jaxns_kwargs
+            )
         elif sampler_type.lower() == 'jaxnsshardedstaticsestedsampler':
             if tfp is None:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
@@ -2281,14 +2311,19 @@ class Retrieval:
             jaxns_kwargs.update(sampler_kwargs)
             sampler = JAXNSShardedStaticNestedSampler(
                 log_likelihood_func=self.log_likelihood,
-                prior_func=self.prior_model_jax,
+                prior_func=self.prior_model_jaxns,
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            sampler.run_sampler(jit=jit, **sampler_kwargs)
+            sampler.run_sampler(jit=jit, **jaxns_kwargs)
             self.latest_sampler_results = sampler.get_results()
+            self.generate_retrieval_summary(
+                self.latest_sampler_results,
+                sampler_parameters=jaxns_kwargs
+            )
         else:
             raise ValueError(f"Unknown sampler_type: {sampler_type}")
+        self.sampler = sampler
         return self.latest_sampler_results
 
     def sample_teff(self, sample_dict, param_dict, ret_names=None, nsample=None, resolution=40):

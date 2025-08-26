@@ -1581,7 +1581,6 @@ def isothermal_transmission(prt_object,
             level.
             Only the clear atmosphere contribution is returned if patchy clouds are considered.
     """
-
     p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
     reference_pressure = 100.0
 

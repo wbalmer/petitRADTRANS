@@ -19,9 +19,8 @@ from scipy.interpolate import interp1d
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
+#TODO Finish hansen
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
-from petitRADTRANS.fortran_inputs import fortran_inputs as fin 
-from petitRADTRANS.fortran_radtrans_core import cloud_utils as fcloud_utils
 
 from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core
 from petitRADTRANS.radtrans_core.rayleigh_scattering import compute_rayleigh_scattering_opacities
@@ -32,10 +31,6 @@ from petitRADTRANS.physics import (
     flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
 )
 from petitRADTRANS.utils import intersection_indices, LockedDict
-
-from petitRADTRANS.physics import (
-    flux_hz2flux_cm, frequency2wavelength, hz2um, rebin_spectrum, um2hz, wavelength2frequency
-)
 
 JAX_DTYPE = jnp.float32
 if config.jax_enable_x64:
@@ -1998,7 +1993,7 @@ class Radtrans:
         # Take into account anisotropy (= 1 - asymmetry_parameter)
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
          cloud_scattering_reduction_factor, cloud_isotropic_extinctions) = \
-            fcore.interpolate_cloud_opacities(
+            cloud_core.interpolate_cloud_opacities(
                 clouds_total_absorption_opacities,
                 clouds_total_scattering_opacities,
                 cloud_scattering_reduction_factor,
@@ -2081,22 +2076,6 @@ class Radtrans:
             return_contribution=return_contribution
         )
 
-        """flux, emission_contribution = fcore.compute_feautrier_radiative_transfer(
-            frequency_bins_edges,
-            temperatures,
-            weights_gauss,
-            emission_cos_angle_grid,
-            emission_cos_angle_grid_weights,
-            optical_depths,
-            photon_destruction_probabilities,
-            emission_geometry,
-            stellar_intensity,
-            star_irradiation_cos_angle,
-            reflectances,
-            emissivities,
-            adaptive_feautrier_iterations,
-            return_contribution
-        )"""
         return flux, emission_contribution
 
     @staticmethod
@@ -2832,58 +2811,6 @@ class Radtrans:
 
         return frequencies, frequency_bins_edges
     
-    """@staticmethod
-    def _interpolate_cia(
-        collision_dict, combined_mass_fractions, pressures, temperatures, frequencies, mean_molar_masses
-    ):
-        Interpolate CIA cross-sections onto the Radtrans (wavelength, temperature) grid and convert it into
-        opacities.
-
-        Args:
-            combined_mass_fractions: combined mass fractions of the colliding species
-                e.g., for H2-He and an atmosphere with H2 and He MMR of respectively 0.74 and 0.24,
-                combined_mas_fractions = 0.74 * 0.24
-                combined_mas_fractions is divided by the combined weight (e.g. for H2 and He, 2 * 4 AMU^2), so there is
-                no units issue.
-
-        Returns:
-            A (wavelength, temperature) array containing the CIA opacities.
-        
-        factor = (
-            combined_mass_fractions / collision_dict['weight']
-            * mean_molar_masses / cst.amu / (cst.L0 ** 2) * pressures / cst.kB / temperatures
-        )
-
-        log10_alpha = np.log10(collision_dict['alpha'])
-
-        if collision_dict['temperature'].shape[0] > 1:
-            # Interpolation on temperatures for each wavelength point
-            interpolating_function = interp1d(
-                x=collision_dict['temperature'],
-                y=log10_alpha,
-                kind='linear',
-                bounds_error=False,
-                fill_value=(log10_alpha[:, 0], log10_alpha[:, -1]), axis=1
-            )
-
-            cia_opacities = np.exp(interpolating_function(temperatures) * np.log(10))
-
-            interpolating_function = interp1d(
-                x=collision_dict['lambda'],
-                y=cia_opacities,
-                kind='linear',
-                bounds_error=False,
-                fill_value=sys.float_info.min,
-                axis=0
-            )
-
-            cia_opacities = interpolating_function(frequency2wavelength(frequencies))
-            cia_opacities[cia_opacities < sys.float_info.min] = 0
-
-            return cia_opacities * factor
-        else:
-            raise ValueError(f"petitRADTRANS require a rectangular CIA table, "
-                             f"table shape was {collision_dict['temperature'].shape}")"""
         
     @staticmethod
     def _interpolate_cia(
@@ -2917,7 +2844,7 @@ class Radtrans:
         #if collision_dict['temperature'].shape[0] > 1:
         # Interpolation on temperatures for each wavelength point
         cia_temperature_interpolated = vmap(
-        lambda alpha: jnp.interp(temperatures, binned_temperatures, alpha)
+            lambda alpha: jnp.interp(temperatures, binned_temperatures, alpha)
         )(log10_alpha)
         cia_temperature_interpolated = jnp.exp(cia_temperature_interpolated * jnp.log(10))
 

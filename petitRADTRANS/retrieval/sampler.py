@@ -32,6 +32,7 @@ try:
     from jaxns import Model, NestedSampler, save_results, load_results, summary as jaxns_summary  # Renamed to avoid conflict
     from jaxns.nested_samplers import ShardedStaticNestedSampler
     from jaxns.samplers import UniformSampler
+    from jaxns.framework.jaxify import jaxify_likelihood
 except ImportError:
     jaxns = None  # Flag that jaxns is not available
 
@@ -156,7 +157,7 @@ class UltranestSampler(Sampler):
             return None
         warnings.warn("Ultranest mode is still in development.", UserWarning)
         log_dir = os.path.join(self.output_directory, "out_" +
-                               self.retrieval_configuration.retrieval_name + "_ultranest")
+                               self.retrieval_name + "_ultranest")
         os.makedirs(log_dir, exist_ok=True)
 
         reactive_kwargs = {
@@ -186,14 +187,14 @@ class UltranestSampler(Sampler):
             try:
                 from ultranest.stepsampler import SliceSampler, generate_mixture_random_direction
                 step_sampler_kwargs = {
-                    'nsteps':kwargs.pop('nsteps',100), 
-                    'generate_direction':kwargs.pop('generate_direction',generate_mixture_random_direction),
-                    'scale':kwargs.pop('scale',1.0),
-                    'check_nsteps':kwargs.pop('check_nsteps','move-distance'),
-                    'adaptive_nsteps':kwargs.pop('adaptive_nsteps',False),
-                    'max_nsteps':kwargs.pop('max_nsteps',1000),
-                    'region_filter':kwargs.pop('region_filter',False),
-                    'log':kwargs.pop('log',False),
+                    'nsteps': kwargs.pop('nsteps', 100),
+                    'generate_direction': kwargs.pop('generate_direction', generate_mixture_random_direction),
+                    'scale': kwargs.pop('scale', 1.0),
+                    'check_nsteps': kwargs.pop('check_nsteps', 'move-distance'),
+                    'adaptive_nsteps': kwargs.pop('adaptive_nsteps', False),
+                    'max_nsteps': kwargs.pop('max_nsteps', 1000),
+                    'region_filter': kwargs.pop('region_filter', False),
+                    'log': kwargs.pop('log', False),
                 }
                 self.sampler.stepsampler = SliceSampler(
                     **step_sampler_kwargs
@@ -223,7 +224,7 @@ class UltranestSampler(Sampler):
             'widen_before_initial_plateau_num_warn': kwargs.pop('widen_before_initial_plateau_num_warn', 10000),
             'widen_before_initial_plateau_num_max': kwargs.pop('widen_before_initial_plateau_num_max', 50000),
         }
-        run_kwargs['max_iters'] = self.max_iters if self.max_iters > 0 else None
+        # run_kwargs['max_iters'] = self.max_iters if self.max_iters > 0 else None
 
         self.sampler.run(**run_kwargs)
         self.results = self.sampler.results
@@ -234,8 +235,9 @@ class UltranestSampler(Sampler):
     def get_results(self):
         return self.results
 
-    def pretty_print(self):
+    def pretty_print_results(self):
         self.sampler.print_results()
+
 
 class JAXNSSampler(Sampler):
     """
@@ -282,7 +284,9 @@ class JAXNSSampler(Sampler):
 
         self.seed = jaxns_kwargs.pop('seed', 42654)
         # The prior_func is expected to be the prior_model (a generator)
-        model = Model(prior_model=self.prior_func, log_likelihood=self.log_likelihood_func)
+        
+        jaxified_likelihood = jaxify_likelihood(self.log_likelihood_func)
+        model = Model(prior_model=self.prior_func, log_likelihood=jaxified_likelihood)
 
         self.sampler = NestedSampler(
             model,
@@ -291,7 +295,7 @@ class JAXNSSampler(Sampler):
 
         jax_random_key = random.PRNGKey(self.seed)
 
-        print(f"Starting JAXNS retrieval: {self.retrieval_configuration.retrieval_name}")
+        print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
         if jit:
             termination_reason, state = jax.jit(self.sampler)(jax_random_key)
@@ -332,11 +336,10 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
     def __init__(self,
                  log_likelihood_func,  # Retrieval.log_likelihood_jax
                  prior_func,          # Retrieval.prior_model_jax (generator)
-                 retrieval_configuration,
                  output_directory,
                  retrieval_name,
                  ):
-        super().__init__(log_likelihood_func, prior_func, retrieval_configuration, output_directory, retrieval_name)
+        super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
         if jaxns is None:
             raise ImportError("JAXNS module or its JAX dependencies are not installed. This sampler cannot be used.")
         self.log_likelihood_func = log_likelihood_func
@@ -381,7 +384,7 @@ class JAXNSShardedStaticNestedSampler(JAXNSSampler):
 
         jax_random_key = random.PRNGKey(self.seed)
 
-        print(f"Starting JAXNS retrieval: {self.retrieval_configuration.retrieval_name}")
+        print(f"Starting JAXNS retrieval: {self.retrieval_name}")
 
         if jit:
             termination_reason, state = jax.jit(self.sampler)(jax_random_key)

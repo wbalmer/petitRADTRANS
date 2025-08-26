@@ -4,6 +4,7 @@ import warnings
 
 import jax
 import jax.numpy as jnp
+from jax import lax, jit
 from numpy import argsort
 from jax.typing import ArrayLike
 from scipy.interpolate import PchipInterpolator
@@ -174,8 +175,8 @@ def abundance_curvature_prior(press, abundance, gamma):
 
     return weighted_abund_prior
 
-
-def compute_pressure_nodes(pressure_array, mode='even', nnodes: [int, None] = 0, points_list=None):
+@partial(jit, static_argnames=['mode', 'nnodes'])
+def compute_pressure_nodes(pressure_array, mode='even', nnodes: 0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
 
@@ -195,19 +196,24 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes: [int, None] = 0,
     Returns:
         array: an array of pressure nodes.
     """
-    if nnodes is None:
-        if mode == 'even':
-            raise ValueError(
-                "'nnodes' must be an integer, but is set to None"
-            )
-        nnodes = 0
+    #nnodes = lax.cond(
+    #   lambda _: 0,
+    #   nnodes == None,
+    #   lambda x: x,
+    #   nnodes
+    #)
 
-    if mode == 'even':
-        return jnp.linspace(
-            jnp.log10(pressure_array[0]),
-            jnp.log10(pressure_array[-1]),
-            int(nnodes) + 2)
-    elif mode == 'relative':
+    pressure_nodes = jnp.zeros(nnodes)
+    pressure_nodes = lax.cond(
+        mode == 'even',
+        lambda x: jnp.linspace(
+            jnp.log10(x[0]),
+            jnp.log10(x[-1]),
+            int(nnodes) + 2),
+        pressure_nodes
+    )
+    
+    def relative(pressure_array, points_list):
         # points_list is a list of delta log Pressures < 0.
         # This enforces a monotonically decreasing list of pressure nodes
         pressures = [jnp.log10(pressure_array[0])]
@@ -218,11 +224,23 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes: [int, None] = 0,
             pressures.append(min(_next, min_pressure))
         pressures.append(min_pressure)
         return jnp.array(pressures)
-    elif mode == 'set':
-        return jnp.array(points_list)
-    else:
-        warnings.warn("Incorrect mode specified to define pressure spline nodes! Returning full pressure array!")
-        return pressure_array
+    
+    pressure_nodes = lax.cond(
+        mode == 'relative',
+        lambda x: relative,
+        lambda x: pressure_nodes,
+        pressure_array,
+        points_list
+    )
+    
+    pressure_nodes = lax.cond(
+        mode == 'set',
+        lambda x: pressure_nodes,
+        lambda x: pressure_nodes
+    )
+    #else:
+    #    warnings.warn("Incorrect mode specified to define pressure spline nodes! Returning full pressure array!")
+    return pressure_nodes
 
 
 def compute_mean_molar_masses(abundances: dict[str, jax.typing.ArrayLike], mode: str = 'mmr'):
@@ -240,6 +258,8 @@ def compute_mean_molar_masses(abundances: dict[str, jax.typing.ArrayLike], mode:
             Can be 'mmr' or 'vmr', to calculate the mean molar masses from mass fraction or volume mixing ratios,
             respectively.
     """
+
+    #TODO jit
     if not abundances:
         raise ValueError("abundance dictionary must contains at least one species, but is empty")
 
@@ -322,6 +342,7 @@ def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma
             - prior (array-like): Curvature prior values calculated for the spline.
     """
 
+    #TODO jit, might need to write own interpolator
     try:
         cs = PchipInterpolator(pressure_nodes,
                                abundance_points)
@@ -350,6 +371,7 @@ def define_abundance_node_list(species_short_name, parameters):
     Returns:
         array: an array of pressure nodes
     """
+    # TODO jit
     abundance_nodes = None
     if f"{species_short_name}_n_abundance_nodes" in parameters.keys():
         nnodes = parameters[f"{species_short_name}_n_abundance_nodes"].value
@@ -378,6 +400,7 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     Returns:
         array: an array of pressure nodes, can be used in calculate_pressure_nodes
     """
+    # TODO jit
     pressure_interpolation_nodes = None
 
     if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
@@ -434,6 +457,8 @@ def fill_atmosphere(mass_fractions: dict[str, jax.typing.ArrayLike], filling_spe
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
+    # TODO jit
+
     all_species = set(list(mass_fractions.keys()) + list(filling_species.keys()))
 
     if fill_layer == 'all':
@@ -518,6 +543,8 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
+    # TODO jit
+
     for species, mass_fraction in mass_fractions.items():
         if hasattr(mass_fraction, '__iter__'):
             raise ValueError(
@@ -596,7 +623,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
     return mass_fractions
 
 
-def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
+def fixed_length_adaptive_mesh_refinement(p_clouds, pressures, scaling=10, width=3):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
     in the region where the clouds are located.
@@ -616,6 +643,7 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
         width : int
             The number of low resolution bins to be replaced for each cloud layer.
     """
+    # TODO jit
 
     length = len(pressures)
     cloud_indices = jnp.searchsorted(pressures, jnp.asarray(p_clouds))
@@ -807,6 +835,8 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
               based on the linear spline.
             - prior (array-like): Curvature prior values calculated for the spline.
     """
+    # TODO jit
+    
     abundance_profile = jnp.zeros_like(pressure_array)
 
     # Assumes that the transition array has both the top and bottom pressure as well
