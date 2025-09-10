@@ -259,7 +259,7 @@ class JAXNSSampler(Sampler):
         self.sampler = None
         self.results = None
 
-    def run_sampler(self, jit=True, **jaxns_kwargs):
+    def run_sampler(self, jit=True, parameters={}, **jaxns_kwargs):
         """
         Run the JAXNS sampler.
         """
@@ -286,6 +286,7 @@ class JAXNSSampler(Sampler):
         # The prior_func is expected to be the prior_model (a generator)
         
         jaxified_likelihood = jaxify_likelihood(self.log_likelihood_func)
+
         model = Model(prior_model=self.prior_func, log_likelihood=jaxified_likelihood)
 
         self.sampler = NestedSampler(

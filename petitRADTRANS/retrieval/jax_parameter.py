@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from jaxns import Prior
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
-
+from jax import tree_util
 
 class Parameter:
     """
@@ -34,12 +34,12 @@ class Parameter:
     def __init__(self,
                  name,
                  is_free_parameter,
-                 value=None,
+                 value=0.0,
                  distribution=None,
+                 transform_prior_cube_coordinate=None,
                  plot_in_corner=False,
                  corner_ranges=None,
                  corner_transform=None,
-                 transform_prior_cube_coordinate=None,
                  corner_label=None):
 
         self.name = name
@@ -52,6 +52,22 @@ class Parameter:
         self.corner_ranges = corner_ranges
         self.corner_transform = corner_transform
         self.corner_label = corner_label
+
+    def _tree_flatten(self):
+        children = ()  # arrays / dynamic values
+        aux_data = {'name': self.name,
+                    'is_free_parameter': self.is_free_parameter,
+                    'distribution': self.distribution,
+                    'transform_prior_cube_coordinate': self.transform_prior_cube_coordinate,
+                    'plot_in_corner': self.plot_in_corner,
+                    'corner_ranges': self.corner_ranges,
+                    'corner_transform': self.corner_transform,
+                    'corner_label': self.corner_label}  # static values
+        return (children, aux_data)
+
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        return cls(*children, **aux_data)
 
     def get_param_uniform(self, cube):
         if self.is_free_parameter:
@@ -226,3 +242,8 @@ class RetrievalParameter:
         }
 
         return dictionary
+
+tree_util.register_pytree_node(Parameter,
+                               Parameter._tree_flatten,
+                               Parameter._tree_unflatten
+                               )

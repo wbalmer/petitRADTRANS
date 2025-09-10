@@ -458,6 +458,7 @@ def log_likelihood(parameters):
 
 model = Model(prior_model=prior_model,
               log_likelihood=log_likelihood)
+
 ns = DefaultNestedSampler(
     model=model,
     max_samples=1e7,

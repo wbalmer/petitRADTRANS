@@ -43,7 +43,7 @@ class RetrievalConfig:
             Can be either 'retrieval', which runs the retrieval normally using pymultinest,
             or 'evaluate', which produces plots from the best fit parameters stored in the
             output post_equal_weights file.
-        amr : bool
+        adaptive_mesh_refinement : bool
             Use an adaptive high resolution pressure grid around the location of cloud condensation.
             This will increase the size of the pressure grid by a constant factor that can be adjusted
             in the setup_pres function.
@@ -58,7 +58,7 @@ class RetrievalConfig:
                  retrieval_name: str = "retrieval_name",
                  run_mode: str = "retrieval",
                  sampler_type='pymultinest',
-                 amr: str = False,
+                 adaptive_mesh_refinement: str = False,
                  scattering_in_emission: bool = False,
                  pressures: ArrayLike | None = None):
 
@@ -69,7 +69,7 @@ class RetrievalConfig:
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
 
-        self.amr = amr
+        self.adaptive_mesh_refinement = adaptive_mesh_refinement
         self.scaling = 1
         self.width = 1
 
@@ -81,11 +81,11 @@ class RetrievalConfig:
         self.scattering_in_emission = scattering_in_emission
         self.parameters = {}  #: Dictionary of the parameters passed to the model generating function
         self.data = {}  #: Dictionary of the datasets used in the retrieval.
-        self.instruments = []
-        self.line_species = []
-        self.cloud_species = []
-        self.rayleigh_species = []
-        self.continuum_opacities = []
+        self.instruments = ()
+        self.line_species = ()
+        self.cloud_species = ()
+        self.rayleigh_species = ()
+        self.continuum_opacities = ()
         self.plot_kwargs = {}
 
         self._plot_defaults()
@@ -137,12 +137,12 @@ class RetrievalConfig:
         if nclouds == 0:
             print("WARNING: there are no clouds in the retrieval, please add cloud species before setting up AMR")
         new_len = self.pressures.shape[0] + nclouds * width * (scaling - 1)
-        self.amr_pressure = jnp.logspace(jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len)
+        self.adaptive_mesh_refinement_pressure = jnp.logspace(jnp.log10(self.pressures[0]), jnp.log10(self.pressures[-1]), new_len)
         self.add_parameter("pressure_scaling", False, value=scaling)
         self.add_parameter("pressure_width", False, value=width)
         self.add_parameter("pressure_simple", False, value=self.pressures.shape[0])
 
-        return self.amr_pressure
+        return self.adaptive_mesh_refinement_pressure
 
     def add_parameter(
             self,
@@ -276,7 +276,7 @@ class RetrievalConfig:
                 f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
             )
 
-        self.line_species = line_species
+        self.line_species = tuple(line_species)
 
         if not use_equilibrium_chemistry:
             for species in self.line_species:
@@ -367,7 +367,7 @@ class RetrievalConfig:
                 f"upper limit must be <= 0.0 (was {free_mass_fraction_limits})! Please set abundance limits as (low, high)"
             )
 
-        self.line_species.append(species)
+        self.line_species = self.line_species + (species,)
         if not use_equilibrium_chemistry:
             species_info = Opacity.split_species_all_info(species)
             species_name = species_info[0]  # remove possible previous spectral info
@@ -417,11 +417,12 @@ class RetrievalConfig:
                 If true, the retrieval should use free chemistry, and Parameters for the abundance of the
                 species will be removed to the retrieval
         """
-
-        if species in self.line_species:
-            self.line_species.remove(species)
+        line_list = list(self.line_species)
+        if species in line_list:
+            line_list.remove(species)
         if free:
             self.parameters.pop(species, None)
+        self.line_species = tuple(line_list) 
 
     def add_cloud_species(self,
                           species,
@@ -472,7 +473,7 @@ class RetrievalConfig:
             logging.warning(species + " was not added to the list of cloud species")
             return
 
-        self.cloud_species.append(species)
+        self.cloud_species = self.cloud_species + (species,)
         cname = species.split('_')[0]
         if equilbrium_mass_fraction_scaling_factor is not None:
             if self.sampler_type == 'pymultinest':

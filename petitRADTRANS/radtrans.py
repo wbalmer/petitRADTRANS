@@ -8,7 +8,7 @@ from typing import Any
 
 import h5py
 import jax.numpy as jnp
-from jax import jit, vmap, lax, config
+from jax import jit, vmap, lax, config, tree_util
 from jax.typing import ArrayLike
 from functools import partial
 
@@ -113,10 +113,10 @@ class Radtrans:
         self,
         pressures: ArrayLike = None,
         wavelength_boundaries: ArrayLike = None,
-        line_species: list[str] = None,
-        gas_continuum_contributors: list[str] = None,
-        rayleigh_species: list[str] = None,
-        cloud_species: list[str] = None,
+        line_species: list[str] | tuple[str] = None,
+        gas_continuum_contributors: list[str] | tuple[str] = None,
+        rayleigh_species: list[str] | tuple[str] = None,
+        cloud_species: list[str] | tuple[str] = None,
         line_opacity_mode: str = 'c-k',
         line_by_line_opacity_sampling: int = 1,
         scattering_in_emission: bool = False,
@@ -141,24 +141,24 @@ class Radtrans:
         self.__check_pressures(pressures)
 
         if line_species is None:
-            self._line_species = []
+            self._line_species = ()
         else:
-            self._line_species = line_species
+            self._line_species = tuple(line_species)
 
         if gas_continuum_contributors is None:
-            self._gas_continuum_contributors = []
+            self._gas_continuum_contributors = ()
         else:
-            self._gas_continuum_contributors = gas_continuum_contributors
+            self._gas_continuum_contributors = tuple(gas_continuum_contributors)
 
         if rayleigh_species is None:
-            self._rayleigh_species = []
+            self._rayleigh_species = ()
         else:
-            self._rayleigh_species = rayleigh_species
+            self._rayleigh_species = tuple(rayleigh_species)
 
         if cloud_species is None:
-            self._cloud_species = []
+            self._cloud_species = ()
         else:
-            self._cloud_species = cloud_species
+            self._cloud_species = tuple(cloud_species)
 
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
@@ -257,6 +257,7 @@ class Radtrans:
         # Load all opacities
         self.load_all_opacities()
 
+    
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards pRT3 names when pRT2 names are used.
         """
@@ -398,12 +399,12 @@ class Radtrans:
 
     @property
     def line_species(self):
-        return self._line_species
+        return tuple(self._line_species)
 
     @line_species.setter
-    def line_species(self, species: list):
+    def line_species(self, species: list | tuple):
         warnings.warn(self.__property_setting_warning_message)
-        self._line_species = species
+        self._line_species = tuple(species)
 
     @property
     def path_input_data(self):
@@ -885,13 +886,13 @@ class Radtrans:
 
     @staticmethod
     def __get_cia_contributors(gas_continuum_contributors):
-        cia = []
+        cia = ()
 
         for gas_continuum_contributor in gas_continuum_contributors:
             if gas_continuum_contributor in Radtrans.__get_non_cia_gas_continuum_contributions():
                 continue
 
-            cia.append(gas_continuum_contributor)
+            cia = cia + (gas_continuum_contributor,)
 
         return cia
 
@@ -1116,10 +1117,10 @@ class Radtrans:
     def __get_opacity_sources_dict():
         return LockedDict.build_and_lock({
             'init': LockedDict.build_and_lock({
-                'line_species': [],
-                'gas_continuum_contributors': [],
-                'rayleigh_species': [],
-                'cloud_species': []
+                'line_species': (),
+                'gas_continuum_contributors': (),
+                'rayleigh_species': (),
+                'cloud_species': ()
             }),
             'runtime': LockedDict.build_and_lock({
                 'opaque_cloud_top_pressure': None,
@@ -1160,28 +1161,34 @@ class Radtrans:
 
         return clouds_particles_porosity_factor
 
+    @partial(jit, static_argnames=['self', 'is_emission', 'complete_coverage_clouds', 'return_clear_spectrum'])
     def __init_spectral_function(
         self, is_emission, reference_gravity, complete_coverage_clouds, return_clear_spectrum,
         mass_fractions, cloud_fraction, opaque_cloud_top_pressure
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
-        if reference_gravity <= 0:
-            raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+
+        # TODO: needs to be JIT compilable if we want calculate_flux to be jitted.
+        #if reference_gravity <= 0:
+        #    raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
 
         if complete_coverage_clouds is None:
-            complete_coverage_clouds = []
+            complete_coverage_clouds = ()
 
         spectrum_clear = None
 
-        self.__check_return_clear_spectrum_relevance(
-            return_clear_spectrum=return_clear_spectrum,
-            clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
-            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-            cloud_fraction=cloud_fraction,
-        )
+        #self.__check_return_clear_spectrum_relevance(
+        #    return_clear_spectrum=return_clear_spectrum,
+        #    clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
+        #    opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+        #    cloud_fraction=cloud_fraction,
+        #)
 
-        self.__set_sum_opacities(emission=is_emission)
-        self.__set_use_smart_clear_opacities(
+        self.__sum_opacities = self.__set_sum_opacities(
+            emission=is_emission,
+            line_opacity_mode=self._line_opacity_mode,
+            scattering_in_emission=self._scattering_in_emission)
+        self.__use_smart_clear_opacities = self.__set_use_smart_clear_opacities(
             cloud_fraction=cloud_fraction,
             complete_coverage_clouds=complete_coverage_clouds,
             return_clear_spectrum=return_clear_spectrum
@@ -1203,21 +1210,32 @@ class Radtrans:
 
         return auto_anisotropic_cloud_scattering, complete_coverage_clouds, spectrum_clear
 
-    def __set_use_smart_clear_opacities(self, cloud_fraction, complete_coverage_clouds, return_clear_spectrum):
-        self.__use_smart_clear_opacities = False
+    @staticmethod
+    @partial(jit, static_argnames=['complete_coverage_clouds', 'return_clear_spectrum'])
+    def __set_use_smart_clear_opacities(cloud_fraction, complete_coverage_clouds, return_clear_spectrum):
+        use_smart_clear_opacities = lax.cond(
+            jnp.logical_or(
+                jnp.logical_or(
+                    jnp.logical_and((0 < cloud_fraction), (cloud_fraction < 1)),
+                    len(complete_coverage_clouds) > 0),
+                return_clear_spectrum),
+            lambda: True,
+            lambda: False
+        )
+        return use_smart_clear_opacities
+    
+    @staticmethod
+    @partial(jit, static_argnames=['emission', 'line_opacity_mode', 'scattering_in_emission'])
+    def __set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
+        sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
 
-        if 0 < cloud_fraction < 1 or len(complete_coverage_clouds) > 0 or return_clear_spectrum:
-            self.__use_smart_clear_opacities = True
-
-    def __set_sum_opacities(self, emission):
-        self.__sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
-
-        if self._line_opacity_mode == 'c-k':
-            if emission and self._scattering_in_emission:
-                self.__sum_opacities = True
-        elif self._line_opacity_mode == 'lbl':  # always True in lbl mode
-            self.__sum_opacities = True
-
+        if line_opacity_mode == 'c-k':
+            if emission and scattering_in_emission:
+                sum_opacities = True
+        elif line_opacity_mode == 'lbl':  # always True in lbl mode
+            sum_opacities = True
+        return sum_opacities
+    
     def _calculate_flux(
         self, temperatures, reference_gravity, opacities, continuum_opacities_scattering,
         emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
@@ -1376,7 +1394,7 @@ class Radtrans:
             raise ValueError(f"cloud coverage fraction must be between 0 and 1, but was {cloud_fraction}")
 
         if complete_coverage_clouds is None:
-            complete_coverage_clouds = []
+            complete_coverage_clouds = ()
 
         # Initialization
         if len(self._line_species) > 0:
@@ -2251,7 +2269,7 @@ class Radtrans:
             photospheric_cloud_optical_depths=None,
             absorber_present=True,
             **custom_cloud_parameters
-        ):
+            ):
         optical_depths = jnp.zeros(opacities.shape, dtype=JAX_DTYPE)
         photon_destruction_probabilities = None
         relative_cloud_scaling_factor = None
@@ -2519,7 +2537,6 @@ class Radtrans:
         )
 
         return opacities_rosseland
-
 
     @staticmethod
     def _compute_transmission_spectrum_contribution(transit_radii, pressures, temperatures, mean_molar_masses,
@@ -2841,7 +2858,7 @@ class Radtrans:
 
         log10_alpha = jnp.log10(alphas)
 
-        #if collision_dict['temperature'].shape[0] > 1:
+        # if collision_dict['temperature'].shape[0] > 1:
         # Interpolation on temperatures for each wavelength point
         cia_temperature_interpolated = vmap(
             lambda alpha: jnp.interp(temperatures, binned_temperatures, alpha)
@@ -2889,6 +2906,34 @@ class Radtrans:
 
         return line_opacities
 
+    def _tree_flatten(self):
+        children = ('__scattering_in_transmission',
+                    '__sum_opacities',
+                    '__absorber_present',
+                    '__use_smart_clear_opacities',
+                    '_frequencies',
+                    '_frequency_bins_edges',
+                    '_lines_loaded_opacities',
+                    '_cias_loaded_opacities',
+                    '_clouds_loaded_opacities')  # arrays / dynamic values
+        aux_data = {'pressures': self._pressures,
+                    'wavelength_boundaries': self._wavelength_boundaries,
+                    'line_species': self._line_species,
+                    'gas_continuum_contributors': self._gas_continuum_contributors,
+                    'rayleigh_species': self._rayleigh_species,
+                    'cloud_species': self._cloud_species,
+                    'line_opacity_mode': self._line_opacity_mode,
+                    'line_by_line_opacity_sampling': self._line_by_line_opacity_sampling,
+                    'scattering_in_emission': self._scattering_in_emission,
+                    'emission_angle_grid': self._emission_angle_grid,
+                    'anisotropic_cloud_scattering': self._anisotropic_cloud_scattering,
+                    'path_input_data': self._path_input_data}  # static values
+        return (children, aux_data)
+
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        return cls(*children, **aux_data)
+    
     @staticmethod
     def compute_bins_edges(middle_bin_points: ArrayLike) -> ArrayLike:
         """Calculate bin edges for middle bin points.
@@ -3119,6 +3164,20 @@ class Radtrans:
 
         return opacity_contributions
 
+    @partial(jit,
+             static_argnames=[
+                'self',
+                'cloud_particles_radius_distribution',
+                'irradiation_geometry',
+                'frequencies_to_wavelengths',
+                'return_contribution',
+                'return_clear_spectrum',
+                'return_photosphere_radius',
+                'return_rosseland_optical_depths',
+                'return_cloud_contribution',
+                'return_opacities',
+                'return_abundances'
+                ])
     def calculate_flux(
             self,
             temperatures: ArrayLike,
@@ -3145,7 +3204,6 @@ class Radtrans:
             complete_coverage_clouds: list[str] = None,
             adaptive_feautrier_iterations: bool = False,
             irradiation_geometry: str = 'dayside_ave',
-            emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
             stellar_intensities: ArrayLike = None,
             star_effective_temperature: float = None,
             star_radius: float = None,
@@ -3806,6 +3864,19 @@ class Radtrans:
 
         return opacities_rosseland, opacities_planck, cloud_particles_mean_radii
 
+    @partial(jit,
+             static_argnames=[
+                'self',
+                'cloud_particles_radius_distribution',
+                'frequencies_to_wavelengths',
+                'additional_absorption_opacities_function',
+                'additional_scattering_opacities_function',
+                'return_contribution',
+                'return_clear_spectrum',
+                'return_cloud_contribution',
+                'return_opacities',
+                'return_abundances'
+                ])
     def calculate_transit_radii(
             self,
             temperatures: ArrayLike,
@@ -3963,11 +4034,16 @@ class Radtrans:
             )
         )
         copy_opacities = False
-
-        if return_contribution:
-            copy_opacities = True  # opacities need to be copied only if they are used for contribution
-        elif self.__use_smart_clear_opacities and not self.__sum_opacities:
-            copy_opacities = True  # opacities need to be copied when using cloud coverage in c-k mode
+        copy_opacities = lax.cond(
+            return_contribution,
+            lambda: True,
+            lambda: lax.cond(
+                jnp.logical_and(self.__use_smart_clear_opacities,
+                                jnp.logical_not(self.__sum_opacities)),
+                lambda: True,
+                lambda: False
+            )
+        )
 
         # No photospheric clouds in transmission
         opacities, continuum_opacities_scattering, _, _, _, cloud_particles_mean_radii = self._calculate_opacities(
@@ -4003,9 +4079,10 @@ class Radtrans:
             additional_outputs['opacities'] = copy.deepcopy(opacities)
             additional_outputs['continuum_opacities_scattering'] = copy.deepcopy(continuum_opacities_scattering)
 
+
         if cloud_particles_mean_radii is not None:
             additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
-
+        
         del cloud_particles_mean_radii
 
         if auto_anisotropic_cloud_scattering:
@@ -4642,3 +4719,10 @@ class Radtrans:
         stellar_intensity = rebin_spectrum(wavelengths_interp, fluxes_interp, wavelengths)
 
         return stellar_intensity
+
+
+tree_util.register_pytree_node(
+    Radtrans,
+    Radtrans._tree_flatten,
+    Radtrans._tree_unflatten
+)

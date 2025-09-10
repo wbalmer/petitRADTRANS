@@ -4,10 +4,15 @@ import warnings
 
 import jax
 import jax.numpy as jnp
-from jax import lax, jit
+from jax import lax, jit, vmap
+from jax.experimental import checkify
+from interpax import PchipInterpolator
+
 from numpy import argsort
 from jax.typing import ArrayLike
-from scipy.interpolate import PchipInterpolator
+#from scipy.interpolate import PchipInterpolator
+
+from functools import partial
 
 from petitRADTRANS.chemistry.prt_molmass import (
     element_symbol2element_number,
@@ -175,8 +180,9 @@ def abundance_curvature_prior(press, abundance, gamma):
 
     return weighted_abund_prior
 
+
 @partial(jit, static_argnames=['mode', 'nnodes'])
-def compute_pressure_nodes(pressure_array, mode='even', nnodes: 0, points_list=None):
+def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=None):
     """
     Compute the location of nodes for a spline or step profile in pressure space.
 
@@ -243,12 +249,15 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes: 0, points_list=N
     return pressure_nodes
 
 
-def compute_mean_molar_masses(abundances: dict[str, jax.typing.ArrayLike], mode: str = 'mmr'):
+@partial(jit, static_argnames=['mode'])
+def compute_mean_molar_masses(abundances: dict[str, ArrayLike], mode: str = 'mmr'):
     """Calculate the mean molecular weight in each layer, from mass fractions or volume mixing ratios.
 
     The calculation is slightly different for mass fractions and volume mixing ratios. By default, this function assumes
     that the abundances are mass fractions. To calculate the mean molar masses from volume mixing ratios, set the 'mode'
     argument to 'vmr'.
+
+    This function is JIT-compatible.
 
     Args:
         abundances : dict
@@ -258,47 +267,75 @@ def compute_mean_molar_masses(abundances: dict[str, jax.typing.ArrayLike], mode:
             Can be 'mmr' or 'vmr', to calculate the mean molar masses from mass fraction or volume mixing ratios,
             respectively.
     """
+    def _compute_mean_molar_masses_impl(abundances_impl: dict[str, ArrayLike], mode_impl: str = 'mmr'):
+        # Check for non-empty abundances dictionary
+        checkify.check(
+            len(abundances_impl) > 0, "abundance dictionary must contains at least one species, but is empty"
+        )
 
-    #TODO jit
-    if not abundances:
-        raise ValueError("abundance dictionary must contains at least one species, but is empty")
+        # Check for valid mode
+        checkify.check(
+            (mode_impl == 'mmr') | (mode_impl == 'vmr'), f"'mode' can be 'mmr' or 'vmr', but was '{mode_impl}'"
+        )
 
-    mean_molar_masses = jnp.zeros(len(list(abundances.values())[0]))
+        # Initialize mean_molar_masses
+        mean_molar_masses = jnp.zeros_like(list(abundances_impl.values())[0])
 
-    for species, abundance in abundances.items():
-        if '(s)' in species or '(l)' in species:  # ignore clouds
-            continue
+        # This loop is unrolled by JAX's JIT compiler because the dictionary keys are static.
+        # This is the idiomatic way to handle static dictionaries in JAX,
+        # and is preferred over lax.fori_loop here.
+        for species, abundance in abundances_impl.items():
+            # Ignore clouds. String operations are on static values at compile time, so a Python if is fine.
+            if '(s)' not in species and '(l)' not in species:
+                _species = species.split(".R")[0]
+                molar_mass = get_species_molar_mass(_species)
 
-        _species = species.split(".R")[0]  # remove resolving power string (TODO import it from opacities)
+                # Use lax.cond for conditional computation based on mode
+                contribution = lax.cond(
+                    mode_impl == 'mmr',
+                    lambda: abundance / molar_mass,
+                    lambda: abundance * molar_mass
+                )
+                mean_molar_masses += contribution
 
-        if mode == 'mmr':
-            mean_molar_masses += abundance / get_species_molar_mass(_species)
-        elif mode == 'vmr':
-            mean_molar_masses += abundance * get_species_molar_mass(_species)
-        else:
-            raise ValueError(
-                f"'mode' can be 'mmr' or 'vmr', but was '{mode}'"
-            )
+        # Check for negative values in mean_molar_masses
+        checkify.check(
+            jnp.all(mean_molar_masses >= 0),
+            f"negative value in mean molar mass detected in at least one level ({mean_molar_masses}); "
+            f"this may happen due to the presence of negative values in the abundance dictionary"
+        )
 
-    if jnp.any(mean_molar_masses <= 0):
-        if jnp.any(mean_molar_masses < 0):
-            raise ValueError(
-                f"negative value in mean molar mass detected in at least one level ({mean_molar_masses}); "
-                f"this may happen due to the presence of negative values in the abundance dictionary"
-            )
-        elif jnp.all(mean_molar_masses == 0):
-            raise ValueError(
-                "mean molar mass is always 0; "
-                "ensure that the abundance dictionary contains at least one gaseous species "
-                "with a strictly positive abundance"
-            )
-        else:
-            mean_molar_masses[mean_molar_masses == 0] = sys.float_info.min  # prevent division by 0
+        # Check if mean_molar_masses is always zero
+        checkify.check(
+            jnp.any(mean_molar_masses > 0),
+            "mean molar mass is always 0; "
+            "ensure that the abundance dictionary contains at least one gaseous species "
+            "with a strictly positive abundance"
+        )
 
-    if mode == 'mmr':
-        mean_molar_masses = 1 / mean_molar_masses
+        # Final calculation based on mode
+        def mmr_final(mmm):
+            # Replace zeros to prevent division by 0
+            mmm_safe = jnp.where(mmm == 0, sys.float_info.min, mmm)
+            return 1 / mmm_safe
 
-    return mean_molar_masses
+        def vmr_final(mmm):
+            return mmm
+
+        mean_molar_masses = lax.cond(
+            mode_impl == 'mmr',
+            mmr_final,
+            vmr_final,
+            mean_molar_masses
+        )
+
+        return mean_molar_masses
+
+    err, result = checkify.checkify(_compute_mean_molar_masses_impl)(abundances, mode)
+    # TODO: functionalize checkify error
+    #checkify.check_error(err)
+
+    return result
 
 
 def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
@@ -341,16 +378,10 @@ def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma
               based on the cubic spline.
             - prior (array-like): Curvature prior values calculated for the spline.
     """
+    # check that pressure_nodes is sorted
+    # checkify.check(pressure_nodes)
 
-    #TODO jit, might need to write own interpolator
-    try:
-        cs = PchipInterpolator(pressure_nodes,
-                               abundance_points)
-    except ValueError:
-        warnings.warn("Pressure array isn't monotonically increasing")
-        print(pressure_nodes)
-        return None, None
-
+    cs = PchipInterpolator(pressure_nodes, abundance_points, check=False)
     interpolated_abunds = 10**cs(jnp.log10(pressure_array))
     prior = abundance_curvature_prior(pressure_array, interpolated_abunds, gamma)
     return interpolated_abunds, prior
@@ -358,6 +389,7 @@ def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma
 
 def define_abundance_node_list(species_short_name, parameters):
     """
+
     Define the location of pressure nodes, allowing individual nodes to be
     retrieved parameters.
 
@@ -384,6 +416,7 @@ def define_abundance_node_list(species_short_name, parameters):
     return abundance_nodes
 
 
+@partial(jit, static_argnames=['species_short_name'])
 def define_pressure_node_list(pressure_array, species_short_name, parameters):
     """
     Define the location of pressure nodes, allowing individual nodes to be
@@ -400,47 +433,62 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     Returns:
         array: an array of pressure nodes, can be used in calculate_pressure_nodes
     """
-    # TODO jit
-    pressure_interpolation_nodes = None
+    # To make this function JIT-compatible, we assume that `species_short_name` is a static argument,
+    # and the keys of the `parameters` dictionary are static.
+    # The number of nodes `nnodes` must also be a static value.
 
-    if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
+    has_n_nodes = f"{species_short_name}_n_pressure_nodes" in parameters
+    has_nodes_list = f"{species_short_name}_pressure_nodes" in parameters
+
+    def n_nodes_branch(_):
         nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
         mode = parameters[f"{species_short_name}_interpolation_mode"].value
 
-        # Evenly spaced in log P
-        if mode == 'even':
-            pressure_interpolation_nodes = compute_pressure_nodes(
-                pressure_array,
-                mode=parameters[f"{species_short_name}_interpolation_mode"].value,
-                nnodes=parameters[f"{species_short_name}_n_pressure_nodes"].value,
-                points_list=None
+        def even_branch(_):
+            return compute_pressure_nodes(
+                pressure_array, mode=mode, nnodes=nnodes, points_list=None
             )
-        # Retrieve individual relative pressure node locations
-        elif mode == 'relative':
-            pnodes = [parameters[f"{species_short_name}_pressure_node_{i}"].value for i in range(nnodes)]
-            pressure_interpolation_nodes = compute_pressure_nodes(
-                pressure_array,
-                mode=mode,
-                nnodes=None,  # TODO None is not handled in function, potential issue?
-                points_list=pnodes
+
+        def relative_branch(_):
+            # This list comprehension requires nnodes to be static.
+            pnodes = jnp.array([
+                parameters[f"{species_short_name}_pressure_node_{i}"].value
+                for i in range(nnodes)
+            ])
+            return compute_pressure_nodes(
+                pressure_array, mode=mode, nnodes=None, points_list=pnodes
             )
-    # Predefined list of pressure node locations
-    elif f"{species_short_name}_pressure_nodes" in parameters.keys():
-        pressure_interpolation_nodes = compute_pressure_nodes(
+
+        return lax.cond(mode == 'even', even_branch, relative_branch, None)
+
+    def nodes_list_branch(_):
+        return compute_pressure_nodes(
             pressure_array,
             mode=parameters[f"{species_short_name}_interpolation_mode"].value,
             nnodes=None,
             points_list=parameters[f"{species_short_name}_pressure_nodes"].value
         )
-    # Default to bottom and top of atmosphere
-    else:
-        pressure_interpolation_nodes = [jnp.log10(pressure_array[0]), jnp.log10(pressure_array[-1])]
 
-    return pressure_interpolation_nodes
+    def default_branch(_):
+        return jnp.array([jnp.log10(pressure_array[0]), jnp.log10(pressure_array[-1])])
+
+    # The boolean conditions are static, so JAX will prune the unused branches at compile time.
+    return lax.cond(
+        has_n_nodes,
+        n_nodes_branch,
+        lambda _: lax.cond(
+            has_nodes_list,
+            nodes_list_branch,
+            default_branch,
+            None
+        ),
+        None
+    )
 
 
-def fill_atmosphere(mass_fractions: dict[str, jax.typing.ArrayLike], filling_species: dict, fill_layer: int = 'all',
-                    ) -> dict[str, jax.typing.ArrayLike]:
+@jit
+def fill_atmosphere(mass_fractions: dict[str, ArrayLike], filling_species: dict, mass_fraction_sum: ArrayLike,
+                    ) -> dict[str, ArrayLike]:
     """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
 
     See fill_atmospheric_layer for more details.
@@ -457,54 +505,13 @@ def fill_atmosphere(mass_fractions: dict[str, jax.typing.ArrayLike], filling_spe
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
-    # TODO jit
 
-    all_species = set(list(mass_fractions.keys()) + list(filling_species.keys()))
+    filled_mass_fractions = mass_fractions.copy()
 
-    if fill_layer == 'all':
-        n_layers = list(mass_fractions.values())[0].size
-        layers = range(n_layers)
-    else:
-        layers = jnp.array([fill_layer])
-
-    filled_mass_fractions: dict[str, jax.typing.ArrayLike] = {
-        species: jnp.zeros(layers.size, dtype=float)
-        for species in all_species
-    }
-
-    gas_mass_fractions = {
-        species: mass_fraction
-        for species, mass_fraction in mass_fractions.items()
-        if '(s)' not in species and '(l)' not in species  # ignore clouds
-    }
-
-    for i, layer_id in enumerate(layers):
-        # Take mass fractions from the current layer
-        mass_fractions_i = {
-            species: float(mass_fraction[layer_id])
-            for species, mass_fraction in gas_mass_fractions.items()
-        }
-
-        # Handle filling species special cases
-        filling_species_i = {}
-
-        for species, weights in filling_species.items():
-            if weights is None or isinstance(weights, str):
-                filling_species_i[species] = weights
-            elif hasattr(weights, '__iter__'):
-                filling_species_i[species] = weights[layer_id]
-            else:
-                filling_species_i[species] = weights
-
-        # Fill the layer
-        mass_fractions_i = fill_atmospheric_layer(
-            mass_fractions=mass_fractions_i,
-            filling_species=filling_species_i
-        )
-
-        # Update mass fractions
-        for species in mass_fractions_i:
-            filled_mass_fractions[species] = filled_mass_fractions[species].at[i].set(mass_fractions_i[species])
+    for species, weights in filling_species.items():
+        filled_mass_fractions[species] = jnp.where(jnp.logical_and(0.0 < mass_fraction_sum, mass_fraction_sum < 1.0),
+                                                   (1.0 - mass_fraction_sum) * weights,
+                                                   filled_mass_fractions[species])
 
     # Re-add cloud mass fractions
     for species, mass_fraction in mass_fractions.items():
@@ -544,6 +551,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
     # TODO jit
+    return 
 
     for species, mass_fraction in mass_fractions.items():
         if hasattr(mass_fraction, '__iter__'):
@@ -622,8 +630,8 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
 
     return mass_fractions
 
-
-def fixed_length_adaptive_mesh_refinement(p_clouds, pressures, scaling=10, width=3):
+@partial(jit, static_argnames=['scaling', 'width'])
+def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike, scaling: int, width: int):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
     in the region where the clouds are located.
@@ -643,29 +651,33 @@ def fixed_length_adaptive_mesh_refinement(p_clouds, pressures, scaling=10, width
         width : int
             The number of low resolution bins to be replaced for each cloud layer.
     """
-    # TODO jit
 
-    length = len(pressures)
+    length = pressures.shape[0]
+    scaling_safe = 10
+    width_safe = 3
+
+    #output_size = len(pressures[::max(scaling, 1)]) + len(p_clouds) * width * (scaling - 1)
+    output_size = pressures.shape[0]//scaling_safe + p_clouds.shape[0] * width_safe * (scaling_safe - 1)
     cloud_indices = jnp.searchsorted(pressures, jnp.asarray(p_clouds))
 
     # High resolution intervals
-    def bounds(center: int, _width: int) -> [int, int]:
-        upper = min(center + _width / 2, length)
-        lower = max(upper - _width, 0)
+    def bounds(center: int, _width: int) -> jnp.ndarray:
+        upper = jnp.minimum(center + _width // 2, length).astype(int)
+        lower = jnp.maximum(upper - _width, 0).astype(int)
 
-        return lower, lower + _width
+        return jnp.array([lower, lower + _width]).astype(int)
 
-    intervals = [bounds(idx, scaling * width) for idx in cloud_indices]
+    intervals = vmap(bounds, in_axes=(0, None))(cloud_indices, scaling_safe * width_safe)
 
     # Merge intervals
     while True:
-        intervals, stack = sorted(intervals), []
+        intervals, stack = jnp.sort(intervals), []
 
         for interval in intervals:
             if stack and stack[-1][1] >= interval[0]:
                 last = stack.pop()
                 interval = bounds(
-                    (last[0] + max(last[1], interval[1]) + 1) // 2,
+                    (last[0] + jnp.maximum(last[1], interval[1]) + 1) // 2,
                     last[1] - last[0] + interval[1] - interval[0],
                 )
 
@@ -676,14 +688,13 @@ def fixed_length_adaptive_mesh_refinement(p_clouds, pressures, scaling=10, width
         intervals = stack
 
     # Intervals to indices
-    indices = [jnp.arange(0, length, scaling, dtype=int)]
+    indices = [jnp.arange(0, length, scaling_safe).astype(int)]
 
     for interval in intervals:
-        indices.append(jnp.arange(*interval, dtype=int))
-
-    indices = jnp.unique(jnp.concatenate(indices))
-
-    return pressures[indices], indices
+        indices.append(jnp.arange(*interval).astype(int))
+    indices = jnp.concatenate(indices).astype(int)
+    output_indices = jnp.unique(indices, size=output_size).astype(int)
+    return pressures[output_indices], output_indices
 
 
 def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, float]:
@@ -764,8 +775,8 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, jax.typing.ArrayLike],
-                               mean_molar_masses: jax.typing.ArrayLike,
+def mass_fractions2metallicity(mass_fractions: dict[str, ArrayLike],
+                               mean_molar_masses: ArrayLike,
                                neglect_he: bool = False,
                                only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
@@ -817,44 +828,54 @@ def simplify_species_list(species_list: list) -> list:
     return species_basenames
 
 
+@partial(jit)
 def stepped_profile(pressure_array, transition_pressures, abundance_points):
     """
     Compute a stepped profile for abundance based on pressure points.
 
     This function computes the steps for chemical abundance using
-    pressure and abundance data points, along with a curvature prior.
+    pressure and abundance data points. This is a JIT-compatible version
+    that uses vmap for vectorization.
 
     Args:
         pressure_array (array-like): An array or list of pressure levels which is used to calculate the spectrum.
-        transition_pressures: # TODO complete docstring
-        abundance_points (array-like): An array or list of abundances for each pressure node.
+        transition_pressures (array-like): An array of transition pressures in log10 space, sorted descending.
+                                           It should include the top and bottom of the atmosphere, so the length is nnodes + 2.
+        abundance_points (array-like): An array or list of abundances for each pressure node. Length must be nnodes + 1.
 
     Returns:
-        tuple: A tuple containing two elements:
-            - interpolated_temps (array-like): Interpolated abundance values
-              based on the linear spline.
-            - prior (array-like): Curvature prior values calculated for the spline.
+        array-like: An array of abundance values corresponding to the pressure_array.
     """
-    # TODO jit
-    
-    abundance_profile = jnp.zeros_like(pressure_array)
+    def _stepped_profile_impl(pressure_array, transition_pressures, abundance_points):
+        nnodes = len(transition_pressures) - 2
 
-    # Assumes that the transition array has both the top and bottom pressure as well
-    # This is defined by calculate_pressure_nodes
-    nnodes = len(transition_pressures)-2
-    log_pressure = jnp.log10(pressure_array)
-    if len(abundance_points) != nnodes+1:
-        warnings.warn("Length of abundance array must be 1 greater than the length of pressures array!")
-        return jnp.nan*jnp.ones_like(pressure_array)
-    for i in range(nnodes):
-        # Only set using intermediate nodes
-        if i == 0:
-            abundance_profile[log_pressure >= transition_pressures[i+1]] = 10**abundance_points[i]
-        else:
-            abundance_profile[(log_pressure >= transition_pressures[i+1]) & (log_pressure < transition_pressures[i])] =\
-                10**abundance_points[i]
-    abundance_profile[log_pressure < transition_pressures[-2]] = 10**abundance_points[-1]
-    return abundance_profile
+        # Check for correct lengths of inputs
+        checkify.check(
+            len(abundance_points) == nnodes + 1,
+            f"Length of abundance_points ({len(abundance_points)}) must be nnodes + 1 ({nnodes + 1})"
+        )
+        log_pressure = jnp.log10(pressure_array)
+
+        # Define the function to get abundance at a single pressure point.
+        # This function replaces the loop and conditional logic from the original.
+        def get_abundance(log_p):
+            # We search on the intermediate transition pressures (nodes).
+            # searchsorted requires an ascending array, so we reverse the nodes.
+            nodes_asc = transition_pressures[1:-1][::-1]
+            idx = jnp.searchsorted(nodes_asc, log_p)
+            abund_idx = nnodes - idx
+            
+            return 10**abundance_points[abund_idx]
+
+        # Vectorize the function across all pressure points.
+        abundance_profile = vmap(get_abundance)(log_pressure)
+
+        return abundance_profile
+
+    err, result = checkify.checkify(_stepped_profile_impl)(pressure_array, transition_pressures, abundance_points)
+    checkify.check_error(err)
+    
+    return result
 
 
 def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=None):

@@ -17,11 +17,11 @@ All models must take the same set of inputs:
     PT_plot_mode : bool
         If this argument is True, the model function should return the pressure
         and temperature arrays before computing the flux.
-    amr : bool
+    adaptive_mesh_refinement : bool
         If this parameter is True, your model should allow for reshaping of the
         pressure and temperature arrays based on the position of the clouds or
         the location of the photosphere, increasing the resolution where required.
-        For example, using the fixed_length_amr function defined below.
+        For example, using the fixed_length_adaptive_mesh_refinement function defined below.
 """
 # TODO replace by SpectralModel function
 import jax.numpy as jnp
@@ -44,7 +44,7 @@ from petitRADTRANS.physics import (
 from petitRADTRANS.planet import Planet
 from petitRADTRANS.retrieval.utils import get_calculate_flux_return_values
 # Global constants to reduce calculations and initializations.
-PGLOBAL = jnp.logspace(-6, 3, 1000)
+#PGLOBAL = jnp.logspace(-6, 3, 1000)
 
 
 def _compute_gravity(parameters):
@@ -72,7 +72,7 @@ def _compute_gravity(parameters):
 def emission_model_diseq(prt_object,
                          parameters,
                          pt_plot_mode=False,
-                         amr=True):
+                         adaptive_mesh_refinement=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -119,7 +119,7 @@ def emission_model_diseq(prt_object,
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr : bool
+        adaptive_mesh_refinement : bool
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -131,7 +131,7 @@ def emission_model_diseq(prt_object,
             Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     # Use this for debugging.
     # for key, val in parameters.items():
@@ -171,18 +171,18 @@ def emission_model_diseq(prt_object,
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
     if abundances is None:
         return None, None
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -221,14 +221,14 @@ def emission_model_diseq(prt_object,
         )
 
 
-def emission_model_diseq_simple_patchy_clouds(prt_object, parameters, pt_plot_mode=False, amr=True):
+def emission_model_diseq_simple_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
     """
     Deprecated, to be removed in future version
     """
-    return emission_model_diseq(prt_object, parameters, pt_plot_mode, amr)
+    return emission_model_diseq(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, amr=True):
+def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=True):
     """
     Disequilibrium Chemistry Emission Model
 
@@ -280,7 +280,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr : bool
+        adaptive_mesh_refinement : bool
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -293,7 +293,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
             Only returns the contribution of the clear atmosphere component.
 
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     # Not sure how to deal with having 2 separate contribution function
     contribution = False
@@ -332,12 +332,12 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     t_clear = temperature_profile_function_ret_model(
@@ -353,18 +353,18 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
         )
     )
     abundances_clear, mmw_clear, small_index_clear, p_bases_clear = get_abundances(
-        PGLOBAL[small_index],
-        t_clear,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=False
+        pressures=PGLOBAL[small_index],
+        temperatures=t_clear,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=False
     )
     if abundances is None:
         return None, None
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -439,7 +439,7 @@ def emission_model_diseq_patchy_clouds(prt_object, parameters, pt_plot_mode=Fals
 def guillot_emission(prt_object,
                      parameters,
                      pt_plot_mode=False,
-                     amr=False):
+                     adaptive_mesh_refinement=False):
     """
     Emission spectrum calculation for the Guillot 2010 temperature profile.
     (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
@@ -485,7 +485,7 @@ def guillot_emission(prt_object,
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -497,7 +497,7 @@ def guillot_emission(prt_object,
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -512,19 +512,19 @@ def guillot_emission(prt_object,
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
     if abundances is None:
         return None, None
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -561,7 +561,7 @@ def guillot_emission(prt_object,
 def guillot_emission_add_gaussian_temperature(prt_object,
                                               parameters,
                                               pt_plot_mode=False,
-                                              amr=False):
+                                              adaptive_mesh_refinement=False):
     """
     Emission spectrum calculation for the Guillot 2010 temperature profile.
     (Dis)equilibrium or free chemistry, can be used. The use of easychem for on-the-fly (dis)equilibrium
@@ -607,7 +607,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -619,7 +619,7 @@ def guillot_emission_add_gaussian_temperature(prt_object,
             Optional, Emission contribution function, relative contributions for each wavelength and pressure level.
 
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -644,19 +644,19 @@ def guillot_emission_add_gaussian_temperature(prt_object,
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
     if abundances is None:
         return None, None
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -690,14 +690,14 @@ def guillot_emission_add_gaussian_temperature(prt_object,
         )
 
 
-def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def guillot_patchy_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Deprecated, to be removed in future version
     """
-    return guillot_emission(prt_object, parameters, pt_plot_mode, amr)
+    return guillot_emission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a spline temperature-pressure profile.
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -743,7 +743,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -754,7 +754,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -772,12 +772,12 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
     parameters['log_prior_weight'].value = log_prior_weight
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
     if abundances is None:
         return None, None
@@ -785,7 +785,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
 
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -819,7 +819,7 @@ def interpolated_profile_emission(prt_object, parameters, pt_plot_mode=False, am
         )
 
 
-def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -865,7 +865,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -876,7 +876,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -904,12 +904,12 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -917,7 +917,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -951,7 +951,7 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         )
 
 
-def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -995,7 +995,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1006,7 +1006,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
 
     gravity, planet_radius = _compute_gravity(parameters)
 
@@ -1024,12 +1024,12 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -1037,7 +1037,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1074,7 +1074,7 @@ def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=F
 def guillot_transmission(prt_object,
                          parameters,
                          pt_plot_mode=False,
-                         amr=False):
+                         adaptive_mesh_refinement=False):
     """
     Transmission Model, Guillot Profile
 
@@ -1125,7 +1125,7 @@ def guillot_transmission(prt_object,
                   *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1137,7 +1137,7 @@ def guillot_transmission(prt_object,
             Optional, the transmission contribution function, relative contributions for each wavelength and pressure
             level.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
@@ -1154,12 +1154,12 @@ def guillot_transmission(prt_object,
     )
 
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -1167,7 +1167,7 @@ def guillot_transmission(prt_object,
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1211,14 +1211,14 @@ def guillot_transmission(prt_object,
 def guillot_patchy_transmission(prt_object,
                                 parameters,
                                 pt_plot_mode=False,
-                                amr=False):
+                                adaptive_mesh_refinement=False):
     """
     Deprecated
     """
-    return guillot_transmission(prt_object, parameters, pt_plot_mode, amr)
+    return guillot_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
-def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
@@ -1273,7 +1273,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1286,7 +1286,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
             level.
             Only the clear atmosphere contribution is returned.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
@@ -1312,12 +1312,12 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
                                      beta_points)
 
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -1326,7 +1326,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
 
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1360,7 +1360,7 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
         )
 
 
-def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     Transmission Model, Madhusudhan Seager 2009 Profile
 
@@ -1416,7 +1416,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
                   *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1429,7 +1429,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
             level.
             Only the clear atmosphere contribution is returned.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
     reference_pressure = 100.0
     if "reference_pressure" in parameters.keys():
         reference_pressure = parameters["reference_pressure"].value
@@ -1455,12 +1455,12 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
                                      beta_points)
 
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -1469,7 +1469,7 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
 
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1513,17 +1513,17 @@ def madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode=False,
 def madhu_seager_patchy_transmission(prt_object,
                                      parameters,
                                      pt_plot_mode=False,
-                                     amr=False):
+                                     adaptive_mesh_refinement=False):
     """
     Deprecated
     """
-    return madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode, amr)
+    return madhushudhan_seager_transmission(prt_object, parameters, pt_plot_mode, adaptive_mesh_refinement)
 
 
 def isothermal_transmission(prt_object,
                             parameters,
                             pt_plot_mode=False,
-                            amr=False):
+                            adaptive_mesh_refinement=False):
     """
     Equilibrium Chemistry Transmission Model, Isothermal Profile
 
@@ -1568,7 +1568,7 @@ def isothermal_transmission(prt_object,
                   *  power_law_opacity_350nm : strength of the rayleigh haze at 350 nm.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1581,7 +1581,7 @@ def isothermal_transmission(prt_object,
             level.
             Only the clear atmosphere contribution is returned if patchy clouds are considered.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
     reference_pressure = 100.0
 
     if "reference_pressure" in parameters.keys():
@@ -1593,18 +1593,18 @@ def isothermal_transmission(prt_object,
 
     # Make the abundance profile
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
     if abundances is None:
         return None, None
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1645,7 +1645,7 @@ def isothermal_transmission(prt_object,
         )
 
 
-def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, amr=False):
+def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, adaptive_mesh_refinement=False):
     """
     This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
     Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
@@ -1689,7 +1689,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
                   *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
         pt_plot_mode : bool
             Return only the pressure-temperature profile for plotting. Evaluate mode only.
-        amr :
+        adaptive_mesh_refinement :
             Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
 
     Returns:
@@ -1700,7 +1700,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
         contr-em : ArrayLike
             Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
     """
-    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+    p_use, PGLOBAL = initialize_pressure(prt_object.pressures / 1e6, parameters, adaptive_mesh_refinement)
     gravity, planet_radius = _compute_gravity(parameters)
 
     reference_pressure = 100.0
@@ -1715,12 +1715,12 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
 
     # If in evaluation mode, and PTs are supposed to be plotted
     abundances, mmw, small_index, p_bases = get_abundances(
-        p_use,
-        temperatures,
-        prt_object.line_species,
-        prt_object.cloud_species,
-        parameters,
-        amr=amr
+        pressures=p_use,
+        temperatures=temperatures,
+        parameters=parameters,
+        line_species=prt_object.line_species,
+        cloud_species=prt_object.cloud_species,
+        adaptive_mesh_refinement=adaptive_mesh_refinement
     )
 
     if abundances is None:
@@ -1728,7 +1728,7 @@ def power_law_profile_transmission(prt_object, parameters, pt_plot_mode=False, a
 
     if pt_plot_mode:
         return p_use[small_index], temperatures[small_index]
-    if amr:
+    if adaptive_mesh_refinement:
         temperatures = temperatures[small_index]
         pressures = PGLOBAL[small_index]
         mmw = mmw[small_index]
@@ -1788,7 +1788,7 @@ def add_blackbody_cpd_model(parameters, wavelengths):
         return blackbody_spectrum
 
 
-def initialize_pressure(press, parameters, amr):
+def initialize_pressure(press, parameters, adaptive_mesh_refinement):
     """
     Provide the pressure array correctly sized to the prt_object in use, accounting for
     the use of Adaptive Mesh Refinement around the location of clouds.
@@ -1798,16 +1798,16 @@ def initialize_pressure(press, parameters, amr):
             Pressure array from a prt_object. Used to set the min and max values of PGLOBAL
         parameters :
             # TODO complete docstring
-        amr :
+        adaptive_mesh_refinement :
             # TODO complete docstring
     """
-    if amr:
-        set_pglobal(press, parameters)
+    if adaptive_mesh_refinement:
+        PGLOBAL = set_pglobal(press, parameters)
         p_use = PGLOBAL
     else:
         p_use = press
-
-    return p_use
+        PGLOBAL = press
+    return p_use, PGLOBAL
 
 
 def set_pglobal(press, parameters):
@@ -2028,12 +2028,14 @@ def pglobal_check(press, shape, scaling):
         press : numpy.ndarray
             Pressure array from a prt_object. Used to set the min and max values of PGLOBAL
         shape : int
-            the shape of the pressure array if no amr is used
+            the shape of the pressure array if no adaptive_mesh_refinement is used
         scaling :
             The factor by which the pressure array resolution should be scaled.
     """
-    global PGLOBAL
+    #global PGLOBAL
+    PGLOBAL = jnp.logspace(-6, 3, 1000)
     if PGLOBAL.shape[0] != int(scaling * shape):
         PGLOBAL = jnp.logspace(jnp.log10(press[0]),
                               jnp.log10(press[-1]),
                               int(scaling * shape))
+    return PGLOBAL

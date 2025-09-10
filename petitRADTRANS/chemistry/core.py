@@ -3,7 +3,9 @@ import warnings
 import copy
 
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, jit, typing
+from functools import partial
+
 
 try:
     from petitRADTRANS.chemistry.prt_easychem import get_exoatmos_abundances
@@ -25,27 +27,32 @@ from petitRADTRANS.chemistry.utils import (
 from petitRADTRANS.chemistry import clouds as fc
 from petitRADTRANS.opacities.opacities import Opacity
 
-
-def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, parameters, mass_fractions,
-                             mean_molar_mass, adaptive_mesh_refinement=False):
+@partial(jit, static_argnames=['cloud_species', 'adaptive_mesh_refinement'])
+def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
+                                       parameters, mass_fractions, mean_molar_mass,
+                                       adaptive_mesh_refinement=False):
     clouds = {}
     p_bases = {}
+    parameter_key_list = tuple(parameters.keys())  # Make it static for JIT
 
     def get_cloud_abundance(cloud, parameters):
         cname = cloud.split("_")[0]
+
         def easychem_case(_):
             return mass_fractions[cname]
+        
         def eq_scaling_case(_):
             x_cloud = fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
             return 10 ** parameters['eq_scaling_' + cname].value * x_cloud
+        
         def free_case(_):
             return 10 ** parameters['log_X_cb_' + cname].value
 
         return lax.cond(
-            'use_easychem' in parameters.keys(),
+            'use_easychem' in parameter_key_list,
             easychem_case,
             lambda _: lax.cond(
-                "eq_scaling_" + cname in parameters.keys(),
+                "eq_scaling_" + cname in parameter_key_list,
                 eq_scaling_case,
                 free_case,
                 operand=None
@@ -55,10 +62,13 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
 
     def get_cloud_base(cloud, parameters, pressures, temperatures, mean_molar_mass):
         cname = cloud.split("_")[0]
+
         def log_pbase_case(_):
             return 10 ** parameters['log_Pbase_' + cname].value
+
         def pbase_case(_):
             return parameters['Pbase_' + cname].value
+
         def eq_case(_):
             return fc.simple_cdf(
                 cname,
@@ -68,6 +78,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
                 parameters['C/O'].value,
                 jnp.mean(mean_molar_mass)
             )
+
         def free_case(_):
             return fc.simple_cdf_free(
                 cname,
@@ -78,13 +89,13 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
             )
 
         return lax.cond(
-            'log_Pbase_' + cname in parameters.keys(),
+            'log_Pbase_' + cname in parameter_key_list,
             log_pbase_case,
             lambda _: lax.cond(
-                'Pbase_' + cname in parameters.keys(),
+                'Pbase_' + cname in parameter_key_list,
                 pbase_case,
                 lambda _: lax.cond(
-                    'Fe/H' in parameters.keys(),
+                    'Fe/H' in parameter_key_list,
                     eq_case,
                     free_case,
                     operand=None
@@ -100,12 +111,12 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
         p_bases[cname] = get_cloud_base(cloud, parameters, pressures, temperatures, mean_molar_mass)
 
     def amr_case(_):
-        press_use, small_index = fixed_length_adaptive_mesh_refinement(
-            jnp.array(list(p_bases.values())),
-            pressures,
-            parameters['pressure_scaling'].value,
-            parameters['pressure_width'].value)
-        return small_index
+        #press_use, small_index = fixed_length_adaptive_mesh_refinement(
+        #    jnp.array(list(p_bases.values())),
+        #    pressures,
+        #    parameters['pressure_scaling'].value,
+        #    parameters['pressure_width'].value)
+        return jnp.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int) #small_index
 
     def no_amr_case(_):
         return jnp.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
@@ -122,16 +133,17 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
     def get_fsed(cname, parameters):
         def fsed_cloud_case(_):
             return parameters['fsed_' + cname].value
+
         def fsed_default_case(_):
             return parameters['fsed'].value
         return lax.cond(
-            'fsed_' + cname in parameters.keys(),
+            'fsed_' + cname in parameter_key_list,
             fsed_cloud_case,
             fsed_default_case,
             operand=None
         )
 
-    def fill_cloud_mass_fractions(cloud, cname, pressures, p_bases, clouds, fseds, temperatures, small_index):
+    def fill_cloud_mass_fractions(cname, pressures, p_bases, clouds, fseds, temperatures, small_index):
         arr = jnp.zeros_like(temperatures)
         arr = jnp.where(
             pressures < p_bases[cname],
@@ -145,16 +157,16 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species, p
         return mass_fractions
 
     def fill_clouds_case(_):
-        for cloud in copy.copy(cloud_species):
+        for cloud in cloud_species:
             cname = cloud.split('_')[0]
             fseds[cname] = get_fsed(cname, parameters)
             mass_fractions[cloud] = fill_cloud_mass_fractions(
-                cloud, cname, pressures, p_bases, clouds, fseds, temperatures, small_index
+                cname, pressures, p_bases, clouds, fseds, temperatures, small_index
             )
         return mass_fractions
 
     mass_fractions = lax.cond(
-        'use_easychem' in parameters.keys(),
+        'use_easychem' in parameter_key_list,
         skip_clouds_case,
         fill_clouds_case,
         operand=None
@@ -239,18 +251,19 @@ def calculate_cloud_mass_fractions(pressures, temperatures, cloud_species, param
             mass_fractions[cloud] = mass_fractions[cloud][small_index]
     return mass_fractions, p_bases, small_index
     
-
+@partial(jit, static_argnames=['line_species', 'cloud_species', 'verbose'])
 def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, parameters=None, line_species=None,
                                     cloud_species=None, filling_species=None,
                                     verbose=False, **kwargs):
     _ = kwargs  # kwargs is not used in this function, this is intended
 
+    parameter_key_tuple = tuple(parameters.keys())  # Make it static for JIT
     if line_species is None:
-        line_species = []
+        line_species = ()
 
     def build_filling_species(filling_species, parameters, pressures):
         def h2he_case(_):
-            if 'Fe/H' in parameters.keys():
+            if 'Fe/H' in parameter_key_tuple:
                 return {'H2': None, 'He': None}
             else:
                 return {
@@ -307,14 +320,13 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
     imposed_mass_fractions = []
 
     # Free chemistry species
-    for i_spec, species in enumerate(line_species):
-        def vert_const_case(_):
-            imposed_mass_fractions.append(species)
+    for species in line_species:
+        imposed_mass_fractions.append(species)
+        if species in parameter_key_tuple:
             abund = 10 ** parameters[species].value
             mass_fractions[species] = abund * jnp.ones_like(pressures)
-            return m_sum_imposed_species + mass_fractions[species]
-
-        def not_vert_const_case(_):
+            m_sum_imposed_species += mass_fractions[species]
+        """def not_vert_const_case(_):
             pressure_interpolation_nodes = define_pressure_node_list(
                 pressures,
                 species,
@@ -352,31 +364,32 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
                 return m_sum_imposed_species
 
             m_sum_imposed_species_stepped = lax.cond(
-                f"{species}_stepped_abundance_profile" in parameters.keys(),
+                f"{species}_stepped_abundance_profile" in parameter_key_tuple,
                 stepped_case,
                 none_case,
                 operand=None
             )
             m_sum_imposed_species_linear = lax.cond(
-                f"{species}_linear_abundance_profile" in parameters.keys(),
+                f"{species}_linear_abundance_profile" in parameter_key_tuple,
                 linear_case,
                 none_case,
                 operand=None
             )
             m_sum_imposed_species_cubic = lax.cond(
-                f"{species}_cubic_abundance_profile" in parameters.keys(),
+                f"{species}_cubic_abundance_profile" in parameter_key_tuple,
                 cubic_case,
                 none_case,
                 operand=None
             )
             return m_sum_imposed_species_stepped + m_sum_imposed_species_linear + m_sum_imposed_species_cubic
-
-        m_sum_imposed_species = lax.cond(
-            species in parameters.keys(),
+        """
+        #m_sum_imposed_species = vert_const_case()
+        """lax.cond(
+            species in parameter_key_tuple,
             vert_const_case,
             not_vert_const_case,
             operand=None
-        )
+        )"""
 
     # Remove imposed species from filling species
     for species in imposed_mass_fractions:
@@ -385,23 +398,49 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
             del filling_species[species]
 
     # Ensure that the sum of imposed mass fractions is <= 1
-    def scale_down_if_needed(i, m_sum_imposed_species, mass_fractions, imposed_mass_fractions, cloud_species):
-        def scale_case(_):
+    imposed_mass_fractions = tuple(imposed_mass_fractions)  # Make it static for JIT
+    cloud_species = tuple(cloud_species)  # Make it static for JIT
+
+    @partial(jit, static_argnames=['imposed_mass_fractions', 'cloud_species'])
+    def scale_down_if_needed(m_sum_imposed_species, mass_fractions, imposed_mass_fractions, cloud_species):
+        """
+        Scales down the mass fractions of imposed species if their sum exceeds 1.
+        This function is designed to be JIT-compatible.
+        """
+        def scale_case(mf):
+            # mf is the mass_fractions dictionary
+            
+            # Create updates for species that need scaling.
+            # This is functional and JIT-compatible as loops over static strings unroll.
+            updates = {}
             for species in imposed_mass_fractions:
                 if species not in cloud_species:
-                    mass_fractions[species][i] /= m_sum_imposed_species[i]
-            return mass_fractions
-        def no_scale_case(_):
-            return mass_fractions
-        return lax.cond(m_sum_imposed_species[i] > 1, scale_case, no_scale_case, operand=None)
+                    updates[species] = mf[species] / m_sum_imposed_species
+                else:
+                    updates[species] = mf[species]
+            # Return a new dictionary with the updated values
+            return {**mf, **updates}
 
-    for i in range(jnp.size(m_sum_imposed_species)):
-        mass_fractions = scale_down_if_needed(i, m_sum_imposed_species, mass_fractions, imposed_mass_fractions, cloud_species)
+        def no_scale_case(mf):
+            return mf
+
+        # NOTE: The static lists `imposed_mass_fractions` and `cloud_species` are
+        # captured from the outer scope. For this to be JIT-compatible, they must
+        # be static (i.e. not change shape/content during execution).
+        return lax.cond(
+            jnp.any(m_sum_imposed_species > 1),
+            scale_case,
+            no_scale_case,
+            mass_fractions
+        )
+
+    mass_fractions = scale_down_if_needed(m_sum_imposed_species, mass_fractions, imposed_mass_fractions, cloud_species)
 
     # Chemical equilibrium mass fractions
-    mass_fractions_chemical_table = None
+    mass_fractions_chemical_table = {}
 
-    def use_easychem_case(_):
+    def use_full_equilibrium_case(_):
+        # TODO: implement easychem call in JAX
         if get_exoatmos_abundances is None:
             raise ModuleNotFoundError("module 'easychem' is not installed, "
                                       "remove key 'use_easychem from the parameters'")
@@ -413,23 +452,25 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
         mean_molar_mass = mf['MMW']
         return mf, mean_molar_mass
 
-    def feh_case(_):
-        missing = {}
-        if 'C/O' not in parameters.keys():
-            missing['co_ratio'] = 0.55
-        if len(missing) > 0:
-            names = ', '.join(list(missing.keys()))
-            values = list(missing.values())
-            raise ValueError(f"equilibrium chemistry function missing {names} values (were {values})\n"
-                             f"Add 'metallicity' as a model parameter, check your metallicity model function",
-                             f"or disable equilibrium chemistry with 'use_equilibrium_chemistry=False'")
+    @partial(jit, static_argnames=['key_list'])
+    def precalculated_equilibrium_case(key_list):
+        if 'Fe/H' not in key_list:
+            metallicity = 0.0
+        else:
+            metallicity = parameters['Fe/H'].value
+
+        if 'C/O' not in key_list:
+            carbon_to_oxygen = 0.55
+        else:
+            carbon_to_oxygen = parameters['C/O'].value
         pquench_c = None
-        if 'log_pquench' in parameters.keys():
+        if 'log_pquench' in key_list:
             pquench_c = 10 ** parameters['log_pquench'].value
+
         mf, mean_molar_mass, _ = \
             pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
-                parameters['C/O'].value * jnp.ones_like(pressures),
-                parameters['Fe/H'].value * jnp.ones_like(pressures),
+                carbon_to_oxygen * jnp.ones_like(pressures),
+                metallicity * jnp.ones_like(pressures),
                 temperatures,
                 pressures,
                 carbon_pressure_quench=pquench_c,
@@ -437,25 +478,17 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
             )
         return mf, mean_molar_mass
 
-    def no_chem_case(_):
-        return None, None
+    @partial(jit, static_argnames=['key_list'])
+    def no_chem_case(key_list):
+        return {}, -jnp.inf
 
-    mass_fractions_chemical_table, mean_molar_mass = lax.cond(
-        'use_easychem' in parameters.keys(),
-        use_easychem_case,
-        lambda _: lax.cond(
-            'Fe/H' in parameters.keys(),
-            feh_case,
-            no_chem_case,
-            operand=None
-        ),
-        operand=None
-    )
+    if 'Fe/H' in parameter_key_tuple:
+        mass_fractions_chemical_table, mean_molar_mass = precalculated_equilibrium_case(parameter_key_tuple)
 
     # Add non-imposed mass fractions to mass fractions
     m_sum_chemical_table_species = jnp.zeros(pressures.shape)
 
-    if mass_fractions_chemical_table is not None:
+    if mass_fractions_chemical_table:
         line_species_simple = simplify_species_list(line_species)
         for i, simple_species in enumerate(line_species_simple):
             if simple_species in mass_fractions_chemical_table and simple_species != line_species[i]:
@@ -490,60 +523,24 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
     # Ensure that the sum of mass mixing ratios of all species is = 1
     m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
 
-    def fill_or_scale(i, m_sum, mass_fractions, filling_species, m_sum_chemical_table_species, m_sum_imposed_species, imposed_mass_fractions):
-        def fill_case(_):
-            mass_fractions_i = fill_atmosphere(
-                mass_fractions=mass_fractions,
-                filling_species=filling_species,
-                fill_layer=i
-            )
-            for species in mass_fractions:
-                mass_fractions[species] = mass_fractions[species].at[i].set(
-                    mass_fractions_i[species][0]
-                )
-            return mass_fractions
-        def scale_case(_):
-            for species in mass_fractions.keys():
-                if species not in imposed_mass_fractions:
-                    if m_sum_chemical_table_species[i] > 0:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i]
-                            * (1 - m_sum_imposed_species[i]) / m_sum_chemical_table_species[i]
-                        )
-                    else:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i] / m_sum
-                        )
-            return mass_fractions
-        def error_case(_):
-            raise ValueError(
-                f"invalid total mass fraction at pressure level {i}: "
-                f"mass fraction must be > 0, but is {m_sum}\n"
-                f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
-                f"or set equilibrium chemistry to True\n"
-                f"If the sum is < 0, check your imposed mass fractions and chemical model")
-        def no_action_case(_):
-            return mass_fractions
-
-        return lax.cond(
-            (0 < m_sum < 1),
-            fill_case,
-            lambda _: lax.cond(
-                m_sum > 1,
-                scale_case,
-                lambda _: lax.cond(
-                    m_sum <= 0,
-                    error_case,
-                    no_action_case,
-                    operand=None
-                ),
-                operand=None
-            ),
-            operand=None
+    mass_fractions = fill_atmosphere(
+            mass_fractions=mass_fractions,
+            filling_species=filling_species,
+            mass_fraction_sum=m_sum_total,
         )
-
-    for i, m_sum in enumerate(m_sum_total):
-        mass_fractions = fill_or_scale(i, m_sum, mass_fractions, filling_species, m_sum_chemical_table_species, m_sum_imposed_species, imposed_mass_fractions)
+    for species, mf_array in mass_fractions.items():
+        if species not in imposed_mass_fractions:
+            mass_fractions[species] = lax.cond(
+                jnp.sum(m_sum_chemical_table_species) > 0,
+                lambda mf: jnp.where(
+                    m_sum_total > 1, mf
+                    * (1 - m_sum_imposed_species)
+                    / m_sum_chemical_table_species,
+                    mf
+                ),
+                lambda mf: mf / m_sum_total,
+                mf_array
+            )
 
     return mass_fractions
 
@@ -599,7 +596,7 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
         # Facilitate the building of H2 and He-only filling species dict
         if len(filling_species) == 2 and not isinstance(filling_species, dict):
             if 'H2' in filling_species and 'He' in filling_species:
-                if 'Fe/H' in parameters.keys():
+                if 'Fe/H' in parameter_key_tuple:
                     filling_species = {
                         'H2': None,
                         'He': None
@@ -630,7 +627,7 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
     imposed_mass_fractions = []
 
     # Free chemistry species
-    for i_spec, species in enumerate(line_species):
+    for species in line_species:
         # Vertically constant abundance
         if species in parameters.keys():
             imposed_mass_fractions.append(species)
@@ -838,11 +835,11 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
                 f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
                 f"or set equilibrium chemistry to True\n"
                 f"If the sum is < 0, check your imposed mass fractions and chemical model")
-    return mass_fractions
+    return mass_fractions, m_sum_total
 
-
-def get_abundances(pressures, temperatures, line_species, cloud_species,
-                   parameters, adaptive_mesh_refinement=False, filling_species = None, **kwargs):
+@partial(jit, static_argnames=['line_species', 'cloud_species', 'adaptive_mesh_refinement'])
+def get_abundances(pressures: typing.ArrayLike, temperatures:typing.ArrayLike, parameters: dict, line_species: list, cloud_species: list,
+                   filling_species:list = None, adaptive_mesh_refinement: bool = False,  **kwargs):
     """
     This function takes in the C/O ratio, metallicity, and quench pressures and uses them
     to compute the gas phase and equilibrium condensate abundances from an interpolated table.
@@ -883,8 +880,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species,
             'He': 0.24 * jnp.ones(pressures.size)
         }
 
-    line_species_no_resolution = [species.split('.R')[0] for species in line_species]
-    mass_fractions = calculate_line_species_mass_fractions(
+    line_species_no_resolution = tuple([species.split('.R')[0] for species in line_species])
+    mass_fractions = calculate_line_species_mass_fractions_jit(
         pressures=pressures,
         temperatures=temperatures,
         parameters=parameters,
@@ -894,7 +891,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species,
         **kwargs
     )
     mean_molar_mass = compute_mean_molar_masses(mass_fractions)
-    mass_fractions, p_bases, small_index = calculate_cloud_mass_fractions(
+    mass_fractions, p_bases, small_index = calculate_cloud_mass_fractions_jit(
         pressures,
         temperatures,
         cloud_species,

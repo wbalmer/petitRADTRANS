@@ -263,7 +263,7 @@ class Retrieval:
                     parameters=cube,
                     data=data_name,
                     pt_plot_mode=False,
-                    amr=self.configuration.amr,
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement,
                     copy_configuration_parameters=False
                 )
 
@@ -373,7 +373,7 @@ class Retrieval:
         parameters=None,
         data=None,
         pt_plot_mode: bool = False,
-        amr: bool = False,
+        adaptive_mesh_refinement: bool = False,
         copy_configuration_parameters: bool = True,
         **kwargs
     ):
@@ -394,7 +394,7 @@ class Retrieval:
                 If None, the forward models of all the data in the retrieval configuration are calculated.
             pt_plot_mode:
                 If True, the model function should return the pressure and temperature arrays before computing the flux.
-            amr:
+            adaptive_mesh_refinement:
                 If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
                 This will increase the size of the pressure grid by a constant factor that can be adjusted in the
                 setup_pres function.
@@ -507,7 +507,7 @@ class Retrieval:
                 radtrans_object,
                 configuration_parameters,
                 pt_plot_mode=pt_plot_mode,
-                amr=amr
+                adaptive_mesh_refinement=adaptive_mesh_refinement
             )
 
         if return_dict or len(data) > 1:
@@ -519,7 +519,7 @@ class Retrieval:
             self,
             parameters=None,
             data=None,
-            amr: bool = False,
+            adaptive_mesh_refinement: bool = False,
             copy_configuration_parameters: bool = True,
             **kwargs):
         """Calculate the temperature profile associated with the given data, for the given parameters.
@@ -540,7 +540,7 @@ class Retrieval:
                 If None, the forward models of all the data in the retrieval configuration are calculated.
             pt_plot_mode:
                 If True, the model function should return the pressure and temperature arrays before computing the flux.
-            amr:
+            adaptive_mesh_refinement:
                 If True, use an adaptive high resolution pressure grid around the location of cloud condensation.
                 This will increase the size of the pressure grid by a constant factor that can be adjusted in the
                 setup_pres function.
@@ -554,7 +554,7 @@ class Retrieval:
             parameters,
             data,
             True,
-            amr,
+            adaptive_mesh_refinement,
             copy_configuration_parameters,
             **kwargs)
         
@@ -565,7 +565,7 @@ class Retrieval:
         retrieved_parameters: dict[str, dict],
         retrieval_name: str = "retrieval_name",
         run_mode: str = "retrieval",
-        amr: bool = False,
+        adaptive_mesh_refinement: bool = False,
         output_directory: str = "",
         use_mpi: bool = False,
         evaluate_sample_spectra: bool = False,
@@ -596,7 +596,7 @@ class Retrieval:
                 Can be either 'retrieval', which runs the retrieval normally using pymultinest,
                 or 'evaluate', which produces plots from the best fit parameters stored in the
                 output post_equal_weights file.
-            amr : Bool
+            adaptive_mesh_refinement : Bool
                 Use an adaptive high resolution pressure grid around the location of cloud condensation.
                 This will increase the size of the pressure grid by a constant factor that can be adjusted
                 in the setup_pres function.
@@ -638,7 +638,7 @@ class Retrieval:
         retrieval_configuration = RetrievalConfig(
             retrieval_name=retrieval_name,
             run_mode=run_mode,
-            amr=amr,
+            adaptive_mesh_refinement=adaptive_mesh_refinement,
             scattering_in_emission=scattering_in_emission,  # scattering is not necessary when using SpectralModels
             pressures=pressures  # pressures is not necessary when using SpectralModels
         )
@@ -1060,7 +1060,7 @@ class Retrieval:
         parameters = self.build_param_dict(best_fit_params, parameters_read)
         self.best_fit_parameters = parameters
 
-        if self.configuration.amr:
+        if self.configuration.adaptive_mesh_refinement:
             _ = self.configuration._setup_pres()  # TODO this function should not be private
             self.best_fit_parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
             self.best_fit_parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
@@ -1329,7 +1329,7 @@ class Retrieval:
         parameters["contribution"] = Parameter("contribution", False, value=contribution)
 
         # Set up the pRT object
-        if self.configuration.amr:
+        if self.configuration.adaptive_mesh_refinement:
             p = self.configuration._setup_pres()
             parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
@@ -1356,7 +1356,7 @@ class Retrieval:
                 self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=species,
+                line_species=tuple(species),
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
@@ -1366,7 +1366,7 @@ class Retrieval:
                 scattering_in_emission=self.configuration.scattering_in_emission
             )
 
-        if self.configuration.amr:
+        if self.configuration.adaptive_mesh_refinement:
             parameters["pressure_scaling"] = self.configuration.parameters["pressure_scaling"]
             parameters["pressure_width"] = self.configuration.parameters["pressure_width"]
             parameters["pressure_simple"] = self.configuration.parameters["pressure_simple"]
@@ -1384,7 +1384,7 @@ class Retrieval:
             atmosphere,
             parameters,
             pt_plot_mode=False,
-            amr=self.configuration.amr)
+            adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement)
         if len(results) == 2:
             return results
 
@@ -1447,17 +1447,17 @@ class Retrieval:
         else:
             name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-        species = [
-            spec.split('.')[0]
-            for spec in self.configuration.data[name].radtrans_object.line_species
-        ]
+        species = ()
+        for spec in self.configuration.data[name].radtrans_object.line_species:
+            species = species + (spec.split('.')[0],)
+
         abundances, mmw, _, _ = get_abundances(
             pressures,
             temps,
             copy.copy(species),
             copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
-            amr=False
+            adaptive_mesh_refinement=False
         )
 
         return abundances, mmw
@@ -1907,7 +1907,7 @@ class Retrieval:
                     data.model_generating_function(use_obj,
                                                    self.configuration.parameters,
                                                    self.pt_plot_mode,
-                                                   amr=self.configuration.amr)
+                                                   adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement)
 
                 if len(ret_val) == 3:
                     pressures, temperatures, __ = ret_val
@@ -1924,7 +1924,7 @@ class Retrieval:
                     data.radtrans_object,
                     self.configuration.parameters,
                     pt_plot_mode=False,
-                    amr=self.configuration.amr
+                    adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
                 )  # TODO the generating function should always return the same number of values
 
                 if retrieve_uncertainties:
@@ -2132,6 +2132,337 @@ class Retrieval:
         else:
             return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
 
+    @staticmethod
+    def log_likelihood_jax(
+        parameters,
+        configuration,
+        log_l_per_datapoint_dict: dict = None,
+        return_model: bool = False,
+        uncertainties_mode: str = 'default',
+        generate_mock_data: bool = False,
+        print_log_likelihood_for_debugging: bool = False
+    ):
+        """
+        pyMultiNest required likelihood function.
+
+        This function wraps the model computation and log-likelihood calculations
+        for pyMultiNest to sample. If PT_plot_mode is True, it will return
+        only the pressure and temperature arrays rather than the wavelength
+        and flux. If run_mode is 'evaluate', it will save the provided sample to the
+        best-fit spectrum file, and add it to the best_fit_specs dictionary.
+        If evaluate_sample_spectra is true, it will store the spectrum in
+        posterior_sample_specs.
+
+        Args:
+            cube : numpy.ndarray
+                The transformed unit hypercube, providing the parameter values
+                to be passed to the model_generating_function.
+            ndim : int
+                The number of dimensions of the problem
+            nparam : int
+                The number of parameters in the fit.
+            log_l_per_datapoint_dict : dict
+                Dictionary with instrument-entries. If provided, log likelihood
+                per datapoint is appended to existing list.
+            return_model : bool
+                If True, return the generated model in addition to the log-likelihood.
+                This is intended for debugging purposes, and should stay False in a normal retrieval.
+
+        Returns:
+            log_likelihood : float
+                The (negative) log likelihood of the model given the data.
+        """
+        invalid_value = -1e99
+        tiny = 1e-99
+        log_likelihood = 0.
+        log_prior = 0.
+
+        retrieve_uncertainties = False
+        beta_mode = "multiply"
+
+        wavelengths_models = []
+        spectrum_models = []
+        additional_log_ls = []
+        beta = 1.0
+
+        atmospheric_model_column_fluxes = None
+
+        if uncertainties_mode == "default":
+            beta = 1.0
+        elif uncertainties_mode == "optimize":
+            warnings.warn("automatically optimizing for uncertainties, be sure of what you are doing...")
+            beta = None
+        elif uncertainties_mode == "retrieve":
+            warnings.warn("retrieving uncertainties (multiply mode), be sure of what you are doing...")
+            retrieve_uncertainties = True
+            beta_mode = "multiply"
+        elif uncertainties_mode == "retrieve_add":
+            warnings.warn("retrieving uncertainties (add mode), be sure of what you are doing...")
+            retrieve_uncertainties = True
+            beta_mode = "add"
+        else:
+            raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
+                             f"but was '{uncertainties_mode}'")
+
+
+        # Store per data-object
+        per_datapoint = False
+
+        if isinstance(log_l_per_datapoint_dict, dict):
+            per_datapoint = True
+
+        # Update model parameters with the retrieval cube drawn values
+        i = 0  # free parameters enumerator
+
+
+        for data_name, data in configuration.data.items():
+            if per_datapoint:
+                # Keep logL's separate per data-object
+                log_likelihood = 0.
+
+            # Only calculate spectra within a given wavelengths range once if data.scale or data.scale_err:
+            if data_name + "_scale_factor" in parameters:
+                data.scale_factor = parameters[data_name + "_scale_factor"].value
+
+            if data.offset_bool:
+                data.offset = parameters[data_name + "_offset"].value
+
+            if data_name + "_b" in parameters.keys():
+                data.bval = parameters[data_name + "_b"].value
+
+            """if self.pt_plot_mode and data_name == configuration.plot_kwargs['take_PTs_from']:
+                # Get the PT profile
+                use_obj = data.radtrans_object
+                if data.external_radtrans_reference is not None:
+                    use_obj = configuration.data[data.external_radtrans_reference].radtrans_object
+                ret_val = \
+                    data.model_generating_function(use_obj,
+                                                   parameters,
+                                                   self.pt_plot_mode,
+                                                   adaptive_mesh_refinement=configuration.adaptive_mesh_refinement)
+
+                if len(ret_val) == 3:
+                    pressures, temperatures, __ = ret_val
+                else:
+                    pressures, temperatures = ret_val
+
+                return pressures, temperatures
+            elif self.pt_plot_mode:
+                continue"""
+
+            if data.external_radtrans_reference is None:
+                # Compute the model
+                model_returned_values = data.model_generating_function(
+                    data.radtrans_object,
+                    parameters,
+                    pt_plot_mode=False,
+                    adaptive_mesh_refinement=configuration.adaptive_mesh_refinement
+                )  # TODO the generating function should always return the same number of values
+
+                if retrieve_uncertainties:
+                    if len(model_returned_values) == 4:
+                        wavelengths_model, spectrum_model, beta, additional_log_l = model_returned_values
+                    else:
+                        wavelengths_model, spectrum_model, beta = model_returned_values
+                        additional_log_l = 0.
+                else:
+                    if data.variability_atmospheric_column_model_flux_return_mode:
+                        wavelengths_model, spectrum_model, additional_log_l, atmospheric_model_column_fluxes = \
+                            model_returned_values
+                    elif len(model_returned_values) == 3:
+                        wavelengths_model, spectrum_model, additional_log_l = model_returned_values
+                    else:
+                        wavelengths_model, spectrum_model = model_returned_values
+                        additional_log_l = 0.
+
+                if additional_log_l is None:
+                    additional_log_l = 0
+
+                # Ensure that the spectrum model has no masked values, so that no conversion to NaN is required
+                if isinstance(spectrum_model, np.ma.MaskedArray):
+                    spectrum_model = spectrum_model.filled(0)
+
+                # Sanity checks on outputs
+                if spectrum_model is None:
+                    # -np.inf (and anything <1e-100) seemed to cause issues with Multinest.
+                    # This particular check probably wasn't the underlying cause, and could
+                    # use a better default value.
+                    return invalid_value
+
+                # Calculate log likelihood
+                # TODO uniformize convolve/rebin handling
+                if not isinstance(data.spectrum, float) and data.spectrum.dtype == 'O':
+                    if jnp.ndim(data.spectrum) == 1:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Second dimension of data must be a function of wavelength
+                        for i, spectrum_data in enumerate(data.spectrum):
+                            if jnp.isnan(spectrum_model[i][~data.mask[i]]).any():
+                                return invalid_value
+
+                            log_likelihood += data.log_likelihood(
+                                spectrum_model[i][~data.mask[i]], spectrum_data, data.uncertainties[i],
+                                beta=beta,
+                                beta_mode=beta_mode
+                            )
+                    elif jnp.ndim(data.spectrum) == 2:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Third dimension of data must be a function of wavelength
+                        for i, detector in enumerate(data.spectrum):
+                            for j, spectrum_data in enumerate(detector):
+                                if jnp.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
+                                    return invalid_value
+
+                                log_likelihood += data.log_likelihood(
+                                    spectrum_model[i, j][~data.mask[i, j]], spectrum_data, data.uncertainties[i, j],
+                                    beta=beta,
+                                    beta_mode=beta_mode
+                                )
+                    else:
+                        raise ValueError(f"observation is an array containing object, "
+                                         f"and have {jnp.ndim(data.spectrum)} dimensions, "
+                                         f"but must have 1 to 2")
+                else:
+                    if jnp.isnan(spectrum_model).any():
+                        return invalid_value
+
+                    if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
+                            and jnp.ndim(spectrum_model) == 1):
+                        # Convolution and rebin are cared of in get_chisq
+                        log_likelihood += data.get_chisq(
+                            wavelengths_model,
+                            spectrum_model,  # [~data.mask],  # TODO temporary fix until code design rework
+                            False,
+                            parameters,
+                            per_datapoint=per_datapoint,
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=generate_mock_data,
+                        ) + additional_log_l
+                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
+                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
+                        log_likelihood += data.log_likelihood(
+                            spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
+                            beta=beta,
+                            beta_mode=beta_mode
+                        )
+                    elif jnp.ndim(data.spectrum) == 2:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Second dimension of data must be a function of wavelength
+                        for i, spectrum_data in enumerate(data.spectrum):
+                            log_likelihood += data.log_likelihood(
+                                spectrum_model[i, ~data.mask[i, :]], spectrum_data, data.uncertainties[i],
+                                beta=beta,
+                                beta_mode=beta_mode
+                            )
+                    elif jnp.ndim(data.spectrum) == 3:
+                        # Convolution and rebin are *not* cared of in get_log_likelihood
+                        # Third dimension of data must be a function of wavelength
+                        for i, detector in enumerate(data.spectrum):
+                            for j, spectrum_data in enumerate(detector):
+                                log_likelihood += data.log_likelihood(
+                                    spectrum_model[i, j, ~data.mask[i, j, :]], spectrum_data, data.uncertainties[i, j],
+                                    beta=beta,
+                                    beta_mode=beta_mode
+                                )
+            else:
+                wavelengths_model = None
+                spectrum_model = None
+                additional_log_l = None
+
+            if return_model:
+                wavelengths_models.append(wavelengths_model)
+                spectrum_models.append(spectrum_model)
+                additional_log_ls.append(additional_log_l)
+
+            if per_datapoint:
+                log_l_per_datapoint_dict[data_name].append(log_likelihood)
+
+            # Check for data using the same pRT object
+            # Calculate log likelihood
+            for data_name_2, data_2 in configuration.data.items():
+                if data_2.external_radtrans_reference is not None:
+                    if data_2.scale:
+                        data_2.scale_factor = parameters[data_name_2 + "_scale_factor"].value
+
+                    if data_2.offset_bool:
+                        data_2.offset = parameters[data_name_2 + "_offset"].value
+
+                    if data_2.external_radtrans_reference == data_name:
+                        if spectrum_model is None:
+                            return invalid_value
+
+                        if np.isnan(spectrum_model).any():
+                            return invalid_value
+
+                        log_likelihood += data_2.get_chisq(
+                            wavelengths_model,
+                            spectrum_model,
+                            False,
+                            parameters,
+                            per_datapoint=per_datapoint,
+                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
+                            generate_mock_data=generate_mock_data
+                        ) + additional_log_l
+
+            # Save sampled outputs if necessary.
+            """if configuration.run_mode == 'evaluate':
+                if self.evaluate_sample_spectra:
+                    self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
+                else:
+                    convolved = convolve(
+                        wavelengths_model,
+                        spectrum_model,
+                        data.data_resolution)
+                    binned = rebin_spectrum_bin(
+                            wavelengths_model,
+                            convolved,
+                            data.wavelengths,
+                            data.wavelength_bin_widths
+                        )
+                    data_safe_name = data_name.replace('/', '_').replace('.', '_')
+                    np.savetxt(
+                        os.path.join(
+                            self.output_directory,
+                            'evaluate_' + configuration.retrieval_name,
+                            f'{configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
+                        ),
+                        np.column_stack((data.wavelengths, binned))
+                    )
+
+                    self.best_fit_spectra[data_name] = [data.wavelengths, binned]"""
+
+        if generate_mock_data:
+            sys.exit(
+                1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
+
+        if per_datapoint:
+            return log_l_per_datapoint_dict
+
+        if "log_prior_weight" in parameters.keys():
+            log_prior += parameters["log_prior_weight"].value  # TODO why not using log_likelihood?
+
+        if log_likelihood + log_prior < invalid_value:
+            return invalid_value
+
+        if jnp.abs(log_likelihood + log_prior) < tiny:
+            log_likelihood = tiny
+            log_prior = 0
+
+        #if self.ultranest and np.isinf(log_likelihood + log_prior):
+        #    return invalid_value
+
+        if not return_model:
+            if print_log_likelihood_for_debugging:
+                print('log_likelihood + log_prior', log_likelihood + log_prior)
+            return log_likelihood + log_prior
+        else:
+            return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
+
+
     def prior(self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0) -> npt.NDArray[float]:
         """
         pyMultinest Prior function. Transforms unit hypercube into physical space.
@@ -2159,11 +2490,11 @@ class Retrieval:
 
         return params
 
-    def prior_model_jaxns(self):
-        for key, parameter in self.configuration.parameters.items():
+    def prior_model_jaxns(self, parameters):
+        for key, parameter in parameters.items():
             parameter.set_prior()
             parameter.value = yield parameter.prior_sample
-        return self.configuration.parameters
+        return parameters
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
@@ -2290,10 +2621,27 @@ class Retrieval:
                 'seed': sampler_kwargs.pop('seed', 42654)
             }
             jit = sampler_kwargs.pop('jit', True)
+            #self.configuration.parameters = self.prior_model_jaxns(self.configuration.parameters)
 
+            def prior_func_wrapper():
+                for key, parameter in self.configuration.parameters.items():
+                    parameter.set_prior()
+                    parameter.value = yield parameter.prior_sample
+                return self.configuration.parameters
+            
+            def log_likelihood_wrapper(parameters):
+                return self.log_likelihood_jax(
+                    parameters=parameters,
+                    configuration=self.configuration,
+                    log_l_per_datapoint_dict=None,
+                    return_model=False,
+                    uncertainties_mode=self.uncertainties_mode,
+                    generate_mock_data=self.generate_mock_data,
+                    print_log_likelihood_for_debugging=False
+                )
             sampler = JAXNSSampler(
-                log_likelihood_func=self.log_likelihood,
-                prior_func=self.prior_model_jaxns,
+                log_likelihood_func=log_likelihood_wrapper,
+                prior_func=prior_func_wrapper,
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
@@ -2366,17 +2714,17 @@ class Retrieval:
         # Set up the pRT object
         self._rebin_opacities(resolution=resolution)
 
-        species = []
+        species = ()
 
         for _species in self.configuration.line_species:
-            species.append(
+            species = species + (
                 CorrelatedKOpacity.join_species_all_info(
                     species_name=_species,
                     spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
-                )
+                ),
             )
 
-        if self.configuration.amr:
+        if self.configuration.adaptive_mesh_refinement:
             pressures = self.configuration._setup_pres()
         else:
             pressures = self.configuration.pressures
@@ -2416,7 +2764,7 @@ class Retrieval:
                     radtrans_object,
                     parameters,
                     False,
-                    self.configuration.amr
+                    self.configuration.adaptive_mesh_refinement
                 )
 
                 if len(ret_val) == 2:
@@ -2457,7 +2805,7 @@ class Retrieval:
                         data.radtrans_object,
                         parameters,
                         False,
-                        amr=self.configuration.amr
+                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
                     )
                 if len(ret_val) == 3:
                     wavelengths_model, spectrum_model, additional_logl = ret_val
@@ -2478,7 +2826,7 @@ class Retrieval:
                         prt_obj,
                         parameters,
                         False,
-                        amr=self.configuration.amr
+                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
                     )
                 )
 
@@ -2550,7 +2898,7 @@ class Retrieval:
                         data.radtrans_object,
                         parameters,
                         False,
-                        amr=self.configuration.amr
+                        adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement
                     )
                 )
 
@@ -2661,7 +3009,7 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = tuple([spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species])
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -2723,7 +3071,7 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = tuple([spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species])
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -2754,7 +3102,7 @@ class Retrieval:
         Creates a pRT object for each data set that asks for a unique object.
         Checks if there are low resolution c-k models from exo-k, and creates them if necessary.
         The scaling and width parameters adjust the AMR grid as described in RetrievalConfig.setup_pres
-        and models.fixed_length_amr. It is recommended to keep the defaults.
+        and models.fixed_length_adaptive_mesh_refinement. It is recommended to keep the defaults.
 
         Args:
             scaling : int
@@ -2778,17 +3126,17 @@ class Retrieval:
                     # Use ExoK to have low res models.
                     self._rebin_opacities(resolution=data.model_resolution)
 
-                    species = []
+                    species = ()
 
                     for line_species in self.configuration.line_species:
                         line_species, spectral_info = CorrelatedKOpacity.split_species_spectral_info(line_species)
                         opacity_wavelength_range = CorrelatedKOpacity.split_spectral_info(spectral_info)[1]
 
-                        species.append(CorrelatedKOpacity.join_species_all_info(
+                        species = species + (CorrelatedKOpacity.join_species_all_info(
                             line_species,
                             spectral_sampling=CorrelatedKOpacity.get_resolving_power_string(data.model_resolution),
                             wavelength_range=opacity_wavelength_range,
-                        ))
+                        ),)
                 else:
                     # Otherwise for 'lbl' or no model_resolution binning,
                     # we just use the default species.
@@ -2800,7 +3148,7 @@ class Retrieval:
                     line_by_line_sampling = int(1e6 / data.model_resolution)
 
                 # Create random P-T profile to create RT arrays of the Radtrans object.
-                if self.configuration.amr:
+                if self.configuration.adaptive_mesh_refinement:
                     pressures = self.configuration._setup_pres(scaling, width)  # TODO this function shouldn't be protected  # noqa: E501
                 else:
                     pressures = self.configuration.pressures
@@ -2808,7 +3156,7 @@ class Retrieval:
                 # Set up the pRT objects for the given dataset
                 radtrans = Radtrans(
                     pressures=pressures,
-                    line_species=copy.copy(species),
+                    line_species=copy.copy(tuple(species)),
                     rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                     gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                     cloud_species=copy.copy(self.configuration.cloud_species),
@@ -2817,7 +3165,6 @@ class Retrieval:
                     scattering_in_emission=self.configuration.scattering_in_emission,
                     line_by_line_opacity_sampling=line_by_line_sampling
                 )
-
                 data.radtrans_object = radtrans
 
             # Setup for non-uniform spectral resolution
@@ -2987,8 +3334,8 @@ class Retrieval:
                             linewidth=2)
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.configuration.amr
-            self.configuration.amr = False
+            adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
+            self.configuration.adaptive_mesh_refinement = False
             pressures = self.configuration.pressures
             # Check to see if we're weighting by the emission contribution.
             if contribution:
@@ -3090,7 +3437,7 @@ class Retrieval:
                 )
             # Restore the correct pressure arrays.
             self.configuration.pressures = p_global_keep
-            self.configuration.amr = amr
+            self.configuration.adaptive_mesh_refinement = adaptive_mesh_refinement
         else:
             fig = None
             ax = None
@@ -3294,8 +3641,8 @@ class Retrieval:
             print("\nPlotting Best-fit contribution function")
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.configuration.amr
-            self.configuration.amr = False
+            adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
+            self.configuration.adaptive_mesh_refinement = False
             # Store old pressure array so that we can put it back later.
             p_global_keep = self.configuration.pressures
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
@@ -3365,7 +3712,7 @@ class Retrieval:
             # Restore the correct pressure arrays.
             # *1e6 for units (cgs from bar)
             self.configuration.pressures = p_global_keep
-            self.configuration.amr = amr
+            self.configuration.adaptive_mesh_refinement = adaptive_mesh_refinement
         else:
             fig = None
             ax = None
@@ -3549,12 +3896,12 @@ class Retrieval:
             samples_use = copy.copy(sample_dict[self.configuration.retrieval_name])
 
             # Let's set up a standardized pressure array, regardless of AMR stuff.
-            amr = self.configuration.amr
-            self.configuration.amr = False
+            adaptive_mesh_refinement = self.configuration.adaptive_mesh_refinement
+            self.configuration.adaptive_mesh_refinement = False
             temps = []
 
             pressures = self.configuration.pressures  # prevent eventual reference before assignment
-            if amr:
+            if adaptive_mesh_refinement:
                 for name, data in self.configuration.data.items():
                     if data.external_radtrans_reference is None:
                         data.radtrans_object._pressures = pressures * 1e6
@@ -3719,11 +4066,11 @@ class Retrieval:
             ax.legend(loc='best')
             plt.savefig(f"{self.get_base_figure_name()}_PT_envelopes.pdf",
                         bbox_inches='tight')
-            self.configuration.amr = amr
-            if amr:
+            self.configuration.adaptive_mesh_refinement = adaptive_mesh_refinement
+            if adaptive_mesh_refinement:
                 for name, data in self.configuration.data.items():
                     if data.external_radtrans_reference is None:
-                        data.radtrans_object._pressures = self.configuration.amr_pressure * 1e6
+                        data.radtrans_object._pressures = self.configuration.adaptive_mesh_refinement_pressure * 1e6
         else:
             fig = None
             ax = None
@@ -3815,7 +4162,7 @@ class Retrieval:
 
             # Set up the pRT object
             p = None
-            if self.configuration.amr:
+            if self.configuration.adaptive_mesh_refinement:
                 p = self.configuration._setup_pres()
             else:
                 p = self.configuration.pressures
@@ -3826,7 +4173,7 @@ class Retrieval:
 
             atmosphere = Radtrans(
                 pressures=p,
-                line_species=species,
+                line_species=tuple(species),
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
@@ -3946,7 +4293,7 @@ class Retrieval:
                 A list of the free parameters as read from the output files.
             model_generating_function : method
                 A function that will take in the standard 'model' arguments
-                (pRT_object, params, pt_plot_mode, amr, resolution)
+                (pRT_object, params, pt_plot_mode, adaptive_mesh_refinement, resolution)
                 and will return the wavlength and flux arrays as calculated by petitRadTrans.
                 If no argument is given, it uses the method of the first dataset included in the retrieval.
             prt_reference : str

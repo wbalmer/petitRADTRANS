@@ -766,8 +766,9 @@ def temperature_profile_function_guillot_modif(
 
 
 def temperature_profile_function_isothermal(pressures: ArrayLike, temperature: float) -> ArrayLike:
-    # TODO only to temporarily fix methods, change name later
-    return jnp.ones(pressures.size) * temperature
+    pressures = jnp.asarray(pressures)
+    temperature = jnp.asarray(temperature)
+    return jnp.ones_like(pressures) * temperature
 
 
 def temperature_profile_function_ret_model(rad_trans_params):
