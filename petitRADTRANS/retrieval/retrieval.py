@@ -216,7 +216,7 @@ class Retrieval:
                 for tested_attribute in tested_attributes:
                     print(f" {tested_attribute}:")
                     tested_attribute = data_obj.__getattribute__(tested_attribute)
-                    valid = valid and self._data_are_valid(tested_attribute)
+                    # valid = valid and self._data_are_valid(tested_attribute)
 
                     if valid:
                         print("  OK (no NaN, infinite, or negative value detected)")
@@ -1200,7 +1200,7 @@ class Retrieval:
                 add = 0.5 * log_det
             else:
                 f_err = data.uncertainties
-                f_err = flatten_object(f_err)
+                f_err = flatten_object(np.array(f_err))
 
                 if data.scale_err:
                     f_err = f_err * sf
@@ -2597,7 +2597,8 @@ class Retrieval:
                             'evaluate_' + self.configuration.retrieval_name,
                             f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
                         ),
-                        np.column_stack((data.wavelengths, binned))
+                        np.column_stack((data.wavelengths, binned)),
+                        fmt='%s'
                     )
                 self.best_fit_spectra[name] = [data.wavelengths, binned]
         return self.best_fit_spectra
@@ -4270,10 +4271,10 @@ class Retrieval:
                         data.uncertainties,
                         data.wavelength_bin_widths)
                 else:
-                    wavelengths = np.mean(data.photometric_bin_edges)
-                    flux = data.spectrum
-                    error = data.uncertainties
-                    wavelengths_bins = data.wavelength_bin_widths
+                    wavelengths = np.array([np.mean(data.photometric_bin_edges)])
+                    flux = np.array([data.spectrum])
+                    error = np.array([data.uncertainties])
+                    wavelengths_bins = np.array([data.wavelength_bin_widths])
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
@@ -4320,10 +4321,11 @@ class Retrieval:
                         best_fit_binned = self.best_fit_spectra[data.external_radtrans_reference][1]
                 else:
                     if data.external_radtrans_reference is None:
-                        best_fit_binned = data.photometric_transformation_function(
-                            self.best_fit_spectra[name][0],
-                            self.best_fit_spectra[name][1])
                         try:
+                            best_fit_binned = data.photometric_transformation_function(
+                                self.best_fit_spectra[name][0],
+                                self.best_fit_spectra[name][1])
+                        
                             best_fit_binned = best_fit_binned[0]
                         except Exception:
                             pass

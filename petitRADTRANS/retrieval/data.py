@@ -516,7 +516,7 @@ class Data:
                         # wlen_model in micron
                         # cst.c in cm/s
                         radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5 
-                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
                         #wlen_model += wavel_shift
 
                         # Don't want to rebin the spectrum multiple times.

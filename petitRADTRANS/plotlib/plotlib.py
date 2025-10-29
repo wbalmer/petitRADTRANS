@@ -578,7 +578,7 @@ def contour_corner(
                 labels_list=labels_list,
                 label_kwargs=label_kwargs,
                 range_list=range_list,
-                color=color_list[count],
+                color_list=color_list[count],
                 truths_list=truths_list,
                 contour_kwargs=contour_kwargs,
                 hist_kwargs=hist_kwargs,
