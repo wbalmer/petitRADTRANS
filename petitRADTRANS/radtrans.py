@@ -3351,14 +3351,6 @@ class Radtrans:
                     if True, the absorption opacities and scattering opacities for species and clouds, as well as the
                     optical depths, are returned
         """
-        if emission_geometry is not None:  # TODO remove in 4.0
-            irradiation_geometry = emission_geometry
-
-            warnings.warn(
-                "'emission_geometry' is deprecated and will be removed in a future update. "
-                "Use 'irradiation_geometry' instead",
-                FutureWarning
-            )
 
         auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear = (
             self.__init_spectral_function(
