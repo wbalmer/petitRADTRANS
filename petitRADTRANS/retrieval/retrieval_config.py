@@ -486,7 +486,7 @@ class RetrievalConfig:
                 or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
                 recommended to set the model_resolution parameter.
             radtrans_grid: bool
-                Set to true if data has been binned to pRT R = 1,000 c-k grid.
+                Set to true if data has been binned to a pRT opacity grid, exactly.
         """
         self.data[name] = Data(
             name=name,
