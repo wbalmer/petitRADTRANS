@@ -7,18 +7,18 @@ try:
 except ModuleNotFoundError:
     get_exoatmos_abundances = None
 
+from petitRADTRANS.chemistry import clouds as fc
 from petitRADTRANS.chemistry.pre_calculated_chemistry import pre_calculated_equilibrium_chemistry_table
 from petitRADTRANS.chemistry.utils import (
     compute_mean_molar_masses,
+    cubic_spline_profile,
+    define_abundance_node_list,
+    define_pressure_node_list,
     fixed_length_amr,
     linear_spline_profile,
-    cubic_spline_profile,
     stepped_profile,
-    define_pressure_node_list,
-    define_abundance_node_list
 )
-from petitRADTRANS.chemistry import clouds as fc
-
+from petitRADTRANS.opacities.opacities import Opacity
 
 def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
     """
@@ -48,7 +48,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             Mass fraction abundances of all atmospheric species
         MMW : numpy.ndarray
             Array of the mean molecular weights in each pressure bin
-        small_index : numpy.ndarray
+        pressure_indices : numpy.ndarray
             The indices of the high resolution grid to use to define the adaptive grid.
         PBases : dict
             A dictionary of the cloud base pressures, either computed from equilibrium
@@ -101,57 +101,66 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Free chemistry species
     for species in line_species:
-        species_short_name = species.split(".R")[0]
-        easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
+        isotopologue_name = Opacity.get_species_isotopologue_name(species)
+        species_basename = Opacity.get_species_base_name(species)
         # Vertically constant abundance
-        if species_short_name in parameters.keys():
-            if easy_chem_name in abundances_interp.keys():
-                msum -= abundances_interp[easy_chem_name]
-            abund = 10 ** parameters[species_short_name].value
-            abundances_interp[easy_chem_name] = abund * np.ones_like(pressures)
-            msum += abundances_interp[easy_chem_name]
+        if isotopologue_name in abundances_interp.keys():
+            msum -= abundances_interp[isotopologue_name]
+        if species_basename in abundances_interp.keys():
+            msum -= abundances_interp[species_basename]
+
+        if isotopologue_name in parameters.keys():
+            abund = 10 ** parameters[isotopologue_name].value
+            abundances_interp[isotopologue_name] = abund * np.ones_like(pressures)
+            msum += abundances_interp[isotopologue_name]
+            continue
+        elif species_basename in parameters.keys():
+            abund = 10 ** parameters[species_basename].value
+            abundances_interp[species_basename] = abund * np.ones_like(pressures)
+            msum += abundances_interp[species_basename]
             continue
 
         # Non-vertically constant abundances
         pressure_interpolation_nodes = define_pressure_node_list(
             pressures,
-            species_short_name,
+            species_basename,
             parameters
         )
-        abundance_nodes = define_abundance_node_list(species_short_name, parameters)
+        abundance_nodes = define_abundance_node_list(species_basename, parameters)
+
         # Stepped abundance profile
-        if f"{species_short_name}_stepped_abundance_profile" in parameters.keys():
-            if easy_chem_name in abundances_interp.keys():
-                msum -= abundances_interp[easy_chem_name]
-            abundances_interp[easy_chem_name] = stepped_profile(
+        if f"{species_basename}_stepped_abundance_profile" in parameters.keys():
+            if species_basename in abundances_interp.keys():
+                msum -= abundances_interp[species_basename]
+            abundances_interp[species_basename] = stepped_profile(
                 pressures,
                 pressure_interpolation_nodes,
                 abundance_nodes)
-            msum += abundances_interp[easy_chem_name]
+            msum += abundances_interp[species_basename]
 
         # Linear spline interpolation
-        if f"{species_short_name}_linear_abundance_profile" in parameters.keys():
-            if easy_chem_name in abundances_interp.keys():
-                msum -= abundances_interp[easy_chem_name]
-            abundances_interp[easy_chem_name], _ = linear_spline_profile(
+        if f"{species_basename}_linear_abundance_profile" in parameters.keys():
+            if species_basename in abundances_interp.keys():
+                msum -= abundances_interp[species_basename]
+            abundances_interp[species_basename], _ = linear_spline_profile(
                 pressures,
                 pressure_interpolation_nodes,
                 abundance_nodes,
                 gamma=0.04,
                 nnodes=len(pressure_interpolation_nodes))
-            msum += abundances_interp[easy_chem_name]
+            msum += abundances_interp[species_basename]
 
         # Cubic spline interpolation
-        if f"{species_short_name}_cubic_abundance_profile" in parameters.keys():
-            if easy_chem_name in abundances_interp.keys():
-                msum -= abundances_interp[easy_chem_name]
-            abundances_interp[easy_chem_name], _ = cubic_spline_profile(
+        if f"{species_basename}_cubic_abundance_profile" in parameters.keys():
+            if species_basename in abundances_interp.keys():
+                msum -= abundances_interp[species_basename]
+            abundances_interp[species_basename], _ = cubic_spline_profile(
                 pressures,
                 pressure_interpolation_nodes,
                 abundance_nodes,
                 gamma=0.04,
                 nnodes=len(pressure_interpolation_nodes))
-            msum += abundances_interp[easy_chem_name]
+            msum += abundances_interp[species_basename]
 
     # For free chemistry, need to fill with background gas (H2-He)
     # TODO use arbitrary background gas
@@ -160,13 +169,11 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Whatever's left is H2 and He
         if 'H2' in parameters.keys():
             abundances_interp['H2'] = 10 ** parameters['H2'].value * np.ones_like(pressures)
-
         else:
             abundances_interp['H2'] = 0.766 * (1.0 - msum)
 
         if 'He' in parameters.keys():
             abundances_interp['He'] = 10 ** parameters['He'].value * np.ones_like(pressures)
-
         else:
             abundances_interp['He'] = 0.234 * (1.0 - msum)
 
@@ -184,6 +191,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     for cloud in cloud_species:
         cname = cloud.split("_")[0]
+
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
             clouds[cname] = abundances_interp[cname]
@@ -224,12 +232,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     # Find high resolution pressure grid and indices
     if amr:
-        press_use, small_index = fixed_length_amr(np.array(list(p_bases.values())),
-                                                  pressures,
-                                                  parameters['pressure_scaling'].value,
-                                                  parameters['pressure_width'].value)
+        press_use, pressure_indices = fixed_length_amr(
+            np.array(list(p_bases.values())),
+            pressures,
+            parameters['pressure_scaling'].value,
+            parameters['pressure_width'].value)
     else:
-        small_index = np.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
+        pressure_indices = np.array(list(range(pressures.shape[0])))
 
     fseds = {}
 
@@ -238,6 +247,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
         for cloud in copy.copy(cloud_species):
             cname = cloud.split('_')[0]
+
             # Set up fseds per-cloud
             if 'fsed_' + cname in parameters.keys():
                 fseds[cname] = parameters['fsed_' + cname].value
@@ -250,31 +260,42 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                         pressures[pressures <= p_bases[cname]] / p_bases[cname]
                 ) ** fseds[cname]
 
-            abundances[cloud] = abundances[cloud][small_index]
+            abundances[cloud] = abundances[cloud][pressure_indices]
 
     for species in line_species:
-        easy_chem_name = species.split('_')[0].split('-')[0].split(".")[0]
+        isotopologue_name = Opacity.get_species_isotopologue_name(species)
+        species_basename = Opacity.get_species_base_name(species)
+
         # Depending on easychem vs interpolated and different versions of pRT
         # C2H2 is named differently.
-        if easy_chem_name == "C2H2":
+        if species_basename == "C2H2":
             # might be',acetylene'
             not_found = True
             for key in abundances_interp.keys():
-                if easy_chem_name in key:
-                    easy_chem_name = key
+                if species_basename in key:
+                    species_basename = key
                     not_found = False
                     break
+
             if not_found:
                 continue
+
         if 'FeH' in species:
             # Magic factor for FeH opacity - off by factor of 2
-            abunds_change_rainout = copy.copy(abundances_interp[easy_chem_name] / 2.)
+            abunds_change_rainout = copy.copy(abundances_interp[species_basename] / 2.)
+
             if 'Fe(c)' in p_bases.keys() and 'use_easychem' not in parameters.keys():
                 index_ro = pressures < p_bases['Fe(c)']  # Must have iron cloud
                 abunds_change_rainout[index_ro] = 0.
-            abundances[species] = abunds_change_rainout[small_index]
-        abundances[species] = abundances_interp[easy_chem_name][small_index]
-    abundances['H2'] = abundances_interp['H2'][small_index]
-    abundances['He'] = abundances_interp['He'][small_index]
 
-    return abundances, mmw, small_index, p_bases
+            abundances[species] = abunds_change_rainout[pressure_indices]
+
+        if species_basename in abundances_interp.keys():
+            abundances[species] = abundances_interp[species_basename][pressure_indices]
+        else:
+            abundances[species] = abundances_interp[isotopologue_name][pressure_indices]
+
+    abundances['H2'] = abundances_interp['H2'][pressure_indices]
+    abundances['He'] = abundances_interp['He'][pressure_indices]
+
+    return abundances, mmw, pressure_indices, p_bases
