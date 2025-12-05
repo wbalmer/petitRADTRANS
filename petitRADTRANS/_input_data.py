@@ -130,7 +130,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
     return matches
 
 
-def default_file_selection(files: tuple[str, ...], full_path: str, sub_path: str) -> str:
+def default_file_selection(files: tuple[str, ...] | list[str], full_path: str, sub_path: str) -> str:
     files_str = [f" {i + 1}: {file}" for i, file in enumerate(files)]
     files_str = "\n".join(files_str)
 

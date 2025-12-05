@@ -4,7 +4,18 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.2.1a4] - 2025-08-15
+## [3.3.0a5] - 2025-11-10
+### Added
+- Linear spline continuum subtraction (courtesy Will Balmer).
+- Radial velocity handling in retrieval package (courtesy Will Balmer).
+- Can provide covariance matrix to data object.
+- Added functionality to `retrieval_config` to handle pressure varying abundances.
+- Added docstrings to most of the objects in the `opacity` module.
+
+### Changed
+- Better handling of opacity naming in chemistry, allows for some combinations of lbl and ck in retrievals.
+- Made retrieval dependencies part of standard installation.
+
 ### Fixed
 - Crash when rebinning line opacities if `mpi4py` is not installed.
 - Crash when rebinning line opacities when `emcee` mode is activated ([issue 119](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/119)).
@@ -73,7 +84,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103)).
 - Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106)).
 - Numerical bug in Madhusudhan/Seager PT profile ([issue 115](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/115)).
-- Missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)). 
+- Missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)).
 
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
@@ -174,8 +185,8 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Function maps of `SpectralModel` are incorrectly loaded.
 - Invalid cloud names are used in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
 - Model functions lacking the required 350nm scattering parameter for hazes as an optional parameter (solves [issue 76](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76)).
-- Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)). 
-- Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)). 
+- Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)).
+- Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)).
 - Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Unable to automatically download a default opacity file.

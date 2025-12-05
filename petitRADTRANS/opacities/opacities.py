@@ -32,8 +32,126 @@ if os.environ.get("pRT_emcee_mode") != 'True':  # TODO make use of config_parser
 
 
 class Opacity:
+    """Generic class for opacity files.
+
+    Opacity files are HDF5 files named by joining information tokens with specific separators.
+    The naming pattern is an extension on the ExoMol https://www.exomol.com/ naming pattern.
+
+    Species names are formed by joining the atomic element symbols with isotopic information as follows:
+        <mass number><element symbol><number of atoms>-<mass number><element symbol><number of atoms>-...
+    Below is an example for CH3D, monodeuterated methane:
+        12C-1H3-2H
+
+    Opacity files ends with the following extensions:
+        <opacity type>.<opacity file generator software>.h5
+
+    The naming pattern contains the opacity sampling information ("OSI") as follows:
+        <opacity sampling type><opacity sampling value>_<wavelength min (um)>-<wavelength max (um)>mu
+
+    Neutral species in the gas phase are named with the following pattern (e.g., for CH3D(g)):
+        12C-1H3-2H__<line list source>.<OSI>.<file extensions>
+
+    Charge information can be added for ions as follows: (e.g., for [CH3D]2+(g)):
+        12C-1H3-2H_2+__<line list source>.<OSI>.<file extensions>
+
+    Species in the liquid phase are named with the following pattern (e.g., for CH3D(l)):
+        12C-1H3-2H(l)__<line list source>.<OSI>.<file extensions>
+
+    Species in the solid phase are named with the following pattern (e.g., for CH3D(s)):
+        12C-1H3-2H(s)_<solid structure>_<solid structure_id>__<line list source>.<OSI>.<file extensions>
+
+    Opacities containing a mix of isotopologues following the Earth's "natural" abundances does not display isotopic
+    information and are flagged with the string "NatAbund" (e.g., for CH4):
+        C-H4-NatAbund__<line list source>.<OSI>.<file extensions>
+
+    Opacities originating from multiple species (e.g., collision-induced absorptions, CIAs) are named with this pattern
+    (e.g., for H2-He CIA with the Earth's isotopologue ratios):
+        H2--He-NatAbund__<line list source>.<OSI>.<file extensions>
+
+    Args:
+        species_list: list of str
+            The list of species contributing to the opacity. For single-species opacities, use [species_name].
+            Examples: [1H2-17O], [N2, CO2]
+        natural_abundance: bool, optional
+            If True, the species is considered following the Earth's isotopic ratios. Default is False.
+        charge: int, optional
+            The charge of the species (for single-species opacities only). A value of 0 is used for neutral species.
+            Default is 0.
+        source: str, optional
+            The source (i.e., where or how the opacity were obtained) of the opacity. Default is "unknown".
+        spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+            The opacity spectral sampling type. Default is 'R'.
+                - 'DeltaWavelength': sampling with a constant wavelength step.
+                - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+        spectral_sampling: int or float, optional
+            The opacity spectral sampling value. Default is 0. Units depends on spectral_sampling_type:
+                - 'DeltaWavelength': um
+                - 'DeltaWavenumber': cm-1
+                - 'R': no units
+            Example:
+                To indicate a spectral sampling with a constant resolving power of 1000.
+                >>> spectral_sampling_type='R'
+                >>> spectral_sampling=1000
+        wavelength_min: float, optional
+            (um) Lower wavelength bounds of the opacity data. Default is 0.
+        wavelength_max: float, optional
+            (um) Upper wavelength bounds of the opacity data. Default is 0.
+        matter_state: {'(g)', '(l)', '(s)'}, optional
+            The species matter state. Default is '(g)'.
+                - '(g)': gas phase.
+                - '(l)': liquid phase.
+                - '(s)': solid phase.
+        solid_structure: {'amorphous', 'crystalline', 'structureUnclear'}, optional
+            If the species is in solid phase, indicate the solid structure of the species. Default is None.
+                - 'amorphous': the solid has an amorphous internal structure.
+                - 'crystalline': the solid is in a crystal form.
+                - 'structureUnclear': internal structure was not provided by the source.
+        solid_structure_id: str, optional
+            Solid structure identifier. For crystals, this corresponds to the 3-digits space group.
+            See https://en.wikipedia.org/wiki/List_of_space_groups
+            An unknown space group is indicated as '000'.
+        path_input_data: str, optional
+            Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
+            use the path provided in petitRadtrans' config file.
+        category: {'cia_opacities', 'clouds_opacities', 'correlated_k_opacities', 'line_by_line_opacities'}, optional
+            The opacity category. Indicates the input_data subpath. Default is 'unknown'.
+                - 'cia_opacities': for collision-induced absorptions.
+                - 'clouds_opacities': for cloud opacities.
+                - 'correlated_k_opacities': for correlated-k opacities.
+                - 'line_by_line_opacities': for line-by-line opacities.
+        species_full_name: str, optional
+            Override the species full name. The species full name is composed of the species isotopic information,
+            the natural abundance flag (if relevant), and the charge.
+        species_cloud_info: str, optional
+            Override the species cloud information. The species cloud information is composed of the species matter
+            state, and of its solid structure and structure id (if relevant).
+        species_base_name: str, optional
+            Override the species base name. The species base name is the species chemical formula without isotopic
+            information. It may contain cloud information and charge.
+            Examples: "H2O", "H2O(l)", "H2O_+(s)_crystalline_000".
+        species_isotopologue_name: str, optional
+            Override the species isotopologue name. The species isotopologue name is the species name with isotopic
+            information. It may contain cloud information and charge.
+            Examples: "1H2-16O", "H2O-NatAbund(l)", "1H2-18O_+(s)_crystalline_000".
+        extension: str, optional
+            The opacity file type extension. Default is "unknown". Use "petitRADTRANS" for files generated with
+            petitRADTRANS.
+        full_extension: str, optional
+            Override the opacity file full extension. The opacity file full extension is composed of the opacity file
+            type extension, the opacity file generator software extension, and of the file format extension.
+        file_name: str, optional
+            Override the opacity file name. By default, it is generated from the instanciation arguments.
+        sub_path: str, optional
+            Override the opacity sub path. By default, it depends on the selected category.
+        directory: str, optional
+            Override the opacity directory. By default, it is generated from the species full name and from the other
+            path information.
+        absolute_path: str, optional
+            Override the absolute path of the opacity file. By default, it is genrated from the other path information.
+    """
     # Categories
-    _default_category: str = 'unknown'
+    _default_category: str = 'unknown_opacities'
     _temperature_grid_types: set[str] = {'regular', 'pressure-dependent'}
 
     # Charge strings
@@ -178,7 +296,7 @@ class Opacity:
 
     def __init__(
             self,
-            species_list,
+            species_list: list[str],
             natural_abundance: bool = False,
             charge: int = 0,
             source: str = 'unknown',
@@ -202,68 +320,68 @@ class Opacity:
             directory: str = None,
             absolute_path: str = None
     ):
-        self.species_list = species_list
-        self.natural_abundance = natural_abundance
-        self.charge = charge
-        self.source = source
-        self.spectral_sampling_type = spectral_sampling_type
-        self.spectral_sampling = spectral_sampling
-        self.wavelength_min = wavelength_min
-        self.wavelength_max = wavelength_max
-        self.matter_state = matter_state
-        self.solid_structure = solid_structure
-        self.solid_structure_id = solid_structure_id
+        self.species_list: list[str] = species_list
+        self.natural_abundance: bool = natural_abundance
+        self.charge: int = charge
+        self.source: str = source
+        self.spectral_sampling_type: str = spectral_sampling_type
+        self.spectral_sampling: int | float = spectral_sampling
+        self.wavelength_min: float = wavelength_min
+        self.wavelength_max: float = wavelength_max
+        self.matter_state: str = matter_state
+        self.solid_structure: str = solid_structure
+        self.solid_structure_id: str = solid_structure_id
 
-        self.category = category
-        self.extension = extension
+        self.category: str = category
+        self.extension: str = extension
 
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
-        self.path_input_data = path_input_data
+        self.path_input_data: str = path_input_data
 
         if full_extension is None:
             full_extension = self.get_full_extension()
 
-        self.full_extension = full_extension
+        self.full_extension: str = full_extension
 
         if species_full_name is None:
             species_full_name = self.get_full_name()
 
-        self.species_full_name = species_full_name
+        self.species_full_name: str = species_full_name
 
         if species_cloud_info is None:
             species_cloud_info = self.get_cloud_info()
 
-        self.species_cloud_info = species_cloud_info
+        self.species_cloud_info: str = species_cloud_info
 
         if species_base_name is None:
             species_base_name = self.get_base_name(join=True)
 
-        self.species_base_name = species_base_name
+        self.species_base_name: str = species_base_name
 
         if species_isotopologue_name is None:
             species_isotopologue_name = self.get_isotopologue_name(join=True)
 
-        self.species_isotopologue_name = species_isotopologue_name
+        self.species_isotopologue_name: str = species_isotopologue_name
 
         if file_name is None:
             file_name = self.get_file_name()
 
-        self.file_name = file_name
+        self.file_name: str = file_name
 
         if sub_path is None:
             sub_path = self._get_sub_path(self.category)
 
-        self.sub_path = sub_path
+        self.sub_path: str = sub_path
 
         if directory is None:
-            self.directory = self.get_directory()
+            self.directory: str = self.get_directory()
 
         if absolute_path is None:
             absolute_path = self.get_absolute_path()
 
-        self.absolute_path = absolute_path
+        self.absolute_path: str = absolute_path
 
     @property
     def has_colliding_species(self) -> bool:
@@ -284,6 +402,7 @@ class Opacity:
 
     @staticmethod
     def __modify_isotope_string(isotope: str, mode: str, isotope_pattern: str) -> list[str]:
+        """Add, remove, or transform isotopic information."""
         # Match isotope pattern in order to handle the case in which not all isotopes are separated (e.g. "13C2H2")
         matches = re.findall(isotope_pattern, isotope)
 
@@ -325,7 +444,18 @@ class Opacity:
         return matches
 
     @classmethod
-    def __recursive_merge_contiguous_isotopes(cls, isotope_groups, i, index_merge=None):
+    def __recursive_merge_contiguous_isotopes(
+        cls,
+        isotope_groups: list[list[str | int]],
+        i: int,
+        index_merge: int | None = None
+    ) -> list[list[str | int]]:
+        """Merge contiguous elements in list of isotope strings. Numbers of contiguous isotopes are converted to int,
+        merged groups numbers are set to 0.
+        Example:
+            >>> [["12C", "2"], ["1H", "2"], ["1H", "2"]]
+            >>> [["12C", 2], ["1H", 4], ["1H", 0]]
+        """
         if index_merge is None:
             index_merge = i - 1
 
@@ -359,24 +489,15 @@ class Opacity:
 
         return isotope_groups
 
-    @staticmethod
-    def __single_separator_split(string: str, separator: str, value_error_message: str = None) -> tuple[str, str]:
-        _split = string.split(separator, 1)
-
-        if len(_split) == 1:
-            if value_error_message is None:
-                left_split = _split[0]
-                right_split = ''
-            else:
-                raise ValueError(value_error_message)
-        else:
-            left_split, right_split = _split
-
-        return left_split, right_split
-
     @classmethod
-    def _before_write(cls, temperature_grid_type: str, molar_mass: float, species_name: str | tuple[str, ...],
-                      date_id: str) -> tuple[float | npt.NDArray[float], str]:
+    def _before_write(
+        cls,
+        temperature_grid_type: str,
+        molar_mass: float,
+        species_name: str | tuple[str, ...],
+        date_id: str
+    ) -> tuple[float | npt.NDArray[float], str]:
+        """Perform operations always done to write an opacity file."""
         from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
         if temperature_grid_type not in cls._temperature_grid_types:
@@ -402,8 +523,13 @@ class Opacity:
 
     @classmethod
     def _init_species_name_elements(
-            cls, name: str, species: str, natural_abundance: str, charge: str
+        cls,
+        name: str,
+        species: str,
+        natural_abundance: str,
+        charge: str
     ) -> tuple[str, bool, int]:
+        """Return the species istopologue name, natural abundance flag, and charge."""
         name = cls.modify_isotope_numbers(
             species=name,
             mode='add',
@@ -444,6 +570,7 @@ class Opacity:
 
     @staticmethod
     def _get_sub_path(category: str) -> str:
+        """Get the subpath of the opacity file."""
         sub_paths = get_input_data_subpaths()
 
         if category not in sub_paths:
@@ -454,6 +581,7 @@ class Opacity:
 
     @staticmethod
     def _has_isotope(string: str) -> bool:
+        """Return True if the string matches an isotopologue name pattern."""
         if (len(re.findall(r'(\d{1,3})?([A-Z][a-z]?)(\d{0,3})?-(\d{1,3})([A-Z][a-z]?)', string)) > 0
                 or len(re.findall(r'^(\d{1,3})([A-Z][a-z]?)(\d{0,3})?', string)) > 0):
             return True
@@ -461,16 +589,52 @@ class Opacity:
             return False
 
     @classmethod
-    def _join_spectral_information(cls, spectral_sampling: str, wavelength_range: str):
+    def _join_spectral_information(cls, spectral_sampling: str, wavelength_range: str) -> str:
+        """Join the spectral sampling information with the wavelength range."""
         if wavelength_range != '':
             wavelength_range = cls._wavelength_range_separator + wavelength_range
 
         return f"{spectral_sampling}{wavelength_range}"
 
     @classmethod
-    def _match_function(cls, path_input_data, sub_path, files=None, filename=None,
-                        expect_default_file_exists=True,
-                        find_all=False, display_other_files=False):
+    def _match_function(
+        cls,
+        path_input_data: str,
+        sub_path: str,
+        files: str | None = None,
+        filename: str | None = None,
+        expect_default_file_exists: bool = True,
+        find_all: bool = False,
+        display_other_files: bool = False
+    ) -> str | list[str]:
+        """Return the file matching the given file name.
+
+        If no file name is given, behave as follows depending on the sub path directory content:
+
+            - 1 file is present: return the found file name.
+            - several files are present: return the default file set in the config file if it is present.
+
+        Args:
+            path_input_data: str
+                Absolute path to petitRadtrans "input_data" directory, where the opacity files are stored.
+            sub_path: str
+                Sub path to search the files in.
+            files: str, optional
+                Files to be matched with. By default, use te files in the sub path directory.
+            filename: str, optional
+                File name to be matched.
+            expect_default_file_exists: bool, optional
+                If True, raise an error if the default file is not found when looking for it. If False, return the
+                default file even if it was not found. Default is True.
+            find_all: bool, optional
+                If True, return all the files matching with filename rather than only the first one. Default is False.
+            display_other_files: bool, optional
+                If True, print the available files if no matching file are found.
+
+        Returns:
+            file: str
+                The name of the matched file.
+        """
         full_path = str(os.path.join(path_input_data, sub_path))
 
         if files is None:
@@ -656,7 +820,8 @@ class Opacity:
                 return new_default_file
 
     @classmethod
-    def _merge_contiguous_isotopes(cls, species, isotope_separator):
+    def _merge_contiguous_isotopes(cls, species: str, isotope_separator: str):
+        """Merge contiguous matches containing the same element, whether they are of the same isotope or not."""
         isotope_groups = re.findall(r'([A-Z][a-z]?|e)(\d{1,3})?', species)
         isotope_groups = [list(isotope_group) for isotope_group in isotope_groups]
 
@@ -793,8 +958,14 @@ class Opacity:
             )
 
     @classmethod
-    def find(cls, species: str, category: str = None, path_input_data: str = None, find_all: bool = False,
-             search_online: bool = True) -> str:
+    def find(
+        cls,
+        species: str,
+        category: str = None,
+        path_input_data: str = None,
+        find_all: bool = False,
+        search_online: bool = True
+    ) -> str:
         """Return the absolute filename of a species opacity.
         The validity of the given species name is checked.
 
@@ -883,7 +1054,21 @@ class Opacity:
         )
 
     @classmethod
-    def find_spectral_information(cls, filename):
+    def find_spectral_information(cls, filename: str) -> tuple[str, str]:
+        """Extract the spectral sampling and wavelength range information from a file name.
+
+        Args:
+            filename: str
+                The file name to extract information from.
+
+        Returns:
+            filename_sampling: str
+                The spectral sampling information contained in the file name. This consists in the spectral sampling
+                type key followed by its value.
+            filename_range: str
+                The file wavelength range extracted from the file name. This is the min and max wavelengths of the
+                opacity data, in microns.
+        """
         filename_sampling = [
             match[0]
             for match in re.findall(cls._spectral_sampling_pattern, filename)
@@ -920,14 +1105,42 @@ class Opacity:
 
     @classmethod
     def from_species(
-            cls,
-            species: str,
-            spectral_sampling_type: str = 'R',
-            spectral_sampling: int | float = 0.0,
-            wavelength_min: float = 0.0,
-            wavelength_max: float = 0.0,
-            path_input_data: str = None
-    ):
+        cls,
+        species: str,
+        spectral_sampling_type: str = 'R',
+        spectral_sampling: int | float = 0.0,
+        wavelength_min: float = 0.0,
+        wavelength_max: float = 0.0,
+        path_input_data: str = None
+    ) -> "Opacity":
+        """Instantiate an Opacity object from a species name and from spectral sampling information.
+
+        Args:
+            species: str
+                The species name, containing the species isotopic information, the natural abundance flag
+                (if relevant), and the charge.
+            spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+                The opacity spectral sampling type. Default is 'R'.
+                    - 'DeltaWavelength': sampling with a constant wavelength step.
+                    - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                    - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+            spectral_sampling: int or float, optional
+                The opacity spectral sampling value. Default is 0. Units depends on spectral_sampling_type:
+                    - 'DeltaWavelength': um
+                    - 'DeltaWavenumber': cm-1
+                    - 'R': no units
+            wavelength_min: float, optional
+                (um) Lower wavelength bounds of the opacity data. Default is 0.
+            wavelength_max: float, optional
+                (um) Upper wavelength bounds of the opacity data. Default is 0.
+            path_input_data: str, optional
+                Absolute path to petitRADTRANS "input_data" directory, where the opacity files are stored. By default,
+                use the path provided in petitRADTRANS config file.
+
+        Returns:
+            new_opacity: Opacity
+                A new instance of an Opacity object.
+        """
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
@@ -969,11 +1182,36 @@ class Opacity:
 
     @classmethod
     def from_species_fullname(
-            cls,
-            species_fullname: str,
-            path_input_data: str = None,
-            category: str = 'unknown_opacities'
+        cls,
+        species_fullname: str,
+        path_input_data: str = None,
+        category: str = _default_category
     ):
+        """Instantiate an Opacity object from a species full name and from spectral sampling information.
+
+        Args:
+            species_fullname: str
+                The species full name, containing the species isotopic information. May contain the natural abundance
+                flag if relevant and the charge.
+                Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
+                use the path provided in petitRadtrans' config file.
+            category: {'cia_opacities', 'clouds_opacities', 'correlated_k_opacities', 'line_by_line_opacities'},
+                      optional
+                The opacity category. Indicates the input_data subpath. Default is 'unknown'.
+                    - 'cia_opacities': for collision-induced absorptions.
+                    - 'clouds_opacities': for cloud opacities.
+                    - 'correlated_k_opacities': for correlated-k opacities.
+                    - 'line_by_line_opacities': for line-by-line opacities.
+            path_input_data: str, optional
+                Absolute path to petitRADTRANS "input_data" directory, where the opacity files are stored. By default,
+                use the path provided in petitRADTRANS config file.
+
+
+        Returns:
+            new_opacity: Opacity
+                A new instance of an Opacity object.
+        """
+
         if path_input_data is None:
             path_input_data = petitradtrans_config_parser.get_input_data_path()
 
@@ -1002,9 +1240,9 @@ class Opacity:
             charge=charge,
             source=source,
             spectral_sampling_type=spectral_sampling_type,
-            spectral_sampling=spectral_sampling,
-            wavelength_min=wavelength_min,
-            wavelength_max=wavelength_max,
+            spectral_sampling=float(spectral_sampling),
+            wavelength_min=float(wavelength_min),
+            wavelength_max=float(wavelength_max),
             matter_state=matter_state,
             solid_structure=solid_structure,
             solid_structure_id=solid_structure_id,
@@ -1014,7 +1252,8 @@ class Opacity:
 
         return new_opacity
 
-    def get_absolute_path(self):
+    def get_absolute_path(self) -> str:
+        """Return the absolute path of this Opacity object."""
         return os.path.abspath(
             os.path.join(
                 self.directory,
@@ -1023,12 +1262,43 @@ class Opacity:
         )
 
     def get_base_name(self, join: bool = False) -> str:
+        """Return the base name of this Opacity object.
+
+        The species base name is the species chemical formula without isotopic information. It may contain cloud
+        information and charge.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4(s)_crystalline_000__DHS")
+            >>> Opacity.get_base_name()
+            >>> "Mg2SiO4"
+
+        Args:
+            join: bool  # TODO remove in 4.0.0
+                Has no effect here.
+
+        Returns:
+            species_base_name: str
+                The species base name.
+        """
         return self.get_species_base_name(
             species_full_name=self.species_full_name,
             join=join
         )
 
     def get_cloud_info(self) -> str:
+        """Return the cloud information of this Opacity object.
+
+        Cloud information consists in the species matter state, and, if relevant, its solid internal structure and
+        internal structure ID.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4(s)_crystalline_000__DHS")
+            >>> Opacity.get_cloud_info()
+            >>> "(s)_crystalline_000"
+
+        Returns:
+            The Opacity object cloud information.
+        """
         cloud_info: str = ''
 
         if self.matter_state in self._matter_states:
@@ -1102,6 +1372,23 @@ class Opacity:
         return cloud_info
 
     def get_charge_string(self, replace_symbol_with_char=True) -> str:
+        """Return the charge of the Opacity object species in string format.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS")
+            >>> Opacity.get_charge_string()
+            >>> "2p"
+            >>> Opacity.get_charge_string(replace_symbol_with_char=False)
+            >>> "2+"
+
+        Args:
+            replace_symbol_with_char: bool, optional  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
+                If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is True.
+
+        Returns:
+            charge_string: str
+                The charge of the Opacity object species.
+        """
         charge_string: str = ''
 
         if replace_symbol_with_char:
@@ -1127,17 +1414,21 @@ class Opacity:
 
     @classmethod
     def get_default_category(cls) -> str:
+        """Return the Opacity object default category. Used to obtain the Opacity file sub path."""
         return cls._default_category
 
     @classmethod
     def get_default_extension(cls) -> str:
+        """Return the Opacity object file default extension."""
         return cls._default_extension
 
     @classmethod
     def get_default_resolving_power(cls):
+        """Return the Opacity object species default resolving power."""
         return cls._default_resolving_power
 
     def get_directory(self) -> str:
+        """Return the Opacity object file directory."""
         return self.get_species_directory(
             species='',  # not used
             category=self.category,
@@ -1148,6 +1439,7 @@ class Opacity:
         )
 
     def get_file_name(self) -> str:
+        """Return the Opacity object file name."""
         if self.species_full_name is None:
             self.species_full_name = self.get_full_name()
 
@@ -1168,6 +1460,29 @@ class Opacity:
             natural_abundance_string: str = None,
             colliding_species_separator: str = None
     ) -> tuple[str, str, str, str]:
+        """Return the isotope separator, isotope pattern, natural abundance string, and colliding species separator of
+        Opacity objects.
+
+        Args:
+            isotope_separator: str, optional
+                Override the default isotope separator ("-").
+            isotope_pattern: str, optional
+                Override the default isotope regex pattern.
+            natural_abundance_string: str, optional
+                Override the default natural abundance string ("NatAbund").
+            colliding_species_separator: str, optional
+                Override the default colliding species separator ("--").
+
+        Returns:
+            isotope_separator: str
+                The isotope separator.
+            isotope_pattern: str
+                The isotope regex pattern.
+            natural_abundance_string: str
+                The natural abundance string.
+            colliding_species_separator: str
+                The colliding species separator.
+        """
         if isotope_separator is None:
             isotope_separator = cls._isotope_separator
 
@@ -1185,9 +1500,18 @@ class Opacity:
         return isotope_separator, isotope_pattern, natural_abundance_string, colliding_species_separator
 
     def get_full_extension(self) -> str:
+        """Return this Opacity object file full extension, i.e. the opacity type and the generator software."""
         return f"{self.extension}.{self._extension_opacity}"
 
     def get_full_name(self) -> str:
+        """Return this Opacity object species full name, containing the species isotopic information, the natural
+        abundance flag (if relevant), and the charge.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS")
+            >>> Opacity.get_full_name()
+            >>> "24Mg2-28Si-16O4_2p"
+        """
         # Convert list of species into species name
         if self.has_colliding_species:
             colliding_species: list[str] = [''] * len(self.species_list)
@@ -1231,6 +1555,20 @@ class Opacity:
         return species_full_name
 
     def get_isotopologue_name(self, join: bool = False) -> str:
+        """Return this Opacity object species isotopologye name, containing the species isotopic information, the
+        natural abundance flag (if relevant), and the charge.
+
+        Args:
+            join: bool, optional  # TODO remove in 4.0.0
+                If True, add the charge information to the isotopologue_name. Default is False.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS")
+            >>> Opacity.get_isotopologue_name()
+            >>> "24Mg2-28Si-16O4"
+            >>> Opacity.get_isotopologue_name(join=False)
+            >>> "24Mg2-28Si-16O4_2p"
+        """
         return self.get_species_isotopologue_name(
             species_name=self.species_full_name,
             join=join
@@ -1238,10 +1576,30 @@ class Opacity:
 
     @classmethod
     def get_resolving_power_from_string(cls, string: str) -> int:
+        """Return resolving power information from a string following the petitRADTRANS Opacity format.
+
+        Args:
+            string: str
+                The string to extract resolving power information from.
+
+        Returns:
+            resolving_power: str
+                The resolving power information.
+        """
         return int(string.split(cls._constant_resolving_power, 1)[1])
 
     @classmethod
     def get_resolving_power_string(cls, resolving_power: int | float | str) -> str:
+        """Return resolving power in the petitRADTRANS Opacity format from a number.
+
+        Args:
+            resolving_power: int, float, or str
+                The resolving power to convert into string.
+
+        Returns:
+            resolving_power: str
+                The resolving power in petitRADTRANS Opacity format.
+        """
         if isinstance(resolving_power, float):
             return f"{cls._constant_resolving_power}{resolving_power:.0e}".replace(
                 'e+', 'e'
@@ -1251,6 +1609,27 @@ class Opacity:
 
     @classmethod
     def get_species_base_name(cls, species_full_name: str, join: bool = False) -> str:
+        """Return the base name of a species.
+
+        The species base name is the species chemical formula without isotopic information. It may contain cloud
+        information and charge.
+
+        Example:
+            >>> Opacity.get_species_base_name("24Mg2-28Si-16O4(s)_crystalline_000__DHS")
+            >>> "Mg2SiO4"
+
+        Args:
+            species_full_name: str
+                The species full name, containing the species isotopic information. May contain the natural abundance
+                flag if relevant and the charge.
+            join: bool, optional
+               If True, add the species charge, matter state, and solid structure information (if relevant) to the base
+               name. Default is False.
+
+        Returns:
+            species_base_name: str
+                The species base name.
+        """
         name, natural_abundance, charge, cloud_info, _, _ = cls.split_species_all_info(
             species=species_full_name,
             replace_charge_symbol_with_char=False
@@ -1283,6 +1662,34 @@ class Opacity:
     @classmethod
     def get_species_directory(cls, species: str, category: str = None, path_input_data: str = None,
                               base_name: str = None, isotopologue_name: str = None, sub_path: str = None) -> str:
+        """Return the petitRADTRANS absolute path for the given species.
+
+        Args:
+            species: str
+                The species name. May contain the species isotopic information, the natural abundance flag if
+                relevant and the charge.
+            category: {'cia_opacities', 'clouds_opacities', 'correlated_k_opacities', 'line_by_line_opacities'},
+                      optional
+                The opacity category. Indicates the input_data subpath. Default is 'unknown'.
+                    - 'cia_opacities': for collision-induced absorptions.
+                    - 'clouds_opacities': for cloud opacities.
+                    - 'correlated_k_opacities': for correlated-k opacities.
+                    - 'line_by_line_opacities': for line-by-line opacities.
+            path_input_data: str, optional
+                Absolute path to petitRADTRANS "input_data" directory, where the opacity files are stored. By default,
+                use the path provided in petitRADTRANS config file.
+            base_name: str, optional
+                Override the species base name. By default, it is extracted from the value of the "species" argument.
+            isotopologue_name: str, optional
+                Override the species isotopologue name. By default, it is extracted from the value of the "species"
+                argument.
+            sub_path: str, optional
+                Override the species sub path. By default, it is extracted from the value of the "species" argument.
+
+        Returns:
+            species_directory: str
+                The absolute path of the Opacity object species.
+        """
         if category is None:
             category = cls._default_category
 
@@ -1315,6 +1722,30 @@ class Opacity:
 
     @classmethod
     def get_species_isotopologue_name(cls, species_name: str, join: bool = False) -> str:
+        """Return the isotopologue name of a species.
+
+        The species isotopologue name is the species chemical formula with separated isotopes. It may contain cloud
+        information and charge.
+
+        Example:
+            >>> Opacity.get_species_isotopologue_name("24Mg2-28Si-16O4(s)_crystalline_000__DHS")
+            >>> "24Mg2-28Si-16O4"
+            >>> Opacity.get_species_isotopologue_name("24Mg2-28Si-16O4(s)_crystalline_000__DHS", join=True)
+            >>> "24Mg2-28Si-16O4_2+(s)_crystalline_000"
+
+        Args:
+            species_name: str
+                The species name. May contain the species isotopic information, the natural abundance flag if
+                relevant and the charge.
+
+            join: bool, optional
+               If True, add the species charge, matter state, and solid structure information (if relevant) to the base
+               name. Default is False.
+
+        Returns:
+            species_base_name: str
+                The species base name.
+        """
         species_isotopologue_name, natural_abundance, charge, cloud_info, _, _ = cls.split_species_all_info(
             species=species_name,
             replace_charge_symbol_with_char=False,
@@ -1355,6 +1786,25 @@ class Opacity:
 
     @classmethod
     def get_species_scientific_name(cls, species: str) -> str:
+        """Return the name of a species in LaTeX format.
+
+        The species scientific name is the species chemical full formula with isotopes. It does not contain charges.
+
+        Example:
+            >>> Opacity.get_species_scientific_name("24Mg2-28Si-16O4(s)_crystalline_000__DHS")
+            >>> "24Mg2-28Si-16O4"
+            >>> Opacity.get_species_isotopologue_name("24Mg2-28Si-16O4(s)_crystalline_000__DHS", join=True)
+            >>> "24Mg2-28Si-16O4_2+(s)_crystalline_000"
+
+        Args:
+            species: str
+                The species name. May contain the species isotopic information, the natural abundance flag if
+                relevant and the charge.
+
+        Returns:
+            species_base_name: str
+                The species base name.
+        """
         name = cls.split_species_all_info(species, replace_charge_symbol_with_char=False)[0]
         name = cls.modify_isotope_numbers(
             species=name,
@@ -1369,6 +1819,16 @@ class Opacity:
         return rf"{name}"
 
     def get_spectral_info(self) -> str:
+        """Return this Opacity object spectral information.
+
+        Spectral information contains the opacity spectral sampling type, its value, and the opacity wavelength range
+        boundaries in microns.
+
+        Example:
+            >>> Opacity.from_species_fullname("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS.R39_0.1-250mu")
+            >>> Opacity.get_spectral_info()
+            >>> "R39_0.1-250"
+        """
         spectral_info: str = ''
 
         if self.spectral_sampling_type not in self._spectral_sampling_types:
@@ -1403,6 +1863,33 @@ class Opacity:
             spectral_sampling: str = None,
             wavelength_range: str = None
     ) -> str:
+        """Join together species information, using the petitRADTRANS Opacity separators.
+
+        The results may not be a valid petitRADTRANS Opacity name.
+
+        Args:
+            species_name: str
+                The species chemical formula.
+            natural_abundance: str, optional
+                The natural abundance flag. Empty by default.
+            charge: str, optional
+                The charge in string format. Empty by default.
+            cloud_info: str, optional
+                The matter state, solid structure and solid structure ID. Empty by default.
+            source: str, optional
+                The opacity source. Empty by default.
+            spectral_info: str, optional
+                The opacity sampling type, its value, and the opacity wavenumber boundaries in microns. Empty by
+                default.
+            spectral_sampling: str, optional
+                The opacity sampling type and its value. Activated if "spectral_info" is empty.
+            wavelength_range: str, optional
+                The opacity wavenumber boundaries in microns. Activated if "spectral_info" is empty.
+
+        Returns:
+            species_name: str
+                The species name, using the petitRADTRANS Opacity separators.
+        """
         if natural_abundance != '':
             species_name += cls._isotope_separator + natural_abundance
 
@@ -1425,11 +1912,11 @@ class Opacity:
             species_name += cls._spectral_information_separator + spectral_info
         elif spectral_sampling is not None or wavelength_range is not None:
             if spectral_sampling is None:
-                raise ValueError("both resolution_filename and range_filename must be not None, "
+                raise ValueError("both resolution_filename and range_filename must not be None, "
                                  "but resolution_filename is None")
 
             if wavelength_range is None:
-                raise ValueError("both resolution_filename and range_filename must be not None, "
+                raise ValueError("both resolution_filename and range_filename must not be None, "
                                  "but range_filename is None")
 
             species_name += cls._spectral_information_separator + cls._join_spectral_information(
@@ -1439,7 +1926,9 @@ class Opacity:
 
         return species_name
 
+    # noinspection PyUnusedLocal,PyMethodMayBeStatic
     def load(self, file: str):
+        # TODO implement opacity file loading function here
         warnings.warn(
             "loading an opacity is not implemented yet.\n"
             "Nothing to be done."
@@ -1534,7 +2023,7 @@ class Opacity:
 
             _species = _isotope_separator.join(isotopes)  # join isotopes to rebuild species
 
-            # Merge contiguous matches containing the same element (but presumably different isotopes)
+            # Merge contiguous matches containing the same element, whether they are of the same isotope or not
             if mode == 'remove':
                 _species = cls._merge_contiguous_isotopes(
                     species=_species,
@@ -1550,7 +2039,8 @@ class Opacity:
 
         return cia_separator.join(colliding_species)  # join species to rebuild collision
 
-    def save(self, file: str):
+    # noinspection PyUnusedLocal,PyMethodMayBeStatic
+    def save(self, file: str):  # TODO implement the Opacity save function here
         warnings.warn(
             "saving an opacity is not implemented yet.\n"
             "Nothing to be done."
@@ -1558,6 +2048,24 @@ class Opacity:
 
     @classmethod
     def split_cloud_info(cls, cloud_info: str) -> tuple[str, str, str]:
+        """Split the matter state, solid structure and solid structure ID from a string in petitRADTRANS format.
+
+        Example:
+            >>> Opacity.split_cloud_info("(s)_crystalline_000")
+            >>>  ('(s)', 'crystalline', '000')
+
+        Args:
+            cloud_info: str
+                A string in petitRADTRANS format.
+
+        Returns:
+            matter_state: str
+                The matter state.
+            solid_structure: str
+                The solid structure.
+            solid_structure_id: str
+                The solid structure ID.
+        """
         if ')' not in cloud_info:
             raise ValueError(
                 f"no matter state found in cloud info '{cloud_info}'; "
@@ -1584,7 +2092,58 @@ class Opacity:
         return matter_state, solid_structure, solid_structure_id
 
     @classmethod
-    def split_species_all_info(cls, species: str, replace_charge_symbol_with_char: bool = False, full: bool = False):
+    def split_species_all_info(
+        cls,
+        species: str,
+        replace_charge_symbol_with_char: bool = False,
+        full: bool = False
+    ) -> tuple[str, ...]:
+        """Split a species name in the petitRADTRANS Opacity format into its components.
+
+        Examples:
+            >>> Opacity.split_species_all_info("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS.R39_0.1-250mu")
+            >>> ('24Mg2-28Si-16O4', '', '2+', '(s)_crystalline_000', 'DHS', 'R39_0.1-250mu')
+            >>> Opacity.split_species_all_info("H-NatAbund_2-__X.R100_0.1-250mu", replace_charge_symbol_with_char=True)
+            >>> ('H_2-', 'NatAbund', '2m', '', 'X', 'R100_0.1-250mu')
+            >>> Opacity.split_species_all_info("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS.R39_0.1-250mu", full=True)
+            >>> ('24Mg2-28Si-16O4', '', '2+', '(s)', 'crystalline', '000', 'DHS', 'R', '39', '0.1', '250')
+
+        Args:
+            species: str
+                The species name, in the petitRADTRANS Opacity format.
+            replace_charge_symbol_with_char: bool, optional
+                If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is False.
+            full: bool, optional
+                If True, return the complete decomposition of the species name. Default is False.
+
+        Returns:
+            name: str
+                The species name.
+            natural_abundance: str
+                The natural abundance flag.
+            charge: str
+                The charge in string format.
+            cloud_info: str
+                If full is False only. The matter state, solid structure, and solid structure ID.
+            matter_state: str
+                If full is True only.
+            solid_structure: str
+                If full is True only.
+            solid_structure_id: str
+                If full is True only.
+            source: str
+                The source.
+            spectral_info: str
+                If full is False only. The spectral sampling type, its value, and the opacity wavelength boundaries.
+            spectral_sampling_type: str
+                If full is True only.
+            spectral_sampling_value: str
+                If full is True only.
+            wavelength_min: str
+                If full is True only.
+            wavelength_max: str
+                If full is True only.
+        """
         name, spectral_info = cls.split_species_spectral_info(species)
         name, source = cls.split_species_source(name)
         name, cloud_info = cls.split_species_cloud_info(name)
@@ -1645,6 +2204,26 @@ class Opacity:
 
     @classmethod
     def split_species_charge(cls, species: str, replace_symbol_with_char: bool = False) -> tuple[str, str]:
+        """Separate the charge from a species name in the petitRADTRANS Opacity format.
+
+        Examples:
+            >>> Opacity.split_species_charge("24Mg2-28Si-16O4_2+")
+            >>> ('24Mg2-28Si-16O4', '2+')
+            >>> Opacity.split_species_charge("24Mg2-28Si-16O4_2+", replace_symbol_with_char=True)
+            >>> ('24Mg2-28Si-16O4', '2p')
+
+        Args:
+            species: str
+                The species name, containing only the spectral formula and the charge.
+            replace_symbol_with_char:  # TODO replace with "replace_charge_symbol_with_char" in 4.0.0.
+                If True, replace the "+" or "-" of the charge string with "p" or "m", respectively. Default is True.
+
+        Returns:
+            name: str
+                The species chemical formula.
+            charge: str
+                The species charge in string format.
+        """
         # Extract charge symbol
         charge_pattern_match = re.findall(cls._charge_pattern, species)
         charge = ''
@@ -1675,6 +2254,22 @@ class Opacity:
 
     @staticmethod
     def split_species_cloud_info(species: str) -> tuple[str, str]:
+        """Separate the cloud information from a species name in the petitRADTRANS Opacity format.
+
+        Example:
+            >>> Opacity.split_species_cloud_info("24Mg2-28Si-16O4_2+(s)_crystalline_000")
+            >>> ('24Mg2-28Si-16O4_2+', '(s)_crystalline_000')
+
+        Args:
+            species: str
+                The species name, containing the cloud information.
+
+        Returns:
+            name: str
+                The species name, minus the cloud information.
+            cloud_info: str
+                The species cloud information.
+        """
         cloud_info = ''
         _split = species.split('(', 1)
 
@@ -1688,6 +2283,22 @@ class Opacity:
 
     @classmethod
     def split_species_source(cls, species: str) -> tuple[str, str]:
+        """Separate the species source from a species name in the petitRADTRANS Opacity format.
+
+        Example:
+            >>> Opacity.split_species_source("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS")
+            >>> ('24Mg2-28Si-16O4_2+(s)_crystalline_000', 'DHS')
+
+        Args:
+            species: str
+                The species name, containing the source.
+
+        Returns:
+            name: str
+                The species name, minus the source.
+            source: str
+                The species opacity source.
+        """
         _split = species.split(cls._source_separator, 1)
 
         if len(_split) == 1:
@@ -1700,6 +2311,22 @@ class Opacity:
 
     @classmethod
     def split_species_spectral_info(cls, species: str) -> tuple[str, str]:
+        """Separate the spectral information from a species name in the petitRADTRANS Opacity format.
+
+        Example:
+            >>> Opacity.split_species_spectral_info("24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS.R39_0.1-250mu")
+            >>> ('24Mg2-28Si-16O4_2+(s)_crystalline_000__DHS', 'R39_0.1-250mu')
+
+        Args:
+            species: str
+                The species name, containing the spectral information.
+
+        Returns:
+            name: str
+                The species name, minus the spectral information.
+            cloud_info: str
+                The species spectral information.
+        """
         _split = species.split(cls._spectral_information_separator, 1)
 
         if len(_split) == 1:
@@ -1712,6 +2339,21 @@ class Opacity:
 
     @classmethod
     def split_spectral_sampling_info(cls, spectral_sampling_info: str) -> tuple[str, str]:
+        """Split spectral sampling information into its sampling type and its value.
+
+        Example:
+            >>> Opacity.split_spectral_sampling_info("R39")
+            >>> ('R', '39')
+        Args:
+            spectral_sampling_info: str
+                The spectral sampling information to split, containing the sampling type and its value.
+
+        Returns:
+            spectral_sampling_type: str
+                The spectral sampling type.
+            spectral_sampling_value: str
+                The spectral sampling value.
+        """
         spectral_sampling_type = None
         spectral_sampling_value = None
 
@@ -1730,6 +2372,22 @@ class Opacity:
 
     @classmethod
     def split_spectral_info(cls, spectral_info: str) -> tuple[str, str]:
+        """Split spectral information into the spectral sampling information and the opacity wavelength boundaries.
+
+        Example:
+            >>> Opacity.split_spectral_sampling_info("R39_0.1-250mu")
+            >>> ('R39', '0.1-250mu')
+        Args:
+            spectral_info: str
+                The spectral information to split, containing only the spectral sampling information and the opacity
+                wavelength boundaries.
+
+        Returns:
+            spectral_sampling_info: str
+                The spectral type information.
+            wavelength_range_info: str
+                The opacity wavelength boundaries.
+        """
         _split = spectral_info.split(cls._wavelength_range_separator, 1)
 
         if len(_split) == 1:
@@ -1742,6 +2400,21 @@ class Opacity:
 
     @classmethod
     def split_wavelength_range_info(cls, wavelength_range_info: str) -> tuple[str, str]:
+        """Split wavelenght range information into the opacity lower and upper boundaries.
+
+        Example:
+            >>> Opacity.split_spectral_sampling_info("0.1-250mu")
+            >>> ('0.1', '250')
+        Args:
+            wavelength_range_info: str
+                The wavelength range to split.
+
+        Returns:
+            wavelength_min: str
+                The lower opacity wavelength boundary.
+            wavelength_max: str
+                The upper opacity wavelength boundary.
+        """
         _split = wavelength_range_info.split(cls._wavelength_separator, 1)
 
         if len(_split) == 1:
@@ -1766,6 +2439,69 @@ class Opacity:
 
 
 class CIAOpacity(Opacity):
+    """Class for collision-induced opacity files.
+
+    Args:
+        species_list: list of str
+            The list of species contributing to the opacity.
+        natural_abundance: bool, optional
+            If True, the species is considered following the Earth's isotopic ratios. Default is True.
+        charge: int, optional
+            The charge of the species (for single-species opacities only). A value of 0 is used for neutral species.
+            Default is 0.
+        source: str, optional
+            The source (i.e., where or how the opacity were obtained) of the opacity. Default is "unknown".
+        spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+            The opacity spectral sampling type. Default is 'R'.
+                - 'DeltaWavelength': sampling with a constant wavelength step.
+                - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+        spectral_sampling: int or float, optional
+            The opacity spectral sampling value. Default is 830. Units depends on spectral_sampling_type:
+                - 'DeltaWavelength': um
+                - 'DeltaWavenumber': cm-1
+                - 'R': no units
+            Example:
+                To indicate a spectral sampling with a constant resolving power of 1000.
+                >>> spectral_sampling_type='R'
+                >>> spectral_sampling=1000
+        wavelength_min: float, optional
+            (um) Lower wavelength bounds of the opacity data. Default is 0.1.
+        wavelength_max: float, optional
+            (um) Upper wavelength bounds of the opacity data. Default is 250.
+        path_input_data: str, optional
+            Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
+            use the path provided in petitRadtrans' config file.
+        species_full_name: str, optional
+            Override the species full name. The species full name is composed of the species isotopic information,
+            the natural abundance flag (if relevant), and the charge.
+        species_cloud_info: str, optional
+            Override the species cloud information. The species cloud information is composed of the species matter
+            state, and of its solid structure and structure id (if relevant).
+        species_base_name: str, optional
+            Override the species base name. The species base name is the species chemical formula without isotopic
+            information. It may contain cloud information and charge.
+            Examples: "H2O", "H2O(l)", "H2O_+(s)_crystalline_000".
+        species_isotopologue_name: str, optional
+            Override the species isotopologue name. The species isotopologue name is the species name with isotopic
+            information. It may contain cloud information and charge.
+            Examples: "1H2-16O", "H2O-NatAbund(l)", "1H2-18O_+(s)_crystalline_000".
+        extension: str, optional
+            The opacity file type extension. Default is "unknown". Use "petitRADTRANS" for files generated with
+            petitRADTRANS.
+        full_extension: str, optional
+            Override the opacity file full extension. The opacity file full extension is composed of the opacity file
+            type extension, the opacity file generator software extension, and of the file format extension.
+        file_name: str, optional
+            Override the opacity file name. By default, it is generated from the instanciation arguments.
+        sub_path: str, optional
+            Override the opacity sub path. By default, it depends on the selected category.
+        directory: str, optional
+            Override the opacity directory. By default, it is generated from the species full name and from the other
+            path information.
+        absolute_path: str, optional
+            Override the absolute path of the opacity file. By default, it is genrated from the other path information.
+    """
     _default_category: str = 'cia_opacities'
     _default_extension: str = 'ciatable'
     _default_wavelength_range: tuple[float, float] = (0.1, 250.0)
@@ -1925,9 +2661,9 @@ class CIAOpacity(Opacity):
             charge=charge,
             source=source,
             spectral_sampling_type=spectral_sampling_type,
-            spectral_sampling=spectral_sampling,
-            wavelength_min=wavelength_min,
-            wavelength_max=wavelength_max,
+            spectral_sampling=float(spectral_sampling),
+            wavelength_min=float(wavelength_min),
+            wavelength_max=float(wavelength_max),
             path_input_data=path_input_data
         )
 
@@ -2033,6 +2769,84 @@ class CIAOpacity(Opacity):
 
 
 class CloudOpacity(Opacity):
+    """Class for cloud opacity files.
+
+    Args:
+        species_list: list of str
+            The list of species contributing to the opacity. For single-species opacities, use [species_name].
+            Examples: [1H2-17O], [N2, CO2]
+        natural_abundance: bool, optional
+            If True, the species is considered following the Earth's isotopic ratios. Default is True.
+        charge: int, optional
+            The charge of the species (for single-species opacities only). A value of 0 is used for neutral species.
+            Default is 0.
+        source: str, optional
+            The source (i.e., where or how the opacity were obtained) of the opacity. Default is "unknown".
+        spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+            The opacity spectral sampling type. Default is 'R'.
+                - 'DeltaWavelength': sampling with a constant wavelength step.
+                - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+        spectral_sampling: int or float, optional
+            The opacity spectral sampling value. Default is 39. Units depends on spectral_sampling_type:
+                - 'DeltaWavelength': um
+                - 'DeltaWavenumber': cm-1
+                - 'R': no units
+            Example:
+                To indicate a spectral sampling with a constant resolving power of 1000.
+                >>> spectral_sampling_type='R'
+                >>> spectral_sampling=1000
+        wavelength_min: float, optional
+            (um) Lower wavelength bounds of the opacity data. Default is 0.
+        wavelength_max: float, optional
+            (um) Upper wavelength bounds of the opacity data. Default is 0.
+        matter_state: {'(g)', '(l)', '(s)'}, optional
+            The species matter state. Default is '(g)'.
+                - '(g)': gas phase.
+                - '(l)': liquid phase.
+                - '(s)': solid phase.
+        solid_structure: {'amorphous', 'crystalline', 'structureUnclear'}, optional
+            If the species is in solid phase, indicate the solid structure of the species. Default is None.
+                - 'amorphous': the solid has an amorphous internal structure.
+                - 'crystalline': the solid is in a crystal form.
+                - 'structureUnclear': internal structure was not provided by the source.
+        solid_structure_id: str, optional
+            Solid structure identifier. For crystals, this corresponds to the 3-digits space group.
+            See https://en.wikipedia.org/wiki/List_of_space_groups
+            An unknown space group is indicated as '000'.
+        path_input_data: str, optional
+            Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
+            use the path provided in petitRadtrans' config file.
+        species_full_name: str, optional
+            Override the species full name. The species full name is composed of the species isotopic information,
+            the natural abundance flag (if relevant), and the charge.
+        species_cloud_info: str, optional
+            Override the species cloud information. The species cloud information is composed of the species matter
+            state, and of its solid structure and structure id (if relevant).
+        species_base_name: str, optional
+            Override the species base name. The species base name is the species chemical formula without isotopic
+            information. It may contain cloud information and charge.
+            Examples: "H2O", "H2O(l)", "H2O_+(s)_crystalline_000".
+        species_isotopologue_name: str, optional
+            Override the species isotopologue name. The species isotopologue name is the species name with isotopic
+            information. It may contain cloud information and charge.
+            Examples: "1H2-16O", "H2O-NatAbund(l)", "1H2-18O_+(s)_crystalline_000".
+        extension: str, optional
+            The opacity file type extension. Default is "unknown". Use "petitRADTRANS" for files generated with
+            petitRADTRANS.
+        full_extension: str, optional
+            Override the opacity file full extension. The opacity file full extension is composed of the opacity file
+            type extension, the opacity file generator software extension, and of the file format extension.
+        file_name: str, optional
+            Override the opacity file name. By default, it is generated from the instanciation arguments.
+        sub_path: str, optional
+            Override the opacity sub path. By default, it depends on the selected category.
+        directory: str, optional
+            Override the opacity directory. By default, it is generated from the species full name and from the other
+            path information.
+        absolute_path: str, optional
+            Override the absolute path of the opacity file. By default, it is genrated from the other path information.
+    """
     _default_category: str = 'clouds_opacities'
     _default_extension: str = 'cotable'
     _default_resolving_power: float = Opacity._default_cloud_resolving_power
@@ -2218,9 +3032,9 @@ class CloudOpacity(Opacity):
             charge=charge,
             source=source,
             spectral_sampling_type=spectral_sampling_type,
-            spectral_sampling=spectral_sampling,
-            wavelength_min=wavelength_min,
-            wavelength_max=wavelength_max,
+            spectral_sampling=float(spectral_sampling),
+            wavelength_min=float(wavelength_min),
+            wavelength_max=float(wavelength_max),
             matter_state=matter_state,
             solid_structure=solid_structure,
             solid_structure_id=solid_structure_id,
@@ -2523,6 +3337,67 @@ class CloudOpacity(Opacity):
 
 
 class CorrelatedKOpacity(Opacity):
+    """Class for correlated-k opacity files.
+
+    Args:
+        species_list: list of str
+            The list of species contributing to the opacity. For single-species opacities, use [species_name].
+            Examples: [1H2-17O], [N2, CO2]
+        natural_abundance: bool, optional
+            If True, the species is considered following the Earth's isotopic ratios. Default is False.
+        charge: int, optional
+            The charge of the species (for single-species opacities only). A value of 0 is used for neutral species.
+            Default is 0.
+        source: str, optional
+            The source (i.e., where or how the opacity were obtained) of the opacity. Default is "unknown".
+        spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+            The opacity spectral sampling type. Default is 'R'.
+                - 'DeltaWavelength': sampling with a constant wavelength step.
+                - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+        spectral_sampling: int or float, optional
+            The opacity spectral sampling value. Default is 1000. Units depends on spectral_sampling_type:
+                - 'DeltaWavelength': um
+                - 'DeltaWavenumber': cm-1
+                - 'R': no units
+            Example:
+                To indicate a spectral sampling with a constant resolving power of 1000.
+                >>> spectral_sampling_type='R'
+                >>> spectral_sampling=1000
+        wavelength_min: float, optional
+            (um) Lower wavelength bounds of the opacity data. Default is 0.1.
+        wavelength_max: float, optional
+            (um) Upper wavelength bounds of the opacity data. Default is 250.
+        species_full_name: str, optional
+            Override the species full name. The species full name is composed of the species isotopic information,
+            the natural abundance flag (if relevant), and the charge.
+        species_cloud_info: str, optional
+            Override the species cloud information. The species cloud information is composed of the species matter
+            state, and of its solid structure and structure id (if relevant).
+        species_base_name: str, optional
+            Override the species base name. The species base name is the species chemical formula without isotopic
+            information. It may contain cloud information and charge.
+            Examples: "H2O", "H2O(l)", "H2O_+(s)_crystalline_000".
+        species_isotopologue_name: str, optional
+            Override the species isotopologue name. The species isotopologue name is the species name with isotopic
+            information. It may contain cloud information and charge.
+            Examples: "1H2-16O", "H2O-NatAbund(l)", "1H2-18O_+(s)_crystalline_000".
+        extension: str, optional
+            The opacity file type extension. Default is "unknown". Use "petitRADTRANS" for files generated with
+            petitRADTRANS.
+        full_extension: str, optional
+            Override the opacity file full extension. The opacity file full extension is composed of the opacity file
+            type extension, the opacity file generator software extension, and of the file format extension.
+        file_name: str, optional
+            Override the opacity file name. By default, it is generated from the instanciation arguments.
+        sub_path: str, optional
+            Override the opacity sub path. By default, it depends on the selected category.
+        directory: str, optional
+            Override the opacity directory. By default, it is generated from the species full name and from the other
+            path information.
+        absolute_path: str, optional
+            Override the absolute path of the opacity file. By default, it is genrated from the other path information.
+    """
     _default_category: str = 'correlated_k_opacities'
     _default_extension: str = 'ktable'
     _default_rebinning_wavelength_range: tuple[float, float] = (0.1, 251.0)  # microns
@@ -2575,6 +3450,16 @@ class CorrelatedKOpacity(Opacity):
 
     @classmethod
     def _get_default_rebinning_wavenumber_grid(cls, resolving_power: float) -> npt.NDArray[float]:
+        """Return the default rebinning wavenumber grid, an equally log-spaced grid from 0.1 to 250 microns.
+
+        Args:
+            resolving_power: float
+                The resolving power of the grid.
+
+        Returns:
+            grid: numpy.NDArray
+                The default grid at the given resolving power.
+        """
         wavelengths_boundaries = cls._default_rebinning_wavelength_range
         n_spectral_points = int(
             resolving_power * np.log(
@@ -2801,9 +3686,9 @@ class CorrelatedKOpacity(Opacity):
             charge=charge,
             source=source,
             spectral_sampling_type=spectral_sampling_type,
-            spectral_sampling=spectral_sampling,
-            wavelength_min=wavelength_min,
-            wavelength_max=wavelength_max,
+            spectral_sampling=float(spectral_sampling),
+            wavelength_min=float(wavelength_min),
+            wavelength_max=float(wavelength_max),
             path_input_data=path_input_data
         )
 
@@ -2973,6 +3858,67 @@ class CorrelatedKOpacity(Opacity):
 
 
 class LineByLineOpacity(Opacity):
+    """Class for line-by-line opacity files.
+
+    Args:
+        species_list: list of str
+            The list of species contributing to the opacity. For single-species opacities, use [species_name].
+            Examples: [1H2-17O], [N2, CO2]
+        natural_abundance: bool, optional
+            If True, the species is considered following the Earth's isotopic ratios. Default is False.
+        charge: int, optional
+            The charge of the species (for single-species opacities only). A value of 0 is used for neutral species.
+            Default is 0.
+        source: str, optional
+            The source (i.e., where or how the opacity were obtained) of the opacity. Default is "unknown".
+        spectral_sampling_type: {'DeltaWavelength', 'DeltaWavenumber', 'R'}, optional
+            The opacity spectral sampling type. Default is 'R'.
+                - 'DeltaWavelength': sampling with a constant wavelength step.
+                - 'DeltaWavenumber': sampling with a constant wavenumber step.
+                - 'R': sampling with a constant resolving power (wavelength / wavelength step).
+        spectral_sampling: int or float, optional
+            The opacity spectral sampling value. Default is 1e6. Units depends on spectral_sampling_type:
+                - 'DeltaWavelength': um
+                - 'DeltaWavenumber': cm-1
+                - 'R': no units
+            Example:
+                To indicate a spectral sampling with a constant resolving power of 1000.
+                >>> spectral_sampling_type='R'
+                >>> spectral_sampling=1000
+        wavelength_min: float, optional
+            (um) Lower wavelength bounds of the opacity data. Default is 0.1.
+        wavelength_max: float, optional
+            (um) Upper wavelength bounds of the opacity data. Default is 250.
+        species_full_name: str, optional
+            Override the species full name. The species full name is composed of the species isotopic information,
+            the natural abundance flag (if relevant), and the charge.
+        species_cloud_info: str, optional
+            Override the species cloud information. The species cloud information is composed of the species matter
+            state, and of its solid structure and structure id (if relevant).
+        species_base_name: str, optional
+            Override the species base name. The species base name is the species chemical formula without isotopic
+            information. It may contain cloud information and charge.
+            Examples: "H2O", "H2O(l)", "H2O_+(s)_crystalline_000".
+        species_isotopologue_name: str, optional
+            Override the species isotopologue name. The species isotopologue name is the species name with isotopic
+            information. It may contain cloud information and charge.
+            Examples: "1H2-16O", "H2O-NatAbund(l)", "1H2-18O_+(s)_crystalline_000".
+        extension: str, optional
+            The opacity file type extension. Default is "unknown". Use "petitRADTRANS" for files generated with
+            petitRADTRANS.
+        full_extension: str, optional
+            Override the opacity file full extension. The opacity file full extension is composed of the opacity file
+            type extension, the opacity file generator software extension, and of the file format extension.
+        file_name: str, optional
+            Override the opacity file name. By default, it is generated from the instanciation arguments.
+        sub_path: str, optional
+            Override the opacity sub path. By default, it depends on the selected category.
+        directory: str, optional
+            Override the opacity directory. By default, it is generated from the species full name and from the other
+            path information.
+        absolute_path: str, optional
+            Override the absolute path of the opacity file. By default, it is genrated from the other path information.
+    """
     _default_category: str = 'line_by_line_opacities'
     _default_extension: str = 'xsec'
     _default_resolving_power: float = Opacity._default_line_by_line_resolving_power
@@ -3103,9 +4049,9 @@ class LineByLineOpacity(Opacity):
             charge=charge,
             source=source,
             spectral_sampling_type=spectral_sampling_type,
-            spectral_sampling=spectral_sampling,
-            wavelength_min=wavelength_min,
-            wavelength_max=wavelength_max,
+            spectral_sampling=float(spectral_sampling),
+            wavelength_min=float(wavelength_min),
+            wavelength_max=float(wavelength_max),
             path_input_data=path_input_data
         )
 

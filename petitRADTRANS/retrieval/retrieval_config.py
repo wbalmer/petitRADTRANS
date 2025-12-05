@@ -321,6 +321,106 @@ class RetrievalConfig:
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
 
+    def add_pressure_varying_line_species(
+            self,
+            species,
+            mode='linear',
+            pressure_spacing='relative',
+            n_nodes=3,
+            abund_lim=(-7.0, 0.0),
+            log_pressure_range_prior=(0, 9),
+            fixed_pressure_node_species=None
+            ):
+        """
+        This function adds a single species to the Radtrans object that will define the line opacities of the model.
+        The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
+        opacities. This species will have and abundance that varies with pressure, defined by the retrieved
+        abundance at each of the provided abundance nodes.
+
+        This function adds a set of parameters to the retrieval to define the abundance profile of the species.
+         - {species}_{mode}_abundance_profile defines which profile will be used (fixed parameter)
+         - {species}_n_abundance_nodes sets the number of abundance nodes (fixed parameter)
+         - {species}_n_pressure_nodes sets the number of pressure nodes (n_nodes - 2) (fixed parameter)
+         - {species}_interpolation_mode sets the pressure spacing mode (fixed parameter)
+         - {species}_pressure_node_{i} for i in 0 to n_nodes-2, the pressure at each node (free parameter)
+         - {species}_abundance_node_{i} for i in 0 to n_nodes, the abundance at each node (free parameter)
+
+        Args:
+            species: str
+                The species to include in the retrieval
+            mode: str
+                One of 'linear', 'cubic', or 'stepped' - determines the interpolation method between abundance nodes.
+            pressure_spacing: str
+                One of 'relative', 'absolute', or 'fixed' - determines whether the pressure nodes are spaced
+                relative to the top of the atmosphere pressure, retrieved in absolute log pressue, or fixed
+                to the pressure nodes set by fixed_pressure_node_species.
+            n_nodes: int
+                The number of abundance nodes to use in the retrieval, including top and bottom nodes.
+            abund_lim : Tuple(float,float)
+                If free is True, this sets the boundaries of the uniform prior that will be applied the species given.
+                The range of the prior goes from abund_lim[0] to abund_lim[1]
+                The abundance limits must be given in log10 units of the mass fraction.
+            log_pressure_range_prior: Tuple(float,float)
+                The prior range on the log pressure of the pressure nodes in log bar, only used if pressure_spacing is
+                'absolute' or 'relative'.
+            fixed_pressure_node_species: str
+                If pressure_spacing is 'fixed', this species' pressure nodes will be used as the pressure nodes.
+                Note that this species must already have been added to the retrieval with
+                add_pressure_varying_line_species.
+        """
+
+        # parameter passed through loglike is log10 abundance
+        if abund_lim[1] > 0.0:
+            raise ValueError(
+                f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
+            )
+
+        self.parameters[f"{species}_{mode}_abundance_profile"] = Parameter(
+            name=f"{species}_linear_abundance_profile",
+            is_free_parameter=False,
+            value=True
+        )
+        self.parameters[f"{species}_n_abundance_nodes"] = Parameter(
+            name=f"{species}_n_abundance_nodes",
+            is_free_parameter=False,
+            value=n_nodes
+        )
+        self.parameters[f"{species}_n_pressure_nodes"] = Parameter(
+            name=f"{species}_n_pressure_nodes",
+            is_free_parameter=False,
+            value=n_nodes-2
+        )
+        self.parameters[f"{species}_interpolation_mode"] = Parameter(
+            name=f"{species}_interpolation_mode",
+            is_free_parameter=False,
+            value=pressure_spacing
+        )
+
+        self.line_species.append(species)
+
+        for i in range(n_nodes - 2):
+            if not pressure_spacing == 'fixed':
+                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
+                    name=f"{species}_pressure_node_{i}",
+                    is_free_parameter=True,
+                    transform_prior_cube_coordinate=lambda x: log_pressure_range_prior[0] +
+                    log_pressure_range_prior[1] * x
+                )
+            else:
+                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
+                    name=f"{fixed_pressure_node_species}_pressure_node_{i}",
+                    is_free_parameter=False,
+                    value=self.parameters[f"{fixed_pressure_node_species}_pressure_node_{i}"].value
+                )
+
+        for i in range(n_nodes):
+            self.parameters[f"{species}_abundance_node_{i}"] = Parameter(
+                name=f"{species}_abundance_node_{i}",
+                is_free_parameter=True,
+                transform_prior_cube_coordinate=lambda x: abund_lim[0] +
+                (abund_lim[1] - abund_lim[0]) * x
+            )
+
     def remove_species_lines(self, species, free=False):
         """
         This function removes a species from the pRT line list, and if using a free chemistry retrieval,
@@ -435,6 +535,9 @@ class RetrievalConfig:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
+                 resample=False,
+                 subtract_continuum=False,
+                 radvel=False,
                  photometry=False,
                  photometric_transformation_function=None,
                  photometric_bin_edges=None,
@@ -447,6 +550,7 @@ class RetrievalConfig:
                  wavelengths=None,
                  spectrum=None,
                  uncertainties=None,
+                 covariance=None,
                  mask=None,
                  concatenate_flux_epochs_variability=False,
                  variability_atmospheric_column_model_flux_return_mode=False,
@@ -498,6 +602,8 @@ class RetrievalConfig:
             scale=scale,
             scale_err=scale_err,
             offset_bool=offset_bool,
+            resample=resample,
+            subtract_continuum=subtract_continuum,
             photometry=photometry,
             photometric_transformation_function=photometric_transformation_function,
             photometric_bin_edges=photometric_bin_edges,
@@ -510,6 +616,7 @@ class RetrievalConfig:
             wavelengths=wavelengths,
             spectrum=spectrum,
             uncertainties=uncertainties,
+            covariance=covariance,
             mask=mask,
             concatenate_flux_epochs_variability=concatenate_flux_epochs_variability,
             variability_atmospheric_column_model_flux_return_mode=variability_atmospheric_column_model_flux_return_mode,

@@ -5,9 +5,8 @@ import warnings
 
 import numpy as np
 from astropy.io import fits
-from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from scipy.ndimage import gaussian_filter
+from petitRADTRANS.math import convolve, convolve_and_sample_variable_resolution_breads, filter_spectrum_with_spline
 
 import petitRADTRANS.physical_constants as cst
 
@@ -109,6 +108,8 @@ class Data:
             Spectrum of the data.
         uncertainties:
             Uncertainties of the data, in the same units as the spectrum.
+        covariance:
+            Covariance matrix of the data, in the same units as the spectrum squared.
         mask:
             Mask of the data.
     """
@@ -126,6 +127,8 @@ class Data:
                  scale=False,
                  scale_err=False,
                  offset_bool=False,
+                 resample=False,
+                 subtract_continuum=False,
                  wavelength_bin_widths=None,
                  photometry=False,
                  photometric_transformation_function=None,
@@ -139,6 +142,7 @@ class Data:
                  wavelengths=None,
                  spectrum=None,
                  uncertainties=None,
+                 covariance=None,
                  mask=None
                  ):
         self.name = name
@@ -191,12 +195,17 @@ class Data:
                 logging.warning("Your resolution is lower than R=1000, it's recommended to use 'c-k' mode.")
 
         # Optional, covariance and scaling
-        self.covariance = None
+        self.covariance = covariance
         self.inv_cov = None
         self.log_covariance_determinant = None
+        if covariance is not None:
+            self.inv_cov = np.linalg.inv(covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * covariance)
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
+        self.resample = resample
+        self.subtract_continuum = subtract_continuum
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -np.inf
@@ -350,31 +359,36 @@ class Data:
                 Directory and filename of the data.
         """
 
-        from astropy.io import fits
-
         if self.photometry:
             return
 
-        self.wavelengths = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
-        self.spectrum = fits.getdata(path, 'SPECTRUM').field("FLUX")
+        data = fits.getdata(path, 'SPECTRUM')
 
-        try:
-            self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
-            self.inv_cov = np.linalg.inv(self.covariance)
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
-            # Note that this will only be the uncorrelated error.
-            # Dot with the correlation matrix (if available) to get
-            # the full error.
-            try:
-                self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            except Exception:  # TODO find what is the error expected here
+        if not isinstance(data, np.ndarray):
+            self.wavelengths = data.field("WAVELENGTH")
+            self.spectrum = data.field("FLUX")
+
+            if "COVARIANCE" in data.columns.names:
+                self.covariance = data.field("COVARIANCE")
+                self.inv_cov = np.linalg.inv(self.covariance)
+                sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
                 self.uncertainties = np.sqrt(self.covariance.diagonal())
-        except Exception:  # TODO find what is the error expected here
-            self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            self.covariance = np.diag(self.uncertainties ** 2)
-            self.inv_cov = np.linalg.inv(self.covariance)
+            elif "ERROR" in data.columns.names:
+                # Note that this will only be the uncorrelated error.
+                # Dot with the correlation matrix (if available) to get
+                # the full error.
+                self.uncertainties = data.field("ERROR")
+                self.covariance = np.diag(self.uncertainties ** 2)
+                self.inv_cov = np.linalg.inv(self.covariance)
 
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+        else:
+            hdul = fits.open(path)
+            self.wavelengths = hdul[1].data['WAVELENGTH'].astype(np.float64)
+            self.spectrum = hdul[1].data['FLUX'].astype(np.float64)
+            self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
+            self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            self.inv_cov = np.linalg.inv(self.covariance)
+        sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
     def set_distance(self, distance):
         """
@@ -485,27 +499,33 @@ class Data:
 
                 for spectrum_model in model_spectra:
                     if self.data_resolution_array_model is not None:
-                        spectrum_model = self.convolve(
+                        spectrum_model = convolve(
                             wlen_model,
                             spectrum_model,
                             self.data_resolution_array_model
                         )
                     elif self.data_resolution is not None:
-                        spectrum_model = self.convolve(
+                        spectrum_model = convolve(
                             wlen_model,
                             spectrum_model,
                             self.data_resolution
                         )
 
                     # Rebin to model observation
-                    if np.size(wlen_model) == np.size(self.wavelengths):
-                        if np.all(wlen_model == self.wavelengths):
-                            flux_rebinned = copy.deepcopy(spectrum_model)
-                            rebin = False
-                        else:
-                            rebin = True
-                    else:
-                        rebin = True
+                    rebin = True
+                    if np.size(wlen_model) == np.size(self.wavelengths) and np.all(wlen_model == self.wavelengths):
+                        flux_rebinned = copy.deepcopy(spectrum_model)
+                        rebin = False
+
+                    if self.name + "_radial_velocity" in parameters.keys():
+                        # RV in km/s -> multiply by 1e5 to cm/s
+                        # wlen_model in micron
+                        # cst.c in cm/s
+                        radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5
+                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+                    elif "system_radial_velocity" in parameters.keys():
+                        radial_velocity = parameters["system_radial_velocity"].value * 1e5
+                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
 
                     if rebin:
                         flux_rebinned = frebin.rebin_spectrum_bin(
@@ -532,6 +552,29 @@ class Data:
             # species spectrum_to_flux functions return (flux,error)
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
+
+        if self.resample:
+            resolution_slope = parameters[self.name + "_R_slope"].value
+            resolution_intersect = parameters[self.name + "_R_int"].value
+            resolution_array = (self.wavelengths*resolution_slope)+resolution_intersect
+            # TODO: interpolate resolution_array and use standard convolve function.
+            # TODO: compare different convolution and binning methods
+            flux_rebinned = convolve_and_sample_variable_resolution_breads(
+                self.wavelengths,
+                resolution_array,
+                self.wavelengths,
+                flux_rebinned
+            )
+
+        if self.subtract_continuum:
+            x_nodes = None
+            if self.name + "_nodes" in parameters.keys():
+                nodes = parameters[self.name + "_nodes"].value
+                x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
+
+            if self.name + "_node_list" in parameters.keys():
+                x_nodes = parameters[self.name + "_node_list"].value
+            flux_rebinned = filter_spectrum_with_spline(self.wavelengths, flux_rebinned, x_nodes=x_nodes)
 
         if self.scale:
             diff = (flux_rebinned - self.spectrum * parameters[self.name + "_scale_factor"].value) + self.offset
@@ -751,44 +794,3 @@ class Data:
             elif 'uncertainty_scaling_b' in parameters.keys():
                 b_val = parameters['uncertainty_scaling_b'].value
         return b_val
-
-    @staticmethod
-    def convolve(input_wavelength,
-                 input_flux,
-                 instrument_res):
-        r"""
-        This function convolves a model spectrum to the instrumental wavelength
-        using the provided data_resolution
-        Args:
-            input_wavelength : numpy.ndarray
-                The wavelength grid of the model spectrum
-            input_flux : numpy.ndarray
-                The flux as computed by the model
-            instrument_res : float
-                :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
-
-        Returns:
-            flux_lsf
-                The convolved spectrum.
-        """
-        if isinstance(instrument_res, np.ndarray):
-            return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
-        # From talking to Ignas: delta lambda of resolution element
-        # is FWHM of the LSF's standard deviation, hence:
-        sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
-
-        # The input spacing of petitRADTRANS is 1e3, but just compute
-        # it to be sure, or more versatile in the future.
-        # Also, we have a log-spaced grid, so the spacing is constant
-        # as a function of wavelength
-        spacing = np.mean(2. * np.diff(input_wavelength) / (input_wavelength[1:] + input_wavelength[:-1]))
-
-        # Calculate the sigma to be used in the gauss filter in units
-        # of input wavelength bins
-        sigma_lsf_gauss_filter = sigma_lsf / spacing
-
-        flux_lsf = gaussian_filter(input_flux,
-                                   sigma=sigma_lsf_gauss_filter,
-                                   mode='nearest')
-
-        return flux_lsf

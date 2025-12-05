@@ -1,10 +1,10 @@
+
+import sys
+import os
 import copy
 import json
-import os
-import sys
 import traceback
 import warnings
-
 import dill
 import numpy as np
 import numpy.typing as npt
@@ -15,9 +15,10 @@ from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import running_mean
+from petitRADTRANS.math import convolve, running_mean, filter_spectrum_with_spline
 from petitRADTRANS.opacities import CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
+import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter, RetrievalParameter
@@ -1104,6 +1105,7 @@ class Retrieval:
             if not refresh and os.path.exists(full_file):
                 print("Loading best fit spectrum from file")
                 best_fit_wavelengths, best_fit_spectrum = np.load(full_file).T
+
                 return best_fit_wavelengths, best_fit_spectrum
 
             ret_val = self.get_full_range_model(
@@ -1198,7 +1200,9 @@ class Retrieval:
                 add = 0.5 * log_det
             else:
                 f_err = data.uncertainties
-                f_err = flatten_object(f_err)
+
+                if hasattr(f_err, '__iter__'):
+                    f_err = flatten_object(f_err)
 
                 if data.scale_err:
                     f_err = f_err * sf
@@ -1209,6 +1213,7 @@ class Retrieval:
                 add = 0.5 * np.sum(np.log(2.0 * np.pi * f_err ** 2.))
 
             norm = norm + add
+
         return 2 * (-log_l - norm)
 
     def get_chi2_normalisation(self, sample: npt.NDArray[float]) -> float:
@@ -1403,18 +1408,31 @@ class Retrieval:
 
                 if data.wavelength_boundaries[1] > wavelength_max:
                     wavelength_max = data.wavelength_boundaries[1]
+
             species = copy.copy(self.configuration.data[
                 self.configuration.plot_kwargs["take_PTs_from"]].radtrans_object.line_species)
+
+            line_opacity_mode = self.configuration.data[
+                    self.configuration.plot_kwargs["take_PTs_from"]
+            ].line_opacity_mode
+            resolution = self.configuration.data[
+                    self.configuration.plot_kwargs["take_PTs_from"]
+            ].model_resolution
+            line_by_line_sampling = None
+
+            if line_opacity_mode == 'lbl' and resolution is not None:
+                line_by_line_sampling = int(1e6 / resolution)
+
             atmosphere = Radtrans(
                 pressures=p,
                 line_species=species,
                 rayleigh_species=copy.copy(self.configuration.rayleigh_species),
                 gas_continuum_contributors=copy.copy(self.configuration.continuum_opacities),
                 cloud_species=copy.copy(self.configuration.cloud_species),
-                line_opacity_mode=self.configuration.data[
-                    self.configuration.plot_kwargs["take_PTs_from"]].line_opacity_mode,
+                line_opacity_mode=line_opacity_mode,
                 wavelength_boundaries=np.array([wavelength_min * 0.98, wavelength_max * 1.02]),
-                scattering_in_emission=self.configuration.scattering_in_emission
+                scattering_in_emission=self.configuration.scattering_in_emission,
+                line_by_line_opacity_sampling=line_by_line_sampling
             )
 
         if self.configuration.amr:
@@ -1436,6 +1454,7 @@ class Retrieval:
             parameters,
             pt_plot_mode=False,
             amr=self.configuration.amr)
+
         if len(results) == 2:
             return results
 
@@ -1444,6 +1463,7 @@ class Retrieval:
             contribution = additional_outputs['emission_contribution']
         elif 'transmission_contribution' in additional_outputs.keys():
             contribution = additional_outputs['transmission_contribution']
+
         return wavelength, spectrum, contribution
 
     def get_log_likelihood_per_datapoint(self, samples_use: npt.NDArray[float], ret_name: str = None):
@@ -2141,9 +2161,11 @@ class Retrieval:
                 if self.evaluate_sample_spectra:
                     self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
                 else:
-                    convolved = data.convolve(wavelengths_model,
-                                              spectrum_model,
-                                              data.data_resolution)
+                    convolved = convolve(
+                        input_wavelength=wavelengths_model,
+                        input_flux=spectrum_model,
+                        instrument_res=data.data_resolution
+                        )
                     binned = frebin.rebin_spectrum_bin(
                             wavelengths_model,
                             convolved,
@@ -2467,9 +2489,16 @@ class Retrieval:
         species = []
 
         for _species in self.configuration.line_species:
+            name, natural_abundance, charge, cloud_info, source, spectral_info = (
+                CorrelatedKOpacity.split_species_all_info(_species, full=False)
+            )
             species.append(
                 CorrelatedKOpacity.join_species_all_info(
-                    species_name=_species,
+                    species_name=name,
+                    natural_abundance=natural_abundance,
+                    charge=charge,
+                    cloud_info=cloud_info,
+                    source=source,
                     spectral_info=CorrelatedKOpacity.get_resolving_power_string(resolution)
                 )
             )
@@ -2594,21 +2623,42 @@ class Retrieval:
 
             if data.data_resolution_array_model is not None:
                 data.initialise_data_resolution(wavelengths_model)
-                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
             elif data.data_resolution is not None:
-                spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
-            binned = frebin.rebin_spectrum_bin(
-                        wavelengths_model,
-                        spectrum_model,
-                        data.wavelengths,
-                        data.wavelength_bin_widths
+                spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
+
+            if not data.photometry:
+                binned = frebin.rebin_spectrum_bin(
+                            wavelengths_model,
+                            spectrum_model,
+                            data.wavelengths,
+                            data.wavelength_bin_widths
+                        )
+            else:
+                binned = data.photometric_transformation_function(wavelengths_model, spectrum_model)
+
+            if data.subtract_continuum:
+                x_nodes = None
+
+                if name + "_nodes" in parameters.keys():
+                    nodes = parameters[name + "_nodes"].value
+                    x_nodes = np.linspace(data.wavelengths[0], data.wavelengths[-1], nodes)
+
+                if name + "_node_array" in parameters.keys():
+                    x_nodes = parameters[name + "_node_array"].value
+
+                binned = filter_spectrum_with_spline(
+                    wavelengths=data.wavelengths,
+                    fluxes=binned,
+                    x_nodes=x_nodes
                     )
 
             if self.evaluate_sample_spectra:
                 self.posterior_sample_spectra[name] = [data.wavelengths, binned]
             else:
                 data_safe_name = name.replace('/', '_').replace('.', '_')
-                if not only_return_best_fit_spectra:
+
+                if (not only_return_best_fit_spectra) and (not data.photometry):
                     np.savetxt(
                         os.path.join(
                             self.output_directory,
@@ -2617,7 +2667,9 @@ class Retrieval:
                         ),
                         np.column_stack((data.wavelengths, binned))
                     )
+
                 self.best_fit_spectra[name] = [data.wavelengths, binned]
+
         return self.best_fit_spectra
 
     def save_best_fit_outputs_external_variability(self, parameters, only_return_best_fit_spectra=False):
@@ -2667,9 +2719,10 @@ class Retrieval:
 
                 if data.data_resolution_array_model is not None:
                     data.initialise_data_resolution(wavelengths_model)
-                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
+                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution_array_model)
                 elif data.data_resolution is not None:
-                    spectrum_model = data.convolve(wavelengths_model, spectrum_model, data.data_resolution)
+                    spectrum_model = convolve(wavelengths_model, spectrum_model, data.data_resolution)
+
                 binned = frebin.rebin_spectrum_bin(
                     wavelengths_model,
                     spectrum_model,
@@ -2690,12 +2743,12 @@ class Retrieval:
                             )
                             if data.data_resolution_array_model is not None:
                                 data.initialise_data_resolution(wavelengths_model)
-                                spectrum_model_2 = data.convolve(
+                                spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution_array_model)
                             elif data.data_resolution is not None:
-                                spectrum_model_2 = data.convolve(
+                                spectrum_model_2 = convolve(
                                     wavelengths_model,
                                     spectrum_model_2,
                                     data.data_resolution)
@@ -4314,9 +4367,18 @@ class Retrieval:
                     error = data.uncertainties
                     wavelengths_bins = data.wavelength_bin_widths
 
+                if name + "_radial_velocity" in self.configuration.parameters.keys():
+                    # RV in km/s -> multiply by 1e5 to cm/s
+                    # wlen_model in micron
+                    # cst.c in cm/s
+                    radial_velocity = self.best_fit_parameters[name + "_radial_velocity"].value * 1e5
+                    wavelengths = wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+                elif "system_radial_velocity" in self.configuration.parameters.keys():
+                    radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5
+                    wavelengths = wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
-
                 if data.scale:
                     scale = self.best_fit_parameters[f"{name}_scale_factor"].value
 
@@ -4340,24 +4402,45 @@ class Retrieval:
                         best_fit_binned = self.best_fit_spectra[data.external_radtrans_reference][1]
                 else:
                     if data.external_radtrans_reference is None:
-                        best_fit_binned = data.photometric_transformation_function(
-                            self.best_fit_spectra[name][0],
-                            self.best_fit_spectra[name][1])
-                        try:
+                        best_fit_binned = self.best_fit_spectra[name][1]
+                        if len(best_fit_binned).shape > 1:
                             best_fit_binned = best_fit_binned[0]
-                        except Exception:
-                            pass
                     else:
                         best_fit_binned = data.photometric_transformation_function(
                             self.best_fit_spectra[data.external_radtrans_reference][0],
                             self.best_fit_spectra[data.external_radtrans_reference][1])
-                        try:
+                        if len(best_fit_binned).shape > 1:
                             best_fit_binned = best_fit_binned[0]
-                        except Exception:
-                            pass
+
+                if data.subtract_continuum:
+                    x_nodes = None
+                    if name + "_nodes" in self.best_fit_parameters.keys():
+                        nodes = self.best_fit_parameters[name + "_nodes"].value
+                        x_nodes = np.linspace(data.wavelengths[0], data.wavelengths[-1], nodes)
+                    if name + "_node_array" in self.best_fit_parameters.keys():
+                        x_nodes = self.best_fit_parameters[name + "_node_array"].value
+
+                    best_fit_binned = filter_spectrum_with_spline(
+                        wavelengths=wavelengths,
+                        fluxes=self.best_fit_spectra[name][1],
+                        x_nodes=x_nodes
+                        )
+                    best_fit_spectrum = filter_spectrum_with_spline(
+                        wavelengths=best_fit_wavelengths,
+                        fluxes=best_fit_spectrum,
+                        x_nodes=x_nodes
+                        )
 
                 marker = 'o' if not data.photometry else 's'
                 label = data.name
+
+                if isinstance(flux, float):
+                    wavelengths = [wavelengths]
+                    flux = [flux]
+                    error = [error]
+                    best_fit_binned = [best_fit_binned]
+                    wavelengths_bins = [wavelengths_bins]
+
                 for i in range(len(flux)):
                     if i > 0:
                         label = None
@@ -4365,6 +4448,7 @@ class Retrieval:
                     color_i = 'C0'
                     ecolor = 'C0'
                     alpha = 0.9
+
                     if data.photometry:
                         color_i = 'grey'
                         ecolor = 'grey'
@@ -4445,12 +4529,11 @@ class Retrieval:
 
             if "xscale" in self.configuration.plot_kwargs.keys():
                 ax.set_xscale(self.configuration.plot_kwargs["xscale"])
-            try:
+            if "yscale" in self.configuration.plot_kwargs.keys():
                 ax.set_yscale(self.configuration.plot_kwargs["yscale"])
-            except Exception:
-                pass
 
             ax.tick_params(axis="both", direction="in", length=10, bottom=True, top=True, left=True, right=True)
+
             try:
                 ax.xaxis.set_major_formatter('{x:.1f}')
             except Exception:
@@ -4506,6 +4589,7 @@ class Retrieval:
                 top=True,
                 left=True,
                 right=True)
+
             try:
                 ax_r.xaxis.set_major_formatter('{x:.1f}')
             except Exception:
@@ -4521,14 +4605,18 @@ class Retrieval:
                 right=True,
                 direction='in',
                 length=5)
+
             if self.configuration.plot_kwargs["xscale"] == 'log':
                 if min_wavelength < 0:
                     min_wavelength = 0.08
                 x_major_ticks = []
+
                 for i_tick in np.linspace(min_wavelength, 1.0, int(10*(1.0-min_wavelength))):
                     x_major_ticks.append(round(i_tick, 1))
+
                 for i_tick in range(1, int(round(max_wavelength, 0))):
                     x_major_ticks.append(int(i_tick))
+
                 ax_r.set_xticks(x_major_ticks)
                 ax_r.set_xticklabels(x_major_ticks)
                 x_minor = MultipleLocator(1)
@@ -4546,11 +4634,10 @@ class Retrieval:
                     direction='in',
                     length=5)
             ax_r.yaxis.set_minor_locator(AutoMinorLocator())
-
             ax_r.set_ylabel(r"Residuals [$\sigma$]")
             ax_r.set_xlabel(self.configuration.plot_kwargs["spec_xlabel"])
-
             ax.legend(loc='upper center', ncol=len(self.configuration.data.keys()) + 1).set_zorder(1002)
+
             fig.align_ylabels()
             plt.tight_layout()
             plt.savefig(self.get_base_figure_name() + '_' + mode + '_spec.pdf')

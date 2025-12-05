@@ -2,7 +2,11 @@
 """
 import numpy as np
 import numpy.typing as npt
+from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
+from scipy.ndimage import gaussian_filter
+from scipy.optimize import lsq_linear
 from scipy.special import erf, erfinv, lambertw
+from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 
 
 def bayes_factor2sigma(bayes_factor: float) -> float | npt.NDArray[np.floating]:
@@ -146,6 +150,107 @@ def compute_resolving_power(array: npt.NDArray[float]) -> float:
     )
 
 
+def convolve(input_wavelength, input_flux, instrument_res):
+    r"""
+    This function convolves a model spectrum to the instrumental wavelength
+    using the provided data_resolution
+    Args:
+        input_wavelength : numpy.ndarray
+            The wavelength grid of the model spectrum
+        input_flux : numpy.ndarray
+            The flux as computed by the model
+        instrument_res : float
+            :math:`\\lambda/\\Delta \\lambda`, the width of the gaussian kernel to convolve with the model spectrum.
+
+    Returns:
+        flux_lsf
+            The convolved spectrum.
+    """
+    if isinstance(instrument_res, np.ndarray):
+        return fconvolve.variable_width_convolution(input_wavelength, input_flux, instrument_res)
+
+    # From talking to Ignas: delta lambda of resolution element
+    # is FWHM of the LSF's standard deviation, hence:
+    sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
+
+    # The input spacing of petitRADTRANS is 1e3, but just compute
+    # it to be sure, or more versatile in the future.
+    # Also, we have a log-spaced grid, so the spacing is constant
+    # as a function of wavelength
+    spacing = np.mean(2. * np.diff(input_wavelength) / (input_wavelength[1:] + input_wavelength[:-1]))
+
+    # Calculate the sigma to be used in the gauss filter in units
+    # of input wavelength bins
+    sigma_lsf_gauss_filter = sigma_lsf / spacing
+
+    flux_lsf = gaussian_filter(
+        input_flux,
+        sigma=sigma_lsf_gauss_filter,
+        mode='nearest'
+    )
+
+    return flux_lsf
+
+
+def convolve_and_sample_variable_resolution_breads(
+        wavelengths,
+        resolutions,
+        model_wavelengths,
+        model_fluxes,
+        num_sigma=3
+        ):
+    """
+    Simulate the observations of a model.
+    Convolves the model with a variable Gaussian LSF, sampled at each desired spectral channel.
+
+    From Jerry Xuan circa 2024, https://github.com/jruffio/breads
+
+    Args:
+        wavelengths: np.ndarray
+            the wavelengths desired (length of N_output)
+        resolutions: np.ndarray
+            the spectral resolving power at each wavelengths (length of N_output)
+        model_wavelengths: np.ndarray
+            the wavelengths of the model (length of N_model)
+        model_fluxes: np.ndarray
+            the fluxes of the model (length of N_model)
+        num_sigma: float
+            number of +/- sigmas to evaluate the LSF to.
+
+    Returns:
+        output_model: np.ndarray
+            the fluxes in each of the wavelength channels (length of N_output)
+    """
+
+    # JX added to use function with input R, instead of LSF FWHM.
+    # first get FWHM of LSF from lambda / R. Then convert FWHM to stddev of Gaussian
+    sigmas_wvs = wavelengths / (resolutions * 2 * np.sqrt(2 * np.log(2)))  # corrected a math error here, July 15 2024
+
+    model_in_range = np.where((model_wavelengths >= np.min(wavelengths)) & (model_wavelengths < np.max(wavelengths)))
+    dwv_model = np.abs(model_wavelengths[model_in_range] - np.roll(model_wavelengths[model_in_range], 1))
+    dwv_model[0] = dwv_model[1]
+
+    filter_size = int(np.ceil(np.max((2 * num_sigma * sigmas_wvs)/np.min(dwv_model))))
+    filter_coords = np.linspace(-num_sigma, num_sigma, filter_size)
+
+    # Commenting out try-except block from breads, doesn't seem to do anything.
+    # try:
+    filter_coords = np.tile(filter_coords, [wavelengths.shape[0], 1])  # shape of (N_output, filter_size)
+    # except Exception as e:
+    # print(e)
+    # print('reached exception for ' + str(filter_size))
+
+    filter_wv_coords = filter_coords * sigmas_wvs[:, None] + wavelengths[:, None]  # model wavelengths we want
+    lsf = np.exp(-filter_coords**2/2)/np.sqrt(2*np.pi)
+
+    model_interp = interp1d(model_wavelengths, model_fluxes, kind='cubic', bounds_error=False)
+    filter_model = model_interp(filter_wv_coords)
+
+    output_model = np.nansum(filter_model * lsf, axis=1)/np.sum(lsf, axis=1)
+
+    return output_model
+
+
 def feature_scaling(array: npt.NDArray, min_value: float = 0.0, max_value: float = 1.0) -> npt.NDArray:
     """Bring all values of array between a min and max value.
 
@@ -158,6 +263,54 @@ def feature_scaling(array: npt.NDArray, min_value: float = 0.0, max_value: float
         The normalized array with values between min_value and max_value.
     """
     return min_value + ((array - np.min(array)) * (max_value - min_value)) / (np.max(array) - np.min(array))
+
+
+def filter_spectrum_with_spline(wavelengths, fluxes, uncertainties=None, x_nodes=None, m_spline=None):
+    """
+    Use spline interpolation produce a high-pass filtered version of the input spectrum.
+
+    From BREADS, BSD 3-Clause License
+    Copyright (c) 2024, jruffio
+    https://github.com/jruffio/breads
+
+    Args:
+        wavelengths: np.ndarray
+            Wavelengths of the input spectrum
+        fluxes: np.ndarray
+            Fluxes of the input spectrum
+        uncertainties: np.ndarray
+            Uncertainties of the input spectrum
+        x_nodes: np.ndarray
+            Nodes for the spline interpolation as np.ndarray in the same units as wavelengths.
+            x_nodes can also be a list of ndarrays/list to model discontinous functions.
+        m_spline: np.ndarray
+            Pre-computed spline matrix. If None, it will be computed from x_nodes and wavelengths.
+    Returns:
+        high_pass_filtered_fluxes: np.ndarray
+            High-pass filtered fluxes of the input spectrum
+    """
+    if uncertainties is None:
+        uncertainties = np.ones(fluxes.shape)
+
+    if m_spline is None:
+        m_spline = linear_spline_interpolation(x_nodes, wavelengths, spline_degree=3)
+
+    normalised_spline_matrix = m_spline/uncertainties[:, None]
+    weighted_fluxes = fluxes/uncertainties
+    where_finite = np.where(np.isfinite(weighted_fluxes))
+    normalised_spline_matrix = normalised_spline_matrix[where_finite[0], :]
+    weighted_fluxes = weighted_fluxes[where_finite]
+
+    paras = lsq_linear(normalised_spline_matrix, weighted_fluxes).x
+    spline_model = np.dot(normalised_spline_matrix, paras)
+    residuals = weighted_fluxes - spline_model
+
+    # LPF_fluxes = np.zeros(fluxes.shape)+np.nan
+    high_pass_filtered_fluxes = np.zeros(fluxes.shape)+np.nan
+    # LPF_fluxes[where_finite] = m*uncertainties[where_finite]
+    high_pass_filtered_fluxes[where_finite] = residuals*uncertainties[where_finite]
+
+    return high_pass_filtered_fluxes  # ,LPF_spec
 
 
 def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> npt.NDArray:
@@ -207,6 +360,58 @@ def gaussian_weights_running(sigmas: npt.NDArray, truncate: float = 4.0) -> npt.
     phi_x = np.exp(-0.5 / sd ** 2 * x ** 2)
 
     return np.transpose(phi_x.T / phi_x.sum(axis=1))
+
+
+def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
+    """
+    Compute a spline based linear model.
+    If Y=[y1,y2,..] are the values of the function at the location of the node [x1,x2,...].
+    np.dot(M,Y) is the interpolated spline corresponding to the sampling of the x-axis (x_samples)
+
+    From BREADS, BSD 3-Clause License
+    Copyright (c) 2024, jruffio
+    https://github.com/jruffio/breads
+
+    Args:
+        x_knots: np.ndarray
+            List of nodes for the spline interpolation as np.ndarray in the same units as x_samples.
+            x_knots can also be a list of ndarrays/list to model discontinous functions.
+        x_samples: np.ndarray
+            Vector of x values. ie, the sampling of the data.
+        spline_degree: int
+            Degree of the spline interpolation (default: 3).
+            if np.size(x_knots) <= spline_degree, then spline_degree = np.size(x_knots)-1
+
+    Returns:
+        M: Matrix of size (D,N) with D the size of x_samples and N the total number of nodes.
+    """
+
+    if type(x_knots[0]) is list or type(x_knots[0]) is np.ndarray:
+        x_knots_list = x_knots
+    else:
+        x_knots_list = [x_knots]
+
+    if np.size(x_knots_list) <= 1:
+        return np.ones((np.size(x_samples), 1))
+
+    if np.size(x_knots_list) <= spline_degree:
+        spline_degree = np.size(x_knots)-1
+
+    M_list = []
+    for nodes in x_knots_list:
+        M = np.zeros((np.size(x_samples), np.size(nodes)))
+        minval, maxval = np.min(nodes), np.max(nodes)
+        inbounds = np.where((minval < x_samples) & (x_samples < maxval))
+        _x = x_samples[inbounds]
+
+        for chunk in range(np.size(nodes)):
+            tmp_y_vec = np.zeros(np.size(nodes))
+            tmp_y_vec[chunk] = 1
+            spl = InterpolatedUnivariateSpline(nodes, tmp_y_vec, k=spline_degree, ext=0)
+            M[inbounds[0], chunk] = spl(_x)
+        M_list.append(M)
+
+    return np.concatenate(M_list, axis=1)
 
 
 def longitude2phase(longitude: float):
@@ -328,7 +533,9 @@ def resolving_space(start, stop, resolving_power):
         samples.append(samples[-1] + samples[-1] / resolving_power)
 
     if i == size_max - 1 and samples[-1] < stop:
-        raise ValueError(f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})")
+        raise ValueError(
+            f"maximum size ({size_max}) reached before reaching stop ({samples[-1]} < {stop})"
+            )
     elif samples[-1] > stop:
         del samples[-1]  # ensure that the space is within the [start, stop] interval
 
