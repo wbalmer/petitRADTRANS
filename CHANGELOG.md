@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.3.0a5] - 2025-11-10
+## [3.3.0a6] - 2025-11-10
 ### Added
 - Linear spline continuum subtraction (courtesy Will Balmer).
 - Radial velocity handling in retrieval package (courtesy Will Balmer).
@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Confusing error message when using function `retrieval.plot_corner` with no parameter ([issue 120](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/120)).
 - Incorrect behaviour: loading opacities with a species name matching multiple opacity files always results in trying to load the default species file, if it exists.
 - Opacity files with invalid name starts can be considered valid.
+- Changed log10 to log in Madhu and Seager pT profile ([issue 121](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/121)).
 
 ## [3.2.0] - 2025-05-30
 ### Added
