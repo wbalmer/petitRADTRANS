@@ -356,7 +356,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     # Set up masks for the different temperature regions
     pressure_points = 10**np.array(log_pressure_points)
 
-    # change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
+    # Change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
     log_pressure_points = np.log(pressure_points)
 
     mask_1 = pressures < pressure_points[1]
