@@ -327,7 +327,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
         pressures : (numpy.ndarray)
             An array of pressure values (in bar) at which to calculate temperatures.
         log_pressure_points : (list)
-            A list of log pressure breakpoints defining different temperature regimes.
+            A list of log10 pressure breakpoints defining different temperature regimes.
             The zeroth element is the minimum pressure, should be log10(press[0]).
             The first element is the 1-2 boundary
             The second element is the level of the inversion
@@ -357,7 +357,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     pressure_points = 10**np.array(log_pressure_points)
 
     # Change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
-    log_pressure_points = np.log(pressure_points)
+    nat_log_pressure_points = np.log(pressure_points)
 
     mask_1 = pressures < pressure_points[1]
     mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
@@ -368,9 +368,9 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = np.log(pressures)
-    log_p_min = log_pressure_points[0]
-    log_p_set_i = np.log(p_set_i)
+    nat_log_p = np.log(pressures)
+    nat_log_p_min = nat_log_pressure_points[0]
+    nat_log_p_set_i = np.log(p_set_i)
 
     T0 = None
     T2 = None
@@ -378,62 +378,62 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
 
     # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
     # By default (P_set = 10 bar), so T(P_set) should be in layer 3
-    if log_pressure_points[4] >= log_pressure_points[3]:
+    if nat_log_pressure_points[4] >= nat_log_pressure_points[3]:
         T3 = T_set  # T_deep is the isothermal deep temperature T3 here
 
         # Use the temperature parameter to compute boundary temperatures
         T2 = T3 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
         T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
         T0 = T1 - (
-            (1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)
+            (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
             ) ** (1 / beta_points[0])
 
     # If a different P_deep has been chosen, solve equations for layer 2...
     elif (
-        log_pressure_points[4] >= log_pressure_points[1]
+        nat_log_pressure_points[4] >= nat_log_pressure_points[1]
     ):  # Temperature parameter in layer 2
         # Use the temperature parameter to compute the boundary temperatures
         T2 = T_set - (
-            (1.0 / alpha_points[1]) * (log_p_set_i - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
         T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[0])
         T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T0 = T1 - ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+        T0 = T1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
 
     # ...or for layer 1
     elif (
-        log_pressure_points[4] < log_pressure_points[1]
+        nat_log_pressure_points[4] < nat_log_pressure_points[1]
     ):  # Temperature parameter in layer 1
 
         # Use the temperature parameter to compute the boundary temperatures
-        T0 = T_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (
+        T0 = T_set - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
-        T1 = T0 + ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+        T1 = T0 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
         T2 = T1 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
         T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
 
     temperatures[mask_1] = T0 + (
-        (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
+        (nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0])
     ) ** (1 / beta_points[0])
     temperatures[mask_2] = T2 + (
-        (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
+        (nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1])
     ) ** (1 / beta_points[1])
     temperatures[mask_3] = T3
     return temperatures
