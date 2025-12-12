@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.3.0a6] - 2025-11-10
+## [3.3.0a7] - 2025-11-10
 ### Added
 - Linear spline continuum subtraction (courtesy Will Balmer).
 - Radial velocity handling in retrieval package (courtesy Will Balmer).
