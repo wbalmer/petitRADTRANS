@@ -32,8 +32,8 @@ classifiers = [
 dependencies = [
     "meson-python",
     "ninja",
-    "numpy",
-    "jax",
+    "numpy>2.0",
+    "jax>0.8",
     "scipy",
     "astropy>=5.2",  # introduces the CAHA observing site
     "molmass",

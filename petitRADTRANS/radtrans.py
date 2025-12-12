@@ -8,7 +8,7 @@ from typing import Any
 
 import h5py
 import jax.numpy as jnp
-from jax import jit, vmap, lax, config, tree_util
+from jax import jit, vmap, lax, config, tree_util, debug
 from jax.typing import ArrayLike
 from functools import partial
 
@@ -19,7 +19,6 @@ from scipy.interpolate import interp1d
 from petitRADTRANS import physical_constants as cst
 from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
-#TODO Finish hansen
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 
 from petitRADTRANS.radtrans_core import radiative_transfer_core, physics_core, cloud_core
@@ -133,7 +132,7 @@ class Radtrans:
 
         # Initialize properties
         if pressures is None:
-            warnings.warn("pressure was not set, initializing one layer at 1 bar")
+            debug.print("pressure was not set, initializing one layer at 1 bar")
             pressures = jnp.array([1.0], dtype=JAX_DTYPE)  # bar
 
         self._pressures = pressures * 1e6  # bar to cgs  # TODO pressure could be spectral function argument
@@ -159,6 +158,16 @@ class Radtrans:
             self._cloud_species = ()
         else:
             self._cloud_species = tuple(cloud_species)
+
+        # Storing basenames at initialization to avoid recomputing them (hard to JIT compile)
+        # TODO: is basename correct? What about isotopes? Enforce consistent naming.
+        self._species_basenames = {}
+        for species in self._line_species:
+            self._species_basenames[species] = (Opacity.get_species_base_name(species))
+        for species in self._rayleigh_species:
+            self._species_basenames[species] = (Opacity.get_species_base_name(species))
+        for species in self._cloud_species:
+            self._species_basenames[species] = (Opacity.get_species_base_name(species))
 
         self._line_opacity_mode = line_opacity_mode
         self._line_by_line_opacity_sampling = line_by_line_opacity_sampling
@@ -280,7 +289,7 @@ class Radtrans:
 
     @anisotropic_cloud_scattering.setter
     def anisotropic_cloud_scattering(self, mode: str):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self.__check_anisotropic_cloud_scattering(mode)
         self._anisotropic_cloud_scattering = mode
 
@@ -290,7 +299,7 @@ class Radtrans:
 
     @cias_loaded_opacities.setter
     def cias_loaded_opacities(self, dictionary: dict[str, dict[str, ArrayLike]]):
-        warnings.warn(
+        debug.print(
             "setting the Radtrans CIA opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
@@ -306,7 +315,7 @@ class Radtrans:
 
     @clouds_loaded_opacities.setter
     def clouds_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        warnings.warn(
+        debug.print(
             "setting the Radtrans cloud opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
@@ -321,7 +330,7 @@ class Radtrans:
 
     @cloud_species.setter
     def cloud_species(self, species: list):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._cloud_species = species
 
     @property
@@ -330,7 +339,7 @@ class Radtrans:
 
     @emission_angle_grid.setter
     def emission_angle_grid(self, dictionary: dict[str, ArrayLike]):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._emission_angle_grid[key] = value
@@ -341,7 +350,7 @@ class Radtrans:
 
     @frequencies.setter
     def frequencies(self, array: ArrayLike):
-        warnings.warn(
+        debug.print(
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
             "and is inter-dependent with other line opacities parameters, that also need to be updated\n"
@@ -355,7 +364,7 @@ class Radtrans:
 
     @frequency_bins_edges.setter
     def frequency_bins_edges(self, array: ArrayLike):
-        warnings.warn(self.__line_opacity_property_setting_warning_message)
+        debug.print(self.__line_opacity_property_setting_warning_message)
         self._frequency_bins_edges = array
 
     @property
@@ -364,7 +373,7 @@ class Radtrans:
 
     @gas_continuum_contributors.setter
     def gas_continuum_contributors(self, species: list[str]):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._gas_continuum_contributors = species
 
     @property
@@ -373,7 +382,7 @@ class Radtrans:
 
     @line_by_line_opacity_sampling.setter
     def line_by_line_opacity_sampling(self, value: int):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._line_by_line_opacity_sampling = value
 
     @property
@@ -382,7 +391,7 @@ class Radtrans:
 
     @lines_loaded_opacities.setter
     def lines_loaded_opacities(self, dictionary: dict[str, ArrayLike]):
-        warnings.warn(self.__line_opacity_property_setting_warning_message)
+        debug.print(self.__line_opacity_property_setting_warning_message)
 
         for key, value in dictionary.items():
             self._lines_loaded_opacities[key] = value
@@ -393,7 +402,7 @@ class Radtrans:
 
     @line_opacity_mode.setter
     def line_opacity_mode(self, mode):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self.__check_line_opacity_mode(mode)
         self._line_opacity_mode = mode
 
@@ -403,7 +412,7 @@ class Radtrans:
 
     @line_species.setter
     def line_species(self, species: list | tuple):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._line_species = tuple(species)
 
     @property
@@ -412,7 +421,7 @@ class Radtrans:
 
     @path_input_data.setter
     def path_input_data(self, path: str):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self.__check_path_input_data(path)
         self._path_input_data = path
 
@@ -423,7 +432,7 @@ class Radtrans:
 
     @pressures.setter
     def pressures(self, array):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self.__check_pressures(array)
         self._pressures = array
 
@@ -433,7 +442,7 @@ class Radtrans:
 
     @rayleigh_species.setter
     def rayleigh_species(self, species: list):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._rayleigh_species = species
 
     @property
@@ -442,7 +451,7 @@ class Radtrans:
 
     @scattering_in_emission.setter
     def scattering_in_emission(self, value: bool):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self._scattering_in_emission = value
 
     @property
@@ -451,7 +460,7 @@ class Radtrans:
 
     @wavelength_boundaries.setter
     def wavelength_boundaries(self, array: ArrayLike):
-        warnings.warn(self.__property_setting_warning_message)
+        debug.print(self.__property_setting_warning_message)
         self.__check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
@@ -505,25 +514,32 @@ class Radtrans:
         if not jnp.all(jnp.diff(pressures) > 0):
             raise ValueError("pressures must be an array in increasing order")
 
-    # TODO JIT compileable using debug.print instead of warnings.warn
     @staticmethod
+    @jit
     def __check_return_clear_spectrum_relevance(
         return_clear_spectrum, clouds_have_effect,
         opaque_cloud_top_pressure, cloud_fraction
     ):
-        if return_clear_spectrum and not clouds_have_effect and opaque_cloud_top_pressure is None:
-            warnings.warn(
+        lax.cond(
+            jnp.logical_and(
+                jnp.logical_and(return_clear_spectrum,
+                                jnp.logical_not(clouds_have_effect)),
+                opaque_cloud_top_pressure is None),
+            lambda: debug.print(
                 "requested to return a clear spectrum, but clouds have no effect with this setup\n"
                 "To remove this warning, add non-zero cloud mass fractions, set 'cloud_fraction' to a value > 0, "
-                "add an opaque cloud layer, or set 'return_clear_spectrum' to False."
+                "add an opaque cloud layer, or set 'return_clear_spectrum' to False."),
+            lambda: None
             )
 
-        if return_clear_spectrum and cloud_fraction < 1:
-            warnings.warn(
+        lax.cond(
+            return_clear_spectrum & (cloud_fraction < 1),
+            lambda: debug.print(
                 "both the clear and cloudy spectra will be returned, but the returned cloudy spectrum will have "
                 "a partial cloud coverage\n"
-                "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."
-            )
+                "To remove this warning, set 'cloud_fraction' to 1, or set 'return_clear_spectrum' to False."),
+            lambda: None
+        )
 
     @staticmethod
     def __check_wavelength_boundaries(boundaries):
@@ -534,7 +550,7 @@ class Radtrans:
             raise ValueError(f"wavelengths boundaries must be an array of 2 floats in increasing order, "
                              f"but was {boundaries}")
 
-    # TODO make JITable -> cond instead of if, optimise loop
+    @jit(static_argnames=['self',])
     def __clouds_have_effect(self, mass_fractions, cloud_fraction):
         """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
 
@@ -542,15 +558,25 @@ class Radtrans:
             mass_fractions: atmospheric mass mixing ratios
             cloud_fraction: cloud coverage fraction
         """
-        if cloud_fraction == 0:
-            return False
+        output = lax.cond(
+            cloud_fraction == 0,
+            lambda: False,
+            lambda: True
+        )
 
-        add_cloud_opacity = False
-        if len(self._cloud_species) > 0:
-            for i_spec in range(len(self._cloud_species)):
-                if jnp.any(mass_fractions[self._cloud_species[i_spec]] > 0):
-                    add_cloud_opacity = True  # add cloud opacity only if there are actually clouds
-        return add_cloud_opacity
+        def __clouds_have_effect_internal(mass_fractions):
+            add_cloud_opacity = False
+            if len(self._cloud_species) > 0:
+                for cloud_species in self._cloud_species:
+                    if jnp.any(mass_fractions[cloud_species] > 0):
+                        add_cloud_opacity = True  # add cloud opacity only if there are actually clouds
+            return add_cloud_opacity
+
+        return lax.cond(
+            output,
+            lambda: __clouds_have_effect_internal(mass_fractions),
+            lambda: False
+        )
 
     @staticmethod
     def __compute_additional_continuum_opacities(
@@ -639,15 +665,13 @@ class Radtrans:
         cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         cloud_continuum_opacities_scattering = 0
 
-        # TODO JIT to lax.cond
         # Add opaque cloud deck opacity
         if opaque_cloud_top_pressure is not None:
             cloud_continuum_opacities = \
                 cloud_continuum_opacities.at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99)
 
-        # TODO JIT to lax.cond
-        # TODO: JIST sanity checking
         # Add power law opacity
+        # TODO check if need to use jnp.logical_or and logical_and
         if power_law_opacity_350nm is not None and power_law_opacity_coefficient is not None:
             scattering_in_transmission = True
             cloud_continuum_opacities_scattering += (
@@ -663,15 +687,17 @@ class Radtrans:
                 none_parameter = 'power_law_opacity_350nm'
             elif power_law_opacity_coefficient is None:
                 none_parameter = 'power_law_opacity_coefficient'
-            else:
-                # TODO use jax.debug.callback
-                raise RuntimeError(
-                    f"one of the two power law opacity parameters must be None, "
-                    f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
-                    f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
-                )
-            # TODO use jax.debug.print
-            warnings.warn(
+
+            def raise_error_for_incomplete_power_law_parameters(power_law_opacity_350nm, power_law_opacity_coefficient):
+                if power_law_opacity_350nm is not None or (power_law_opacity_coefficient is not None):
+                    raise RuntimeError(
+                        f"one of the two power law opacity parameters must be None, "
+                        f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
+                        f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
+                    )
+            debug.callback(raise_error_for_incomplete_power_law_parameters,
+                           power_law_opacity_350nm, power_law_opacity_coefficient)
+            debug.print(
                 f"to include a power law opacity, "
                 f"both parameters 'power_law_opacity_350nm' "
                 f"and 'power_law_opacity_coefficient' "
@@ -688,14 +714,19 @@ class Radtrans:
                 if species in cloud_species
             }
 
-            if len(cloud_species_mass_fractions) != len(cloud_species):
-                # TODO jax.debug.callback for error
-                raise ValueError(
-                    f"the number of cloud species mass fractions ({len(cloud_species_mass_fractions)}) "
-                    f"does not match the number of cloud species ({len(cloud_species)}); "
-                    f"check for inconsistencies between mass_fractions keys "
-                    f"({list(mass_fractions.keys())}) "
-                    f"and cloud_species keys ({cloud_species})"
+            def raise_error_for_inconsistent_cloud_species_length(cloud_species_mass_fractions, cloud_species, keys):
+                if len(cloud_species_mass_fractions) != len(cloud_species):
+                    raise ValueError(
+                        f"the number of cloud species mass fractions ({len(cloud_species_mass_fractions)}) "
+                        f"does not match the number of cloud species ({len(cloud_species)}); "
+                        f"check for inconsistencies between mass_fractions keys ({keys}) "
+                        f"and cloud_species keys ({cloud_species})"
+                    )
+            debug.callback(
+                raise_error_for_inconsistent_cloud_species_length,
+                cloud_species_mass_fractions,
+                cloud_species,
+                list(mass_fractions.keys())
                 )
 
             scattering_in_transmission = True
@@ -787,7 +818,8 @@ class Radtrans:
     def __compute_continuum_opacities(
         frequencies, frequency_bins_edges,
         pressures, temperatures, mass_fractions, mean_molar_masses,
-        cias_loaded_opacities, gas_continuum_contributors, gray_opacity
+        cias_loaded_opacities, gas_continuum_contributors, gray_opacity,
+        species_basenames
     ):
         # Reset
         continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -800,7 +832,8 @@ class Radtrans:
                 pressures=pressures,
                 temperatures=temperatures,
                 frequencies=frequencies,
-                mean_molar_masses=mean_molar_masses
+                mean_molar_masses=mean_molar_masses,
+                species_basenames=species_basenames
             )
         )
 
@@ -817,20 +850,16 @@ class Radtrans:
             )
         )
 
-        # TODO: check to see how to deal with None
-        continuum_opacities = lax.cond(
-            gray_opacity is not None,
-            lambda _: continuum_opacities + gray_opacity,
-            lambda _: continuum_opacities,
-            continuum_opacities
-        )
+        if gray_opacity is not None:
+            continuum_opacities += gray_opacity
+
         return continuum_opacities
 
     @staticmethod
     def __compute_continuum_scattering_opacities(
         frequencies,
         pressures, temperatures, mass_fractions, mean_molar_masses,
-        rayleigh_species, haze_factor
+        rayleigh_species, haze_factor, species_basenames
     ):
         # Reset
         continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -848,13 +877,15 @@ class Radtrans:
                     mass_fractions=mass_fractions,
                     mean_molar_masses=mean_molar_masses,
                     frequencies=frequencies,
-                    haze_factor=haze_factor
+                    haze_factor=haze_factor,
+                    species_basenames=species_basenames
                 )
             )
 
         return continuum_opacities_scattering, scattering_in_transmission
 
     @staticmethod
+    @jit(static_argnames=['line_species', 'line_opacity_mode', 'sum_opacities'])
     def __compute_combined_opacities(
         opacities, continuum_opacities,
         line_species, line_species_mass_fractions, line_opacity_mode,
@@ -884,12 +915,11 @@ class Radtrans:
         return opacities
 
     @staticmethod
-    def __get_base_species_mass_fractions(mass_fractions):
+    def __get_base_species_mass_fractions(mass_fractions, species_basenames):
         base_species_mass_fractions = {}
 
-        # TODO: store base names to avoid recomputing (hard to jit)
         for species, mass_fraction in mass_fractions.items():
-            species_basename = Opacity.get_species_base_name(species)
+            species_basename = species_basenames[species]
 
             if species_basename not in base_species_mass_fractions:
                 base_species_mass_fractions[species_basename] = copy.deepcopy(mass_fraction)
@@ -911,6 +941,7 @@ class Radtrans:
         return cia
 
     @staticmethod
+    @jit(static_argnames=['use_smart_clear_opacities','complete_coverage_clouds'])
     def __get_base_opacities(
         use_smart_clear_opacities, complete_coverage_clouds,
         opacities, continuum_opacities_scattering,
@@ -919,20 +950,27 @@ class Radtrans:
         """Return the opacities that should be returned when not using cloud coverage fraction."""
         # TODO jit to lax.cond
         if use_smart_clear_opacities:  # return the cloudy opacities
-            # Sanity checks for later clear/cloudy swaps
-            if continuum_opacities_scattering.ndim != 3:
-                raise ValueError(
-                    f"when using cloud coverage fractions, 'continuum_opacities_scattering' must have 3 dimensions, "
-                    f"but had {continuum_opacities_scattering.ndim}\n"
-                    f"This is likely a programming error and not a user error."
-                )
+            def sanity_checks_for_cloud_coverage_fractions(
+                continuum_opacities_scattering, opacities
+            ):
+                if continuum_opacities_scattering.ndim != 3:
+                    raise ValueError(
+                        f"when using cloud coverage fractions, 'continuum_opacities_scattering' must have 3 dimensions, "
+                        f"but had {continuum_opacities_scattering.ndim}\n"
+                        f"This is likely a programming error and not a user error."
+                    )
 
-            if not isinstance(opacities, list):
-                raise ValueError(
-                    f"when using cloud coverage fractions, 'opacities' must be a list, "
-                    f"but was {type(opacities)}\n"
-                    f"This is likely a programming error and not a user error."
-                )
+                if not isinstance(opacities, list) and not isinstance(opacities, tuple):
+                    raise ValueError(
+                        f"when using cloud coverage fractions, 'opacities' must be a list or a tuple, "
+                        f"but was {type(opacities)}\n"
+                        f"This is likely a programming error and not a user error."
+                    )
+            debug.callback(
+                sanity_checks_for_cloud_coverage_fractions,
+                continuum_opacities_scattering,
+                opacities
+            )
 
             # Use cloudy values
             _continuum_opacities_scattering = continuum_opacities_scattering[0]
@@ -950,14 +988,20 @@ class Radtrans:
                 _cloud_absorption_opacities = cloud_absorption_opacities[0]
         elif cloud_anisotropic_scattering_opacities is None and cloud_absorption_opacities is None:
             pass
-        else:
-            # TODO: jit debugging
-            raise ValueError(
-                f"cloud_anisotropic_scattering_opacities and cloud_absorption_opacities must either both be not None "
-                f"or both be None, "
-                f"but were {cloud_anisotropic_scattering_opacities} and {cloud_absorption_opacities}\n"
-                f"This is likely a programming error and not a user error."
-            )
+
+        def sanity_checks_for_cloud_opacities(cloud_anisotropic_scattering_opacities, cloud_absorption_opacities):
+            if jnp.logical_xor(cloud_anisotropic_scattering_opacities is not None, cloud_absorption_opacities is not None):
+                raise ValueError(
+                    f"cloud_anisotropic_scattering_opacities and cloud_absorption_opacities must either both be not None "
+                    f"or both be None, "
+                    f"but were {cloud_anisotropic_scattering_opacities} and {cloud_absorption_opacities}\n"
+                    f"This is likely a programming error and not a user error."
+                )
+        debug.callback(
+            sanity_checks_for_cloud_opacities,
+            cloud_anisotropic_scattering_opacities,
+            cloud_absorption_opacities
+        )
 
         return (
             _opacities, _continuum_opacities_scattering,
@@ -984,7 +1028,7 @@ class Radtrans:
         for cia, aliases in cia_aliases.items():
             if name in aliases:
                 if name != cia:
-                    warnings.warn(
+                    debug.print(
                         "usage of CIA aliases is deprecated and will be removed in a future update.\n"
                         "Use the CIA actual name, with pRT's CIA separator ('--') between colliding species, instead",
                         FutureWarning
@@ -1154,53 +1198,81 @@ class Radtrans:
 
     @staticmethod
     def __init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
-        # TODO: jit to lax.cond
         if clouds_particles_porosity_factor is None:
             clouds_particles_porosity_factor = {species: -jnp.inf for species in cloud_species}
 
         for species in cloud_species:
+            # TODO: check JAX compatibility for split_species_all_info
             _, _, _, _, source, _ = Opacity.split_species_all_info(CloudOpacity.get_aliases(species))
-            # TODO: jit to lax.cond
-            if source == 'DHS':
-                if clouds_particles_porosity_factor[species] == 0:
-                    warnings.warn(f"cloud species '{species}' opacity calculation method is using the DHS method, "
-                                  f"the porosity factor should be > 0 (0.25 is used by default)")
-                elif not jnp.isfinite(clouds_particles_porosity_factor[species]):
-                    clouds_particles_porosity_factor[species] = 0.25
-            else:
-                if not jnp.isfinite(clouds_particles_porosity_factor[species]):
-                    clouds_particles_porosity_factor[species] = 0
 
-            if clouds_particles_porosity_factor[species] < 0 or clouds_particles_porosity_factor[species] >= 1:
-                raise ValueError(f"clouds particles porosity factor "
-                                 f"must be >= 0 (full particles) and < 1 (empty particles), "
-                                 f"but is {clouds_particles_porosity_factor[species]} for species '{species}'")
+            # Operate on a local variable so we can use lax.cond and jittable jnp ops
+            _porosity = clouds_particles_porosity_factor[species]
+
+            # For DHS sources: if porosity == 0 -> print a warning (leave value unchanged),
+            # elif not finite -> set to 0.25
+            def _handle_dhs(porosity):
+                return lax.cond(
+                    jnp.equal(porosity, 0),
+                    # true: print warning and return original p
+                    lambda q: (debug.print(f"cloud species '{species}' opacity calculation method is using the DHS method, "
+                                           f"the porosity factor should be > 0 (0.25 is used by default)"), q)[1],
+                    # false: if finite -> return p else -> set to default 0.25
+                    lambda q: lax.cond(jnp.isfinite(q), lambda r: r, lambda r: jnp.array(0.25, dtype=JAX_DTYPE), q),
+                    porosity
+                )
+
+            # For non-DHS sources: if not finite -> set to 0.0, else keep value
+            def _handle_non_dhs(porosity):
+                return lax.cond(jnp.isfinite(porosity), lambda r: r, lambda r: jnp.array(0.0, dtype=JAX_DTYPE), porosity)
+
+            # Choose handler based on source (source is static Python string)
+            _porosity = lax.cond(source == 'DHS', lambda p: _handle_dhs(p), lambda p: _handle_non_dhs(p), _porosity)
+
+            # Store back the (possibly updated) porosity
+            clouds_particles_porosity_factor[species] = _porosity
+
+            # Validate value with jnp logicals, raise via debug.callback so it works under jitting/tracing
+            def _raise_if_invalid(porosity, species_name):
+                if porosity < 0 or porosity >= 1:
+                    raise ValueError(
+                        f"clouds particles porosity factor "
+                        f"must be >= 0 (full particles) and < 1 (empty particles), "
+                        f"but is {porosity} for species '{species_name}'"
+                    )
+
+            invalid = jnp.logical_or(_porosity < 0, _porosity >= 1)
+            # Only call the callback when invalid is True (callback will run during tracing/execution)
+            if invalid:
+                debug.callback(_raise_if_invalid, _porosity, species)
 
         return clouds_particles_porosity_factor
 
-    @partial(jit, static_argnames=['self', 'is_emission', 'complete_coverage_clouds', 'return_clear_spectrum'])
+    @jit(static_argnames=['self', 'is_emission', 'complete_coverage_clouds', 'return_clear_spectrum'])
     def __init_spectral_function(
         self, is_emission, reference_gravity, complete_coverage_clouds, return_clear_spectrum,
         mass_fractions, cloud_fraction, opaque_cloud_top_pressure
     ):
         """Initializations and checks common to calculate_flux and calculate_transit_radii."""
 
-        # TODO: needs to be JIT compilable if we want calculate_flux to be jitted.
-        #if reference_gravity <= 0:
-        #    raise ValueError(f"reference gravity must be > 0, but was {reference_gravity}")
+        def handle_invalid_reference_gravity(reference_gravity):
+            if reference_gravity <= 0:
+                raise ValueError(
+                    f"reference gravity must be > 0, but was {reference_gravity}"
+                )
+        debug.callback(handle_invalid_reference_gravity, reference_gravity)
 
         if complete_coverage_clouds is None:
             complete_coverage_clouds = ()
 
         spectrum_clear = None
 
-        # TODO JIT
-        #self.__check_return_clear_spectrum_relevance(
-        #    return_clear_spectrum=return_clear_spectrum,
-        #    clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
-        #    opaque_cloud_top_pressure=opaque_cloud_top_pressure,
-        #    cloud_fraction=cloud_fraction,
-        #)
+        # Sanity checking and debugging messaging
+        self.__check_return_clear_spectrum_relevance(
+            return_clear_spectrum=return_clear_spectrum,
+            clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
+            opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+            cloud_fraction=cloud_fraction,
+        )
 
         self.__sum_opacities = self.__set_sum_opacities(
             emission=is_emission,
@@ -1217,21 +1289,20 @@ class Radtrans:
         if self._anisotropic_cloud_scattering == 'auto':
             self._anisotropic_cloud_scattering = is_emission
             auto_anisotropic_cloud_scattering = True
-        # TODO: use jax.debug
         elif not self._anisotropic_cloud_scattering and is_emission:
-            warnings.warn(f"anisotropic cloud scattering is recommended for emission spectra, "
+            debug.print(f"anisotropic cloud scattering is recommended for emission spectra, "
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
                           f"set it to True or 'auto' to disable this warning")
         elif self._anisotropic_cloud_scattering and not is_emission:
-            warnings.warn(f"anisotropic cloud scattering is not recommended for transmission spectra, "
+            debug.print(f"anisotropic cloud scattering is not recommended for transmission spectra, "
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
                           f"set it to False or 'auto' to disable this warning")
 
-        # TODO: return sum_opacities and use smart_clear_opacities
-        return auto_anisotropic_cloud_scattering, complete_coverage_clouds, spectrum_clear
+        return (auto_anisotropic_cloud_scattering, complete_coverage_clouds,
+                spectrum_clear, self.__sum_opacities, self.__use_smart_clear_opacities)
 
     @staticmethod
-    @partial(jit, static_argnames=['complete_coverage_clouds', 'return_clear_spectrum'])
+    @jit(static_argnames=['complete_coverage_clouds', 'return_clear_spectrum'])
     def __set_use_smart_clear_opacities(cloud_fraction, complete_coverage_clouds, return_clear_spectrum):
         use_smart_clear_opacities = lax.cond(
             jnp.logical_or(
@@ -1245,7 +1316,7 @@ class Radtrans:
         return use_smart_clear_opacities
 
     @staticmethod
-    @partial(jit, static_argnames=['emission', 'line_opacity_mode', 'scattering_in_emission'])
+    @jit(static_argnames=['emission', 'line_opacity_mode', 'scattering_in_emission'])
     def __set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
         sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
         if line_opacity_mode == 'c-k':
@@ -1404,15 +1475,15 @@ class Radtrans:
         """
         # TODO: how to do JAX sanity checks
         #if jnp.any(jnp.less_equal(temperatures, 0)):
-        #    warnings.warn(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
+        #    debug.print(f"temperature array ('temperatures') contains negative or null values ({temperatures})")
 
         #for species, mass_fraction in mass_fractions.items():
         #    if jnp.any(jnp.less(mass_fraction, 0)):
-        #        warnings.warn(f"mass fractions for species '{species}' ('mass_fractions') "
+        #        debug.print(f"mass fractions for species '{species}' ('mass_fractions') "
         #                      f"contains negative values ({mass_fraction})")
 
         #if jnp.any(jnp.less(mean_molar_masses, 0)):
-        #    warnings.warn(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
+        #    debug.print(f"mean molar mass array ('mean_molar_masses') contains negative values ({mean_molar_masses})")
 
         #if cloud_fraction < 0 or cloud_fraction > 1:
         #    raise ValueError(f"cloud coverage fraction must be between 0 and 1, but was {cloud_fraction}")
@@ -1455,7 +1526,8 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             cias_loaded_opacities=self._cias_loaded_opacities,
             gas_continuum_contributors=self._gas_continuum_contributors,
-            gray_opacity=gray_opacity
+            gray_opacity=gray_opacity,
+            species_basenames=self._species_basenames
         )
 
         continuum_opacities_scattering, self.__scattering_in_transmission = (
@@ -1466,7 +1538,8 @@ class Radtrans:
                 mass_fractions=mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 rayleigh_species=self._rayleigh_species,
-                haze_factor=haze_factor
+                haze_factor=haze_factor,
+                species_basenames=self._species_basenames
             )
         )
 
@@ -1779,10 +1852,10 @@ class Radtrans:
         return opacities
 
     @staticmethod
-    def _compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses):
+    def _compute_cia_opacities(cia_dicts, mass_fractions, pressures, temperatures, frequencies, mean_molar_masses, species_basenames):
         """Wrapper to _interpolate_cia, calculating each collision's combined mass fraction."""
         # Add mass fractions sharing the same basename
-        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
+        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions, species_basenames)
 
         # Calculate CIA opacities
         cia_opacities = 0
@@ -2535,7 +2608,8 @@ class Radtrans:
 
     @staticmethod
     def _compute_rayleigh_scattering_opacities(
-        rayleigh_species, pressures, temperatures, mass_fractions, mean_molar_masses, frequencies, haze_factor=1.0
+        rayleigh_species, pressures, temperatures,
+        mass_fractions, mean_molar_masses, frequencies, haze_factor=1.0, species_basenames={}
     ):
         """Add Rayleigh scattering opacities to scattering continuum opacities.
 
@@ -2547,7 +2621,7 @@ class Radtrans:
         rayleigh_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
 
         # TODO Store base names
-        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions)
+        base_species_mass_fractions = Radtrans.__get_base_species_mass_fractions(mass_fractions, species_basenames)
 
         for species in rayleigh_species:
             # TODO JIT errorchecking
@@ -2727,7 +2801,7 @@ class Radtrans:
                 sampling=1
             )
         else:
-            warnings.warn("no opacity source given (lines, CIA, or clouds), "
+            debug.print("no opacity source given (lines, CIA, or clouds), "
                           "setting frequency grid using the mean of wavelength boundaries (1 element)")
             frequency_bins_edges = jnp.zeros(2, dtype=JAX_DTYPE)
             frequency_bins_edges = frequency_bins_edges.at[0].set(wavelength2frequency(self._wavelength_boundaries[1] * 1e-4))  # um to cm
@@ -3185,7 +3259,7 @@ class Radtrans:
 
                                 missing = "'" + ", '".join(missing) + "'"
 
-                                warnings.warn(f"opacity '{opacity}' requires {len(spectral_parameters)} parameters, "
+                                debug.print(f"opacity '{opacity}' requires {len(spectral_parameters)} parameters, "
                                               f"but lacks value for parameters {missing}")
 
                             opacity_contributions[opacity] = None
@@ -3208,8 +3282,7 @@ class Radtrans:
 
         return opacity_contributions
 
-    @partial(jit,
-             static_argnames=[
+    @jit(static_argnames=[
                 'self',
                 'cloud_particles_radius_distribution',
                 'irradiation_geometry',
@@ -3396,7 +3469,8 @@ class Radtrans:
                     optical depths, are returned
         """
 
-        auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear = (
+        (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
+         sum_opacities, use_smart_clear_opacities) = (
             self.__init_spectral_function(
                 is_emission=True,
                 reference_gravity=reference_gravity,
@@ -3410,14 +3484,15 @@ class Radtrans:
 
         # TODO JIT - replace with debug.print
         if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
-            warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
-                          "is not recommended")
+            debug.print("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+                        "is not recommended")
 
         star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))  # flux
-
-        # TODO JIT replace with lax.cond or clip array
-        if star_irradiation_cos_angle <= 0.:
-            star_irradiation_cos_angle = 1e-8
+        star_irradiation_cos_angle = lax.cond(
+            star_irradiation_cos_angle <= 0.,
+            1e-8,
+            star_irradiation_cos_angle
+            )
 
         if stellar_intensities is None:
             stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
@@ -3430,25 +3505,37 @@ class Radtrans:
                     star_radius=star_radius
                 )
 
-        # TODO use jax.debug.callback(
+        # Use jax.debug.callback to raise ValueError under tracing/JIT
         if reflectances is None:
             reflectances = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(reflectances) == 0:
             reflectances = reflectances * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
-        elif jnp.size(reflectances) != self._frequencies.size:
-            raise ValueError(f"reflectance must be a scalar "
-                             f"or of the same size than frequencies ({self._frequencies.size}), "
-                             f"but is of size {jnp.size(reflectances)}")
+        else:
+            def _check_reflectances_size(r, freqs):
+                if jnp.size(r) != freqs.size:
+                    raise ValueError(
+                        f"reflectance must be a scalar "
+                        f"or of the same size than frequencies ({freqs.size}), "
+                        f"but is of size {jnp.size(r)}"
+                    )
 
-        # TODO use jax.debug.callback(
+            debug.callback(_check_reflectances_size, reflectances, self._frequencies)
+
+        # Use jax.debug.callback to raise ValueError under tracing/JIT
         if emissivities is None:
             emissivities = jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(emissivities) == 0:
             emissivities = emissivities * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
-        elif jnp.size(emissivities) != self._frequencies.size:
-            raise ValueError(f"emissivity must be a scalar "
-                             f"or of the same size than frequencies ({self._frequencies.size}), "
-                             f"but is of size {jnp.size(emissivities)}")
+        else:
+            def _check_emissivities_size(e, freqs):
+                if jnp.size(e) != freqs.size:
+                    raise ValueError(
+                        f"emissivity must be a scalar "
+                        f"or of the same size than frequencies ({freqs.size}), "
+                        f"but is of size {jnp.size(e)}"
+                    )
+
+            debug.callback(_check_emissivities_size, emissivities, self._frequencies)
 
         optical_depths_rosseland = None
         photosphere_radius = None
@@ -3489,7 +3576,7 @@ class Radtrans:
 
         (_opacities, _continuum_opacities_scattering,
          _cloud_anisotropic_scattering_opacities, _cloud_absorption_opacities) = self.__get_base_opacities(
-            use_smart_clear_opacities=self.__use_smart_clear_opacities,
+            use_smart_clear_opacities=use_smart_clear_opacities,
             complete_coverage_clouds=complete_coverage_clouds,
             opacities=opacities,
             continuum_opacities_scattering=continuum_opacities_scattering,
@@ -3520,9 +3607,8 @@ class Radtrans:
         )
 
         # TODO jit to cond -> maybe make separate function for smart_clear logic? repeated a few times
-        # TODO - need to pass this as an argument rather than self
         # smart_clear is set in __init_spectral_function, could have it as a return value instead.
-        if self.__use_smart_clear_opacities:
+        if use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
             # opacities is a list of two elements, the first one is cloudy and the second one is clear
             # TODO: opacities[0].shape != opacities[1].shape
@@ -3615,8 +3701,8 @@ class Radtrans:
         else:
             cloud_contribution = None
 
-        if self.__sum_opacities and len(self._line_species) > 1:
-            if self.__sum_opacities and opacities_rosseland is not None:
+        if sum_opacities and len(self._line_species) > 1:
+            if sum_opacities and opacities_rosseland is not None:
                 optical_depths_rosseland = self._compute_species_optical_depths(
                     reference_gravity=reference_gravity,
                     pressures=self._pressures,
@@ -3710,7 +3796,7 @@ class Radtrans:
         Returns:
 
         """
-        self.__set_sum_opacities(emission=True)
+        sum_opacities = self.__set_sum_opacities(emission=True)
 
         atmospheric_densities = self._pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
         radius_hydrostatic_equilibrium = radiative_transfer_core.compute_radius_hydrostatic_equilibrium(
@@ -3726,7 +3812,7 @@ class Radtrans:
         photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
 
         # TODO jit to cond
-        if self.__sum_opacities:
+        if sum_opacities:
             if optical_depths is None:
                 optical_depths, _, _ = self._compute_optical_depths_wrapper(
                     pressures=self._pressures,
@@ -3734,7 +3820,7 @@ class Radtrans:
                     opacities=opacities,
                     continuum_opacities_scattering=continuum_opacities_scattering,
                     scattering_in_emission=self._scattering_in_emission,
-                    sum_opacities=self.__sum_opacities,
+                    sum_opacities=sum_opacities,
                     absorber_present=self.__absorber_present,
                     # Custom cloud parameters
                     frequencies=self._frequencies,
@@ -3757,12 +3843,13 @@ class Radtrans:
                 if jnp.max(tau_p) > 2. / 3.:
                     photosphere_radius = photosphere_radius.at[i_freq].set(radius_interp(pressures_tau_p(2 / 3)))
                 else:
-                    warnings.warn('Atmosphere is too transparent for calculating the "photospheric '
+                    debug.print('Atmosphere is too transparent for calculating the "photospheric '
                                   'radius" at tau = 2/3. Returning the radius at maximum pressure instead!')
                     photosphere_radius = photosphere_radius.at[i_freq].set(radius_hydrostatic_equilibrium[-1])
 
         return photosphere_radius
 
+    # TODO Not used
     def calculate_rosseland_planck_opacities(
             self,
             temperatures: npt.NDArray[float],
@@ -3847,7 +3934,6 @@ class Radtrans:
                     Gray opacity value, to be added to the opacity at all
                     pressures and wavelengths (units :math:`\\rm cm^2/g`)
         """
-        # TODO should be 2 separated functions
         if not self._scattering_in_emission:
             raise ValueError(
                 "pRT must run in scattering_in_emission = True mode to calculate kappa_Rosseland and kappa_Planck'"
@@ -3859,7 +3945,7 @@ class Radtrans:
             self._anisotropic_cloud_scattering = True
             auto_anisotropic_cloud_scattering = True
         elif not self._anisotropic_cloud_scattering:
-            warnings.warn(f"anisotropic cloud scattering is recommended for emission spectra, "
+            debug.print(f"anisotropic cloud scattering is recommended for emission spectra, "
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
                           f"set it to 'auto' to disable this warning")
 
@@ -3914,8 +4000,7 @@ class Radtrans:
 
         return opacities_rosseland, opacities_planck, cloud_particles_mean_radii
 
-    @partial(jit,
-             static_argnames=[
+    @jit(static_argnames=[
                 'self',
                 'cloud_particles_radius_distribution',
                 'frequencies_to_wavelengths',
@@ -4222,7 +4307,7 @@ class Radtrans:
     @staticmethod
     def compute_pressure_hydrostatic_equilibrium(
             mean_molar_masses, reference_gravity, planet_radius, p0, temperature, radii, rk4=True):
-        # TODO is it used?
+        # TODO not used?
         p0 = p0 * 1e6
         vs = 1. / radii
         r_pl_sq = planet_radius ** 2
@@ -4568,7 +4653,7 @@ class Radtrans:
                     resolving_power = Opacity.get_resolving_power_from_string(resolving_power)
 
                     if max_relative_difference > cls._frequency_grid_misalignment_tolerance / resolving_power:
-                        warnings.warn(
+                        debug.print(
                             f"maximum frequency grid misalignment from file ({max_relative_difference}) "
                             f"is larger than tolerated "
                             f"({cls._frequency_grid_misalignment_tolerance / resolving_power}); "
