@@ -24,6 +24,7 @@ class PhoenixStarTable:
         self.flux_grid = None
         self.wavelength_grid = None
 
+    # TODO: Jit this function - update conds and use jnp?
     def compute_spectrum(self, temperature):
         """
         Returns a matrix where the first column is the wavelength in cm

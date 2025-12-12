@@ -2118,45 +2118,46 @@ class SpectralModel(Radtrans):
         # Ensure that the sum of mass mixing ratios of all species is = 1
         m_sum_total = m_sum_chemical_table_species + m_sum_imposed_species
 
-        for i, m_sum in enumerate(m_sum_total):
-            if 0 < m_sum < 1:
-                if len(filling_species) > 0:  # fill the atmosphere using the filling species
-                    mass_fractions_i = fill_atmosphere(
-                        mass_fractions=mass_fractions,
-                        filling_species=filling_species,
-                        fill_layer=i
-                    )
+        # TODO: Update fill with new function without layer by layer
+        #if 0 < m_sum < 1:
+        if len(filling_species) > 0:  # fill the atmosphere using the filling species
+            mass_fractions_i = fill_atmosphere(
+                mass_fractions=mass_fractions,
+                filling_species=filling_species,
+                mass_fraction_sum=m_sum_total,
+                #fill_layer=i
+            )
 
-                    for species in mass_fractions:
-                        mass_fractions[species][i] = mass_fractions_i[species][0]
-                else:
-                    warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
-                                  f"Set filling_species to automatically fill the atmosphere "
-                                  f"or manually adjust the imposed mass fractions")
-            elif m_sum > 1:  # scale down the mass fractions, no filling species needed
-                if verbose:
-                    warnings.warn(
-                        f"sum of species mass fraction "
-                        f"({m_sum_chemical_table_species[i]} + {m_sum_imposed_species[i]}) "
-                        f"is > 1, correcting..."
-                    )
+            for species in mass_fractions:
+                mass_fractions[species][i] = mass_fractions_i[species][0]
+        else:
+            warnings.warn(f"the sum of mass mixing ratios at level {i} is lower than 1 ({m_sum_total[i]}). "
+                            f"Set filling_species to automatically fill the atmosphere "
+                            f"or manually adjust the imposed mass fractions")
+        """elif m_sum > 1:  # scale down the mass fractions, no filling species needed
+            if verbose:
+                warnings.warn(
+                    f"sum of species mass fraction "
+                    f"({m_sum_chemical_table_species[i]} + {m_sum_imposed_species[i]}) "
+                    f"is > 1, correcting..."
+                )
 
-                for species in mass_fractions:
-                    if species not in imposed_mass_fractions:
-                        if m_sum_chemical_table_species[i] > 0:
-                            mass_fractions[species][i] = (
-                                mass_fractions[species][i]
-                                * (1 - m_sum_imposed_species[i]) / m_sum_chemical_table_species[i]
-                            )
-                        else:
-                            mass_fractions[species][i] = mass_fractions[species][i] / m_sum
-            elif m_sum <= 0:
-                raise ValueError(f"invalid total mass fraction at pressure level {i}: "
-                                 f"mass fraction must be > 0, but is {m_sum}\n"
-                                 f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
-                                 f"or set equilibrium chemistry to True\n"
-                                 f"If the sum is < 0, check your imposed mass fractions and chemical model")
-
+            for species in mass_fractions:
+                if species not in imposed_mass_fractions:
+                    if m_sum_chemical_table_species[i] > 0:
+                        mass_fractions[species][i] = (
+                            mass_fractions[species][i]
+                            * (1 - m_sum_imposed_species[i]) / m_sum_chemical_table_species[i]
+                        )
+                    else:
+                        mass_fractions[species][i] = mass_fractions[species][i] / m_sum
+        elif m_sum <= 0:
+            raise ValueError(f"invalid total mass fraction at pressure level {i}: "
+                                f"mass fraction must be > 0, but is {m_sum}\n"
+                                f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
+                                f"or set equilibrium chemistry to True\n"
+                                f"If the sum is < 0, check your imposed mass fractions and chemical model")
+        """
         return mass_fractions
 
     @staticmethod

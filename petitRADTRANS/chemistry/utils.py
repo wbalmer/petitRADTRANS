@@ -218,7 +218,7 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=No
             int(nnodes) + 2),
         pressure_nodes
     )
-    
+
     def relative(pressure_array, points_list):
         # points_list is a list of delta log Pressures < 0.
         # This enforces a monotonically decreasing list of pressure nodes
@@ -230,7 +230,7 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=No
             pressures.append(min(_next, min_pressure))
         pressures.append(min_pressure)
         return jnp.array(pressures)
-    
+
     pressure_nodes = lax.cond(
         mode == 'relative',
         lambda x: relative,
@@ -238,7 +238,7 @@ def compute_pressure_nodes(pressure_array, mode='even', nnodes=0, points_list=No
         pressure_array,
         points_list
     )
-    
+
     pressure_nodes = lax.cond(
         mode == 'set',
         lambda x: pressure_nodes,
@@ -494,14 +494,13 @@ def fill_atmosphere(mass_fractions: dict[str, ArrayLike], filling_species: dict,
     See fill_atmospheric_layer for more details.
 
     Args:
-        mass_fractions:
+        mass_fractions: dict
             Dictionary with the species as keys and the mass fraction in all layers as values.
-        filling_species:
+        filling_species: dict
             Dictionary with the filling species as keys and the weights of the mass fractions as values. Unweighted
             filling species are represented with None.
-        fill_layer:
-            If 'all', fill all layers and return the filled mass fractions at every layer.
-            If it is an integer, fill only the corresponding layer and return the mass fractions at that layer only.
+        mass_fraction_sum: ArrayLike
+            The sum of the trace species mass fractions in each layer.
     Returns:
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
@@ -551,7 +550,7 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
         A dictionary of the mass fractions with the filling species. The sum of the mass fractions is 1.
     """
     # TODO jit
-    return 
+    return
 
     for species, mass_fraction in mass_fractions.items():
         if hasattr(mass_fraction, '__iter__'):
@@ -864,7 +863,7 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
             nodes_asc = transition_pressures[1:-1][::-1]
             idx = jnp.searchsorted(nodes_asc, log_p)
             abund_idx = nnodes - idx
-            
+
             return 10**abundance_points[abund_idx]
 
         # Vectorize the function across all pressure points.
@@ -874,7 +873,7 @@ def stepped_profile(pressure_array, transition_pressures, abundance_points):
 
     err, result = checkify.checkify(_stepped_profile_impl)(pressure_array, transition_pressures, abundance_points)
     checkify.check_error(err)
-    
+
     return result
 
 

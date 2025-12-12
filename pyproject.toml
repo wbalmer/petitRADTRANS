@@ -44,7 +44,13 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-    "exo_k"
+    "exo_k",
+    "interpax",
+    "mpi4py",
+    "requests",
+    "skycalc-cli",
+    "matplotlib",
+    "corner"
 ]
 
 [project.urls]
@@ -54,13 +60,7 @@ Issues = "https://gitlab.com/mauricemolli/petitRADTRANS/-/issues"
 Changelog = "https://gitlab.com/mauricemolli/petitRADTRANS/-/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
-retrieval = [
-    "mpi4py",
-    "requests",
-    "skycalc-cli",
-    "matplotlib",
-    "corner"
-]
+
 full = [
     "mpi4py",
     "requests",

@@ -40,11 +40,11 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
 
         def easychem_case(_):
             return mass_fractions[cname]
-        
+
         def eq_scaling_case(_):
             x_cloud = fc.return_cloud_mass_fraction(cloud, parameters['Fe/H'].value, parameters['C/O'].value)
             return 10 ** parameters['eq_scaling_' + cname].value * x_cloud
-        
+
         def free_case(_):
             return 10 ** parameters['log_X_cb_' + cname].value
 
@@ -250,7 +250,8 @@ def calculate_cloud_mass_fractions(pressures, temperatures, cloud_species, param
                                           0.0)
             mass_fractions[cloud] = mass_fractions[cloud][small_index]
     return mass_fractions, p_bases, small_index
-    
+
+
 @partial(jit, static_argnames=['line_species', 'cloud_species', 'verbose'])
 def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, parameters=None, line_species=None,
                                     cloud_species=None, filling_species=None,
@@ -270,6 +271,7 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
                     'H2': 74 * jnp.ones(pressures.size),
                     'He': 24 * jnp.ones(pressures.size)
                 }
+
         def default_case(_):
             return filling_species
 
@@ -409,7 +411,7 @@ def calculate_line_species_mass_fractions_jit(pressures, temperatures=None, para
         """
         def scale_case(mf):
             # mf is the mass_fractions dictionary
-            
+
             # Create updates for species that need scaling.
             # This is functional and JIT-compatible as loops over static strings unroll.
             updates = {}
@@ -691,7 +693,7 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
             for species in imposed_mass_fractions:
                 if species not in cloud_species:  # Do not count clouds
                     mass_fractions[species][i] /= m_sum_imposed_species[i]
-    
+
     # Initialize chemical equilibrium mass fractions
     mass_fractions_chemical_table = None
 
@@ -801,7 +803,7 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
                 )
 
                 for species in mass_fractions:
-        
+
                     mass_fractions[species] = mass_fractions[species].at[i].set(
                         mass_fractions_i[species][0]
                     )
@@ -913,7 +915,7 @@ def get_abundances(pressures: typing.ArrayLike, temperatures:typing.ArrayLike, p
         mass_fractions[species] = value[small_index]
 
     return mass_fractions, mean_molar_mass, small_index, p_bases
-    
+
 
 def get_abundances_old(pressures, temperatures, line_species, cloud_species, parameters, adaptive_mesh_refinement=False):
     """

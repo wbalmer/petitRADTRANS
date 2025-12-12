@@ -25,7 +25,7 @@ def init_run():
     run_definition_simple = petitRADTRANS.retrieval.RetrievalConfig(
         retrieval_name="test",
         run_mode="retrieval",  # This must be 'retrieval' to run PyMultiNest
-        amr=False,  # We won't be using adaptive mesh refinement for the pressure grid
+        adaptive_mesh_refinement=False,  # We won't be using adaptive mesh refinement for the pressure grid
         pressures=test_parameters['pressures'],
         scattering_in_emission=False  # This would turn on scattering when calculating emission spectra
     )
@@ -153,7 +153,7 @@ def init_run():
     run_definition_simple.parameters['log_Pcloud'].corner_ranges = [-6, 2]
 
     for spec in run_definition_simple.line_species:
-        spec = spec.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
+        # spec = spec.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
         run_definition_simple.parameters[spec].plot_in_corner = True
         run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
