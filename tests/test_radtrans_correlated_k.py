@@ -326,3 +326,27 @@ def test_correlated_k_transmission_spectrum_cloud_calculated_radius():
         cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
         frequencies_to_wavelengths=False
     )
+
+
+def test_correlated_k_transmission_spectrum_with_custom_cloud_distribution():
+    mass_fractions, _, cloud_f_sed, _, _ = get_cloud_parameters(
+        'mass_fractions_correlated_k'
+    )
+
+    benchmark = Benchmark(
+        function=atmosphere_ck.calculate_transit_radii,
+        relative_tolerance=relative_tolerance
+    )
+
+    # Call calculate_transit_radii with custom cloud particle size distribution
+    benchmark.run(
+        temperatures=temperature_isothermal,
+        mass_fractions=test_parameters['mass_fractions_correlated_k'],
+        reference_gravity=test_parameters['planetary_parameters']['reference_gravity'],
+        mean_molar_masses=test_parameters['mean_molar_mass'],
+        planet_radius=test_parameters['planetary_parameters']['radius'] * petitRADTRANS.physical_constants.r_jup_mean,
+        reference_pressure=test_parameters['planetary_parameters']['reference_pressure'],
+        cloud_particle_number_density_grid=test_parameters['cloud_particle_number_density_grid'],
+        cloud_particles_radius_distribution="custom",
+        frequencies_to_wavelengths=False
+        )
