@@ -505,6 +505,7 @@ class Radtrans:
         if not jnp.all(jnp.diff(pressures) > 0):
             raise ValueError("pressures must be an array in increasing order")
 
+    # TODO JIT compileable using debug.print instead of warnings.warn
     @staticmethod
     def __check_return_clear_spectrum_relevance(
         return_clear_spectrum, clouds_have_effect,
@@ -663,12 +664,13 @@ class Radtrans:
             elif power_law_opacity_coefficient is None:
                 none_parameter = 'power_law_opacity_coefficient'
             else:
+                # TODO use jax.debug.callback
                 raise RuntimeError(
                     f"one of the two power law opacity parameters must be None, "
                     f"but 'power_law_opacity_350nm' was {power_law_opacity_350nm} "
                     f"and 'power_law_opacity_coefficient' was {power_law_opacity_coefficient}"
                 )
-
+            # TODO use jax.debug.print
             warnings.warn(
                 f"to include a power law opacity, "
                 f"both parameters 'power_law_opacity_350nm' "
@@ -687,6 +689,7 @@ class Radtrans:
             }
 
             if len(cloud_species_mass_fractions) != len(cloud_species):
+                # TODO jax.debug.callback for error
                 raise ValueError(
                     f"the number of cloud species mass fractions ({len(cloud_species_mass_fractions)}) "
                     f"does not match the number of cloud species ({len(cloud_species)}); "
@@ -1191,6 +1194,7 @@ class Radtrans:
 
         spectrum_clear = None
 
+        # TODO JIT
         #self.__check_return_clear_spectrum_relevance(
         #    return_clear_spectrum=return_clear_spectrum,
         #    clouds_have_effect=self.__clouds_have_effect(mass_fractions, cloud_fraction),
@@ -1213,6 +1217,7 @@ class Radtrans:
         if self._anisotropic_cloud_scattering == 'auto':
             self._anisotropic_cloud_scattering = is_emission
             auto_anisotropic_cloud_scattering = True
+        # TODO: use jax.debug
         elif not self._anisotropic_cloud_scattering and is_emission:
             warnings.warn(f"anisotropic cloud scattering is recommended for emission spectra, "
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
@@ -1222,6 +1227,7 @@ class Radtrans:
                           f"but 'anisotropic_cloud_scattering' was set to {self._anisotropic_cloud_scattering}; "
                           f"set it to False or 'auto' to disable this warning")
 
+        # TODO: return sum_opacities and use smart_clear_opacities
         return auto_anisotropic_cloud_scattering, complete_coverage_clouds, spectrum_clear
 
     @staticmethod
@@ -1242,7 +1248,6 @@ class Radtrans:
     @partial(jit, static_argnames=['emission', 'line_opacity_mode', 'scattering_in_emission'])
     def __set_sum_opacities(emission, line_opacity_mode, scattering_in_emission):
         sum_opacities = False  # False in c-k emission if no scattering, and always False in c-k transmission
-
         if line_opacity_mode == 'c-k':
             if emission and scattering_in_emission:
                 sum_opacities = True
@@ -1250,11 +1255,11 @@ class Radtrans:
             sum_opacities = True
         return sum_opacities
 
+    # TODO define static argnames
     def _calculate_flux(
         self, temperatures, reference_gravity, opacities, continuum_opacities_scattering,
         emission_geometry, star_irradiation_cos_angle, stellar_intensity, reflectances, emissivities,
-        cloud_f_sed,
-        photospheric_cloud_optical_depths, cloud_photosphere_wavelength_boundaries,
+        cloud_f_sed, photospheric_cloud_optical_depths, cloud_photosphere_wavelength_boundaries,
         cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
         adaptive_feautrier_iterations, return_contribution=False, return_rosseland_opacities=False
     ):
@@ -3403,16 +3408,20 @@ class Radtrans:
             )
         )
 
+        # TODO JIT - replace with debug.print
         if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
             warnings.warn("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
                           "is not recommended")
 
         star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))  # flux
 
+        # TODO JIT replace with lax.cond or clip array
         if star_irradiation_cos_angle <= 0.:
             star_irradiation_cos_angle = 1e-8
 
         if stellar_intensities is None:
+            stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
+
             if star_effective_temperature is not None and orbit_semi_major_axis is not None:
                 stellar_intensities = self.compute_star_spectrum(
                     star_effective_temperature=star_effective_temperature,
@@ -3420,9 +3429,8 @@ class Radtrans:
                     frequencies=self._frequencies,
                     star_radius=star_radius
                 )
-            else:
-                stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
 
+        # TODO use jax.debug.callback(
         if reflectances is None:
             reflectances = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(reflectances) == 0:
@@ -3432,6 +3440,7 @@ class Radtrans:
                              f"or of the same size than frequencies ({self._frequencies.size}), "
                              f"but is of size {jnp.size(reflectances)}")
 
+        # TODO use jax.debug.callback(
         if emissivities is None:
             emissivities = jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
         elif jnp.ndim(emissivities) == 0:
@@ -3474,6 +3483,7 @@ class Radtrans:
             )
         )
 
+        # TODO: not sure if this is jittable
         if auto_anisotropic_cloud_scattering:
             self._anisotropic_cloud_scattering = 'auto'
 
@@ -3510,6 +3520,8 @@ class Radtrans:
         )
 
         # TODO jit to cond -> maybe make separate function for smart_clear logic? repeated a few times
+        # TODO - need to pass this as an argument rather than self
+        # smart_clear is set in __init_spectral_function, could have it as a return value instead.
         if self.__use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
             # opacities is a list of two elements, the first one is cloudy and the second one is clear
