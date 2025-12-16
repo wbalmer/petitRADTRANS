@@ -344,7 +344,7 @@ def interpolate_cloud_opacities(cloud_absorption_opacities, cloud_scattering_opa
         order=1,
         mode='nearest'
         )
-    
+
     cloud_anisotropic_extinctions = (
         cloud_absorption_opacities_output
         + (cloud_scattering_opacities_output * cloud_scattering_reduction_factor_output)
@@ -383,7 +383,7 @@ def interpolate_cloud_opacities_fortran(cloud_absorption_opacities, cloud_scatte
          cloud_isotropic_extinctions,
          cloud_scattering_reduction_factor_out) = carry
 
-        # Find the indices of the cloud wavelengths that are closest to 
+        # Find the indices of the cloud wavelengths that are closest to
         # the HIT border wavelengths for this bin
         intp_index_small_min = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb]))
         intp_index_small_max = jnp.argmin(jnp.abs(cloud_wavelengths - HIT_border_lamb[HIT_i_lamb+1]))
@@ -864,11 +864,11 @@ def _compute_mean_radius_hansen_single(
             gamma_arg2 = x_gamma_ij + alpha_ij
 
             term5_numerator = lax.cond(
-                gamma_arg1 > 0, lambda: jsp.gamma(gamma_arg1), lambda: jnp.nan 
+                gamma_arg1 > 0, lambda: jsp.gamma(gamma_arg1), lambda: jnp.nan
             )
             term5_denominator_factor1 = (b_hansen_ij * alpha_ij + 2.0 * b_hansen_ij + 1.0)
             term5_denominator_factor2 = lax.cond(
-                gamma_arg2 > 0, lambda: jsp.gamma(gamma_arg2), lambda: jnp.nan 
+                gamma_arg2 > 0, lambda: jsp.gamma(gamma_arg2), lambda: jnp.nan
             )
             term5_denominator = term5_denominator_factor1 * term5_denominator_factor2
 
@@ -965,3 +965,8 @@ def _compute_mean_radius_hansen_single(
         lambda: 1e-17,
         lambda: a_hansen_ij
     )
+
+def compute_cloud_hansen_opacities():
+    # TODO
+    return
+

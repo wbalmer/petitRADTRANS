@@ -627,34 +627,40 @@ class Radtrans:
         )
 
     @staticmethod
+    @jit(static_argnames=[
+        'cloud_species',
+        'complete_coverage_clouds',
+        #'clouds_loaded_opacities',
+        'cloud_particles_radius_distribution',]
+        )
     def __compute_cloud_continuum_opacities(
-        frequencies,
-        frequency_bins_edges,
-        pressures,
-        temperatures,
-        mass_fractions,
-        mean_molar_masses,
-        reference_gravity,
-        scattering_in_transmission,
-        sum_opacities,
-        opaque_cloud_top_pressure,
-        power_law_opacity_350nm,
-        power_law_opacity_coefficient,
-        clouds_have_effect,
-        cloud_species,
-        clouds_particles_porosity_factor,
-        clouds_loaded_opacities,
-        anisotropic_cloud_scattering,
-        cloud_particles_mean_radii,
-        cloud_particle_radius_distribution_std,
-        cloud_f_sed,
-        eddy_diffusion_coefficients,
-        cloud_particles_radius_distribution,
-        cloud_hansen_a,
-        cloud_hansen_b,
-        cloud_photosphere_median_optical_depth,
-        complete_coverage_clouds,
-        return_cloud_contribution
+        frequencies: ArrayLike,
+        frequency_bins_edges: ArrayLike,
+        pressures: ArrayLike,
+        temperatures: ArrayLike,
+        mass_fractions: dict[str, ArrayLike],
+        mean_molar_masses: ArrayLike,
+        reference_gravity: float,
+        scattering_in_transmission: bool,
+        sum_opacities: bool,
+        opaque_cloud_top_pressure: float,
+        power_law_opacity_350nm: float,
+        power_law_opacity_coefficient: float,
+        clouds_have_effect: bool,
+        cloud_species: list[str],
+        clouds_particles_porosity_factor: float,
+        clouds_loaded_opacities: LockedDict[str, ArrayLike],
+        anisotropic_cloud_scattering: bool,
+        cloud_particles_mean_radii: ArrayLike,
+        cloud_particle_radius_distribution_std: float,
+        cloud_f_sed: dict[str, float],
+        eddy_diffusion_coefficients: dict[str, float],
+        cloud_particles_radius_distribution: str,
+        cloud_hansen_a: float,
+        cloud_hansen_b: float,
+        cloud_photosphere_median_optical_depth: float,
+        complete_coverage_clouds: tuple[str],
+        return_cloud_contribution: bool
     ):
         # Initialization
         cloud_absorption_opacities = None
@@ -706,13 +712,17 @@ class Radtrans:
                 f"Power law opacity will not be included"
             )
 
-        # TODO: JIT to lax.cond
         # Calculate cloud opacities
-        if clouds_have_effect or len(complete_coverage_clouds) > 0:  # add cloud opacities only if there are clouds
-            cloud_species_mass_fractions = {
-                species: mass_fraction for species, mass_fraction in mass_fractions.items()
-                if species in cloud_species
-            }
+        def process_cloud_case(
+                cloud_continuum_opacities,
+                cloud_continuum_opacities_scattering,
+                cloud_scattering_opacities,
+                cloud_absorption_opacities,
+                cloud_opacities,
+                clouds_particles_porosity_factor):
+            cloud_species_mass_fractions = {}
+            for species in cloud_species:
+                cloud_species_mass_fractions[species] = mass_fractions[species]
 
             def raise_error_for_inconsistent_cloud_species_length(cloud_species_mass_fractions, cloud_species, keys):
                 if len(cloud_species_mass_fractions) != len(cloud_species):
@@ -763,24 +773,40 @@ class Radtrans:
                 return_cloud_contribution=return_cloud_contribution
             )
 
-            # TODO better conditional for jit
             # Opacities with only the clouds with complete coverage (will be treated as standard continuum opacities)
-            if len(complete_coverage_clouds) > 0:
+            def complete_cloud_coverage_case(
+                cloud_continuum_opacities,
+                cloud_continuum_opacities_scattering,
+                cloud_scattering_opacities,
+                cloud_absorption_opacities,
+                cloud_opacities,
+                clouds_particles_porosity_factor
+            ):
                 clear_cloud_species_mass_fractions = copy.deepcopy(cloud_species_mass_fractions)
 
                 # TODO JIT to cond
                 for species in clear_cloud_species_mass_fractions:
-                    if species not in complete_coverage_clouds:
-                        clear_cloud_species_mass_fractions[species] *= 0
-
-                cloud_continuum_opacities = [cloud_continuum_opacities, jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)]
+                    clear_cloud_species_mass_fractions[species] = lax.cond(
+                        species not in complete_coverage_clouds,
+                        lambda _species: jnp.zeros_like(clear_cloud_species_mass_fractions[_species]),
+                        lambda _species: clear_cloud_species_mass_fractions[_species],
+                        species
+                    )
+                cloud_continuum_opacities = [
+                    cloud_continuum_opacities,
+                    jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
+                    ]
                 cloud_continuum_opacities_scattering = [cloud_continuum_opacities_scattering, None]
                 cloud_scattering_opacities = [cloud_scattering_opacities, None]
                 cloud_absorption_opacities = [cloud_absorption_opacities, None]
                 cloud_opacities = [cloud_opacities, None]
 
-                if opaque_cloud_top_pressure is not None:
-                    cloud_continuum_opacities[1] = cloud_continuum_opacities[1].at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99)
+                cloud_continuum_opacities[1] = lax.cond(
+                    opaque_cloud_top_pressure is not None,
+                    lambda c: c[1].at[:, pressures > opaque_cloud_top_pressure * 1e6].add(1e99),
+                    lambda c: c[1],
+                    cloud_continuum_opacities
+                )
 
                 (cloud_continuum_opacities[1], cloud_continuum_opacities_scattering[1],
                  cloud_scattering_opacities[1], cloud_absorption_opacities[1],
@@ -806,6 +832,55 @@ class Radtrans:
                     continuum_opacities=cloud_continuum_opacities[1],
                     return_cloud_contribution=return_cloud_contribution
                 )
+                return (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+                        cloud_scattering_opacities, cloud_absorption_opacities, cloud_opacities)
+
+            (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+             cloud_scattering_opacities, cloud_absorption_opacities) = lax.cond(
+                len(complete_coverage_clouds) > 0,
+                complete_cloud_coverage_case,
+                lambda: (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+                         cloud_scattering_opacities, cloud_absorption_opacities, cloud_opacities),
+                cloud_continuum_opacities,
+                cloud_continuum_opacities_scattering,
+                cloud_scattering_opacities,
+                cloud_absorption_opacities,
+                cloud_opacities,
+            )
+
+            return (
+                cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+                cloud_scattering_opacities, cloud_absorption_opacities,
+                cloud_opacities, _cloud_particles_mean_radii,
+                scattering_in_transmission
+            )
+
+        predicate = jnp.any(jnp.array([
+            clouds_have_effect,
+            len(complete_coverage_clouds) > 0,
+            jnp.logical_not(opaque_cloud_top_pressure is None),
+            jnp.logical_not(clouds_loaded_opacities['particles_radii_bins'] is None)
+        ], dtype=bool))
+
+        (cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+         cloud_scattering_opacities, cloud_absorption_opacities,
+         cloud_opacities, _cloud_particles_mean_radii,
+         scattering_in_transmission) = lax.cond(
+            predicate,
+            process_cloud_case,
+            lambda: (
+                cloud_continuum_opacities, cloud_continuum_opacities_scattering,
+                cloud_scattering_opacities, cloud_absorption_opacities,
+                cloud_opacities, _cloud_particles_mean_radii,
+                scattering_in_transmission
+            ),
+            cloud_continuum_opacities,
+            cloud_continuum_opacities_scattering,
+            cloud_scattering_opacities,
+            cloud_absorption_opacities,
+            cloud_opacities,
+            clouds_particles_porosity_factor
+        )
 
         return (
             cloud_continuum_opacities, cloud_continuum_opacities_scattering,
@@ -941,7 +1016,7 @@ class Radtrans:
         return cia
 
     @staticmethod
-    @jit(static_argnames=['use_smart_clear_opacities','complete_coverage_clouds'])
+    @jit(static_argnames=['use_smart_clear_opacities', 'complete_coverage_clouds'])
     def __get_base_opacities(
         use_smart_clear_opacities, complete_coverage_clouds,
         opacities, continuum_opacities_scattering,
@@ -1435,7 +1510,10 @@ class Radtrans:
 
         return flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor
 
-
+    @jit(static_argnames=[
+        'cloud_particles_radius_distribution',
+        'complete_coverage_clouds'
+        ])
     def _calculate_opacities(
         self, temperatures, mass_fractions, mean_molar_masses, reference_gravity,
         opaque_cloud_top_pressure=None,
@@ -1905,6 +1983,9 @@ class Radtrans:
         return flux, emission_contribution
 
     @staticmethod
+    @jit(static_argnames=[
+        'cloud_particles_radius_distribution']
+        )
     def _compute_cloud_opacities(
         pressures, temperatures, frequency_bins_edges,
         cloud_species_mass_fractions, mean_molar_masses, reference_gravity,
@@ -2039,25 +2120,33 @@ class Radtrans:
             if eddy_diffusion_coefficients is None:
                 missing_arguments.append("'eddy_diffusion_coefficients'")
 
-            if len(missing_arguments) > 0:
-                raise ValueError(
-                    f"missing necessary arguments to calculate cloud particle radii: {', '.join(missing_arguments)} "
-                    f"(got 'None')\n"
-                    f"Set the missing arguments, "
-                    f"or directly set cloud particle radii "
-                    f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
-                    f"and argument 'cloud_particle_radius_distribution_std'.\n"
-                    f"The cloud particle radii are necessary to calculate the cloud opacities."
-                )
+            if clouds_loaded_opacities['particles_radii_bins'] is None:
+                missing_arguments.append("'clouds_loaded_opacities.particles_radii_bins'")
 
-            # Initialize f_seds
-            f_seds = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+            def raise_missing_arguments_error(missing_arguments):
+                if len(missing_arguments) > 0:
+                    raise ValueError(
+                        f"missing necessary arguments to calculate cloud particle radii: {', '.join(missing_arguments)} "
+                        f"(got 'None')\n"
+                        f"Set the missing arguments, "
+                        f"or directly set cloud particle radii "
+                        f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
+                        f"and argument 'cloud_particle_radius_distribution_std'.\n"
+                        f"The cloud particle radii are necessary to calculate the cloud opacities."
+                    )
+            debug.callback(raise_missing_arguments_error, missing_arguments)
 
-            for i_spec, cloud in enumerate(cloud_species_mass_fractions):
-                if isinstance(cloud_f_sed, dict):
-                    f_seds = f_seds.at[:, i_spec].set(cloud_f_sed[cloud])
-                else:  # or array with length of number of atmospheric layers, or scalar.
-                    f_seds = f_seds.at[:, i_spec].set(cloud_f_sed)
+            def standardize_f_sed(cloud_f_sed, cloud_species, pressures_size):
+                # Initialize f_seds
+                f_seds = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+
+                for i_spec, cloud in enumerate(cloud_species):
+                    if isinstance(cloud_f_sed, dict):
+                        f_seds = f_seds.at[:, i_spec].set(cloud_f_sed[cloud])
+                    else:  # or array with length of number of atmospheric layers, or scalar.
+                        f_seds = f_seds.at[:, i_spec].set(cloud_f_sed)
+                return f_seds
+            f_seds = standardize_f_sed(cloud_f_sed, list(cloud_species_mass_fractions.keys()), pressures.size)
 
             # TODO: better conditional for jit
             # Calculate cloud_particles_mean_radii then cloud opacities
@@ -3468,7 +3557,6 @@ class Radtrans:
                     if True, the absorption opacities and scattering opacities for species and clouds, as well as the
                     optical depths, are returned
         """
-
         (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
          sum_opacities, use_smart_clear_opacities) = (
             self.__init_spectral_function(
@@ -3488,11 +3576,7 @@ class Radtrans:
                         "is not recommended")
 
         star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))  # flux
-        star_irradiation_cos_angle = lax.cond(
-            star_irradiation_cos_angle <= 0.,
-            1e-8,
-            star_irradiation_cos_angle
-            )
+        star_irradiation_cos_angle = jnp.where(star_irradiation_cos_angle <= 0., 1e-8, star_irradiation_cos_angle)
 
         if stellar_intensities is None:
             stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
@@ -3607,6 +3691,7 @@ class Radtrans:
         )
 
         # TODO jit to cond -> maybe make separate function for smart_clear logic? repeated a few times
+        # TODO I think the entire smart swap approach to save memory breaks JIT
         # smart_clear is set in __init_spectral_function, could have it as a return value instead.
         if use_smart_clear_opacities:
             # Swap cloudy opacities with clear opacities
@@ -3616,8 +3701,10 @@ class Radtrans:
             opacities[0] = opacities[0].at[:, :, 0, :].set(opacities[1])
             opacities[1] = opacities[0][:, :, 0, :]
             # This is the original implementation
-            #opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
+            # opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
 
+            # TODO we can pretty much always use the first case
+            # This just shrinks the memory required by opacities
             if not return_opacities and not return_photosphere_radius:  # get rid of the now useless cloudy case
                 opacities = opacities[0]
                 _opacities = opacities
@@ -3627,6 +3714,7 @@ class Radtrans:
             _continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
 
             # TODO jit to cond
+            # Also changing array sizes, breaking JIT
             if len(complete_coverage_clouds) > 0:  # use the opacities with only the clouds with complete coverage
                 _cloud_anisotropic_scattering_opacities = cloud_anisotropic_scattering_opacities[1]
                 _cloud_absorption_opacities = cloud_absorption_opacities[1]
@@ -3659,6 +3747,7 @@ class Radtrans:
             )
 
             # TODO jit to cond?
+            # Breaks JIT due to changing array shape
             if not return_clear_spectrum:
                 flux_clear = None
 
@@ -3762,6 +3851,361 @@ class Radtrans:
             )
         else:
             return self._frequencies, flux, additional_outputs
+
+    @jit(static_argnames=[
+                'self',
+                'cloud_particles_radius_distribution',
+                'irradiation_geometry',
+                'frequencies_to_wavelengths',
+                ])
+    def simple_calculate_flux(
+            self,
+            temperatures: ArrayLike,
+            mass_fractions: dict[str, ArrayLike],
+            mean_molar_masses: ArrayLike,
+            reference_gravity: float,
+            planet_radius: float = None,
+            opaque_cloud_top_pressure: float = None,
+            cloud_particles_mean_radii: dict[str, ArrayLike] = None,
+            cloud_particle_radius_distribution_std: float = None,
+            cloud_particles_radius_distribution: str = 'lognormal',
+            cloud_hansen_a: dict[str, ArrayLike] = None,
+            cloud_hansen_b: dict[str, ArrayLike] = None,
+            clouds_particles_porosity_factor: dict[str, float] = None,
+            cloud_f_sed: float = None,
+            eddy_diffusion_coefficients: ArrayLike = None,
+            haze_factor: float = 1.0,
+            power_law_opacity_350nm: float = None,
+            power_law_opacity_coefficient: float = None,
+            gray_opacity: float = None,
+            cloud_photosphere_wavelength_boundaries: ArrayLike = None,
+            cloud_photosphere_median_optical_depth: float = None,
+            cloud_fraction: float = 1.0,
+            complete_coverage_clouds: list[str] = None,
+            adaptive_feautrier_iterations: bool = False,
+            irradiation_geometry: str = 'dayside_ave',
+            stellar_intensities: ArrayLike = None,
+            star_effective_temperature: float = None,
+            star_radius: float = None,
+            orbit_semi_major_axis: float = None,
+            star_irradiation_angle: float = 0.0,
+            reflectances: ArrayLike = None,
+            emissivities: ArrayLike = None,
+            additional_absorption_opacities_function: callable = None,
+            additional_scattering_opacities_function: callable = None,
+            frequencies_to_wavelengths: bool = True,
+    ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
+        """ Method to calculate the atmosphere's emitted flux (emission spectrum).
+
+            Args:
+                temperatures:
+                    The atmospheric temperature in K, at each atmospheric layer
+                    (1-d numpy array, same length as pressure array).
+                mass_fractions:
+                    Dictionary of mass fractions for all atmospheric absorbers.
+                    Dictionary keys are the species names. Every mass fraction array has same length as pressure array.
+                mean_molar_masses:
+                    The atmospheric mean molecular weight in amu, at each atmospheric layer
+                    (1-d numpy array, same length as pressure array).
+                reference_gravity (float):
+                    Surface gravity in cgs. Vertically constant for emission spectra.
+                planet_radius: planet radius at maximum pressure in cm. Only used to calculate the planet's changing
+                    Photospheric radius as function of wavelength, if return_photosphere_radius is True.
+                opaque_cloud_top_pressure (Optional[float]):
+                    Pressure, in bar, where opaque cloud deck is added to the absorption opacity.
+                cloud_particles_mean_radii (Optional):
+                    Dictionary of mean particle radii for all cloud species.
+                    Dictionary keys are the cloud species names. Every radius array has same length as pressure array.
+                cloud_particle_radius_distribution_std (Optional[float]):
+                    Width of the log-normal cloud particle size distribution
+                cloud_particles_radius_distribution (Optional[string]):
+                    The cloud particle size distribution to use.
+                    Can be either 'lognormal' (default) or 'hansen'.
+                    If hansen, the cloud_hansen_b parameters must be used.
+                cloud_hansen_a (Optional[dict]):
+                    A dictionary of the 'a' parameter values for each included cloud species and for each atmospheric
+                    layer, formatted as the kzz argument. Equivalent to cloud_particles_mean_radii.
+                    If cloud_hansen_a is not included and dist is "hansen", then it will be computed using Kzz and fsed
+                    (recommended).
+                cloud_hansen_b (Optional[dict]):
+                    A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
+                    layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
+                    the particle area (1/cloud_hansen_a^2)
+                clouds_particles_porosity_factor (Optional[dict]):
+                    A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
+                    are calculated using the Distribution of Hollow Spheres (DHS) method.
+                cloud_f_sed (Optional[float]):
+                    Cloud settling parameter.
+                eddy_diffusion_coefficients (Optional[float]):
+                    The atmospheric eddy diffusion coefficient in cgs (i.e. :math:`\\rm cm^2/s`), at each atmospheric
+                    layer (1-d numpy array, same length as pressure array).
+                haze_factor (Optional[float]):
+                    Scalar factor, increasing the gas Rayleigh scattering cross-section.
+                power_law_opacity_350nm (Optional[float]):
+                    Scattering opacity at 0.35 micron, in cgs units (cm^2/g).
+                power_law_opacity_coefficient (Optional[float]):
+                    Has to be given if kappa_zero is defined, this is the
+                    wavelength powerlaw index of the parametrized scattering
+                    opacity.
+                gray_opacity (Optional[float]):
+                    Gray opacity value, to be added to the opacity at all pressures and wavelengths
+                    (units :math:`\\rm cm^2/g`)
+                cloud_photosphere_median_optical_depth (Optional[float]):
+                    Median optical depth (across ``wavelength_boundaries``) of the clouds from the top of the
+                    atmosphere down to the gas-only photosphere. This parameter can be used for enforcing the presence
+                    of clouds in the photospheric region.
+                cloud_photosphere_wavelength_boundaries (Optional[NDArray]):
+                    Min and max wavelength boundaries when calculating the median of the photospheric cloud optical
+                    depth. By default, the whole spectral range is used.
+                cloud_fraction:
+                    Mix a column without cloud with a column with cloud to the requested fraction
+                    (0 = clear, 1 = full cloud cover). By default, assume a full cloud cover.
+                complete_coverage_clouds:
+                    List of clouds that have full coverage, regardless of the value of cloud_fraction.
+                irradiation_geometry (Optional[string]):
+                    if equal to ``'dayside_ave'``: use the dayside average geometry.
+                    If equal to ``'planetary_ave'``: use the planetary average geometry.
+                    If equal to ``'non-isotropic'``: use the non-isotropic geometry.
+                emission_geometry (Optional[string]):
+                    Deprecated, same as irradiation_geometry.
+                stellar_intensities (Optional[array]):
+                    The stellar intensity to use. If None, it will be calculated using a PHOENIX model.
+                star_effective_temperature (Optional[float]):
+                    The temperature of the host star in K, used only if the
+                    scattering is considered. If not specified, the direct light contribution is not calculated.
+                star_radius (Optional[float]):
+                    The radius of the star in cm. If specified, used to scale the to scale the stellar flux,
+                    otherwise it uses PHOENIX radius.
+                orbit_semi_major_axis (Optional[float]):
+                    The distance of the planet from the star. Used to scale the stellar flux when the scattering of the
+                    direct light is considered.
+                star_irradiation_angle (Optional[float]):
+                    Inclination angle of the direct light with respect to the normal to the atmosphere. Used only in
+                    the non-isotropic geometry scenario.
+                reflectances (Optional):
+                    Reflectances of the surface (layer with the highest pressure).
+                emissivities (Optional):
+                    Emissivities of the surface (layer with the highest pressure).
+                additional_absorption_opacities_function (Optional[function]):
+                    A python function that takes wavelength arrays in microns and pressure arrays in bars
+                    as input, and returns an absorption opacity matrix in units of cm^2/g, in the shape of
+                    number of wavelength points x number of pressure points.
+                    This opacity will then be added to the atmospheric absorption opacity.
+                    This must not be used to add atomic / molecular line opacities in low-resolution mode (c-k),
+                    because line opacities require a proper correlated-k treatment.
+                    It may be used to add simple cloud absorption laws, for example, which
+                    have opacities that vary only slowly with wavelength, such that the current
+                    model resolution is sufficient to resolve any variations.
+                additional_scattering_opacities_function (Optional[function]):
+                    A python function that takes wavelength arrays in microns and pressure arrays in bars
+                    as input, and returns an isotropic scattering opacity matrix in units of cm^2/g, in the shape of
+                    number of wavelength points x number of pressure points.
+                    This opacity will then be added to the atmospheric absorption opacity.
+                    It may be used to add simple cloud absorption laws, for example, which
+                    have opacities that vary only slowly with wavelength, such that the current
+                    model resolution is sufficient to resolve any variations.
+                adaptive_feautrier_iterations (Optional[bool]):
+                    If True, the number of iterations of the Feautrier scattering-method
+                    (scattering_in_emission=True) is adapted based on the photon destruction probability.
+                frequencies_to_wavelengths (Optional[bool]):
+                    if True, convert the frequencies (Hz) output to wavelengths (cm),
+                    and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
+                return_contribution (Optional[bool]):
+                    If True the emission contribution function is be calculated.
+                return_clear_spectrum (Optional[bool]):
+                    If True, return the clear spectrum in addition to a cloudy spectrum.
+                return_photosphere_radius (Optional[bool]):
+                    if True, the photosphere radius is calculated and returned
+                return_rosseland_optical_depths (Optional[bool]):
+                    if True, the Rosseland opacities and optical depths are calculated and returned
+                return_cloud_contribution (Optional[bool]):
+                    if True, the cloud contribution is calculated
+                return_opacities (Optional[bool]):
+                    if True, the absorption opacities and scattering opacities for species and clouds, as well as the
+                    optical depths, are returned
+        """
+        (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
+         sum_opacities, use_smart_clear_opacities) = (
+            self.__init_spectral_function(
+                is_emission=True,
+                reference_gravity=reference_gravity,
+                complete_coverage_clouds=complete_coverage_clouds,
+                return_clear_spectrum=False,
+                mass_fractions=mass_fractions,
+                cloud_fraction=cloud_fraction,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure
+            )
+        )
+        if opaque_cloud_top_pressure is not None and self._scattering_in_emission:
+            debug.print("the use of opaque_cloud_top_pressure in conjunction with scattering for emission spectrum "
+                        "is not recommended")
+
+        star_irradiation_cos_angle = jnp.cos(jnp.deg2rad(star_irradiation_angle))  # flux
+        star_irradiation_cos_angle = jnp.where(star_irradiation_cos_angle <= 0., 1e-8, star_irradiation_cos_angle)
+
+        if stellar_intensities is None:
+            stellar_intensities = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
+
+            if star_effective_temperature is not None and orbit_semi_major_axis is not None:
+                stellar_intensities = self.compute_star_spectrum(
+                    star_effective_temperature=star_effective_temperature,
+                    orbit_semi_major_axis=orbit_semi_major_axis,
+                    frequencies=self._frequencies,
+                    star_radius=star_radius
+                )
+
+        # Use jax.debug.callback to raise ValueError under tracing/JIT
+        if reflectances is None:
+            reflectances = jnp.zeros_like(self._frequencies, dtype=JAX_DTYPE)
+        elif jnp.ndim(reflectances) == 0:
+            reflectances = reflectances * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
+        else:
+            def _check_reflectances_size(r, freqs):
+                if jnp.size(r) != freqs.size:
+                    raise ValueError(
+                        f"reflectance must be a scalar "
+                        f"or of the same size than frequencies ({freqs.size}), "
+                        f"but is of size {jnp.size(r)}"
+                    )
+
+            debug.callback(_check_reflectances_size, reflectances, self._frequencies)
+
+        # Use jax.debug.callback to raise ValueError under tracing/JIT
+        if emissivities is None:
+            emissivities = jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
+        elif jnp.ndim(emissivities) == 0:
+            emissivities = emissivities * jnp.ones_like(self._frequencies, dtype=JAX_DTYPE)
+        else:
+            def _check_emissivities_size(e, freqs):
+                if jnp.size(e) != freqs.size:
+                    raise ValueError(
+                        f"emissivity must be a scalar "
+                        f"or of the same size than frequencies ({freqs.size}), "
+                        f"but is of size {jnp.size(e)}"
+                    )
+
+            debug.callback(_check_emissivities_size, emissivities, self._frequencies)
+
+        optical_depths_rosseland = None
+        photosphere_radius = None
+        flux_clear = None
+
+        (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
+         cloud_opacities, cloud_particles_mean_radii) = (
+            self._calculate_opacities(
+                temperatures=temperatures,
+                mass_fractions=mass_fractions,
+                mean_molar_masses=mean_molar_masses,
+                reference_gravity=reference_gravity,
+                opaque_cloud_top_pressure=opaque_cloud_top_pressure,
+                cloud_particles_mean_radii=cloud_particles_mean_radii,
+                cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+                cloud_particles_radius_distribution=cloud_particles_radius_distribution,
+                cloud_hansen_a=cloud_hansen_a,
+                cloud_hansen_b=cloud_hansen_b,
+                clouds_particles_porosity_factor=clouds_particles_porosity_factor,
+                cloud_f_sed=cloud_f_sed,
+                eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+                haze_factor=haze_factor,
+                power_law_opacity_350nm=power_law_opacity_350nm,
+                power_law_opacity_coefficient=power_law_opacity_coefficient,
+                gray_opacity=gray_opacity,
+                cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth,
+                cloud_fraction=cloud_fraction,
+                complete_coverage_clouds=complete_coverage_clouds,
+                return_cloud_contribution=False,
+                additional_absorption_opacities_function=additional_absorption_opacities_function,
+                additional_scattering_opacities_function=additional_scattering_opacities_function
+            )
+        )
+
+        # TODO: not sure if this is jittable
+        if auto_anisotropic_cloud_scattering:
+            self._anisotropic_cloud_scattering = 'auto'
+
+        (_opacities, _continuum_opacities_scattering,
+         _cloud_anisotropic_scattering_opacities, _cloud_absorption_opacities) = self.__get_base_opacities(
+            use_smart_clear_opacities=use_smart_clear_opacities,
+            complete_coverage_clouds=complete_coverage_clouds,
+            opacities=opacities,
+            continuum_opacities_scattering=continuum_opacities_scattering,
+            cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+            cloud_absorption_opacities=cloud_absorption_opacities
+        )
+
+        flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor = (
+            self._calculate_flux(
+                temperatures=temperatures,
+                reference_gravity=reference_gravity,
+                opacities=_opacities,
+                continuum_opacities_scattering=_continuum_opacities_scattering,
+                emission_geometry=irradiation_geometry,
+                star_irradiation_cos_angle=star_irradiation_cos_angle,
+                stellar_intensity=stellar_intensities,
+                reflectances=reflectances,
+                emissivities=emissivities,
+                return_contribution=False,
+                cloud_f_sed=cloud_f_sed,
+                photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
+                cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+                cloud_anisotropic_scattering_opacities=_cloud_anisotropic_scattering_opacities,
+                cloud_absorption_opacities=_cloud_absorption_opacities,
+                adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                return_rosseland_opacities=False
+            )
+        )
+
+        if use_smart_clear_opacities:
+            # Swap cloudy opacities with clear opacities
+            # opacities is a list of two elements, the first one is cloudy and the second one is clear
+            # TODO: opacities[0].shape != opacities[1].shape
+            #       this is a workaround to make it work, but it should be fixed in the future
+            opacities[0] = opacities[0].at[:, :, 0, :].set(opacities[1])
+            opacities[1] = opacities[0][:, :, 0, :]
+            # This is the original implementation
+            # opacities[0][:, :, 0], opacities[1] = opacities[1], opacities[0][:, :, 0]
+
+            opacities = opacities[0]
+            _opacities = opacities
+            _continuum_opacities_scattering = continuum_opacities_scattering[1]  # use the clear scattering opacities
+
+            flux_clear, _, _, _, _ = (
+                self._calculate_flux(
+                    temperatures=temperatures,
+                    reference_gravity=reference_gravity,
+                    opacities=_opacities,
+                    continuum_opacities_scattering=_continuum_opacities_scattering,
+                    emission_geometry=irradiation_geometry,
+                    star_irradiation_cos_angle=star_irradiation_cos_angle,
+                    stellar_intensity=stellar_intensities,
+                    reflectances=reflectances,
+                    emissivities=emissivities,
+                    cloud_f_sed=cloud_f_sed,
+                    cloud_photosphere_wavelength_boundaries=cloud_photosphere_wavelength_boundaries,
+                    photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
+                    cloud_anisotropic_scattering_opacities=cloud_anisotropic_scattering_opacities,
+                    cloud_absorption_opacities=cloud_absorption_opacities,
+                    adaptive_feautrier_iterations=adaptive_feautrier_iterations,
+                    return_contribution=False,
+                    return_rosseland_opacities=False
+                )
+            )
+
+            flux = (
+                cloud_fraction * flux
+                + (1 - cloud_fraction) * flux_clear
+            )
+
+        output = lax.cond(
+            frequencies_to_wavelengths,
+            lambda f: (frequency2wavelength(f),
+                       flux_hz2flux_cm(
+                           flux_hz=flux,
+                           frequency=f)),
+            lambda f: (f, flux),
+            self._frequencies
+            )
+        return output
 
     def calculate_photosphere_radius(
             self,
@@ -4157,7 +4601,8 @@ class Radtrans:
                 return_opacities (Optional[bool]):
                     if True, the absorption opacities and scattering opacities are returned
         """
-        auto_anisotropic_cloud_scattering, complete_coverage_clouds, transit_radii_clear = (
+        (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
+         sum_opacities, use_smart_clear_opacities) = (
             self.__init_spectral_function(
                 is_emission=False,
                 reference_gravity=reference_gravity,
@@ -4213,7 +4658,6 @@ class Radtrans:
         if return_opacities:
             additional_outputs['opacities'] = copy.deepcopy(opacities)
             additional_outputs['continuum_opacities_scattering'] = copy.deepcopy(continuum_opacities_scattering)
-
 
         if cloud_particles_mean_radii is not None:
             additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii

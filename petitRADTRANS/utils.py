@@ -11,8 +11,9 @@ import jax
 from jax.typing import ArrayLike
 import numpy as np
 import numpy.typing as npt
+from jax.tree_util import register_pytree_node_class
 
-
+@register_pytree_node_class
 class LockedDict(dict):
     """Derivative of dict with a lock.
     Can be used to ensure that no new key is added once the lock is on, to prevent errors due to key typos.
@@ -109,6 +110,14 @@ class LockedDict(dict):
     def unlock(self):
         self._locked = False
 
+    def tree_flatten(self):
+        children = tuple(self.values())
+        aux_data = tuple(self.keys())
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls().build_and_lock(dict(zip(aux_data, children)))
 
 def check_all_close(a, b, **kwargs):
     if isinstance(a, dict):

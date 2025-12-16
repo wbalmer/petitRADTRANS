@@ -280,7 +280,7 @@ def compute_ck_flux(
                             * emission_cos_angles_weights[i_mu]
                             ))
         return flux * 4.0 * jnp.pi, contribution
-        
+
     # Check if we should calculate the contribution function
     flux, contribution = lax.cond(
         return_contribution,
@@ -294,11 +294,6 @@ def compute_ck_flux(
         optical_depths
     )
     return flux, contribution
-
-
-def compute_cloud_hansen_opacities():
-    # TODO
-    return
 
 
 @jit
@@ -579,13 +574,13 @@ def compute_feautrier_radiative_transfer(
                              dtau2_gfl[:, :, None, :],
                              - inv_del_tau_min_half,
                              inv_del_tau_min_half)
-    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2 
+    # f2_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 1 to n_layers-2
     # (dtau1 indices 1 to n_layers-2)
     f2_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
                              dtau1_gfl[:, :, None, 1:],
                              -inv_del_tau_min,
                              inv_del_tau_min)
-    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3 
+    # f3_mid_gfalm1: (g,f,a,l-2), using dtau1 for layers 0 to n_layers-3
     # (dtau1 indices 0 to n_layers-3)
     f3_mid_gfalm1 = jnp.clip(emission_cos_angles[None, None, :, None] /
                              dtau1_gfl[:, :, None, :-1],
@@ -683,7 +678,7 @@ def compute_feautrier_radiative_transfer(
             )
 
         # New I_plus_surface_gfa (g,f,a) for next iteration
-        # I_plus_surface = I_J_surface - deriv1_surface 
+        # I_plus_surface = I_J_surface - deriv1_surface
         #   (deriv1 for k=n_layers-1, which is last element of deriv1_gfalm1)
         new_I_plus_surface_gfa = I_J_gfal[:, :, :, n_layers-1] - deriv1_gfalm1[:, :, :, n_layers-2]
 
@@ -741,7 +736,7 @@ def compute_feautrier_radiative_transfer(
         return next_loop_state  # keep returning I_H for final flux
 
     def convergence_condition_func(loop_state):
-        # Note: the requested condition had iter_idx > iter_scat_max for *continuation*.  
+        # Note: the requested condition had iter_idx > iter_scat_max for *continuation*.
         # Here we want the loop to *stop* when converged OR max iterations reached.
         _, _, _, _, _, _, _, iter_idx, converged_flag = loop_state
         return (iter_idx <= iter_scat_max) & (jnp.logical_not(converged_flag))
@@ -865,7 +860,7 @@ def compute_feautrier_radiative_transfer(
         )
 
         # Normalize the contributions for each frequency column to sum to 1
-        sum_contrib_per_freq = jnp.sum(accumulated_emission_contribution, axis=0, keepdims=True) 
+        sum_contrib_per_freq = jnp.sum(accumulated_emission_contribution, axis=0, keepdims=True)
 
         # Avoid division by zero if sum_contrib is zero for any frequency
         emission_contribution_final = jnp.where(
@@ -900,8 +895,8 @@ def compute_optical_depths(
         opacities (jax.Array): kappa, has shape (g_len, freq_len, press_len)
                                  This is the sum of all species' opacities, at
                                  every c-k g coordinate, frequency and pressure.
-        scattering_in_emission (bool): If True, includes continuum scattering 
-                            opacities in the calculation of optical depths. 
+        scattering_in_emission (bool): If True, includes continuum scattering
+                            opacities in the calculation of optical depths.
         continuum_opacities_scattering (jax.Array): The continuum opacity, which
                             has the same shape as the opacities array.
 
@@ -951,9 +946,9 @@ def compute_photon_destruction_prob(total_opacity_in, continuum_opacity_scat_emi
         gravity (float): Surface gravity in cgs (cm/s^2)
         pressure (ndarray):1D array of pressures in pascal
         total_opacity_in (ndarray): kappa, has shape (g_len, freq_len, press_len)
-                                    This is the sum of all species' opacities, at 
+                                    This is the sum of all species' opacities, at
                                     every c-k g coordinate, frequency and pressure.
-        continuum_opacity_scat_emis (ndarray): The continuum opacity, which is constant 
+        continuum_opacity_scat_emis (ndarray): The continuum opacity, which is constant
                                                 in g, for every frequency and pressure.
                                                 This includes clouds, Rayleigh and CIA
                                                 opacities.
@@ -1026,7 +1021,7 @@ def compute_planck_opacities(
         lambda: opacities + continuum_opacities_scattering[None, :, :],
         lambda: opacities
     )
-   
+
     kappa_planck = compute_planck_opacities_core(
         total_opacity_use[:, :, :],
         temperatures,
@@ -1098,7 +1093,7 @@ def compute_radius_hydrostatic_equilibrium(
     def condition(val):
         i = val[0]
         return i >= 0
-    
+
     def body(val):
         i = val[0]
         radius_hydrostatic_equilibrium = val[1]
@@ -1131,7 +1126,7 @@ def compute_radius_hydrostatic_equilibrium(
     )
 
     layer_condition = (reference_index <= n_layers - 3)
-    
+
     def layer_true():
         return radius_hydrostatic_equilibrium[reference_index + 1] - integ_parab(
                 pressures[reference_index],
@@ -1486,7 +1481,7 @@ def compute_transit_radii_fortran(
             )
         alpha_t2_scat = alpha_t2_scat.at[:, -1].set(
             alpha_t2_scat[:, -1]
-            + continuum_opacities_scattering[:, -1] 
+            + continuum_opacities_scattering[:, -1]
             * rho[-1]
             )
         return alpha_t2_scat
@@ -1608,7 +1603,7 @@ def compute_transmission_spectrum_contribution(
 
     def loop_body_leave_out_layer(i_leave_str_idx, _):
         current_opacities = opacities.at[..., i_leave_str_idx].set(0.0)
-        
+
         # --- Conditionally set current_continuum_scattering for the left-out layer ---
         def set_continuum_scattering_true_branch(operands):
             _cos, _idx = operands
@@ -1706,7 +1701,7 @@ def compute_transmission_spectrum_contribution(
             initial_sums_for_i_str_scat = jnp.zeros_like(alpha_t2_scat_current[:, 0]) # Always init, even if not used
 
             final_t_graze_sum_gas, final_t_graze_sum_scat = lax.fori_loop(
-                0, i_str_f - 1, j_str_loop_body_for_t_graze, 
+                0, i_str_f - 1, j_str_loop_body_for_t_graze,
                 (initial_sums_for_i_str_gas, initial_sums_for_i_str_scat)
             )
 
@@ -1743,7 +1738,7 @@ def compute_transmission_spectrum_contribution(
         # T_gas_total is shape (n_frequencies, n_layers)
         # t_graze_scat_current is shape (n_frequencies, n_layers)
         def compute_T_scat_eff_true(ops):
-            _t_graze_scat, _ = ops 
+            _t_graze_scat, _ = ops
             return jnp.exp(-_t_graze_scat)
 
         def compute_T_scat_eff_false(ops):
