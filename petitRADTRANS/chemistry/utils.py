@@ -937,6 +937,8 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
     return metallicity, h_ratios
 
 def kzz_to_co_pquench(temperature, pressures, mean_molar_masses, reference_gravity, log_kzz_chem, log10_metallicities):
+    if reference_gravity is None:
+        return None
     # Pressure scale height (m)
     h_scale = cst.kB * temperature / (mean_molar_masses * cst.amu * reference_gravity)
 
@@ -977,6 +979,8 @@ def kzz_to_co_pquench(temperature, pressures, mean_molar_masses, reference_gravi
     return p_quench
 
 def kzz_to_co2_pquench(temperature, pressures, mean_molar_masses, reference_gravity, log_kzz_chem, log10_metallicities):
+    if reference_gravity is None:
+        return None
     # Pressure scale height (m)
     h_scale = cst.kB * temperature / (mean_molar_masses * cst.amu * reference_gravity)
 

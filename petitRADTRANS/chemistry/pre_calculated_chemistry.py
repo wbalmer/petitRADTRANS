@@ -185,7 +185,7 @@ class PreCalculatedEquilibriumChemistryTable:
             if carbon_dioxide_pressure_quench is not None:
                 if (carbon_pressure_quench > np.min(pressures) and carbon_dioxide_pressure_quench > np.min(pressures)):
                     # need to compute CO2 based off quenched CO now
-                    quenchish_idx = np.logical_and(pressures <= carbon_pressure_quench, pressures >= carbon_dioxide_pressure_quench)
+                    quenchish_idx = np.logical_and(pressures <= carbon_pressure_quench, pressures <= carbon_dioxide_pressure_quench)
                     h2_abb = mass_fractions['H2'][quenchish_idx]
                     co_abb = mass_fractions['CO'][quenchish_idx]
                     h2o_abb = mass_fractions['H2O'][quenchish_idx]
