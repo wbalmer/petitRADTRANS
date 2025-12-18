@@ -10,6 +10,7 @@ from petitRADTRANS._input_data import find_input_file
 from petitRADTRANS.config.configuration import get_input_data_subpaths, petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_chemistry import fortran_chemistry as fchem
+from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios, volume_mixing_ratios2mass_fractions
 
 
 class PreCalculatedEquilibriumChemistryTable:
@@ -185,13 +186,15 @@ class PreCalculatedEquilibriumChemistryTable:
             if carbon_dioxide_pressure_quench is not None:
                 if (carbon_pressure_quench > np.min(pressures) and carbon_dioxide_pressure_quench > np.min(pressures)):
                     # need to compute CO2 based off quenched CO now
-                    quenchish_idx = np.logical_and(pressures <= carbon_pressure_quench, pressures <= carbon_dioxide_pressure_quench)
-                    h2_abb = mass_fractions['H2'][quenchish_idx]
-                    co_abb = mass_fractions['CO'][quenchish_idx]
-                    h2o_abb = mass_fractions['H2O'][quenchish_idx]
+                    quenchish_idx = np.logical_and(pressures <= carbon_pressure_quench, pressures >= carbon_dioxide_pressure_quench)
+                    vmrs = mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses)
+                    h2_abb = vmrs['H2'][quenchish_idx]
+                    co_abb = vmrs['CO'][quenchish_idx]
+                    h2o_abb = vmrs['H2O'][quenchish_idx]
                     # Zahnle and Marley 2014 fit
                     Keq = 18.3*np.exp((-2376/temperatures[quenchish_idx]) - ((932/temperatures[quenchish_idx])**2))
-                    mass_fractions['CO2'][quenchish_idx] = (co_abb * h2o_abb)/(h2_abb * Keq)
+                    vmrs['CO2'][quenchish_idx] = (co_abb * h2o_abb)/(Keq * h2_abb)
+                    mass_fractions = volume_mixing_ratios2mass_fractions(vmrs)
                     # then, quench at co2 quench point
                     quench_idx = np.min(
                         (
