@@ -249,6 +249,8 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
         return return_x_mgfesio4(metallicity, co_ratio)
     elif "SiO(s)" in name:
         return return_x_sio(metallicity, co_ratio)
+    elif "H2O(s)" in name:
+        return return_x_h2o(metallicity, co_ratio)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
         return np.zeros_like(metallicity)
@@ -267,6 +269,8 @@ def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
         return simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw)
     elif "SiO(s)":
         return simple_cdf_sio(press, temp, metallicity, co_ratio, mmw)
+    elif "H2O(s)":
+        return simple_cdf_h2o(press, temp, metallicity, co_ratio, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
@@ -286,11 +290,37 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
         return simple_cdf_kcl_free(press, temp, mfrac, mmw)
     elif "SiO(s)" in name:
         return simple_cdf_sio_free(press, temp, mfrac, mmw)
+    elif "H2O(s)" in name:
+        return simple_cdf_h2o_free(press, temp, mfrac, mmw)
     else:
         warnings.warn(f"The cloud {name} is not currently implemented.")
 
         return np.zeros_like(metallicity)
 
+
+def return_x_h2o(metallicity, co_ratio):
+    nfracs_use = copy.copy(__elemental_abundances)
+
+    for spec in __elemental_abundances.keys():
+        if (spec != 'H') and (spec != 'He'):
+            nfracs_use[spec] = __elemental_abundances[spec] * 1e1 ** metallicity
+
+    nfracs_use['O'] = nfracs_use['C'] / co_ratio
+
+    nfracs_h2o = np.min([nfracs_use['H'] / 2.,
+                            nfracs_use['O']])
+    masses_h2o = 2. * __get_species_molar_mass('H') \
+        + __get_species_molar_mass('O')
+
+    xh2o = masses_h2o * nfracs_h2o
+    add = 0.
+
+    for spec in nfracs_use.keys():
+        add += __get_species_molar_mass(spec) * nfracs_use[spec]
+
+    xh2o = xh2o / add
+
+    return xh2o
 
 def return_x_fe(metallicity, co_ratio):
     nfracs_use = copy.copy(__elemental_abundances)
@@ -482,6 +512,98 @@ def return_x_kcl(metallicity, co_ratio):
 #############################################################
 # Fe saturation pressure, from Ackerman & Marley (2001), including erratum (P_vap is in bar, not cgs!)
 #############################################################
+
+def return_t_cond_h2o(metallicity, co_ratio, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
+
+    # Taken from Ackerman & Marley (2001) including their erratum
+    # A2a, ice
+    def p_vap(x):
+        return 6111.5 * np.exp( (23.036*x - x**2/333.7 ) / (x+279.82))
+
+    xh2o = return_x_h2o(metallicity, co_ratio)
+    
+    m_h2o = 2. * __get_species_molar_mass('H') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (xh2o * mmw / m_h2o), t
+
+def return_t_cond_h2o_l(metallicity, co_ratio, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
+    
+    # Taken from Ackerman & Marley (2001) including their erratum
+    # A2b, liquid
+    def p_vap(x):
+        return 6112.1 * np.exp( (18.729*x - x**2/227.3 ) / (x+257.87))
+    
+    xh2o = return_x_h2o(metallicity, co_ratio)
+    
+    m_h2o = 2. * __get_species_molar_mass('H') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (xh2o * mmw / m_h2o), t
+
+def return_t_cond_h2o_comb(metallicity, co_ratio, mmw=2.33):
+    p1, t1 = return_t_cond_h2o(metallicity, co_ratio, mmw)
+    p2, t2 = return_t_cond_h2o_l(metallicity, co_ratio, mmw)
+
+    ret_p = np.zeros_like(p1)
+    ice_idx = np.where(t1<273.16)
+    liq_idx = ~ice_idx
+    ret_p[ice_idx] = p1[ice_idx]
+    ret_p[liq_idx] = p2[liq_idx]
+
+    # additional constraint that the fit is poorly behaved at T>1048, so they fix es = 6x10^8 Bar past that temp
+
+    unsuit_idx = np.where(t1>1048)
+    ret_p[unsuit_idx] = 6e8
+
+    return ret_p, t2
+
+
+def return_t_cond_h2o_free(x_h2o, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
+
+    # Taken from Ackerman & Marley (2001) including their erratum
+    # A2a, ice
+    def p_vap(x):
+        return 6111.5 * np.exp( (23.036*x - x**2/333.7 ) / (x+279.82))
+    
+    m_h2o = 2. * __get_species_molar_mass('H') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (x_h2o * mmw / m_h2o), t
+
+def return_t_cond_h2o_l_free(x_h2o, mmw=2.33):
+    t = np.linspace(100., 10000., 1000)
+    
+    # Taken from Ackerman & Marley (2001) including their erratum
+    # A2b, liquid
+    def p_vap(x):
+        return 6112.1 * np.exp( (18.729*x - x**2/227.3 ) / (x+257.87))
+    
+    m_h2o = 2. * __get_species_molar_mass('H') \
+        + __get_species_molar_mass('O')
+
+    return p_vap(t) / (x_h2o * mmw / m_h2o), t
+
+def return_t_cond_h2o_comb_free(x_h2o, mmw=2.33):
+    p1, t1 = return_t_cond_h2o_free(x_h2o, mmw)
+    p2, t2 = return_t_cond_h2o_l_free(x_h2o, mmw)
+
+    ret_p = np.zeros_like(p1)
+    ice_idx = np.where(t1<273.16)
+    liq_idx = ~ice_idx
+    ret_p[ice_idx] = p1[ice_idx]
+    ret_p[liq_idx] = p2[liq_idx]
+
+    # additional constraint that the fit is poorly behaved at T>1048, so they fix es = 6x10^8 Bar past that temp
+
+    unsuit_idx = np.where(t1>1048)
+    ret_p[unsuit_idx] = 6e8
+
+    return ret_p, t2
+
 
 def return_t_cond_fe(metallicity, co_ratio, mmw=2.33):
     t = np.linspace(100., 10000., 1000)
@@ -696,6 +818,51 @@ def return_t_cond_sio_free(x_sio, mmw=2.33):
         + __get_species_molar_mass('O')
 
     return p_vap(t) / (x_sio * mmw / m_sio), t
+
+
+def simple_cdf_h2o(press, temp, metallicity, co_ratio, mmw=2.33):
+    pc, tc = return_t_cond_h2o_comb(metallicity, co_ratio, mmw)
+    index = (pc > 1e-8) & (pc < 1e5)
+    pc, tc = pc[index], tc[index]
+    tcond_p = interp1d(pc, tc)
+    tcond_on_input_grid = tcond_p(press)
+
+    tdiff = tcond_on_input_grid - temp
+    diff_vec = tdiff[1:] * tdiff[:-1]
+    ind_cdf = (diff_vec < 0.)
+
+    if len(diff_vec[ind_cdf]) > 0:
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
+    else:
+        p_cloud = np.min(press)
+
+    return p_cloud
+
+
+def simple_cdf_h2o_free(press, temp, x_h2o, mmw=2.33):
+    pc, tc = return_t_cond_h2o_comb_free(x_h2o, mmw)
+    index = (pc > 1e-8) & (pc < 1e5)
+    pc, tc = pc[index], tc[index]
+    tcond_p = interp1d(pc, tc)
+
+    try:  # TODO replace try/except with proper conditional handling of potential error
+        tcond_on_input_grid = tcond_p(press)
+    except ValueError:
+        print(pc)
+        return np.min(press)
+
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
+    ind_cdf = (diff_vec < 0.)
+
+    if len(diff_vec[ind_cdf]) > 0:
+        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
+        p_cloud = p_clouds[-1]
+    else:
+        p_cloud = np.min(press)
+
+    return p_cloud
 
 
 def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
