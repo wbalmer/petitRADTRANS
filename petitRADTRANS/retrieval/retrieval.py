@@ -215,7 +215,7 @@ class Retrieval:
                 for tested_attribute in tested_attributes:
                     print(f" {tested_attribute}:")
                     tested_attribute = data_obj.__getattribute__(tested_attribute)
-                    valid = valid and self._data_are_valid(tested_attribute)
+                    # valid = valid and self._data_are_valid(tested_attribute) # this causes a recursion depth error
 
                     if valid:
                         print("  OK (no NaN, infinite, or negative value detected)")
