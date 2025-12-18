@@ -17,11 +17,13 @@ from petitRADTRANS.chemistry.utils import (
     fixed_length_amr,
     linear_spline_profile,
     stepped_profile,
+    kzz_to_co_pquench,
+    kzz_to_co2_pquench
 )
 from petitRADTRANS.opacities.opacities import Opacity
 
 
-def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, amr=False):
+def get_abundances(pressures, temperatures, line_species, cloud_species, parameters, reference_gravity=None, amr=False):
     """
     This function takes in the C/O ratio, metallicity, and quench pressures and uses them
     to compute the gas phase and equilibrium condensate abundances from an interpolated table.
@@ -41,6 +43,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         parameters : dict
             A dictionary of model parameters, in particular it must contain the names C/O, Fe/H and
             log_pquench. Additionally, the cloud parameters log_X_cb_Fe(c) and MgSiO3(c) must be present.
+        reference_gravity : float, default None
+            reference gravity, required if determining quench pressures from kzz parameter.
         amr : bool
             Turn the adaptive mesh grid on or off. See fixed_length_amr for implementation.
 
@@ -79,9 +83,18 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Interpolated Equilibrium chemistry
         # Make the abundance profile
         pquench_c = None
+        pquench_co2 = None
 
         if 'log_pquench' in parameters.keys():
             pquench_c = 10 ** parameters['log_pquench'].value
+            carbon_dioxide_pressure_quench = None
+        elif 'log_kzz_chem' in parameters.keys():
+            if mmw is None:
+                mmw_init = np.ones_like(pressures) * 2.33
+            else:
+                mmw_init = mmw
+            p_quench_c = kzz_to_co_pquench(temperatures, pressures, mmw_init, reference_gravity, parameters['log_kzz_chem'].value, parameters['Fe/H'].value * np.ones_like(pressures))
+            pquench_co2 = kzz_to_co2_pquench(temperatures, pressures, mmw_init, reference_gravity, parameters['log_kzz_chem'].value, parameters['Fe/H'].value * np.ones_like(pressures))
 
         abundances_interp, mmw, _ = (
             pre_calculated_equilibrium_chemistry_table.interpolate_mass_fractions(
@@ -90,6 +103,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
                 temperatures,
                 pressures,
                 carbon_pressure_quench=pquench_c,
+                carbon_dioxide_pressure_quench=pquench_co2,
                 full=True
             )
         )

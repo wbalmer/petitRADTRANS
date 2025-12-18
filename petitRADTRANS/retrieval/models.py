@@ -951,6 +951,140 @@ def gradient_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=Fa
         distribution=distribution
         )
 
+def gradient_profile_emission_kzzchem(prt_object, parameters, pt_plot_mode=False, amr=False):
+    """
+    This model computes a emission spectrum based a gradient temperature-pressure profile (Zhang 2023).
+    Either free or equilibrium chemistry can be used, together with a range of cloud parameterizations.
+    It is possible to use free abundances for some species and equilibrium chemistry for the remainder.
+
+    Args:
+        prt_object : object
+            An instance of the pRT class, with optical properties as defined in the RunDefinition.
+        parameters : dict
+            Dictionary of required parameters:
+                *  D_pl : Distance to the planet in [cm]
+                Two of
+                  *  log_g : Log of surface gravity
+                  *  planet_radius : planet radius [cm]
+                  *  mass : planet mass [g]
+                *  N_layers : number of nodes to interplate, excluding the first and last points.
+                            so the total number of nodes is nnodes + 2
+                *  T_bottom : temperature at the base of the atmosphere
+                *  PTslope_* : temperature gradient for each of the n_layers between which the profile is interpolated.
+
+                Either:
+                  *  log_pquench : Pressure at which CO, CH4 and H2O abundances become vertically constant
+                  Or:
+                  *  log_kzz_chem : log10(Kzz/[cm^2/s]) for the chemistry, which will set quench pressure for CO, CH4, and H2O as well as CO2 based on Zahnle and Marley 2014.
+                  *  Fe/H : Metallicity
+                  *  C/O : Carbon to oxygen ratio
+                Or:
+                  * $SPECIESNAME[_$DATABASE][_R_$RESOLUTION] : The log mass fraction abundance of the species
+                Optional:
+                *  fsed : sedimentation parameter - can be unique to each cloud type
+                One of:
+                  *  sigma_lnorm : Width of cloud particle size distribution (log normal)
+                  *  b_hans : Width of cloud particle size distribution (hansen)
+                One of:
+                  *  log_cloud_radius_* : Central particle radius (typically computed with fsed and Kzz)
+                  *  log_kzz : Vertical mixing parameter
+                One of
+                  *  eq_scaling_* : Scaling factor for equilibrium cloud abundances.
+                  *  log_X_cb_: cloud mass fraction abundance
+                Optional
+                  *  contribution : return the emission contribution function
+                  *  patchiness : Cloud coverage fraction, mixes two columns with different cloud properties.
+                  *  remove_cloud_species : Specifies which cloud species to remove for the clear atmosphere column.
+                  *  T_disk_blackbody : Temperature of a blackbody circumplanetary disk component.
+                  *  disk_radius : Radius [cm] of a blackbody circumplanetary disk component.
+        pt_plot_mode : bool
+            Return only the pressure-temperature profile for plotting. Evaluate mode only.
+        amr :
+            Adaptive mesh refinement. Use the high resolution pressure grid around the cloud base.
+
+    Returns:
+        wlen_model : np.array
+            Wavlength array of computed model, not binned to data [um]
+        spectrum_model : np.array
+            Computed transmission spectrum planet_radius**2/Rstar**2
+        contr-em : np.ndarray
+            Optional, the emission contribution function, relative contributions for each wavelength and pressure level.
+    """
+    p_use = initialize_pressure(prt_object.pressures / 1e6, parameters, amr)
+
+    gravity, planet_radius = _compute_gravity(parameters)
+
+    num_layer = parameters['N_layers'].value
+    # 1.4 assemble the P-T slopes for these layers
+    layer_pt_slopes = np.ones(num_layer) * np.nan
+    for index in range(num_layer):
+        layer_pt_slopes[index] = parameters[f'PTslope_{num_layer - index}'].value
+
+    top_of_atmosphere_presure = -3
+    bottom_of_atmosphere_presure = 3
+
+    if "top_of_atmosphere_pressure" in parameters.keys():
+        top_of_atmosphere_presure = parameters["top_of_atmosphere_pressure"].value
+    if "bottom_of_atmosphere_pressure" in parameters.keys():
+        bottom_of_atmosphere_presure = parameters["bottom_of_atmosphere_pressure"].value
+    temperatures = dtdp_temperature_profile(
+        p_use,
+        num_layer,
+        layer_pt_slopes,
+        parameters['T_bottom'].value,
+        top_of_atmosphere_pressure=top_of_atmosphere_presure,
+        bottom_of_atmosphere_pressure=bottom_of_atmosphere_presure
+        )
+
+    # If in evaluation mode, and PTs are supposed to be plotted
+    abundances, mmw, small_index, p_bases = get_abundances(
+        p_use,
+        temperatures,
+        prt_object.line_species,
+        prt_object.cloud_species,
+        parameters,
+        reference_gravity=gravity,
+        amr=amr
+    )
+
+    if abundances is None:
+        return None, None
+
+    if pt_plot_mode:
+        return p_use[small_index], temperatures[small_index]
+    if amr:
+        temperatures = temperatures[small_index]
+        pressures = PGLOBAL[small_index]
+        mmw = mmw[small_index]
+        prt_object.pressures = pressures * 1e6
+    else:
+        pressures = p_use
+
+    # Get cloud properties
+    cloud_properties = clouds.setup_clouds(pressures, parameters, prt_object.cloud_species)
+    sigma_lnorm, cloud_f_sed, eddy_diffusion_coefficients, \
+        cloud_hansen_b, cloud_particles_mean_radii, \
+        cloud_fraction, complete_coverage_clouds, distribution = cloud_properties
+
+    # Calculate the spectrum, wavelength grid, and contribution function
+    return calculate_emission_spectrum(
+        prt_object=prt_object,
+        parameters=parameters,
+        temperatures=temperatures,
+        abundances=abundances,
+        gravity=gravity,
+        mean_molar_masses=mmw,
+        planet_radius=planet_radius,
+        sigma_lnorm=sigma_lnorm,
+        cloud_particles_mean_radii=cloud_particles_mean_radii,
+        cloud_f_sed=cloud_f_sed,
+        eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+        cloud_hansen_b=cloud_hansen_b,
+        cloud_fraction=cloud_fraction,
+        complete_coverage_clouds=complete_coverage_clouds,
+        distribution=distribution
+        )
+
 
 def power_law_profile_emission(prt_object, parameters, pt_plot_mode=False, amr=False):
     """

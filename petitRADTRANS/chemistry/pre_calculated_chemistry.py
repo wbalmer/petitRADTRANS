@@ -43,7 +43,9 @@ class PreCalculatedEquilibriumChemistryTable:
 
     def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
                                    temperatures: iter, pressures: iter,
-                                   carbon_pressure_quench: float = None, full: bool = False):
+                                   carbon_pressure_quench: float = None,
+                                   carbon_dioxide_pressure_quench: float = None,
+                                   full: bool = False):
         """Interpolate mass fractions from a pre-calculated table to the desired parameters.
 
         Args:
@@ -57,6 +59,8 @@ class PreCalculatedEquilibriumChemistryTable:
                 (bar) desired pressures
             carbon_pressure_quench:
                 (bar) pressure at which to put a simplistic carbon-bearing species quenching
+            carbon_dioxide_pressure_quench:
+                (bar) pressure at which to quench CO2, if CO and CO2 are being quenched by a chemistry kzz parameter
             full:
                 if True, output the pre-calculated mean molar mass and logarithmic derivative of temperature with
                 respect to pressure in the adiabatic case (nabla_ad) in addition to the pre-calculated mass fractions
@@ -177,6 +181,26 @@ class PreCalculatedEquilibriumChemistryTable:
                 h2o_abb[pressures < carbon_pressure_quench] = \
                     mass_fractions['H2O'][q_index]
                 mass_fractions['H2O'] = h2o_abb
+
+            if carbon_dioxide_pressure_quench is not None:
+                if (carbon_pressure_quench > np.min(pressures) and carbon_dioxide_pressure_quench > np.min(pressures)):
+                    # need to compute CO2 based off quenched CO now
+                    quenchish_idx = np.logical_and(pressures <= carbon_pressure_quench, pressures >= carbon_dioxide_pressure_quench)
+                    h2_abb = mass_fractions['H2'][quenchish_idx]
+                    co_abb = mass_fractions['CO'][quenchish_idx]
+                    h2o_abb = mass_fractions['H2O'][quenchish_idx]
+                    # Zahnle and Marley 2014 fit
+                    Keq = 18.3*np.exp((-2376/temperatures[quenchish_idx]) - ((932/temperatures[quenchish_idx])**2))
+                    mass_fractions['CO2'][quenchish_idx] = (co_abb * h2o_abb)/(h2_abb * Keq)
+                    # then, quench at co2 quench point
+                    quench_idx = np.min(
+                        (
+                            np.searchsorted(pressures, carbon_dioxide_pressure_quench),
+                            pressures.size - 1
+                        )
+                    )
+                    mass_fractions['CO2'][pressures < carbon_dioxide_pressure_quench] = \
+                        mass_fractions['CO2'][quench_idx]
 
         if full:
             return mass_fractions, mean_molar_masses, nabla_adiabatic

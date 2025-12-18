@@ -12,6 +12,7 @@ from petitRADTRANS.chemistry.prt_molmass import (
     get_species_molar_mass
 )
 from petitRADTRANS.opacities.opacities import Opacity
+from petitRADTRANS import physical_constants as cst
 
 _solar_elemental_abundances = (  # Source: Lodders 2020 https://arxiv.org/abs/1912.00844
     # atomic number, log10 elemental abundance, uncertainty
@@ -934,3 +935,80 @@ def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[
     }
 
     return metallicity, h_ratios
+
+def kzz_to_co_pquench(temperature, pressures, mean_molar_masses, reference_gravity, log_kzz_chem, log10_metallicities):
+    # Pressure scale height (m)
+    h_scale = cst.kB * temperature / (mean_molar_masses * cst.amu * reference_gravity)
+
+    # Diffusion coefficient (m2 s-1)
+    chem_kzz = 10.0**log_kzz_chem
+
+    # Mixing timescale (s)
+    t_mix = h_scale**2 / chem_kzz
+
+    # chemical timescales eq. 12-14 from Zahnle & Marley 2014
+    metal = 10.0**log10_metallicities
+    # t_chem_co = 1.5e-6 * pressures**-1.0 * metal**-0.7 * np.exp(42000.0 / temperature)
+    t_chem_1 = 1.5e-6 * pressures**-1.0 * metal**-0.7 * np.exp(42000.0 / temperature)
+    t_chem_2 = 40 * pressures**-2.0 * np.exp(25000.0 / temperature)
+
+    t_chem_co = ((1/t_chem_1)+(1/t_chem_2))**-1.0
+
+    # Determine pressure at which t_mix = t_chem
+
+    t_diff = t_mix - t_chem_co
+    diff_product = t_diff[1:] * t_diff[:-1]
+
+    # If t_mix and t_chem intersect then there
+    # is 1 negative value in diff_product
+    indices = diff_product < 0.0
+
+    if np.sum(indices) == 1:
+        p_quench = (pressures[1:] + pressures[:-1])[indices] / 2.0
+        p_quench = p_quench[0]
+
+    elif np.sum(indices) == 0:
+        p_quench = None
+    
+    else:
+        crossing = np.where(indices)[0]
+        p_quench = (pressures[1:] + pressures[:-1])[crossing] / 2.0
+        p_quench = np.max(p_quench)
+    return p_quench
+
+def kzz_to_co2_pquench(temperature, pressures, mean_molar_masses, reference_gravity, log_kzz_chem, log10_metallicities):
+    # Pressure scale height (m)
+    h_scale = cst.kB * temperature / (mean_molar_masses * cst.amu * reference_gravity)
+
+    # Diffusion coefficient (m2 s-1)
+    chem_kzz = 10.0**log_kzz_chem
+
+    # Mixing timescale (s)
+    t_mix = h_scale**2 / chem_kzz
+
+    # chemical timescales eq. 12-14 from Zahnle & Marley 2014
+    metal = 10.0**log10_metallicities
+    t_chem_co2 = 1e-10 * pressures**-0.5 * np.exp(38000.0 / temperature)
+
+    # Determine pressure at which t_mix = t_chem
+
+    t_diff = t_mix - t_chem_co2
+    diff_product = t_diff[1:] * t_diff[:-1]
+
+    # If t_mix and t_chem intersect then there
+    # is 1 negative value in diff_product
+    indices = diff_product < 0.0
+
+    if np.sum(indices) == 1:
+        p_quench = (pressures[1:] + pressures[:-1])[indices] / 2.0
+        p_quench = p_quench[0]
+
+    elif np.sum(indices) == 0:
+        p_quench = None
+    
+    else:
+        crossing = np.where(indices)[0]
+        p_quench = (pressures[1:] + pressures[:-1])[crossing] / 2.0
+        p_quench = np.max(p_quench)
+
+    return p_quench
