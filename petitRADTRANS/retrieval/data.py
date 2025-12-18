@@ -597,6 +597,27 @@ class Data:
         if self.scale_err:
             f_err = f_err * parameters[self.name + "_scale_factor"].value
 
+        if self.name + "_corr_len" in parameters.keys():
+            # from Wang et al. 2020
+            wavel_j, wavel_i = np.meshgrid(self.wavelengths, self.wavelengths)
+            error_j, error_i = np.meshgrid(f_err, f_err)
+
+            corr_len = 10.0 ** parameters[self.name + "_corr_len"].value  # (um) [-3,0]
+            corr_amp = parameters[self.name + "_corr_amp"].value # [0,1]
+
+            self.covariance = (
+                corr_amp**2
+                * error_i
+                * error_j
+                * np.exp(-((wavel_i - wavel_j) ** 2) / (2.0 * corr_len**2))
+                + (1.0 - corr_amp**2) * np.eye(self.wavelengths.shape[0]) * error_i**2
+            )
+            # WB: The downside of this method is the overhead derived from needing to do the cov inversion & determinant for each sample. on n(wl)=20 test data in h-band, this a likelihood calc takes 0.7s, and without takes 0.36s. so roughly 2x slow down currently
+            # However, for a larger retrieval with 5 datasets, of varying resolution in c-k mode, and one dataset with this additional corr_len and corr_amp computation, the likelihood calc took 2.6s, versus 2.5s without.
+            # So, in practice, the slow down likely isn't that noticeable to the end user in more complex fits. 
+            self.inv_cov = np.linalg.inv(self.covariance)
+            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
+
         log_l = 0.0
         log_l_per_datapoint = None
 
