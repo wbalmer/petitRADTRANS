@@ -11,10 +11,17 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Can provide covariance matrix to data object.
 - Added functionality to `retrieval_config` to handle pressure varying abundances.
 - Added docstrings to most of the objects in the `opacity` module.
+- Added functionality to `radtrans` to take in an arbitrary cloud particle size distribution. 
+- Added functionality to `radtrans` to map out the cloud particle size distribution that affects the spectrum.
+- calculate_transit_radii can now return particle radii, radii bins and particle densities.
+- calculate_flux can now return particle radii and radii bins.
+
 
 ### Changed
 - Better handling of opacity naming in chemistry, allows for some combinations of lbl and ck in retrievals.
 - Made retrieval dependencies part of standard installation.
+- Integration of cloud opacities is now handled by feeder function.
+- Renamed cloud_anisotopy_fraction to cloud_one_minus_g in radtrans.
 
 ### Fixed
 - Crash when rebinning line opacities if `mpi4py` is not installed.
@@ -22,6 +29,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Confusing error message when using function `retrieval.plot_corner` with no parameter ([issue 120](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/120)).
 - Incorrect behaviour: loading opacities with a species name matching multiple opacity files always results in trying to load the default species file, if it exists.
 - Opacity files with invalid name starts can be considered valid.
+- Incorrect factor in calculation for contribution of particle sizes in hansen clouds.
 - Changed log10 to log in Madhu and Seager pT profile ([issue 121](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/121)).
 
 ## [3.2.0] - 2025-05-30
