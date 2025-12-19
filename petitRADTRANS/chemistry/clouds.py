@@ -140,6 +140,8 @@ def setup_clouds(pressures, parameters, cloud_species):
     if 'complete_coverage_clouds' in parameters.keys():
         complete_coverage_clouds = parameters['complete_coverage_clouds'].value
 
+    if 'remove_cloud_species' in parameters.keys():
+        complete_coverage_clouds = parameters['complete_coverage_clouds'].value
     return sigma_lnorm, fseds, kzz, b_hans, radii, cloud_fraction, complete_coverage_clouds, distribution
 
 

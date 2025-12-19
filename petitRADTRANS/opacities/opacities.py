@@ -637,7 +637,7 @@ class Opacity:
                         f"by executing:\n"
                         f">>> from petitRADTRANS.config.configuration import petitradtrans_config_parser\n"
                         f">>> petitradtrans_config_parser.set_default_file(<new_default_file>)\n"
-                        f"Or download the missing file."
+                        f"Or down  the missing file."
                     )
             else:  # make the user enter the default file
                 new_default_file = default_file_selection(

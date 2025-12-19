@@ -26,8 +26,8 @@ def H2_rayleigh(wavelengths_angstroem, mass_fractions):
     # Compute opacities, avoiding unnecessary zeros
     rayleigh_scattering_opacities = factor[:, None] * mass_fractions
     rayleigh_scattering_opacities = jnp.where(
-        rayleigh_scattering_opacities < ABUNDANCE_THRESHOLD, 
-        0.0, 
+        rayleigh_scattering_opacities < ABUNDANCE_THRESHOLD,
+        0.0,
         rayleigh_scattering_opacities
     )
 
@@ -88,15 +88,15 @@ def h2o_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
     l = lambda_cm / 1e-4 / 0.589
     d = mean_molar_masses * cst.amu * pressures / cst.kB / temperatures * mass_fractions
     temperatures_ = temperatures / 273.15
-    
+
     @jit
     def H2O_rayleigh_single_layer(i_str):
         #if mass_fractions[i_str] < ABUNDANCE_THRESHOLD:
         #    return jnp.zeros(n_frequencies)
-        
+
         retVal = (
             a0 +
-            a1 * d[i_str] + 
+            a1 * d[i_str] +
             a2 * temperatures_[i_str] +
             a3 * l**2 * temperatures_[i_str] +
             a4 / l**2 +
@@ -106,37 +106,37 @@ def h2o_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
         ) * d[i_str]
 
         retValMin = (
-            a0 + 
-            a1 * d[i_str] + 
+            a0 +
+            a1 * d[i_str] +
             a2 * temperatures_[i_str] +
             a3 * (0.2 / 0.589)**2 * temperatures_[i_str] +
             a4 / (0.2 / 0.589)**2 +
             a5 / ((0.2 / 0.589)**2 - luv**2) +
-            a6 / ((0.2 / 0.589)**2 - lir**2) + 
+            a6 / ((0.2 / 0.589)**2 - lir**2) +
             a7 * d[i_str]**2
         ) * d[i_str]
 
         retValMax = (
-            a0 + 
-            a1 * d[i_str] + 
-            a2 * temperatures_[i_str] + 
-            a3 * (1.1 / 0.589)**2 * temperatures_[i_str] + 
-            a4 / (1.1 / 0.589)**2 + 
-            a5 / ((1.1 / 0.589)**2 - luv**2) + 
-            a6 / ((1.1 / 0.589)**2 - lir**2) + 
+            a0 +
+            a1 * d[i_str] +
+            a2 * temperatures_[i_str] +
+            a3 * (1.1 / 0.589)**2 * temperatures_[i_str] +
+            a4 / (1.1 / 0.589)**2 +
+            a5 / ((1.1 / 0.589)**2 - luv**2) +
+            a6 / ((1.1 / 0.589)**2 - lir**2) +
             a7 * d[i_str]**2
         ) * d[i_str]
 
         nm1 = jnp.where((lambda_cm / 1e-4 > 0.2) & (lambda_cm / 1e-4 < 1.1),
                         jnp.sqrt((1 + 2 * retVal) / (1 - retVal)),
-                        jnp.where(lambda_cm / 1e-4 >= 1.1, 
+                        jnp.where(lambda_cm / 1e-4 >= 1.1,
                                     jnp.sqrt((1 + 2 * retValMax) / (1 - retValMax)),
                                     jnp.sqrt((1 + 2 * retValMin) / (1 - retValMin))))
         nm1 = nm1 - 1.0
         fk = 1.0
 
-        result = (24 * jnp.pi**3 * lamb_inv**4 / (d[i_str] / 18 / cst.amu)**2 * 
-                    (((nm1 + 1)**2 - 1) / ((nm1 + 1)**2 + 2))**2 * fk / mass_h2o * 
+        result = (24 * jnp.pi**3 * lamb_inv**4 / (d[i_str] / 18 / cst.amu)**2 *
+                    (((nm1 + 1)**2 - 1) / ((nm1 + 1)**2 + 2))**2 * fk / mass_h2o *
                     mass_fractions[i_str])
         return jnp.where(jnp.isnan(result), 0, result).T
     return vmap(H2O_rayleigh_single_layer)(jnp.arange(mass_fractions.shape[0])).T
@@ -169,7 +169,7 @@ def co2_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
             * (((nm1 + 1.0)**2 - 1.0) / ((nm1 + 1.0)**2 + 2.0))**2 * fk / mass_co2
             * mass_fractions[i_str]
         )
-        
+
         return new_opacities
 
     rayleigh_scattering_opacities = lax.fori_loop(
@@ -318,11 +318,11 @@ def co_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressu
         # Calculate Rayleigh scattering opacities, broadcasting for layers
         new_opacities = opacities.at[:, i_str].set(
             opacities[:, i_str]
-            + 24.0 * jnp.pi**3 * lamb_inv**4 / nfr_co**2 
-            * (((nm1 + 1.0)**2 - 1.0) / ((nm1 + 1.0)**2 + 2.0))**2 * fk / mass_co 
+            + 24.0 * jnp.pi**3 * lamb_inv**4 / nfr_co**2
+            * (((nm1 + 1.0)**2 - 1.0) / ((nm1 + 1.0)**2 + 2.0))**2 * fk / mass_co
             * mass_fractions[i_str]
         )
-        
+
         return new_opacities
 
     # Use lax.fori_loop for JIT-compatible loop
@@ -387,13 +387,13 @@ def ch4_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, press
 
     return rayleigh_scattering_opacities
 
-def compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_angstroem, 
+def compute_rayleigh_scattering_opacities(species, mass_fractions, wavelengths_angstroem,
                                           mean_molar_masses, temperatures, pressures):
     if species == 'H2':
         return H2_rayleigh(wavelengths_angstroem,mass_fractions)
     elif species == 'He':
         return He_rayleigh(wavelengths_angstroem,mass_fractions)
-    
+
 
     if species == 'H2O':
         rayleigh_scattering_opacities = h2o_rayleigh(wavelengths_angstroem, mass_fractions, mean_molar_masses, pressures, temperatures)
