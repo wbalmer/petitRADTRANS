@@ -250,6 +250,8 @@ class SpectralModel(Radtrans):
             A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
             layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
             the particle area (1/cloud_hansen_a^2).
+        cloud_particle_number_density_grid:
+            A dictionary of cloud particle number densities for all cloud species.
         cloud_particle_radius_distribution_std:
             Width of the log-normal cloud particle size distribution.
         cloud_particles_mean_radii:
@@ -1352,6 +1354,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: dict[str, npt.NDArray[np.floating]] = None,
             cloud_hansen_b: dict[str, npt.NDArray[np.floating]] = None,
+            cloud_particle_number_density_grid: dict[str, np.ndarray[float]] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: npt.NDArray[np.floating] = None,
             haze_factor: float = 1.0,
@@ -1379,6 +1382,8 @@ class SpectralModel(Radtrans):
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
+            target_particle_radii: np.ndarray[float] = None,
+            target_pressure: np.ndarray[float] = None,
             **kwargs
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
@@ -1400,6 +1405,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             haze_factor=haze_factor,
@@ -1426,7 +1432,9 @@ class SpectralModel(Radtrans):
             return_clear_spectrum=return_clear_spectrum,
             return_photosphere_radius=return_photosphere_radius,
             return_rosseland_optical_depths=return_rosseland_optical_depths,
-            return_cloud_contribution=return_cloud_contribution
+            return_cloud_contribution=return_cloud_contribution,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure
         )
 
         return self.wavelengths, self.fluxes, additional_outputs
@@ -1704,6 +1712,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
+            cloud_particle_number_density_grid: dict[str, np.ndarray[float]] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
@@ -1719,6 +1728,8 @@ class SpectralModel(Radtrans):
             return_clear_spectrum: bool = False,
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
+            target_particle_radii: np.ndarray[float] = None,
+            target_pressure: np.ndarray[float] = None,
             **kwargs
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
@@ -1738,6 +1749,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             cloud_f_sed=cloud_f_sed,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients,
             haze_factor=haze_factor,
@@ -1752,7 +1764,9 @@ class SpectralModel(Radtrans):
             return_contribution=return_contribution,
             return_clear_spectrum=return_clear_spectrum,
             return_cloud_contribution=return_cloud_contribution,
-            return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium
+            return_radius_hydrostatic_equilibrium=return_radius_hydrostatic_equilibrium,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure
         )
 
         return self.wavelengths, self.transit_radii, additional_outputs
