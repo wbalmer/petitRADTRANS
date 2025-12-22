@@ -103,7 +103,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     # Free chemistry species
     for species in line_species:
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name()
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         species_basename = Opacity.get_species_base_name(species)
         # Vertically constant abundance
         if species_full_name in abundances_interp.keys():
@@ -270,7 +270,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     for species in line_species:
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name()
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         species_basename = Opacity.get_species_base_name(species)
 
         # Depending on easychem vs interpolated and different versions of pRT
