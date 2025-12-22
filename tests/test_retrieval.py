@@ -211,7 +211,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
     m_sum = 0.0  # Check that the total mass fraction of all species is <1
 
     for species in prt_object.line_species:
-        spec = Opacity([spec]).get_full_name()  # deal with the naming scheme for binned down opacities
+        spec = Opacity([species]).get_full_name()  # deal with the naming scheme for binned down opacities
         abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
