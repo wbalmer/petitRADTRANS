@@ -11,6 +11,11 @@
         - .gitlab-ci.yml
         - petitRADTRANS/**/*
         - tests/**/*
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - petitRADTRANS/**/*
+        - tests/**/*
 
 stages:
   - build
