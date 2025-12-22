@@ -1508,6 +1508,7 @@ class Retrieval:
                 The mean molecular weight at each pressure level in the atmosphere.
         """
         from petitRADTRANS.chemistry.core import get_abundances
+        from petitRADTRANS.retrieval.models import _compute_gravity
 
         parameters = self.build_param_dict(sample, parameters_read)
 
@@ -1530,6 +1531,7 @@ class Retrieval:
             copy.copy(species),
             copy.copy(self.configuration.data[name].radtrans_object.cloud_species),
             parameters,
+            reference_gravity=_compute_gravity(parameters)[0],
             amr=False
         )
 
