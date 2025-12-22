@@ -4405,13 +4405,13 @@ class Retrieval:
                 else:
                     if data.external_radtrans_reference is None:
                         best_fit_binned = self.best_fit_spectra[name][1]
-                        if len(best_fit_binned).shape > 1:
+                        if len(best_fit_binned) > 1:
                             best_fit_binned = best_fit_binned[0]
                     else:
                         best_fit_binned = data.photometric_transformation_function(
                             self.best_fit_spectra[data.external_radtrans_reference][0],
                             self.best_fit_spectra[data.external_radtrans_reference][1])
-                        if len(best_fit_binned).shape > 1:
+                        if len(best_fit_binned) > 1:
                             best_fit_binned = best_fit_binned[0]
 
                 if data.subtract_continuum:

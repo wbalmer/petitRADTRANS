@@ -385,8 +385,9 @@ class Data:
             hdul = fits.open(path)
             self.wavelengths = hdul[1].data['WAVELENGTH'].astype(np.float64)
             self.spectrum = hdul[1].data['FLUX'].astype(np.float64)
-            self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
-            self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            # self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
+            self.covariance = hdul[1].data['COVARIANCE'].astype(np.float64)
+            self.uncertainties = np.sqrt(np.diag(self.covariance))
             self.inv_cov = np.linalg.inv(self.covariance)
         sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
