@@ -251,7 +251,7 @@ class RetrievalConfig:
             for species in self.line_species:
                 Opacity.check_name(species)
                 species_opacity = Opacity([species])
-                species_full_name = species_opacity.get_full_name()
+                species_full_name = species_opacity.get_full_name().split('.R')[0]
                 print(species, species_full_name)
                 self.parameters[species_full_name] = Parameter(
                     species_full_name,
@@ -314,7 +314,7 @@ class RetrievalConfig:
 
         Opacity.check_name(species)
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name()
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
 
         self.line_species.append(species_full_name)
         if not eq:
@@ -379,7 +379,7 @@ class RetrievalConfig:
         """
         Opacity.check_name(species)
         species_opacity = Opacity([species])
-        species_full_name = species_opacity.get_full_name()
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
             raise ValueError(
@@ -445,7 +445,7 @@ class RetrievalConfig:
                 species will be removed to the retrieval
         """
         remove_opacity = Opacity([species])
-        species_full_name = remove_opacity.get_full_name()
+        species_full_name = remove_opacity.get_full_name().split('.R')[0]
         if species in self.line_species:
             self.line_species.remove(species)
         elif species_full_name in self.line_species:
