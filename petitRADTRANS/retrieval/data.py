@@ -362,8 +362,7 @@ class Data:
         if self.photometry:
             return
 
-        data = fits.getdata(path, 'SPECTRUM')
-
+        data = np.array(fits.getdata(path, 'SPECTRUM'))
         if not isinstance(data, np.ndarray):
             self.wavelengths = data.field("WAVELENGTH")
             self.spectrum = data.field("FLUX")
@@ -385,8 +384,14 @@ class Data:
             hdul = fits.open(path)
             self.wavelengths = hdul[1].data['WAVELENGTH'].astype(np.float64)
             self.spectrum = hdul[1].data['FLUX'].astype(np.float64)
-            self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
-            self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            if 'FLUX_STD' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
+            elif 'FLUX_ERROR' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_ERROR'].astype(np.float64)
+            if 'FLUX_COV' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            elif 'COVARIANCE' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['COVARIANCE'].astype(np.float64)
             self.inv_cov = np.linalg.inv(self.covariance)
         sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 

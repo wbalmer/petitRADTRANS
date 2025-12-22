@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
-from petitRADTRANS.opacities import CorrelatedKOpacity
+from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
@@ -153,7 +153,7 @@ def init_run():
     run_definition_simple.parameters['log_Pcloud'].corner_ranges = [-6, 2]
 
     for spec in run_definition_simple.line_species:
-        spec = spec.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
+        spec = Opacity([spec]).get_full_name()  # deal with the naming scheme for binned down opacities
         run_definition_simple.parameters[spec].plot_in_corner = True
         run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
