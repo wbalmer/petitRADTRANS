@@ -2815,7 +2815,8 @@ class Retrieval:
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
             species = [
-                Opacity([species]).get_full_name() for species in self.configuration.data[name].radtrans_object.line_species
+                Opacity([species]).get_full_name()
+                for species in self.configuration.data[name].radtrans_object.line_species
                 ]
 
             samples_use = sample_dict[ret].T
@@ -2879,7 +2880,8 @@ class Retrieval:
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
             species = [
-                Opacity([species]).get_full_name() for species in self.configuration.data[name].radtrans_object.line_species
+                Opacity([species]).get_full_name()
+                for species in self.configuration.data[name].radtrans_object.line_species
                 ]
 
             samples_use = sample_dict[ret].T

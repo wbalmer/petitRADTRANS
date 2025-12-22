@@ -454,7 +454,6 @@ class RetrievalConfig:
             self.parameters.pop(species, None)
             self.parameters.pop(species_full_name, None)
 
-
     def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
                           scaling_factor=None, fixed_base=None):
         """
