@@ -527,7 +527,7 @@ class Data:
                         # wlen_model in micron
                         # cst.c in cm/s
                         radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5
-                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
                     elif "system_radial_velocity" in parameters.keys():
                         radial_velocity = parameters["system_radial_velocity"].value * 1e5
                         wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
@@ -577,8 +577,8 @@ class Data:
                 nodes = parameters[self.name + "_nodes"].value
                 x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
 
-            if self.name + "_node_list" in parameters.keys():
-                x_nodes = parameters[self.name + "_node_list"].value
+            if self.name + "_node_array" in parameters.keys():
+                x_nodes = parameters[self.name + "_node_array"].value
             flux_rebinned = filter_spectrum_with_spline(self.wavelengths, flux_rebinned, x_nodes=x_nodes)
 
         if self.scale:
