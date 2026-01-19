@@ -493,6 +493,18 @@ class Data:
                                                                            parameters,
                                                                            self.name)
                         flux_rebinned = flux_rebinned[index]
+            elif self.resample:
+                resolution_slope = parameters[self.name + "_R_slope"].value
+                resolution_intersect = parameters[self.name + "_R_int"].value
+                resolution_array = (self.wavelengths*resolution_slope)+resolution_intersect
+                # TODO: interpolate resolution_array and use standard convolve function.
+                # TODO: compare different convolution and binning methods
+                flux_rebinned = convolve_and_sample_variable_resolution_breads(
+                    self.wavelengths,
+                    resolution_array,
+                    self.wavelengths,
+                    spectrum_model
+                )
             else:
                 model_spectra = []
                 column_rebinned_spectra = []
@@ -557,19 +569,6 @@ class Data:
             # species spectrum_to_flux functions return (flux,error)
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
-
-        if self.resample:
-            resolution_slope = parameters[self.name + "_R_slope"].value
-            resolution_intersect = parameters[self.name + "_R_int"].value
-            resolution_array = (self.wavelengths*resolution_slope)+resolution_intersect
-            # TODO: interpolate resolution_array and use standard convolve function.
-            # TODO: compare different convolution and binning methods
-            flux_rebinned = convolve_and_sample_variable_resolution_breads(
-                self.wavelengths,
-                resolution_array,
-                self.wavelengths,
-                flux_rebinned
-            )
 
         if self.subtract_continuum:
             x_nodes = None
