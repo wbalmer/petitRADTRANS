@@ -1521,7 +1521,7 @@ class Retrieval:
             name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
         species = [
-            Opacity([species]).get_full_name()
+            Opacity([species]).get_full_name().split('.R')[0]
             for species in self.configuration.data[name].radtrans_object.line_species
         ]
         abundances, mmw, _, _ = get_abundances(
@@ -2815,7 +2815,7 @@ class Retrieval:
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
             species = [
-                Opacity([species]).get_full_name()
+                Opacity([species]).get_full_name().split('.R')[0]
                 for species in self.configuration.data[name].radtrans_object.line_species
                 ]
 
@@ -2880,7 +2880,7 @@ class Retrieval:
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
             species = [
-                Opacity([species]).get_full_name()
+                Opacity([species]).get_full_name().split('.R')[0]
                 for species in self.configuration.data[name].radtrans_object.line_species
                 ]
 
@@ -3086,7 +3086,7 @@ class Retrieval:
             if sample_posteriors:
                 abundances = {}
                 for species in species_to_plot:
-                    species = Opacity([species]).get_full_name()
+                    species = Opacity([species]).get_full_name().split('.R')[0]
                     abundances[species] = []
 
                 # Go through EVERY sample to find the abundance distribution.
@@ -3097,14 +3097,14 @@ class Retrieval:
                     else:
                         abund_dict, mmw = self.get_mass_fractions(sample[:-1], parameters_read)
                     for species in species_to_plot:
-                        species = Opacity([species]).get_full_name()
+                        species = Opacity([species]).get_full_name().split('.R')[0]
                         abundances[species].append(
                             abund_dict[species]
                         )
 
                 # Plot median and 1sigma contours
                 for i, species in enumerate(species_to_plot):
-                    species = Opacity([species]).get_full_name()
+                    species = Opacity([species]).get_full_name().split('.R')[0]
                     low, med, high = np.quantile(
                         np.array(abundances[species]),
                         [0.159, 0.5, 0.841],
@@ -3141,7 +3141,7 @@ class Retrieval:
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
                 for i, species in enumerate(species_to_plot):
-                    species = Opacity([species]).get_full_name()
+                    species = Opacity([species]).get_full_name().split('.R')[0]
                     if np.min(abund_dict[species]) < min_xaxis:
                         min_xaxis = 0.9*np.min(abund_dict[species])
                     ax.plot(abund_dict[species],
