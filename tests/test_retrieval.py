@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from petitRADTRANS.chemistry.utils import compute_mean_molar_masses
-from petitRADTRANS.opacities import CorrelatedKOpacity
+from petitRADTRANS.opacities.opacities import Opacity, CorrelatedKOpacity
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.utils import gaussian_prior
 
@@ -153,7 +153,7 @@ def init_run():
     run_definition_simple.parameters['log_Pcloud'].corner_ranges = [-6, 2]
 
     for spec in run_definition_simple.line_species:
-        spec = spec.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
+        spec = Opacity([spec]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
         run_definition_simple.parameters[spec].plot_in_corner = True
         run_definition_simple.parameters[spec].corner_ranges = [-6.0, 0.0]
 
@@ -211,8 +211,8 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
     m_sum = 0.0  # Check that the total mass fraction of all species is <1
 
     for species in prt_object.line_species:
-        spec = species.split(Data.resolving_power_str)[0]  # deal with the naming scheme for binned down opacities
-        abundances[species] = 10 ** parameters[spec].value * np.ones_like(pressures)
+        spec = Opacity([species]).get_full_name().split('.R')[0]  # deal with the naming scheme for binned down opacities
+        abundances[spec] = 10 ** parameters[spec].value * np.ones_like(pressures)
         m_sum += 10 ** parameters[spec].value
 
     abundances['H2'] = test_parameters['mass_fractions_correlated_k']['H2'] * (1.0 - m_sum) * np.ones_like(pressures)

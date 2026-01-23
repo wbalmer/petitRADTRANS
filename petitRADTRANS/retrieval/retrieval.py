@@ -16,7 +16,7 @@ from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
 from petitRADTRANS.math import convolve, running_mean, filter_spectrum_with_spline
-from petitRADTRANS.opacities import CorrelatedKOpacity
+from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
 from petitRADTRANS.physics import wavelength2frequency
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
@@ -296,8 +296,8 @@ class Retrieval:
         species = []
 
         for line in self.configuration.line_species:
-            _line = line.split('.', 1)[0]  # remove possible previous spectral info
-
+            # _line = line.split('.', 1)[0]  # remove possible previous spectral info
+            _line = Opacity.get_species_isotopologue_name(line)
             matches = CorrelatedKOpacity.find(
                 path_input_data=self.path,
                 category='correlated_k_opacities',
@@ -1521,8 +1521,8 @@ class Retrieval:
             name = self.configuration.data[self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
         species = [
-            spec.split('.')[0]
-            for spec in self.configuration.data[name].radtrans_object.line_species
+            Opacity([species]).get_full_name().split('.R')[0]
+            for species in self.configuration.data[name].radtrans_object.line_species
         ]
         abundances, mmw, _, _ = get_abundances(
             pressures,
@@ -1872,7 +1872,9 @@ class Retrieval:
         mass_fractions, mean_molar_masses = self.get_mass_fractions(sample, parameters_read)
         mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
         for cloud in self.configuration.cloud_species:
-            del mass_fractions_no_clouds[cloud]
+            cloud_opacity = CloudOpacity([cloud])
+            cloud_name = cloud_opacity.species_base_name.split('_')[0]
+            del mass_fractions_no_clouds[cloud_name]
         volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
 
         return volume_mixing_ratios, mean_molar_masses
@@ -2812,7 +2814,10 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [
+                Opacity([species]).get_full_name().split('.R')[0]
+                for species in self.configuration.data[name].radtrans_object.line_species
+                ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -2874,7 +2879,10 @@ class Retrieval:
                 name = self.configuration.data[
                     self.configuration.plot_kwargs["take_PTs_from"]].external_radtrans_reference
 
-            species = [spec.split(".R")[0] for spec in self.configuration.data[name].radtrans_object.line_species]
+            species = [
+                Opacity([species]).get_full_name().split('.R')[0]
+                for species in self.configuration.data[name].radtrans_object.line_species
+                ]
 
             samples_use = sample_dict[ret].T
             parameters_read = parameter_dict[ret]
@@ -3078,7 +3086,8 @@ class Retrieval:
             if sample_posteriors:
                 abundances = {}
                 for species in species_to_plot:
-                    abundances[species.split('.')[0]] = []
+                    species = Opacity([species]).get_full_name().split('.R')[0]
+                    abundances[species] = []
 
                 # Go through EVERY sample to find the abundance distribution.
                 # Very slow.
@@ -3088,20 +3097,22 @@ class Retrieval:
                     else:
                         abund_dict, mmw = self.get_mass_fractions(sample[:-1], parameters_read)
                     for species in species_to_plot:
-                        abundances[species.split('.')[0]].append(
-                            abund_dict[species.split('.')[0]]
+                        species = Opacity([species]).get_full_name().split('.R')[0]
+                        abundances[species].append(
+                            abund_dict[species]
                         )
 
                 # Plot median and 1sigma contours
                 for i, species in enumerate(species_to_plot):
+                    species = Opacity([species]).get_full_name().split('.R')[0]
                     low, med, high = np.quantile(
-                        np.array(abundances[species.split('.')[0]]),
+                        np.array(abundances[species]),
                         [0.159, 0.5, 0.841],
                         axis=0
                     )
                     ax.plot(med,
                             pressures,
-                            label=species.split('_')[0],
+                            label=Opacity.get_species_scientific_name(species),
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)
@@ -3129,12 +3140,13 @@ class Retrieval:
                     abund_dict, mmw = self.get_volume_mixing_ratios(sample_use, parameters_read)
                 else:
                     abund_dict, mmw = self.get_mass_fractions(sample_use, parameters_read)
-                for i, spec in enumerate(species_to_plot):
-                    if np.min(abund_dict[spec.split('.')[0]]) < min_xaxis:
-                        min_xaxis = 0.9*np.min(abund_dict[spec.split('.')[0]])
-                    ax.plot(abund_dict[spec.split('.')[0]],
+                for i, species in enumerate(species_to_plot):
+                    species = Opacity([species]).get_full_name().split('.R')[0]
+                    if np.min(abund_dict[species]) < min_xaxis:
+                        min_xaxis = 0.9*np.min(abund_dict[species])
+                    ax.plot(abund_dict[species],
                             pressures,
-                            label=spec.split('_')[0],
+                            label=Opacity.get_species_scientific_name(species),
                             color=colors[i % len(colors)],
                             zorder=0,
                             linewidth=2)

@@ -4,21 +4,21 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.3.0a7] - 2025-11-10
+## [3.3.0a8] - 2025-12-22
 ### Added
 - Linear spline continuum subtraction (courtesy Will Balmer).
 - Radial velocity handling in retrieval package (courtesy Will Balmer).
 - Can provide covariance matrix to data object.
 - Added functionality to `retrieval_config` to handle pressure varying abundances.
 - Added docstrings to most of the objects in the `opacity` module.
-- Added functionality to `radtrans` to take in an arbitrary cloud particle size distribution. 
+- Added functionality to `radtrans` to take in an arbitrary cloud particle size distribution.
 - Added functionality to `radtrans` to map out the cloud particle size distribution that affects the spectrum.
 - calculate_transit_radii can now return particle radii, radii bins and particle densities.
 - calculate_flux can now return particle radii and radii bins.
 
 
 ### Changed
-- Better handling of opacity naming in chemistry, allows for some combinations of lbl and ck in retrievals.
+- Better handling of opacity naming in retrieval module, allows for some combinations of lbl and ck in retrievals.
 - Made retrieval dependencies part of standard installation.
 - Integration of cloud opacities is now handled by feeder function.
 - Renamed cloud_anisotopy_fraction to cloud_one_minus_g in radtrans.

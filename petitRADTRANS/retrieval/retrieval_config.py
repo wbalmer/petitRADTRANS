@@ -6,6 +6,7 @@ import numpy as np
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 from petitRADTRANS.retrieval.data import Data
 from petitRADTRANS.retrieval.parameter import Parameter
+from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity
 
 # MPI Multiprocessing
 rank = 0
@@ -167,7 +168,7 @@ class RetrievalConfig:
         prt_path = petitradtrans_config_parser.get_input_data_path()
 
         files = [f[0].split('/')[-1] for f in os.walk(prt_path + "/opacities/lines/correlated_k/")]
-        files = set([f.split('_R_')[0] for f in files])
+        files = set([f.split('.R')[0] for f in files])
         print("\ncorrelated-k opacities")
 
         for f in files:
@@ -247,11 +248,13 @@ class RetrievalConfig:
         self.line_species = linelist
 
         if not eq:
-            for spec in self.line_species:
-                spec = spec.split('.', 1)[0]  # remove possible previous spectral info
-
-                self.parameters[spec] = Parameter(
-                    spec,
+            for species in self.line_species:
+                Opacity.check_name(species)
+                species_opacity = Opacity([species])
+                species_full_name = species_opacity.get_full_name().split('.R')[0]
+                print(species, species_full_name)
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
@@ -309,15 +312,21 @@ class RetrievalConfig:
                 f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
             )
 
-        self.line_species.append(species)
+        Opacity.check_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
+
+        self.line_species.append(species_full_name)
         if not eq:
             if fixed_abund is not None:
-                self.parameters[species] = Parameter(species, False,
-                                                     value=fixed_abund)
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
+                    is_free_parameter=False,
+                    value=fixed_abund)
             else:
-                self.parameters[species] = Parameter(
-                    species,
-                    True,
+                self.parameters[species_full_name] = Parameter(
+                    species_full_name,
+                    is_free_parameter=True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
 
@@ -368,54 +377,56 @@ class RetrievalConfig:
                 Note that this species must already have been added to the retrieval with
                 add_pressure_varying_line_species.
         """
-
+        Opacity.check_name(species)
+        species_opacity = Opacity([species])
+        species_full_name = species_opacity.get_full_name().split('.R')[0]
         # parameter passed through loglike is log10 abundance
         if abund_lim[1] > 0.0:
             raise ValueError(
                 f"upper limit must be <= 0.0 (was {abund_lim})! Please set abundance limits as (low, high)"
             )
 
-        self.parameters[f"{species}_{mode}_abundance_profile"] = Parameter(
-            name=f"{species}_linear_abundance_profile",
+        self.parameters[f"{species_full_name}_{mode}_abundance_profile"] = Parameter(
+            name=f"{species_full_name}_linear_abundance_profile",
             is_free_parameter=False,
             value=True
         )
-        self.parameters[f"{species}_n_abundance_nodes"] = Parameter(
-            name=f"{species}_n_abundance_nodes",
+        self.parameters[f"{species_full_name}_n_abundance_nodes"] = Parameter(
+            name=f"{species_full_name}_n_abundance_nodes",
             is_free_parameter=False,
             value=n_nodes
         )
-        self.parameters[f"{species}_n_pressure_nodes"] = Parameter(
-            name=f"{species}_n_pressure_nodes",
+        self.parameters[f"{species_full_name}_n_pressure_nodes"] = Parameter(
+            name=f"{species_full_name}_n_pressure_nodes",
             is_free_parameter=False,
             value=n_nodes-2
         )
-        self.parameters[f"{species}_interpolation_mode"] = Parameter(
-            name=f"{species}_interpolation_mode",
+        self.parameters[f"{species_full_name}_interpolation_mode"] = Parameter(
+            name=f"{species_full_name}_interpolation_mode",
             is_free_parameter=False,
             value=pressure_spacing
         )
 
-        self.line_species.append(species)
+        self.line_species.append(species_full_name)
 
         for i in range(n_nodes - 2):
             if not pressure_spacing == 'fixed':
-                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
-                    name=f"{species}_pressure_node_{i}",
+                self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
+                    name=f"{species_full_name}_pressure_node_{i}",
                     is_free_parameter=True,
                     transform_prior_cube_coordinate=lambda x: log_pressure_range_prior[0] +
                     log_pressure_range_prior[1] * x
                 )
             else:
-                self.parameters[f"{species}_pressure_node_{i}"] = Parameter(
+                self.parameters[f"{species_full_name}_pressure_node_{i}"] = Parameter(
                     name=f"{fixed_pressure_node_species}_pressure_node_{i}",
                     is_free_parameter=False,
                     value=self.parameters[f"{fixed_pressure_node_species}_pressure_node_{i}"].value
                 )
 
         for i in range(n_nodes):
-            self.parameters[f"{species}_abundance_node_{i}"] = Parameter(
-                name=f"{species}_abundance_node_{i}",
+            self.parameters[f"{species_full_name}_abundance_node_{i}"] = Parameter(
+                name=f"{species_full_name}_abundance_node_{i}",
                 is_free_parameter=True,
                 transform_prior_cube_coordinate=lambda x: abund_lim[0] +
                 (abund_lim[1] - abund_lim[0]) * x
@@ -433,11 +444,15 @@ class RetrievalConfig:
                 If true, the retrieval should use free chemistry, and Parameters for the abundance of the
                 species will be removed to the retrieval
         """
-
+        remove_opacity = Opacity([species])
+        species_full_name = remove_opacity.get_full_name().split('.R')[0]
         if species in self.line_species:
             self.line_species.remove(species)
+        elif species_full_name in self.line_species:
+            self.line_species.remove(species_full_name)
         if free:
             self.parameters.pop(species, None)
+            self.parameters.pop(species_full_name, None)
 
     def add_cloud_species(self, species, eq=True, abund_lim=(-3.5, 1.5), p_base_lim=None, fixed_abund=None,
                           scaling_factor=None, fixed_base=None):
@@ -481,12 +496,15 @@ class RetrievalConfig:
             logging.warning("Ensure you set the cloud particle shape, typically with the _cd tag!")
             logging.warning(species + " was not added to the list of cloud species")
             return
+        cloud_opacity = CloudOpacity([species])
+        species_full_name = cloud_opacity.species_full_name
+        cloud_name = cloud_opacity.species_base_name.split('_')[0]
 
-        self.cloud_species.append(species)
-        cname = species.split('_')[0]
+        print(species, species_full_name, cloud_opacity.species_isotopologue_name, cloud_name)
+        self.cloud_species.append(species_full_name)
         if scaling_factor is not None:
-            self.parameters['eq_scaling_' + cname] = Parameter(
-                'eq_scaling_' + cname, True,
+            self.parameters['eq_scaling_' + cloud_name] = Parameter(
+                'eq_scaling_' + cloud_name, True,
                 transform_prior_cube_coordinate=lambda x: scaling_factor[0] + (
                    scaling_factor[1] - scaling_factor[
                     0]
@@ -499,28 +517,28 @@ class RetrievalConfig:
                 )
 
             if fixed_abund is None:
-                self.parameters['log_X_cb_' + cname] = Parameter(
-                    'log_X_cb_' + cname,
+                self.parameters['log_X_cb_' + cloud_name] = Parameter(
+                    'log_X_cb_' + cloud_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: abund_lim[0] + (abund_lim[1] - abund_lim[0]) * x
                 )
             else:
-                self.parameters['log_X_cb_' + cname] = Parameter(
-                    'log_X_cb_' + cname,
+                self.parameters['log_X_cb_' + cloud_name] = Parameter(
+                    'log_X_cb_' + cloud_name,
                     False,
                     value=fixed_abund
                 )
 
         if p_base_lim is not None or fixed_base is not None:
             if fixed_base is None:
-                self.parameters['log_Pbase_' + cname] = Parameter(
-                    'log_Pbase_' + cname,
+                self.parameters['log_Pbase_' + cloud_name] = Parameter(
+                    'log_Pbase_' + cloud_name,
                     True,
                     transform_prior_cube_coordinate=lambda x: p_base_lim[0] + (p_base_lim[1] - p_base_lim[0]) * x
                 )
             else:
-                self.parameters['log_Pbase_' + cname] = Parameter(
-                    'log_Pbase_' + cname,
+                self.parameters['log_Pbase_' + cloud_name] = Parameter(
+                    'log_Pbase_' + cloud_name,
                     False,
                     value=fixed_base
                 )

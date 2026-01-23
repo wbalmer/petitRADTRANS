@@ -362,8 +362,7 @@ class Data:
         if self.photometry:
             return
 
-        data = fits.getdata(path, 'SPECTRUM')
-
+        data = np.array(fits.getdata(path, 'SPECTRUM'))
         if not isinstance(data, np.ndarray):
             self.wavelengths = data.field("WAVELENGTH")
             self.spectrum = data.field("FLUX")
@@ -385,8 +384,14 @@ class Data:
             hdul = fits.open(path)
             self.wavelengths = hdul[1].data['WAVELENGTH'].astype(np.float64)
             self.spectrum = hdul[1].data['FLUX'].astype(np.float64)
-            self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
-            self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            if 'FLUX_STD' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_STD'].astype(np.float64)
+            elif 'FLUX_ERROR' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_ERROR'].astype(np.float64)
+            if 'FLUX_COV' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['FLUX_COV'].astype(np.float64)
+            elif 'COVARIANCE' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['COVARIANCE'].astype(np.float64)
             self.inv_cov = np.linalg.inv(self.covariance)
         sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
@@ -488,6 +493,18 @@ class Data:
                                                                            parameters,
                                                                            self.name)
                         flux_rebinned = flux_rebinned[index]
+            elif self.resample:
+                resolution_slope = parameters[self.name + "_R_slope"].value
+                resolution_intersect = parameters[self.name + "_R_int"].value
+                resolution_array = (self.wavelengths*resolution_slope)+resolution_intersect
+                # TODO: interpolate resolution_array and use standard convolve function.
+                # TODO: compare different convolution and binning methods
+                flux_rebinned = convolve_and_sample_variable_resolution_breads(
+                    self.wavelengths,
+                    resolution_array,
+                    self.wavelengths,
+                    spectrum_model
+                )
             else:
                 model_spectra = []
                 column_rebinned_spectra = []
@@ -522,7 +539,7 @@ class Data:
                         # wlen_model in micron
                         # cst.c in cm/s
                         radial_velocity = parameters[self.name + "_radial_velocity"].value * 1e5
-                        wlen_model *= wlen_model * np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+                        wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
                     elif "system_radial_velocity" in parameters.keys():
                         radial_velocity = parameters["system_radial_velocity"].value * 1e5
                         wlen_model *= np.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
@@ -553,27 +570,14 @@ class Data:
             if isinstance(flux_rebinned, (tuple, list)):
                 flux_rebinned = flux_rebinned[0]
 
-        if self.resample:
-            resolution_slope = parameters[self.name + "_R_slope"].value
-            resolution_intersect = parameters[self.name + "_R_int"].value
-            resolution_array = (self.wavelengths*resolution_slope)+resolution_intersect
-            # TODO: interpolate resolution_array and use standard convolve function.
-            # TODO: compare different convolution and binning methods
-            flux_rebinned = convolve_and_sample_variable_resolution_breads(
-                self.wavelengths,
-                resolution_array,
-                self.wavelengths,
-                flux_rebinned
-            )
-
         if self.subtract_continuum:
             x_nodes = None
             if self.name + "_nodes" in parameters.keys():
                 nodes = parameters[self.name + "_nodes"].value
                 x_nodes = np.linspace(self.wavelengths[0], self.wavelengths[-1], nodes)
 
-            if self.name + "_node_list" in parameters.keys():
-                x_nodes = parameters[self.name + "_node_list"].value
+            if self.name + "_node_array" in parameters.keys():
+                x_nodes = parameters[self.name + "_node_array"].value
             flux_rebinned = filter_spectrum_with_spline(self.wavelengths, flux_rebinned, x_nodes=x_nodes)
 
         if self.scale:

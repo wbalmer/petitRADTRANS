@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 from scipy.interpolate import interp1d
-
+from petitRADTRANS.opacities.opacities import CloudOpacity
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
 # metal species
@@ -117,6 +117,8 @@ def setup_clouds(pressures, parameters, cloud_species):
     radii = {}
 
     for cloud in cloud_species:
+        cloud_opacity = CloudOpacity([cloud])
+        cloud = cloud_opacity.species_base_name.split('_')[0]
         if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
             radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
 
@@ -197,11 +199,12 @@ def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
     output_dictionary = {}
 
     for cloud in cloud_species:
-        cname = cloud.split('_')[0]
+        cloud_opacity = CloudOpacity([cloud])
+        cloud_name = cloud_opacity.species_base_name.split('_')[0]
         output = None
 
-        if parameter_name + "_" + cname in parameters.keys():
-            output = parameters[parameter_name + "_" + cname].value
+        if parameter_name + "_" + cloud_name in parameters.keys():
+            output = parameters[parameter_name + "_" + cloud_name].value
         elif parameter_name in parameters.keys():
             output = parameters[parameter_name].value
 
