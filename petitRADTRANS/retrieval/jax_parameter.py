@@ -1,3 +1,5 @@
+import os
+os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={os.cpu_count()}"
 import jax.numpy as jnp
 from jaxns import Prior
 from petitRADTRANS.retrieval.utils import log_prior, uniform_prior, gaussian_prior, log_gaussian_prior, delta_prior
@@ -106,8 +108,9 @@ class Parameter:
         raise ValueError(f"Error! Parameter '{self.name}' is not a free parameter")
 
     def set_prior(self):
-        self.prior_sample = Prior(self.distribution, name=self.name)
-    
+        return Prior(self.distribution, name=self.name)
+        #return self.prior_sample
+
 class RetrievalParameter:
     __available_priors = [
         'log',

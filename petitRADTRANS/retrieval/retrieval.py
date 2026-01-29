@@ -9,7 +9,8 @@ import dill
 import numpy as np
 import numpy.typing as npt
 from scipy.stats import binned_statistic
-from jax import random, devices, numpy as jnp
+import jax
+from jax import lax, random, devices, numpy as jnp
 
 # TODO decide if we want to use tfp distributions
 import tensorflow_probability.substrates.jax as tfp
@@ -20,11 +21,18 @@ import petitRADTRANS
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
 # noinspection PyUnresolvedReferences
-from petitRADTRANS.radtrans_core.spectrum_utils import continuum_subtract_spectrum, convolve, filter_spectrum_with_spline, rebin_spectrum_bin
+from petitRADTRANS.radtrans_core.spectrum_utils import (
+    continuum_subtract_spectrum,
+    convolve,
+    convolve_and_sample_variable_resolution_breads,
+    filter_spectrum_with_spline,
+    rebin_spectrum_bin
+)
+
 from petitRADTRANS.math import running_mean
 
 from petitRADTRANS.opacities import CorrelatedKOpacity
-from petitRADTRANS.physics import wavelength2frequency
+from petitRADTRANS.physics import wavelength2frequency, shift_wavelengths_by_radial_velocity
 
 import petitRADTRANS.physical_constants as cst
 from petitRADTRANS.radtrans import Radtrans
@@ -37,7 +45,7 @@ from petitRADTRANS.retrieval.sampler import (Sampler,
                                              UltranestSampler,
                                              JAXNSSampler,
                                              JAXNSShardedStaticNestedSampler)
-
+from petitRADTRANS.retrieval.log_likelihood import LogLikelihood
 from petitRADTRANS.utils import flatten_object, list_str2str
 
 prt_emcee_mode = os.environ.get("pRT_emcee_mode")
@@ -153,13 +161,13 @@ class Retrieval:
         self.test_plotting = test_plotting
         self.evaluate_sample_spectra = evaluate_sample_spectra
 
-        # PMN analysis 
+        # PMN analysis
         self.analyzer = None
         self.sampler = None
 
         self.samples = {}  #: The samples produced by pymultinest.
         self.param_dictionary = {}
-        
+
         # Set up pretty plotting
         if use_prt_plot_style:
             # import petitRADTRANS.retrieval.plot_style  # commented to avoid breaking of mpl
@@ -557,7 +565,7 @@ class Retrieval:
             adaptive_mesh_refinement,
             copy_configuration_parameters,
             **kwargs)
-        
+
     @classmethod
     def from_data(
         cls,
@@ -704,7 +712,7 @@ class Retrieval:
             summary.write(datetime.now().strftime("%Y-%m-%d, %H:%M:%S") + '\n')
             summary.write(f"pRT v{petitRADTRANS.__version__}\n")
             summary.write(self.output_directory + '\n')
-            
+
             summary.write("\n")
             summary.write("Sampler Parameters\n")
             if self.sampler is not None:
@@ -1884,39 +1892,16 @@ class Retrieval:
                     i += 1
 
         for data_name, data in self.configuration.data.items():
+            data_spectrum = data.spectrum
+
             if per_datapoint:
                 # Keep logL's separate per data-object
                 log_likelihood = 0.
 
             # Only calculate spectra within a given wavelengths range once if data.scale or data.scale_err:
-            if data_name + "_scale_factor" in self.configuration.parameters:
-                data.scale_factor = self.configuration.parameters[data_name + "_scale_factor"].value
-
-            if data.offset_bool:
-                data.offset = self.configuration.parameters[data_name + "_offset"].value
-
-            if data_name + "_b" in self.configuration.parameters.keys():
-                data.bval = self.configuration.parameters[data_name + "_b"].value
-
-            """if self.pt_plot_mode and data_name == self.configuration.plot_kwargs['take_PTs_from']:
-                # Get the PT profile
-                use_obj = data.radtrans_object
-                if data.external_radtrans_reference is not None:
-                    use_obj = self.configuration.data[data.external_radtrans_reference].radtrans_object
-                ret_val = \
-                    data.model_generating_function(use_obj,
-                                                   self.configuration.parameters,
-                                                   self.pt_plot_mode,
-                                                   adaptive_mesh_refinement=self.configuration.adaptive_mesh_refinement)
-
-                if len(ret_val) == 3:
-                    pressures, temperatures, __ = ret_val
-                else:
-                    pressures, temperatures = ret_val
-
-                return pressures, temperatures
-            elif self.pt_plot_mode:
-                continue"""
+            data_spectrum = data.scale_flux(data_spectrum, self.configuration.parameters)
+            data_spectrum = data.offset_flux(data_spectrum, self.configuration.parameters)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(self.configuration.parameters)
 
             if data.external_radtrans_reference is None:
                 # Compute the model
@@ -1958,13 +1943,12 @@ class Retrieval:
                     return invalid_value
 
                 # Calculate log likelihood
-                # TODO uniformize convolve/rebin handling
                 if not isinstance(data.spectrum, float) and data.spectrum.dtype == 'O':
-                    if np.ndim(data.spectrum) == 1:
+                    if jnp.ndim(data.spectrum) == 1:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
                         for i, spectrum_data in enumerate(data.spectrum):
-                            if np.isnan(spectrum_model[i][~data.mask[i]]).any():
+                            if jnp.isnan(spectrum_model[i][~data.mask[i]]).any():
                                 return invalid_value
 
                             log_likelihood += data.log_likelihood(
@@ -1972,12 +1956,12 @@ class Retrieval:
                                 beta=beta,
                                 beta_mode=beta_mode
                             )
-                    elif np.ndim(data.spectrum) == 2:
+                    elif jnp.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Third dimension of data must be a function of wavelength
                         for i, detector in enumerate(data.spectrum):
                             for j, spectrum_data in enumerate(detector):
-                                if np.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
+                                if jnp.isnan(spectrum_model[i, j][~data.mask[i, j]]).any():
                                     return invalid_value
 
                                 log_likelihood += data.log_likelihood(
@@ -1987,37 +1971,80 @@ class Retrieval:
                                 )
                     else:
                         raise ValueError(f"observation is an array containing object, "
-                                         f"and have {np.ndim(data.spectrum)} dimensions, "
+                                         f"and have {jnp.ndim(data.spectrum)} dimensions, "
                                          f"but must have 1 to 2")
                 else:
-                    if np.isnan(spectrum_model).any():
+                    if jnp.isnan(spectrum_model).any():
                         return invalid_value
 
-                    if ((isinstance(data.spectrum, float) or np.ndim(data.spectrum) == 1)
-                            and np.ndim(spectrum_model) == 1):
+                    if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
+                            and jnp.ndim(spectrum_model) == 1):
+
+                        if data.resample:
+                            # Convolve and rebin if fitting for resolution
+                            resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
+                            resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
+                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
+                            # TODO: interpolate resolution_array and use standard convolve function.
+                            # TODO: compare different convolution and binning methods
+                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
+                                data.wavelengths,
+                                resolution_array,
+                                data.wavelengths,
+                                spectrum_model
+                            )
+                        model_spectrum_convolved = spectrum_model
+                        if data.data_resolution is not None:
+                            # Convolve and rebin the model spectrum to the data resolution
+                            model_spectrum_convolved = convolve(
+                                wavelengths_model,
+                                spectrum_model,
+                                data.data_resolution
+                            )
+                        if data_name + "_radial_velocity" in self.configuration.parameters.keys():
+                            # RV in km/s -> multiply by 1e5 to cm/s
+                            # wavelengths_model in micron
+                            # cst.c in cm/s
+                            radial_velocity = self.configuration.parameters[data.name + "_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+
+                        elif "system_radial_velocity" in self.configuration.parameters.keys():
+                            radial_velocity = self.configuration.parameters["system_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+
+                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
+                           np.all(wavelengths_model == data.wavelengths):
+                            model_spectrum_rebinned = copy.deepcopy(model_spectrum_convolved)
+                        else:
+                            model_spectrum_rebinned = rebin_spectrum_bin(
+                                wavelengths_model,
+                                model_spectrum_convolved,
+                                data.wavelengths,
+                                data.wavelength_bin_widths
+                            )
+
                         # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += data.get_chisq(
-                            wavelengths_model,
-                            spectrum_model,  # [~data.mask],  # TODO temporary fix until code design rework
-                            self.test_plotting,
-                            self.configuration.parameters,
-                            per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
-                            generate_mock_data=self.generate_mock_data
-                        ) + additional_log_l
-                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 2:
+                        log_likelihood += LogLikelihood(
+                            model_spectrum=model_spectrum_rebinned,
+                            data_spectrum=data_spectrum,
+                            data_uncertainties=data_uncertainties,
+                            data_covariance=data_covariance,
+                            n_free_parameters=self._n_free_params_total_retrieval
+                        ).calculate_log_likelihood() + additional_log_l
+
+                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
                         log_likelihood += data.log_likelihood(
                             spectrum_model[0, :], data.spectrum, data.uncertainties,
                             beta=beta,
                             beta_mode=beta_mode
                         )
-                    elif np.ndim(data.spectrum) == 1 and np.ndim(spectrum_model) == 3:
+                    elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 3:
                         log_likelihood += data.log_likelihood(
                             spectrum_model[0, 0, :], data.spectrum, data.uncertainties,
                             beta=beta,
                             beta_mode=beta_mode
                         )
-                    elif np.ndim(data.spectrum) == 2:
+                    elif jnp.ndim(data.spectrum) == 2:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Second dimension of data must be a function of wavelength
                         for i, spectrum_data in enumerate(data.spectrum):
@@ -2026,7 +2053,7 @@ class Retrieval:
                                 beta=beta,
                                 beta_mode=beta_mode
                             )
-                    elif np.ndim(data.spectrum) == 3:
+                    elif jnp.ndim(data.spectrum) == 3:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
                         # Third dimension of data must be a function of wavelength
                         for i, detector in enumerate(data.spectrum):
@@ -2036,17 +2063,10 @@ class Retrieval:
                                     beta=beta,
                                     beta_mode=beta_mode
                                 )
-                    else:
-                        raise ValueError(f"observations have {np.ndim(data.spectrum)} dimensions, but must have 1 to 3")
             else:
                 wavelengths_model = None
                 spectrum_model = None
                 additional_log_l = None
-
-            if return_model:
-                wavelengths_models.append(wavelengths_model)
-                spectrum_models.append(spectrum_model)
-                additional_log_ls.append(additional_log_l)
 
             if per_datapoint:
                 log_l_per_datapoint_dict[data_name].append(log_likelihood)
@@ -2055,11 +2075,13 @@ class Retrieval:
             # Calculate log likelihood
             for data_name_2, data_2 in self.configuration.data.items():
                 if data_2.external_radtrans_reference is not None:
-                    if data_2.scale:
-                        data_2.scale_factor = self.configuration.parameters[data_name_2 + "_scale_factor"].value
+                    data_2_spectrum = data_2.spectrum
 
-                    if data_2.offset_bool:
-                        data_2.offset = self.configuration.parameters[data_name_2 + "_offset"].value
+                    data_2_spectrum = data_2.scale_flux(data_2_spectrum, self.configuration.parameters)
+                    data_2_spectrum = data_2.offset_flux(data_2_spectrum, self.configuration.parameters)
+                    data_2_uncertainties, data_2_covariance = data.scale_and_inflate_uncertainties(
+                        self.configuration.parameters
+                    )
 
                     if data_2.external_radtrans_reference == data_name:
                         if spectrum_model is None:
@@ -2068,46 +2090,56 @@ class Retrieval:
                         if np.isnan(spectrum_model).any():
                             return invalid_value
 
-                        log_likelihood += data_2.get_chisq(
-                            wavelengths_model,
-                            spectrum_model,
-                            self.test_plotting,
-                            self.configuration.parameters,
-                            per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
-                            generate_mock_data=self.generate_mock_data
-                        ) + additional_log_l
+                        if data.resample:
+                            # Convolve and rebin if fitting for resolution
+                            resolution_slope = self.configuration.parameters[data.name + "_R_slope"].value
+                            resolution_intersect = self.configuration.parameters[data.name + "_R_int"].value
+                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
+                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
+                                data.wavelengths,
+                                resolution_array,
+                                data.wavelengths,
+                                spectrum_model
+                            )
 
-            # Save sampled outputs if necessary.
-            if self.configuration.run_mode == 'evaluate':
-                if self.evaluate_sample_spectra:
-                    self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
-                else:
-                    convolved = convolve(
-                        wavelengths_model,
-                        spectrum_model,
-                        data.data_resolution)
-                    binned = rebin_spectrum_bin(
-                            wavelengths_model,
-                            convolved,
-                            data.wavelengths,
-                            data.wavelength_bin_widths
-                        )
-                    data_safe_name = data_name.replace('/', '_').replace('.', '_')
-                    np.savetxt(
-                        os.path.join(
-                            self.output_directory,
-                            'evaluate_' + self.configuration.retrieval_name,
-                            f'{self.configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
-                        ),
-                        np.column_stack((data.wavelengths, binned))
-                    )
+                        model_spectrum_convolved = spectrum_model
+                        if data.data_resolution is not None:
+                            # Convolve and rebin the model spectrum to the data resolution
+                            model_spectrum_convolved = convolve(
+                                wavelengths_model,
+                                spectrum_model,
+                                data.data_resolution
+                            )
+                        if data_name + "_radial_velocity" in self.configuration.parameters.keys():
+                            # RV in km/s -> multiply by 1e5 to cm/s
+                            # wavelengths_model in micron
+                            # cst.c in cm/s
+                            radial_velocity = self.configuration.parameters[data.name + "_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
 
-                    self.best_fit_spectra[data_name] = [data.wavelengths, binned]
+                        elif "system_radial_velocity" in self.configuration.parameters.keys():
+                            radial_velocity = self.configuration.parameters["system_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
 
-        if self.generate_mock_data:
-            sys.exit(
-                1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
+                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
+                           np.all(wavelengths_model == data.wavelengths):
+                            model_spectrum_rebinned = copy.deepcopy(spectrum_model)
+                        else:
+                            model_spectrum_rebinned = rebin_spectrum_bin(
+                                wavelengths_model,
+                                model_spectrum_convolved,
+                                data.wavelengths,
+                                data.wavelength_bin_widths
+                            )
+
+                        # Convolution and rebin are cared of in get_chisq
+                        log_likelihood += LogLikelihood(
+                            model_spectrum=model_spectrum_rebinned,
+                            data_spectrum=data_2_spectrum,
+                            data_uncertainties=data_2_uncertainties,
+                            data_covariance=data_2_covariance,
+                            n_free_parameters=self._n_free_params_total_retrieval
+                        ).calculate_log_likelihood() + additional_log_l
 
         if per_datapoint:
             return log_l_per_datapoint_dict
@@ -2118,12 +2150,9 @@ class Retrieval:
         if log_likelihood + log_prior < invalid_value:
             return invalid_value
 
-        if np.abs(log_likelihood + log_prior) < tiny:
+        if jnp.abs(log_likelihood + log_prior) < tiny:
             log_likelihood = tiny
             log_prior = 0
-
-        #if self.ultranest and np.isinf(log_likelihood + log_prior):
-        #    return invalid_value
 
         if not return_model:
             if self.print_log_likelihood_for_debugging:
@@ -2187,6 +2216,8 @@ class Retrieval:
 
         atmospheric_model_column_fluxes = None
 
+
+        # TODO: move to init
         if uncertainties_mode == "default":
             beta = 1.0
         elif uncertainties_mode == "optimize":
@@ -2204,51 +2235,30 @@ class Retrieval:
             raise ValueError(f"uncertainties mode must be 'default'|'optimize'|'retrieve'|'retrieve_add', "
                              f"but was '{uncertainties_mode}'")
 
-
         # Store per data-object
         per_datapoint = False
-
         if isinstance(log_l_per_datapoint_dict, dict):
             per_datapoint = True
 
         # Update model parameters with the retrieval cube drawn values
-        i = 0  # free parameters enumerator
+        n_free_parameters = 0  # free parameters enumerator
+        for parameter in parameters:
+            if parameters[parameter].is_free_parameter:
+                n_free_parameters += 1
 
+        #print(parameters['temperature'].value)
 
         for data_name, data in configuration.data.items():
+            data_spectrum = data.spectrum
+
             if per_datapoint:
                 # Keep logL's separate per data-object
                 log_likelihood = 0.
 
             # Only calculate spectra within a given wavelengths range once if data.scale or data.scale_err:
-            if data_name + "_scale_factor" in parameters:
-                data.scale_factor = parameters[data_name + "_scale_factor"].value
-
-            if data.offset_bool:
-                data.offset = parameters[data_name + "_offset"].value
-
-            if data_name + "_b" in parameters.keys():
-                data.bval = parameters[data_name + "_b"].value
-
-            """if self.pt_plot_mode and data_name == configuration.plot_kwargs['take_PTs_from']:
-                # Get the PT profile
-                use_obj = data.radtrans_object
-                if data.external_radtrans_reference is not None:
-                    use_obj = configuration.data[data.external_radtrans_reference].radtrans_object
-                ret_val = \
-                    data.model_generating_function(use_obj,
-                                                   parameters,
-                                                   self.pt_plot_mode,
-                                                   adaptive_mesh_refinement=configuration.adaptive_mesh_refinement)
-
-                if len(ret_val) == 3:
-                    pressures, temperatures, __ = ret_val
-                else:
-                    pressures, temperatures = ret_val
-
-                return pressures, temperatures
-            elif self.pt_plot_mode:
-                continue"""
+            data_spectrum = data.scale_flux(data_spectrum, parameters)
+            data_spectrum = data.offset_flux(data_spectrum, parameters)
+            data_uncertainties, data_covariance = data.scale_and_inflate_uncertainties(parameters)
 
             if data.external_radtrans_reference is None:
                 # Compute the model
@@ -2278,6 +2288,7 @@ class Retrieval:
                 if additional_log_l is None:
                     additional_log_l = 0
 
+                #print(spectrum_model)
                 # Ensure that the spectrum model has no masked values, so that no conversion to NaN is required
                 if isinstance(spectrum_model, np.ma.MaskedArray):
                     spectrum_model = spectrum_model.filled(0)
@@ -2290,7 +2301,6 @@ class Retrieval:
                     return invalid_value
 
                 # Calculate log likelihood
-                # TODO uniformize convolve/rebin handling
                 if not isinstance(data.spectrum, float) and data.spectrum.dtype == 'O':
                     if jnp.ndim(data.spectrum) == 1:
                         # Convolution and rebin are *not* cared of in get_log_likelihood
@@ -2322,21 +2332,75 @@ class Retrieval:
                                          f"and have {jnp.ndim(data.spectrum)} dimensions, "
                                          f"but must have 1 to 2")
                 else:
-                    if jnp.isnan(spectrum_model).any():
-                        return invalid_value
+                    #if jnp.isnan(spectrum_model).any():
+                    #    return invalid_value
 
                     if ((isinstance(data.spectrum, float) or jnp.ndim(data.spectrum) == 1)
                             and jnp.ndim(spectrum_model) == 1):
+
+                        if data.resample:
+                            # Convolve and rebin if fitting for resolution
+                            resolution_slope = parameters[data.name + "_R_slope"].value
+                            resolution_intersect = parameters[data.name + "_R_int"].value
+                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
+                            # TODO: interpolate resolution_array and use standard convolve function.
+                            # TODO: compare different convolution and binning methods
+                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
+                                data.wavelengths,
+                                resolution_array,
+                                data.wavelengths,
+                                spectrum_model
+                            )
+                        model_spectrum_convolved = spectrum_model
+                        if data.data_resolution is not None:
+                            # Convolve and rebin the model spectrum to the data resolution
+                            model_spectrum_convolved = convolve(
+                                wavelengths_model,
+                                spectrum_model,
+                                data.data_resolution
+                            )
+                        if data_name + "_radial_velocity" in parameters.keys():
+                            # RV in km/s -> multiply by 1e5 to cm/s
+                            # wavelengths_model in micron
+                            # cst.c in cm/s
+                            radial_velocity = parameters[data.name + "_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+
+                        elif "system_radial_velocity" in parameters.keys():
+                            radial_velocity = parameters["system_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
+
+                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
+                           np.all(wavelengths_model == data.wavelengths):
+                            model_spectrum_rebinned = copy.deepcopy(model_spectrum_convolved)
+                        else:
+                            model_spectrum_rebinned = rebin_spectrum_bin(
+                                wavelengths_model,
+                                model_spectrum_convolved,
+                                data.wavelengths,
+                                data.wavelength_bin_widths
+                            )
+                        if data.subtract_continuum:
+                            method = 'spline'
+                            if 'continuum_subtraction_method' in parameters.keys():
+                                method = parameters['continuum_subtraction_method'].value
+                            model_spectrum_rebinned = continuum_subtract_spectrum(
+                                wavelengths=data.wavelengths,
+                                spectrum=model_spectrum_rebinned,
+                                parameters=parameters,
+                                method=method,
+                                name=data.name
+                            )
+
                         # Convolution and rebin are cared of in get_chisq
-                        log_likelihood += data.get_chisq(
-                            wavelengths_model,
-                            spectrum_model,  # [~data.mask],  # TODO temporary fix until code design rework
-                            False,
-                            parameters,
-                            per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
-                            generate_mock_data=generate_mock_data,
-                        ) + additional_log_l
+                        log_likelihood += LogLikelihood(
+                            model_spectrum=model_spectrum_rebinned,
+                            data_spectrum=data_spectrum,
+                            data_uncertainties=data_uncertainties,
+                            data_covariance=data_covariance,
+                            n_free_parameters=n_free_parameters
+                        ).calculate_log_likelihood() + additional_log_l
+
                     elif jnp.ndim(data.spectrum) == 1 and jnp.ndim(spectrum_model) == 2:
                         log_likelihood += data.log_likelihood(
                             spectrum_model[0, :], data.spectrum, data.uncertainties,
@@ -2373,11 +2437,6 @@ class Retrieval:
                 spectrum_model = None
                 additional_log_l = None
 
-            if return_model:
-                wavelengths_models.append(wavelengths_model)
-                spectrum_models.append(spectrum_model)
-                additional_log_ls.append(additional_log_l)
-
             if per_datapoint:
                 log_l_per_datapoint_dict[data_name].append(log_likelihood)
 
@@ -2385,11 +2444,13 @@ class Retrieval:
             # Calculate log likelihood
             for data_name_2, data_2 in configuration.data.items():
                 if data_2.external_radtrans_reference is not None:
-                    if data_2.scale:
-                        data_2.scale_factor = parameters[data_name_2 + "_scale_factor"].value
+                    data_2_spectrum = data_2.spectrum
 
-                    if data_2.offset_bool:
-                        data_2.offset = parameters[data_name_2 + "_offset"].value
+                    data_2_spectrum = data_2.scale_flux(data_2_spectrum, parameters)
+                    data_2_spectrum = data_2.offset_flux(data_2_spectrum, parameters)
+                    data_2_uncertainties, data_2_covariance = data.scale_and_inflate_uncertainties(
+                        parameters
+                    )
 
                     if data_2.external_radtrans_reference == data_name:
                         if spectrum_model is None:
@@ -2398,46 +2459,67 @@ class Retrieval:
                         if np.isnan(spectrum_model).any():
                             return invalid_value
 
-                        log_likelihood += data_2.get_chisq(
-                            wavelengths_model,
-                            spectrum_model,
-                            False,
-                            parameters,
-                            per_datapoint=per_datapoint,
-                            atmospheric_model_column_fluxes=atmospheric_model_column_fluxes,
-                            generate_mock_data=generate_mock_data
-                        ) + additional_log_l
+                        if data.resample:
+                            # Convolve and rebin if fitting for resolution
+                            resolution_slope = parameters[data.name + "_R_slope"].value
+                            resolution_intersect = parameters[data.name + "_R_int"].value
+                            resolution_array = (data.wavelengths*resolution_slope)+resolution_intersect
+                            model_spectrum_rebinned = convolve_and_sample_variable_resolution_breads(
+                                data.wavelengths,
+                                resolution_array,
+                                data.wavelengths,
+                                spectrum_model
+                            )
 
-            # Save sampled outputs if necessary.
-            """if configuration.run_mode == 'evaluate':
-                if self.evaluate_sample_spectra:
-                    self.posterior_sample_spectra[data_name] = [wavelengths_model, spectrum_model]
-                else:
-                    convolved = convolve(
-                        wavelengths_model,
-                        spectrum_model,
-                        data.data_resolution)
-                    binned = rebin_spectrum_bin(
-                            wavelengths_model,
-                            convolved,
-                            data.wavelengths,
-                            data.wavelength_bin_widths
-                        )
-                    data_safe_name = data_name.replace('/', '_').replace('.', '_')
-                    np.savetxt(
-                        os.path.join(
-                            self.output_directory,
-                            'evaluate_' + configuration.retrieval_name,
-                            f'{configuration.retrieval_name}_model_spec_best_fit_{data_safe_name}.dat',
-                        ),
-                        np.column_stack((data.wavelengths, binned))
-                    )
+                        model_spectrum_convolved = spectrum_model
+                        if data.data_resolution is not None:
+                            # Convolve and rebin the model spectrum to the data resolution
+                            model_spectrum_convolved = convolve(
+                                wavelengths_model,
+                                spectrum_model,
+                                data.data_resolution
+                            )
+                        if data_name + "_radial_velocity" in parameters.keys():
+                            # RV in km/s -> multiply by 1e5 to cm/s
+                            # wavelengths_model in micron
+                            # cst.c in cm/s
+                            radial_velocity = parameters[data.name + "_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
 
-                    self.best_fit_spectra[data_name] = [data.wavelengths, binned]"""
+                        elif "system_radial_velocity" in parameters.keys():
+                            radial_velocity = parameters["system_radial_velocity"].value * 1e5
+                            wavelengths_model *= shift_wavelengths_by_radial_velocity(radial_velocity)
 
-        if generate_mock_data:
-            sys.exit(
-                1)  # TODO add comments as to why an error should be raised here, and replace sys.exit with appropriate raise # noqa E501
+                        if np.size(wavelengths_model) == np.size(data.wavelengths) and\
+                           np.all(wavelengths_model == data.wavelengths):
+                            model_spectrum_rebinned = copy.deepcopy(spectrum_model)
+                        else:
+                            model_spectrum_rebinned = rebin_spectrum_bin(
+                                wavelengths_model,
+                                model_spectrum_convolved,
+                                data.wavelengths,
+                                data.wavelength_bin_widths
+                            )
+
+                        if data_2.subtract_continuum:
+                            method = 'spline'
+                            if 'continuum_subtraction_method' in parameters.keys():
+                                method = parameters['continuum_subtraction_method'].value
+                            model_spectrum_rebinned = continuum_subtract_spectrum(
+                                wavelengths=data_2.wavelengths,
+                                spectrum=model_spectrum_rebinned,
+                                parameters=parameters,
+                                method=method,
+                                name=data_2.name
+                            )
+                        # Convolution and rebin are cared of in get_chisq
+                        log_likelihood += LogLikelihood(
+                            model_spectrum=model_spectrum_rebinned,
+                            data_spectrum=data_2_spectrum,
+                            data_uncertainties=data_2_uncertainties,
+                            data_covariance=data_2_covariance,
+                            n_free_parameters=n_free_parameters
+                        ).calculate_log_likelihood() + additional_log_l
 
         if per_datapoint:
             return log_l_per_datapoint_dict
@@ -2445,22 +2527,32 @@ class Retrieval:
         if "log_prior_weight" in parameters.keys():
             log_prior += parameters["log_prior_weight"].value  # TODO why not using log_likelihood?
 
-        if log_likelihood + log_prior < invalid_value:
-            return invalid_value
-
-        if jnp.abs(log_likelihood + log_prior) < tiny:
-            log_likelihood = tiny
-            log_prior = 0
-
-        #if self.ultranest and np.isinf(log_likelihood + log_prior):
+        log_likelihood, log_prior = lax.cond(
+            log_likelihood + log_prior < invalid_value,
+            lambda: (invalid_value, 0.0),
+            lambda: (log_likelihood, log_prior),
+        )
+        #if log_likelihood + log_prior < invalid_value:
         #    return invalid_value
 
-        if not return_model:
-            if print_log_likelihood_for_debugging:
-                print('log_likelihood + log_prior', log_likelihood + log_prior)
-            return log_likelihood + log_prior
-        else:
-            return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
+        log_likelihood, log_prior = lax.cond(
+            jnp.abs(log_likelihood + log_prior) < tiny,
+            lambda: (tiny, 0.0),
+            lambda: (log_likelihood, log_prior),
+        )
+        #if jnp.abs(log_likelihood + log_prior) < tiny:
+        #    log_likelihood = tiny
+        #    log_prior = 0
+
+        #print(model_spectrum_rebinned)
+        #print(log_likelihood)
+        return log_likelihood + log_prior
+        #if not return_model:
+        #    if print_log_likelihood_for_debugging:
+        #        print('log_likelihood + log_prior', log_likelihood + log_prior)
+        #    return log_likelihood + log_prior
+        #else:
+        #    return log_likelihood + log_prior, wavelengths_models, spectrum_models, beta, additional_log_ls
 
 
     def prior(self, cube: npt.NDArray[float], ndim: int = 0, nparams: int = 0) -> npt.NDArray[float]:
@@ -2468,12 +2560,11 @@ class Retrieval:
         pyMultinest Prior function. Transforms unit hypercube into physical space.
         """
         i_p = 0
-
         for pp in self.configuration.parameters:
             if self.configuration.parameters[pp].is_free_parameter:
-                cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
-                i_p += 1
-
+                if self.configuration.parameters[pp].transform_prior_cube_coordinate is not None:
+                    cube[i_p] = self.configuration.parameters[pp].get_param_uniform(cube[i_p])
+                    i_p += 1
         return cube
 
     def prior_ultranest(self, cube: npt.NDArray[float]) -> npt.NDArray[float]:
@@ -2490,11 +2581,13 @@ class Retrieval:
 
         return params
 
-    def prior_model_jaxns(self, parameters):
-        for key, parameter in parameters.items():
-            parameter.set_prior()
-            parameter.value = yield parameter.prior_sample
-        return parameters
+    def prior_model_jaxns(self):
+        for key, parameter in self.configuration.parameters.items():
+            if not parameter.is_free_parameter:
+                continue
+            parameter.value = yield parameter.set_prior()
+            print(key, parameter.value)
+        return self.configuration.parameters
 
     def run(self, sampler_object: Sampler = None, **sampler_kwargs):
         """
@@ -2506,7 +2599,7 @@ class Retrieval:
         Args:
             sampler_type : str
                 The type of sampler to use. Can be one of the following:
-                    pymultinest - requires Multinest installation. 
+                    pymultinest - requires Multinest installation.
                     jaxns - Requires JAXNS. Default choice for JAXNS
                     jaxnsshardedstaticsestedsampler - Requires JAXNS. Advanced option for JAXNS
                     ultranest - Requires ultranest. Implements.
@@ -2580,7 +2673,7 @@ class Retrieval:
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
-            analyzer = sampler.run_sampler(**pmn_args)
+            analyzer = sampler.run_sampler(n_dims=self._n_free_params_total_retrieval, **pmn_args)
             sampler.pretty_print(self._free_parameter_names_cache, prefix)
             if analyzer is not None and rank == 0:
                 if hasattr(analyzer, 'get_stats'):
@@ -2621,17 +2714,34 @@ class Retrieval:
                 'seed': sampler_kwargs.pop('seed', 42654)
             }
             jit = sampler_kwargs.pop('jit', True)
-            #self.configuration.parameters = self.prior_model_jaxns(self.configuration.parameters)
 
-            def prior_func_wrapper():
-                for key, parameter in self.configuration.parameters.items():
-                    parameter.set_prior()
-                    parameter.value = yield parameter.prior_sample
-                return self.configuration.parameters
-            
-            def log_likelihood_wrapper(parameters):
+            parameters = self.configuration.parameters
+            from jax import debug
+
+            priors = []
+            for key, parameter in self.configuration.parameters.items():
+                if not parameter.is_free_parameter:
+                    #parameters[key] = parameter
+                    continue
+                priors.append(parameter.set_prior())
+            priors = tuple(priors)
+
+            def prior_model():
+                values = []
+                for prior in priors:
+                    value = yield prior
+                    values.append(value)
+                return tuple(values)
+
+            def log_likelihood_wrapper(*args):
+                counter = 0
+                for value in self.configuration.parameters.values():
+                    if value.is_free_parameter:
+                        value.value = args[counter]
+                        counter += 1
+                #self.configuration.parameters = parameters
                 return self.log_likelihood_jax(
-                    parameters=parameters,
+                    parameters=self.configuration.parameters,
                     configuration=self.configuration,
                     log_l_per_datapoint_dict=None,
                     return_model=False,
@@ -2639,9 +2749,10 @@ class Retrieval:
                     generate_mock_data=self.generate_mock_data,
                     print_log_likelihood_for_debugging=False
                 )
+
             sampler = JAXNSSampler(
                 log_likelihood_func=log_likelihood_wrapper,
-                prior_func=prior_func_wrapper,
+                prior_func=prior_model,
                 output_directory=self.output_directory,
                 retrieval_name=self.configuration.retrieval_name
             )
@@ -2656,7 +2767,21 @@ class Retrieval:
                 raise ImportError("TensorFlow Probability (for JAX) is required for JAXNSSampler but not installed.")
 
             jit = sampler_kwargs.pop('jit', True)
-            jaxns_kwargs.update(sampler_kwargs)
+            jaxns_kwargs = {
+                'num_live_points': sampler_kwargs.pop('num_live_points', 400),
+                'max_samples': sampler_kwargs.pop('max_samples', 1e7),
+                's': sampler_kwargs.pop('s', 4),
+                'k': sampler_kwargs.pop('k', 0),
+                'c': sampler_kwargs.pop('c', 200),
+                'devices': sampler_kwargs.pop('devices', devices()),
+                'difficult_model': sampler_kwargs.pop('difficult_model', False),
+                'parameter_estimation': sampler_kwargs.pop('parameter_estimation', False),
+                'shell_fraction': sampler_kwargs.pop('shell_fraction', 0.5),
+                'gradient_guided': sampler_kwargs.pop('gradient_guided', False),
+                'init_efficiency_threshold': sampler_kwargs.pop('init_efficiency_threshold', 0.05),
+                'verbose': sampler_kwargs.pop('verbose', False),
+                'seed': sampler_kwargs.pop('seed', 42654)
+            }
             sampler = JAXNSShardedStaticNestedSampler(
                 log_likelihood_func=self.log_likelihood,
                 prior_func=self.prior_model_jaxns,
@@ -4529,8 +4654,8 @@ class Retrieval:
                         # RV in km/s -> multiply by 1e5 to cm/s
                         # wlen_model in micron
                         # cst.c in cm/s
-                        radial_velocity = self.best_fit_parameters[name + "_radial_velocity"].value * 1e5 
-                        wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                        radial_velocity = self.best_fit_parameters[name + "_radial_velocity"].value * 1e5
+                        wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c))
                         #wavelengths += wavel_shift
 
                         # Don't want to rebin the spectrum multiple times.
@@ -4541,8 +4666,8 @@ class Retrieval:
                         #    spectrum_model,
                         #)
                 elif "system_radial_velocity" in self.configuration.parameters.keys():
-                    radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5 
-                    wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c)) 
+                    radial_velocity = self.best_fit_parameters["system_radial_velocity"].value * 1e5
+                    wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c))
                     #wavelengths += wavel_shift
 
                 if data.scale:

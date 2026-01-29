@@ -119,6 +119,7 @@ class LockedDict(dict):
     def tree_unflatten(cls, aux_data, children):
         return cls().build_and_lock(dict(zip(aux_data, children)))
 
+
 def check_all_close(a, b, **kwargs):
     if isinstance(a, dict):
         if len(a) != len(b):  # check if both dict have the same number of keys

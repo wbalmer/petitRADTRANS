@@ -10,9 +10,9 @@ class LogLikelihood:
     def __init__(self,
                  model_spectrum: ArrayLike,
                  data_spectrum: ArrayLike,
-                 n_free_parameters: int,
                  data_uncertainties: ArrayLike = None,
-                 data_covariance: ArrayLike = None):
+                 data_covariance: ArrayLike = None,
+                 n_free_parameters: int = 0):
         """
         Initializes the LogLikelihood calculator.
 
@@ -29,7 +29,7 @@ class LogLikelihood:
             raise ValueError("Either data_uncertainties or data_covariance must be provided.")
         if data_spectrum.shape != model_spectrum.shape:
             raise ValueError("The data and model model must have the same shape.")
-        
+
         self.model_spectrum = jnp.asarray(model_spectrum)
         self.data_spectrum = jnp.asarray(data_spectrum)
 
@@ -41,8 +41,8 @@ class LogLikelihood:
             self.data_uncertainties = jnp.asarray(data_uncertainties)
             if self.data_uncertainties.shape != self.model_spectrum.shape:
                 raise ValueError(f"data_uncertainties must have the same shape as the model_spectrum!)")
-            if jnp.any(self.data_uncertainties <= 0):
-                raise ValueError("Uncertainties must be positive.")
+            #if jnp.any(self.data_uncertainties <= 0): TODO: move to data.py
+            #    raise ValueError("Uncertainties must be positive.")
         else:
             self.data_uncertainties = None
 
@@ -51,46 +51,43 @@ class LogLikelihood:
             if self.data_covariance.shape != (self.n_data_points, self.n_data_points):
                 raise ValueError(f"Shape of data_covariance ({self.data_covariance.shape}) "
                                  f"is not ({self.n_data_points}, {self.n_data_points})")
-        else:
-            self.data_covariance = None
+
 
         # Precompute terms for likelihood calculation
-        if self.data_covariance is not None:
-            try:
-                # TODO: This assumes 1D spectrum. Need to extend to ND data.
-                self.inv_covariance = jnp.linalg.inv(self.data_covariance)
-                _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
-                if _sign <= 0:
-                    raise ValueError("Covariance matrix determinant is not positive. Log determinant is undefined.")
-                self._log_norm_constant = -0.5 * (self.n_data_points * jnp.log(2.0 * jnp.pi) +
-                                                  self.log_det_covariance)
-            except jnp.linalg.LinAlgError:
-                raise ValueError("Covariance matrix is singular and cannot be inverted.")
+        if data_covariance is not None:
+            #try:
+            # TODO: This assumes 1D spectrum. Need to extend to ND data.
+            self.inv_covariance = jnp.linalg.inv(self.data_covariance)
+            _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
+            if _sign <= 0:
+                raise ValueError("Covariance matrix determinant is not positive. Log determinant is undefined.")
+            self._log_norm_constant = -0.5 * (self.n_data_points * jnp.log(2.0 * jnp.pi) +
+                                              self.log_det_covariance)
+            # TODO: re-enable exception handling for JAX
+            # except jnp.linalg.LinAlgError:
+            #    raise ValueError("Covariance matrix is singular and cannot be inverted.")
         else:
-            self.inv_covariance = None
-            self.log_det_covariance = None
+            self.data_covariance = jnp.diag(self.data_uncertainties**2)
+            self.inv_covariance = jnp.linalg.inv(self.data_covariance)
+            _sign, self.log_det_covariance = jnp.linalg.slogdet(self.data_covariance)
             self._log_norm_constant = -0.5 * jnp.sum(jnp.log(2.0 * jnp.pi * self.data_uncertainties**2))
 
-    @jit
     def get_chi_squared(self) -> float:
         chi_squared = lax.cond(
-            self.data_covariance,
-            self._calculate_chi_squared_covariance(),
-            self._calculate_chi_squared_uncertainties()
+            jnp.sum(self.data_covariance) != 0.0,
+            self._calculate_chi_squared_covariance,
+            self._calculate_chi_squared_uncertainties
             )
         return chi_squared
 
-    @jit
     def _calculate_chi_squared_covariance(self):
         residual = self.data_spectrum - self.model_spectrum
         return jnp.dot(residual, jnp.dot(self.inv_covariance, residual))
-    
-    @jit
+
     def _calculate_chi_squared_uncertainties(self):
         residual = self.data_spectrum - self.model_spectrum
         return jnp.sum((residual / self.data_uncertainties)**2)
-    
-    @jit
+
     def calculate_log_likelihood(self) -> float:
         chi_squared = self.get_chi_squared()
         # self._log_norm_constant was pre-calculated in __init__
@@ -129,7 +126,7 @@ class LogLikelihood:
             The pre-computed noise normalization constant.
         """
         return self._log_norm_constant
-    
+
     def log_likelihood(self, beta=None, beta_mode='multiply'):
         return self._log_likelihood(
             self.model_spectrum,
@@ -212,7 +209,7 @@ class LogLikelihood:
             chi2 = chi2.sum()
 
             return - 0.5 * chi2 + penalty_term
-        
+
     @staticmethod
     def log_likelihood2chi2(log_likelihood: float) -> float:
         return -2 * log_likelihood

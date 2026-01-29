@@ -1,5 +1,6 @@
 import abc
 import os
+os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={os.cpu_count()}"
 import json
 import warnings
 import numpy as np
@@ -63,12 +64,12 @@ class PymultinestSampler(Sampler):
                  retrieval_name,
                  ):
         super().__init__(log_likelihood_func, prior_func, output_directory, retrieval_name)
-        os.makedirs(os.path.join(self.output_directory, "out_PMN/"))
+        os.makedirs(os.path.join(self.output_directory, "out_PMN/"),exist_ok=True)
 
         self.seed = -1
         self.analyzer = None
 
-    def run_sampler(self, ndim, **kwargs):
+    def run_sampler(self, n_dims, **kwargs):
         """
 
         Args:
@@ -111,12 +112,12 @@ class PymultinestSampler(Sampler):
         pymultinest.run(
             LogLikelihood=self.log_likelihood_func,
             Prior=self.prior_func,
-            ndim=ndim
+            n_dims=n_dims,
             **kwargs
         )
 
         if rank == 0:
-            self.analyzer = pymultinest.Analyzer(outputfiles_basename=f"{self.retrieval_name}_", n_params=ndim)
+            self.analyzer = pymultinest.Analyzer(outputfiles_basename=f"{self.retrieval_name}_", n_params=n_dims)
         return self.analyzer
 
     def pretty_print(self, free_parameter_names, prefix):
@@ -284,8 +285,8 @@ class JAXNSSampler(Sampler):
 
         self.seed = jaxns_kwargs.pop('seed', 42654)
         # The prior_func is expected to be the prior_model (a generator)
-        
-        jaxified_likelihood = jaxify_likelihood(self.log_likelihood_func)
+
+        jaxified_likelihood = self.log_likelihood_func
 
         model = Model(prior_model=self.prior_func, log_likelihood=jaxified_likelihood)
 
@@ -306,13 +307,14 @@ class JAXNSSampler(Sampler):
         self.results = self.sampler.to_results(state=state, termination_reason=termination_reason)
 
         results_out = tree.map(np.asarray, self.results)
-        save_results(results_out, os.path.join(
-            self.output_directory,
-            "out_JAXNS",
-            self.retrieval_name + "_jaxns_results.json"))
-
-        self.sampler.save_results(
+        save_results(
+            results=results_out,
+            save_file=os.path.join(
+                self.output_directory,
+                "out_JAXNS",
+                self.retrieval_name + "_jaxns_results.json")
             )
+
         self.pretty_print_results()
         return self.results
 
@@ -325,7 +327,7 @@ class JAXNSSampler(Sampler):
             "out_JAXNS/",
             self.retrieval_name + "_jaxns_results.json"))
         return self.results
-    
+
     def pretty_print_results(self):
         self.sampler.summary(self.results)
 

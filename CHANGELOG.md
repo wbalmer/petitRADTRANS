@@ -4,13 +4,12 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a6] - 2025-08-06
+## [4.0.0a7] - 2025-08-06
 ### Summary
-pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables 
-faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs. 
+pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
+faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
 Version 4.0 is still experimental, and should not be used for production work!
-As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct
-to within <0.01%.
+As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
 
 ### TODO
 - Finish reimplementing contribution functions.
@@ -19,14 +18,15 @@ to within <0.01%.
 - Finish updating retrieval module.
 - Finish implementing hansen cloud opacities
 - Still a small bug with the calculating cloud/scattering opacities.
+- Finish making everything deeper than `calculate_flux` JIT-compileable
 
 ### Changed
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.
-- Translated `fortran_radtrans_core` to JAX. 
+- Translated `fortran_radtrans_core` to JAX.
 - Translated `fortran_rebin` to JAX.
 - Translated `fortran_chemistry` to JAX.
 - Updated `Radtrans` to use JAX arrays and the JAX backend (incomplete).
-- `Retrieval` module should use JAX arrays throughout. 
+- `Retrieval` module should use JAX arrays throughout.
 - `Chemistry` module should use JAX arrays throughout.
 - `math.py` now uses JAX arrays.
 - `Opacity` module now uses JAX arrays.
@@ -35,10 +35,11 @@ to within <0.01%.
 - Fortran cloud subroutines now found in `radtrans_core.cloud_core`.
 - Moved transit radii calculations to `radtrans_core.radiative_transfer_core`, but using Radtrans implementation.
 - Added numpy compatibility flag to equilibrium chemistry table.
+- Functional pymultinest and JAXNS retrievals as of v4.0.a7.
 
 ### Added
 - Implemented new `Sampler` package to allow easier selection of `pymultinest`, `jaxns` or `ultranest`
-- Implemented new `LogLiklihood` class to ensure consistent chi2 calculations.
+- Implemented new `LogLikelihood` class to ensure consistent chi2 calculations.
 - Added median filter continuum subtraction.
 - Added savitzky-golay filter continuum subtraction.
 - JAXed contributionn functions
@@ -214,8 +215,8 @@ to within <0.01%.
 - Function maps of `SpectralModel` are incorrectly loaded.
 - Invalid cloud names are used in patchy cloud implementation. For pRT3, clouds in abundance dict are now addressed using full name.
 - Model functions lacking the required 350nm scattering parameter for hazes as an optional parameter (solves [issue 76](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/76)).
-- Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)). 
-- Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)). 
+- Fixes to `madhushudhan_seager_transmission` function (solves [issue 80](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/80)).
+- Crash due incorrect shape of sample arrays (solves [issue 82](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/82)).
 - Crash when trying to get the samples of a retrieval with one live point.
 - Out-of-memory errors when converting large opacity files on systems with 16 GB of RAM or less.
 - Unable to automatically download a default opacity file.

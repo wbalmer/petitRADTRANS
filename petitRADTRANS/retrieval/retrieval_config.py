@@ -65,7 +65,7 @@ class RetrievalConfig:
         self.retrieval_name = retrieval_name
         self.run_mode = run_mode
         self.sampler_type = sampler_type
-        
+
         if self.run_mode != 'retrieval' and self.run_mode != 'evaluate':
             raise ValueError(f"run_mode must be 'retrieval' or 'evaluate', but was '{self.run_mode}'")
 
@@ -422,7 +422,7 @@ class RetrievalConfig:
             line_list.remove(species)
         if free:
             self.parameters.pop(species, None)
-        self.line_species = tuple(line_list) 
+        self.line_species = tuple(line_list)
 
     def add_cloud_species(self,
                           species,

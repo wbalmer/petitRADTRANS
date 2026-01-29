@@ -29,7 +29,7 @@ class Data:
             containing the wavelength, spectrum and covariance matrix.
             Alternatively, the data information can be directly given by the wavelengths, spectrum, uncertainties, and
             mask attributes.
-        data_resolution : float or ArrayLike
+        data_resolution : float or jnp.ndarray
             Spectral resolution of the instrument. Optional, allows convolution of model to
             instrumental line width. If the data_resolution is an array, the resolution can
             vary as as a function of wavelength. The array should have the same shape as
@@ -75,6 +75,14 @@ class Data:
             # TODO complete docstring
         wavelength_bin_widths : numpy.ndarray
             Set the wavelength bin width to bin the Radtrans object to the data. Defaults to the data bins.
+        photometry : bool
+            Set to True if using photometric data.
+        photometric_transformation_function : method
+            Transform the photometry (account for filter transmission etc.).
+            This function must take in the wavelength and flux of a spectrum,
+            and output a single photometric point (and optionally flux error).
+        photometric_bin_edges : Tuple, numpy.ndarray
+            The edges of the photometric bin in micron. [low,high]
         line_opacity_mode : str
             Should the retrieval be run using correlated-k opacities (default, 'c-k'),
             or line by line ('lbl') opacities? If 'lbl' is selected, it is HIGHLY
@@ -101,7 +109,7 @@ class Data:
         uncertainties:
             Uncertainties of the data, in the same units as the spectrum.
         covariance:
-            Covariance of the data, in the same units as the spectrum^2.
+            Covariance matrix of the data, in the same units as the spectrum squared.
         mask:
             Mask of the data.
     """
@@ -118,19 +126,24 @@ class Data:
                  wavelength_boundaries=None,
                  scale=False,
                  scale_err=False,
-                 offset_bool=False,  # TODO Remove
+                 offset_bool=False,
+                 resample=False,
+                 subtract_continuum=False,
+                 wavelength_bin_widths=None,
+                 photometry=False,
+                 photometric_transformation_function=None,
+                 photometric_bin_edges=None,
                  line_opacity_mode='c-k',
-                 radtrans_grid=False,  # TODO: get rid of this as a parameter?
+                 radtrans_grid=False,
                  concatenate_flux_epochs_variability=False,
-                 atmospheric_column_flux_mixer=None,  # Split to TimeSeriesData
-                 variability_atmospheric_column_model_flux_return_mode=False,  # Split to TimeSeriesData
+                 atmospheric_column_flux_mixer=None,
+                 variability_atmospheric_column_model_flux_return_mode=False,
                  radtrans_object=None,
-                 spectrum=None,  # Split to SpectrumData
-                 wavelengths=None,  # Split to SpectrumData
-                 wavelength_bin_widths=None,  # Split to SpectrumData
-                 uncertainties=None,  # Split to SpectrumData
+                 wavelengths=None,
+                 spectrum=None,
+                 uncertainties=None,
                  covariance=None,
-                 mask=None  # Split to SpectrumData
+                 mask=None
                  ):
         self.name = name
         self.path_to_observations = path_to_observations
@@ -140,8 +153,7 @@ class Data:
         self.wavelengths = wavelengths  #: The wavelength bin centers
         self.spectrum = spectrum  #: The flux or transit depth
         self.uncertainties = uncertainties  #: The error on the flux or transit depth
-        self.covariance = covariance
-        
+
         # Add a mask with that will be used in retrievals
         if mask is None:
             self.mask = jnp.zeros(jnp.shape(self.spectrum), dtype=bool)
@@ -159,6 +171,7 @@ class Data:
 
         self.data_resolution = data_resolution
         self.data_resolution_array_model = None
+
         self.model_resolution = model_resolution
         self.external_radtrans_reference = external_radtrans_reference
         self.model_generating_function = model_generating_function
@@ -181,14 +194,18 @@ class Data:
             if line_opacity_mode == 'lbl' and model_resolution < 1000:
                 logging.warning("Your resolution is lower than R=1000, it's recommended to use 'c-k' mode.")
 
-        # Optional, covariance
+        # Optional, covariance and scaling
+        self.covariance = covariance
         self.inv_cov = None
         self.log_covariance_determinant = None
-
-        # Optional, flux and uncertainty scaling
+        if covariance is not None:
+            self.inv_cov = jnp.linalg.inv(covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * covariance)
         self.scale = scale
         self.scale_err = scale_err
         self.offset_bool = offset_bool
+        self.resample = resample
+        self.subtract_continuum = subtract_continuum
         self.scale_factor = 1.0
         self.offset = 0.0
         self.bval = -jnp.inf
@@ -196,8 +213,25 @@ class Data:
         # Bins and photometry
         self.wavelength_boundaries = None
         self.wavelength_bin_widths = wavelength_bin_widths
+        self.photometry = photometry
+        self.photometric_transformation_function = \
+            photometric_transformation_function
+
+        if photometry:
+            missing = []
+
+            if photometric_transformation_function is None:
+                missing.append("'photometric_transformation_function'")
+
+            if photometric_bin_edges is None:
+                missing.append("'photometric_bin_edges'")
+
+            if len(missing) > 0:
+                ', '.join(missing)
+                raise ValueError(f"missing photometric arguments for photometric data '{name}': {missing}")
 
         self.photometry_range = wavelength_boundaries
+        self.photometric_bin_edges = photometric_bin_edges
 
         self.radtrans_grid = radtrans_grid
         self.concatenate_flux_epochs_variability = concatenate_flux_epochs_variability
@@ -211,26 +245,27 @@ class Data:
             if not os.path.exists(path_to_observations):
                 raise FileNotFoundError(f"data file '{path_to_observations}' does not exist")
 
-            if path_to_observations.endswith("_x1d.fits"):
-                self.load_jwst(path_to_observations)
-            elif path_to_observations.endswith('.fits'):
-                self.loadfits(path_to_observations)
-            else:
-                self.loadtxt(path_to_observations)
-
-            if wavelength_boundaries is not None:
-                self.wavelength_boundaries = wavelength_boundaries
-            else:
-                self.wavelength_boundaries = [0.95 * self.wavelengths[0],
-                                                1.05 * self.wavelengths[-1]]
-
-            if self.wavelength_bin_widths is None:
-                if wavelength_bin_widths is not None:
-                    self.wavelength_bin_widths = wavelength_bin_widths
+            if not photometry:
+                if path_to_observations.endswith("_x1d.fits"):
+                    self.load_x1d_fits(path_to_observations)
+                elif path_to_observations.endswith('.fits'):
+                    self.loadfits(path_to_observations)
                 else:
-                    self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1].set(jnp.diff(self.wavelengths))
-                    self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1].set(self.wavelength_bin_widths[-2])
+                    self.loadtxt(path_to_observations)
+
+                if wavelength_boundaries is not None:
+                    self.wavelength_boundaries = wavelength_boundaries
+                else:
+                    self.wavelength_boundaries = [0.95 * self.wavelengths[0],
+                                                  1.05 * self.wavelengths[-1]]
+
+                if self.wavelength_bin_widths is None:
+                    if wavelength_bin_widths is not None:
+                        self.wavelength_bin_widths = wavelength_bin_widths
+                    else:
+                        self.wavelength_bin_widths = jnp.zeros_like(self.wavelengths)
+                        self.wavelength_bin_widths = self.wavelength_bin_widths.at[:-1].set(jnp.diff(self.wavelengths))
+                        self.wavelength_bin_widths = self.wavelength_bin_widths.at[-1].set(self.wavelength_bin_widths[-2])
             else:
                 if wavelength_boundaries is not None:
                     self.wavelength_boundaries = wavelength_boundaries
@@ -324,29 +359,41 @@ class Data:
                 Directory and filename of the data.
         """
 
-        from astropy.io import fits
+        if self.photometry:
+            return
 
-        self.wavelengths = fits.getdata(path, 'SPECTRUM').field("WAVELENGTH")
-        self.spectrum = fits.getdata(path, 'SPECTRUM').field("FLUX")
+        data = jnp.array(fits.getdata(path, 'SPECTRUM'))
+        if not isinstance(data, jnp.ndarray):
+            self.wavelengths = data.field("WAVELENGTH")
+            self.spectrum = data.field("FLUX")
 
-        try:
-            self.covariance = fits.getdata(path, 'SPECTRUM').field("COVARIANCE")
-            self.inv_cov = jnp.linalg.inv(self.covariance)
-            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
-            # Note that this will only be the uncorrelated error.
-            # Dot with the correlation matrix (if available) to get
-            # the full error.
-            try:
-                self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            except Exception:  # TODO find what is the error expected here
+            if "COVARIANCE" in data.columns.names:
+                self.covariance = data.field("COVARIANCE")
+                self.inv_cov = jnp.linalg.inv(self.covariance)
+                sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
                 self.uncertainties = jnp.sqrt(self.covariance.diagonal())
-        except Exception:  # TODO find what is the error expected here
-            self.uncertainties = fits.getdata(path, 'SPECTRUM').field("ERROR")
-            self.covariance = jnp.diag(self.uncertainties ** 2)
+            elif "ERROR" in data.columns.names:
+                # Note that this will only be the uncorrelated error.
+                # Dot with the correlation matrix (if available) to get
+                # the full error.
+                self.uncertainties = data.field("ERROR")
+                self.covariance = jnp.diag(self.uncertainties ** 2)
+                self.inv_cov = jnp.linalg.inv(self.covariance)
+
+        else:
+            hdul = fits.open(path)
+            self.wavelengths = hdul[1].data['WAVELENGTH'].astype(jnp.float64)
+            self.spectrum = hdul[1].data['FLUX'].astype(jnp.float64)
+            if 'FLUX_STD' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_STD'].astype(jnp.float64)
+            elif 'FLUX_ERROR' in hdul[1].data.columns.names:
+                self.uncertainties = hdul[1].data['FLUX_ERROR'].astype(jnp.float64)
+            if 'FLUX_COV' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['FLUX_COV'].astype(jnp.float64)
+            elif 'COVARIANCE' in hdul[1].data.columns.names:
+                self.covariance = hdul[1].data['COVARIANCE'].astype(jnp.float64)
             self.inv_cov = jnp.linalg.inv(self.covariance)
-
-            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
-
+        sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
 
     def line_b_uncertainty_scaling(self, parameters):
         """
@@ -378,7 +425,7 @@ class Data:
             elif 'uncertainty_scaling_b' in parameters.keys():
                 b_val = parameters['uncertainty_scaling_b'].value
         return b_val
-    
+
     def set_distance(self, distance):
         """
         Sets the distance variable in the data class.
@@ -428,11 +475,10 @@ class Data:
         self.system_distance = new_dist
         return scale
 
-    def scale_and_offset_flux(self, parameters_dict: dict) -> ArrayLike:
+    def scale_flux(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
         """
         Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
         """
-        scaled_spectrum = self.spectrum.copy()  # Operate on a copy
 
         scale_factor = 1.0
         if self.scale:
@@ -440,7 +486,13 @@ class Data:
             if param_val is not None:
                 scale_factor = param_val.value if hasattr(param_val, 'value') else param_val
 
-        scaled_spectrum = scaled_spectrum * scale_factor
+        scaled_spectrum = input_spectrum * scale_factor
+        return scaled_spectrum
+
+    def offset_flux(self, input_spectrum, parameters_dict: dict) -> ArrayLike:
+        """
+        Applies scaling and offset to self.spectrum based on parameters in parameters_dict.
+        """
 
         offset_val = 0.0
         if self.offset_bool:
@@ -448,8 +500,9 @@ class Data:
             if param_val is not None:
                 offset_val = param_val.value if hasattr(param_val, 'value') else param_val
 
-        scaled_spectrum = scaled_spectrum - offset_val
-        return scaled_spectrum
+        offset_spectrum = input_spectrum - offset_val
+        return offset_spectrum
+
 
     def scale_and_inflate_uncertainties(self, parameters_dict: dict) -> tuple[ArrayLike, ArrayLike]:
         """
@@ -539,7 +592,7 @@ class PhotometryData(Data):
             else: # Multiple bands
                 derived_wavelength_boundaries = [0.95 * jnp.min(self.photometric_bin_edges[:, 0]),
                                                  1.05 * jnp.max(self.photometric_bin_edges[:, 1])]
-        
+
         # Calculate effective/central wavelengths and bin widths for base class
         # These will be stored as self.wavelengths and self.wavelength_bin_widths by the base class
         calculated_effective_wavelengths = wavelengths
@@ -553,7 +606,7 @@ class PhotometryData(Data):
             if calculated_effective_wavelengths is None:
                 calculated_effective_wavelengths = jnp.mean(self.photometric_bin_edges, axis=1)
             calculated_wavelength_bin_widths = self.photometric_bin_edges[:, 1] - self.photometric_bin_edges[:, 0]
-        
+
         # Ensure calculated_effective_wavelengths is a 1D array for consistency
         if calculated_effective_wavelengths is not None:
             calculated_effective_wavelengths = jnp.asarray([calculated_effective_wavelengths]).flatten()
@@ -575,7 +628,7 @@ class PhotometryData(Data):
                          line_opacity_mode=line_opacity_mode,
                          radtrans_object=radtrans_object,
                          wavelengths=calculated_effective_wavelengths)
-        
+
         if wavelength_boundaries is not None:
             self.wavelength_boundaries = wavelength_boundaries
         else:
@@ -648,7 +701,7 @@ class TimeSeriesData(Data):
                  covariance=covariance,
                  mask=mask
                  )
-    
+
     def load_time_series_spectrum_txt(self, delimiter=',', comments='#'):
         wavelengths, spectra, bin_widths, uncertainties = [], [], [], []
         for filename in self.filename_list:
@@ -715,4 +768,3 @@ class TimeSeriesData(Data):
         wavelength_bin_widths = wavelength_bin_widths.at[:-1].set(jnp.diff(wavelengths))
         wavelength_bin_widths = wavelength_bin_widths.at[-1].set(wavelength_bin_widths[-2])
         return wavelengths, wavelength_bin_widths, spectrum, uncertainties
-         

@@ -2,10 +2,15 @@
 """
 import numpy as np
 import jax
+from jax import lax, jit
 from jax.typing import ArrayLike
+from jaxtyping import Array, Float
 import jax.numpy as jnp
 from jax.scipy.special import erf, erfinv
 from scipy.special import lambertw
+from jax.scipy.signal import correlate
+
+
 # TODO: replace scipy and fortran functions with JAX
 
 
@@ -164,53 +169,62 @@ def feature_scaling(array: ArrayLike, min_value: float = 0.0, max_value: float =
     return min_value + ((array - jnp.min(array)) * (max_value - min_value)) / (jnp.max(array) - jnp.min(array))
 
 
-def gaussian_weights1d(sigma: float, truncate: float = 4.0) -> ArrayLike:
-    """Compute a 1D Gaussian convolution kernel.
-    To be used with scipy.ndimage.convolve1d.
+def gaussian_kernel_1d(sigma: float, radius: int) -> Float[Array, " 2*{radius}"]:
+    """JAX version of the gaussian kernel to be used in the gaussian_filter1d function.
 
-    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
-
-    Args:
-        sigma:
-            Standard deviation for Gaussian kernel.
-        truncate:
-            Truncate the filter at this many standard deviations.
-
-    Returns:
-
-    """
-    # Make the radius of the filter equal to truncate standard deviations
-    radius = int(truncate * sigma + 0.5)
-
+    Note that the implementation parallels that of scipy.ndimage at
+    https://github.com/scipy/scipy/blob/v1.16.2/scipy/ndimage/_filters.py#L656."""
     x = jnp.arange(-radius, radius + 1)
-    phi_x = jnp.exp(-0.5 / sigma ** 2 * x ** 2)
+    sigma2 = sigma * sigma
+    phi_x = jnp.exp(-0.5 * x**2 / sigma2)
+    return phi_x / jnp.sum(phi_x)
 
-    return phi_x / phi_x.sum()
 
-
-def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0) -> ArrayLike:
+@jit(static_argnames=['max_radius'])
+def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0, max_radius: int = 20) -> ArrayLike:
     """Compute 1D Gaussian convolution kernels for an array of standard deviations.
 
-    Based on scipy.ndimage gaussian_filter1d and _gaussian_kernel1d.
+    This version supports JIT compilation by avoiding arrays whose shape depends on
+    values computed at runtime. To guarantee static shapes when JIT-compiling,
+    pass an integer ``max_radius`` (half-kernel size). If ``max_radius`` is not
+    provided the radius will be computed in Python (non-JIT use).
 
     Args:
         sigmas:
-            Standard deviations for Gaussian kernel.
+            1-D array of standard deviations for each position (shape: (N,)).
         truncate:
-            Truncate the filter at this many standard deviations.
+            Truncate the filter at this many standard deviations (used only when
+            ``max_radius`` is None).
+        max_radius:
+            Optional integer radius to force a static kernel size of
+            ``2*max_radius+1``. Recommended for JIT compilation.
 
     Returns:
-
+        weights: array of shape (N, 2*radius+1) containing the normalized
+            Gaussian kernel for each sigma.
     """
-    # Make the radius of the filter equal to truncate standard deviations
-    radius = int(truncate * jnp.max(sigmas) + 0.5)
+    # Determine radius. If max_radius is provided it will be used (static
+    # Python integer). If not provided, compute it from data (works outside JIT).
+    radius = max_radius
+    #= lax.cond(
+    #    max_radius is None,
+    #    lambda: jnp.ceil(truncate * jnp.max(sigmas) + 0.5).astype(int),
+    #    lambda: max_radius
+    #)
 
+    # Build fixed-position offsets (shape: (M,)) and broadcast against sigmas
     x = jnp.arange(-radius, radius + 1)
-    sd = jnp.tile(sigmas, (x.size, 1)).T
 
-    phi_x = jnp.exp(-0.5 / sd ** 2 * x ** 2)
+    # Ensure sigmas is an array of shape (N,)
+    sigmas = jnp.asarray(sigmas)
+    sd = jnp.expand_dims(sigmas, axis=1)  # (N, 1)
+    x_row = jnp.expand_dims(x, axis=0)    # (1, M)
 
-    return jnp.transpose(phi_x.T / phi_x.sum(axis=1))
+    # Compute unnormalized Gaussian and normalize per-row
+    phi_x = jnp.exp(-0.5 * (x_row ** 2) / (sd ** 2))
+    weights = phi_x / jnp.sum(phi_x, axis=1, keepdims=True)
+
+    return weights
 
 
 def longitude2phase(longitude: float):

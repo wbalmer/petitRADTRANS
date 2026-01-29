@@ -498,6 +498,10 @@ def planck_function_hz_temperature_derivative(
     return _planck_function
 
 
+def shift_wavelengths_by_radial_velocity(radial_velocity):
+    return jnp.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
+
+
 def rebin_spectrum(
     input_wavelengths: ArrayLike,
     input_spectrum: ArrayLike,
