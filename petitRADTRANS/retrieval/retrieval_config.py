@@ -1,6 +1,6 @@
 import logging
 import os
-from  typing import Callable
+from typing import Callable
 
 import numpy as np
 
@@ -715,12 +715,12 @@ class RetrievalConfig:
                 if line[0] == '#':
                     continue
 
-                vals = line.split(',')
-                name = vals[0]
-                wlow = float(vals[1])
-                whigh = float(vals[2])
-                flux = float(vals[3])
-                err = float(vals[4])
+                columns = line.split(',')
+                name = columns[0]
+                wavelengths_low = float(columns[1])
+                wavelengths_high = float(columns[2])
+                flux = float(columns[3])
+                uncertainties = float(columns[4])
 
                 if photometric_transformation_function is None:
                     if comm is not None and comm.Get_size() > 1:
@@ -735,12 +735,19 @@ class RetrievalConfig:
                     transform = photometric_transformation_function
 
                 if wlen_range_micron is None:
-                    wbins = [0.95 * wlow, 1.05 * whigh]
+                    wbins = [0.95 * wavelengths_low, 1.05 * wavelengths_high]
                 else:
                     wbins = wlen_range_micron
 
                 if opacity_mode == 'lbl':
                     logging.warning("Are you sure you want a high resolution model for photometry?")
+
+                data_resolution: float = (
+                    np.array(
+                        [wavelengths_low, wavelengths_high]
+                    ).mean()
+                    / (wavelengths_high - wavelengths_low)
+                )
 
                 self.data[name] = Data(
                     name=name,
@@ -749,13 +756,14 @@ class RetrievalConfig:
                     system_distance=distance,
                     photometry=True,
                     wavelength_boundaries=wbins,
-                    photometric_bin_edges=(wlow, whigh),
-                    data_resolution=np.array([wlow, whigh]).mean() / (whigh - wlow),
+                    photometric_bin_edges=(wavelengths_low, wavelengths_high),
+                    data_resolution=data_resolution,
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
                     external_radtrans_reference=external_prt_reference,
                     line_opacity_mode=opacity_mode
                 )
+                self.data[name].wavelengths = np.mean(np.vstack((wavelengths_low, wavelengths_high)), axis=0)
                 self.data[name].spectrum = flux
-                self.data[name].uncertainties = err
+                self.data[name].uncertainties = uncertainties

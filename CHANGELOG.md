@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 
 ## [3.3.1a1] - 2026-02-01
+### Fixed
+- Infinite recursive error checking when retrieving photometric data with the `Radtrans` retrieval workflow ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122)).
+
 ### Pending
 - Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
 - Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
