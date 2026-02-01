@@ -496,7 +496,7 @@ class Opacity:
         molar_mass: float,
         species_name: str | tuple[str, ...],
         date_id: str
-    ) -> tuple[float | npt.NDArray[float], str]:
+    ) -> tuple[float | npt.NDArray[np.floating], str]:
         """Perform operations always done to write an opacity file."""
         from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
 
@@ -2470,8 +2470,8 @@ class CIAOpacity(Opacity):
         wavelength_max: float, optional
             (um) Upper wavelength bounds of the opacity data. Default is 250.
         path_input_data: str, optional
-            Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
-            use the path provided in petitRadtrans' config file.
+            Absolute path to petitRadtrans "input_data" directory, where the opacity files are stored. By default,
+            use the path provided in petitRadtrans config file.
         species_full_name: str, optional
             Override the species full name. The species full name is composed of the species isotopic information,
             the natural abundance flag (if relevant), and the charge.
@@ -2674,10 +2674,10 @@ class CIAOpacity(Opacity):
             cls,
             file: str,
             colliding_species: tuple[str, ...],
-            alphas: npt.NDArray[float],
-            wavenumbers: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            alphas: npt.NDArray[np.floating],
+            wavenumbers: npt.NDArray[np.floating],
+            pressures: npt.NDArray[np.floating],
+            temperatures: npt.NDArray[np.floating],
             molar_mass: float = None,
             doi: str = '',
             contributor: str = '',
@@ -2816,7 +2816,7 @@ class CloudOpacity(Opacity):
             An unknown space group is indicated as '000'.
         path_input_data: str, optional
             Absolute path to petitRadtrans' "input_data" directory, where the opacity files are stored. By default,
-            use the path provided in petitRadtrans' config file.
+            use the path provided in petitRadtrans config file.
         species_full_name: str, optional
             Override the species full name. The species full name is composed of the species isotopic information,
             the natural abundance flag (if relevant), and the charge.
@@ -3200,13 +3200,13 @@ class CloudOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            absorption_opacities: npt.NDArray[float],
-            scattering_opacities: npt.NDArray[float],
-            asymmetry_parameters: npt.NDArray[float],
-            particles_densities: npt.NDArray[float],
-            particles_radius_bin_centers: npt.NDArray[float],
-            particles_radius_bin_edges: npt.NDArray[float],
-            wavenumbers: npt.NDArray[float],
+            absorption_opacities: npt.NDArray[np.floating],
+            scattering_opacities: npt.NDArray[np.floating],
+            asymmetry_parameters: npt.NDArray[np.floating],
+            particles_densities: npt.NDArray[np.floating],
+            particles_radius_bin_centers: npt.NDArray[np.floating],
+            particles_radius_bin_edges: npt.NDArray[np.floating],
+            wavenumbers: npt.NDArray[np.floating],
             doi: str = '',
             contributor: str = '',
             description: str = '',
@@ -3449,7 +3449,7 @@ class CorrelatedKOpacity(Opacity):
         )
 
     @classmethod
-    def _get_default_rebinning_wavenumber_grid(cls, resolving_power: float) -> npt.NDArray[float]:
+    def _get_default_rebinning_wavenumber_grid(cls, resolving_power: float) -> npt.NDArray[np.floating]:
         """Return the default rebinning wavenumber grid, an equally log-spaced grid from 0.1 to 250 microns.
 
         Args:
@@ -3542,7 +3542,7 @@ class CorrelatedKOpacity(Opacity):
             print("Successfully binned down all k-tables\n")
 
     @classmethod
-    def exo_k_rebin(cls, input_file: str, resolving_power: float, wavenumber_grid: npt.NDArray[float] = None,
+    def exo_k_rebin(cls, input_file: str, resolving_power: float, wavenumber_grid: npt.NDArray[np.floating] = None,
                     rewrite: bool = False) -> int:
         try:
             import exo_k
@@ -3703,14 +3703,14 @@ class CorrelatedKOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            k_coefficients: npt.NDArray[float],
-            wavenumber_bin_centers: npt.NDArray[float],
-            wavenumber_bin_edges: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            k_coefficients: npt.NDArray[np.floating],
+            wavenumber_bin_centers: npt.NDArray[np.floating],
+            wavenumber_bin_edges: npt.NDArray[np.floating],
+            pressures: npt.NDArray[np.floating],
+            temperatures: npt.NDArray[np.floating],
             temperature_grid_type: str,
-            g_weights: npt.NDArray[float],
-            g_samples: npt.NDArray[float],
+            g_weights: npt.NDArray[np.floating],
+            g_samples: npt.NDArray[np.floating],
             molar_mass: float = None,
             doi: str = '',
             contributor: str = '',
@@ -4062,10 +4062,10 @@ class LineByLineOpacity(Opacity):
             cls,
             file: str,
             species_name: str,
-            cross_sections: npt.NDArray[float],
-            wavenumber_bin_edges: npt.NDArray[float],
-            pressures: npt.NDArray[float],
-            temperatures: npt.NDArray[float],
+            cross_sections: npt.NDArray[np.floating],
+            wavenumber_bin_edges: npt.NDArray[np.floating],
+            pressures: npt.NDArray[np.floating],
+            temperatures: npt.NDArray[np.floating],
             temperature_grid_type: str,
             molar_mass: float = None,
             doi: str = '',

@@ -68,13 +68,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         # Actual equilibrium chemistry
         # Can retrieve atomic abundances
 
-        # Calling it abundances_interp to be consistent w poor mans
+        # Calling it abundances_interp to be consistent with poor man's
         abundances_interp = get_exoatmos_abundances(pressures,
                                                     temperatures,
                                                     parameters)
         mmw = abundances_interp['MMW']
     elif "C/O" in parameters.keys():
-        # Check C/O AFTER easychem check -> need to use poor mans
+        # Check C/O AFTER easychem check -> need to use poor man's
 
         # Interpolated Equilibrium chemistry
         # Make the abundance profile
@@ -193,7 +193,6 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
 
     for cloud in cloud_species:
         cloud_opacity = CloudOpacity([cloud])
-        species_full_name = cloud_opacity.species_full_name
         cloud_name = cloud_opacity.species_base_name.split('_')[0]
 
         if 'use_easychem' in parameters.keys():
@@ -247,11 +246,8 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     fseds = {}
 
     if 'use_easychem' not in parameters.keys():
-        species_full_name = None
-
         for cloud in copy.copy(cloud_species):
             cloud_opacity = CloudOpacity([cloud])
-            species_full_name = cloud_opacity.species_full_name
             cloud_name = cloud_opacity.species_base_name.split('_')[0]
 
             # Set up fseds per-cloud

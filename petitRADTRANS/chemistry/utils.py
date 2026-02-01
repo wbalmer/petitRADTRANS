@@ -299,6 +299,7 @@ def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
     return mean_molar_masses
 
 
+# TODO [4.0.0] remove 'nnodes' as it is not used
 def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0):
     """
     Compute a cubic spline profile for abundance based on pressure points.
@@ -360,7 +361,7 @@ def define_abundance_node_list(species_short_name, parameters):
     return abundance_nodes
 
 
-def define_pressure_node_list(pressure_array, species_short_name, parameters):
+def define_pressure_node_list(pressure_array, species_short_name, parameters) -> npt.NDArray[np.floating]:
     """
     Define the location of pressure nodes, allowing individual nodes to be
     retrieved parameters.
@@ -411,11 +412,11 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     else:
         pressure_interpolation_nodes = [np.log10(pressure_array[0]), np.log10(pressure_array[-1])]
 
-    return pressure_interpolation_nodes
+    return np.array(pressure_interpolation_nodes)
 
 
-def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_species: dict, fill_layer: int = 'all',
-                    ) -> dict[str, npt.NDArray[float]]:
+def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[np.floating]], filling_species: dict, fill_layer: int = 'all',
+                    ) -> dict[str, npt.NDArray[np.floating]]:
     """Fill an atmosphere with filling species, so that the sum of the mass fractions in all layers is 1.
 
     See fill_atmospheric_layer for more details.
@@ -440,7 +441,7 @@ def fill_atmosphere(mass_fractions: dict[str, npt.NDArray[float]], filling_speci
     else:
         layers = np.array([fill_layer])
 
-    filled_mass_fractions: dict[str, npt.NDArray[float]] = {
+    filled_mass_fractions: dict[str, npt.NDArray[np.floating]] = {
         species: np.zeros(layers.size, dtype=float)
         for species in all_species
     }
@@ -619,7 +620,7 @@ def fixed_length_amr(p_clouds, pressures, scaling=10, width=3):
     cloud_indices = np.searchsorted(pressures, np.asarray(p_clouds))
 
     # High resolution intervals
-    def bounds(center: int, _width: int) -> [int, int]:
+    def bounds(center: int, _width: int) -> tuple[float, float]:
         upper = min(center + _width / 2, length)
         lower = max(upper - _width, 0)
 
@@ -734,8 +735,8 @@ def mass_fractions2volume_mixing_ratios(mass_fractions, mean_molar_masses=None):
     return volume_mixing_ratios
 
 
-def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[float]],
-                               mean_molar_masses: npt.NDArray[float],
+def mass_fractions2metallicity(mass_fractions: dict[str, npt.NDArray[np.floating]],
+                               mean_molar_masses: npt.NDArray[np.floating],
                                neglect_he: bool = False,
                                only_atmospheric_species_for_solar_metallicity: bool = False):
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
@@ -845,8 +846,11 @@ def volume_mixing_ratios2mass_fractions(volume_mixing_ratios, mean_molar_masses=
     return mass_fractions
 
 
-def volume_mixing_ratios2metallicity(volume_mixing_ratios: dict[str, np.ndarray[float]], neglect_he: bool = False,
-                                     only_atmospheric_species_for_solar_metallicity: bool = False):
+def volume_mixing_ratios2metallicity(
+    volume_mixing_ratios: dict[str, npt.NDArray[np.floating]],
+    neglect_he: bool = False,
+    only_atmospheric_species_for_solar_metallicity: bool = False
+) -> tuple[float, dict[int, dict[str, str]]]:
     """Calculate the metallicity and element-over-hydrogen abundance ratios.
 
     Args:

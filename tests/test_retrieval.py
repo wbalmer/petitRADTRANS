@@ -84,7 +84,7 @@ def init_run():
         transform_prior_cube_coordinate=prior_temperature
     )
 
-    # Include a grey cloud as well to see what happens
+    # Include a gray cloud as well to see what happens
     run_definition_simple.add_parameter(
         "log_Pcloud",
         True,
@@ -175,6 +175,7 @@ def init_run():
 
 
 # Atmospheric model
+# noinspection PyUnusedLocal
 def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=False):
     """
     This model computes a transmission spectrum based on free retrieval chemistry
@@ -190,7 +191,7 @@ def retrieval_model_spec_iso(prt_object, parameters, pt_plot_mode=None, amr=Fals
                 R_pl : planet radius [cm]
                 Temperature : Isothermal temperature [K]
                 species : Log abundances for each species used in the retrieval
-                log_Pcloud : optional, cloud base pressure of a grey cloud deck.
+                log_Pcloud : optional, cloud base pressure of a gray cloud deck.
         pt_plot_mode:
             Return only the pressure-temperature profile for plotting. Evaluate mode only. Mandatory.
         amr:
@@ -263,7 +264,8 @@ def test_simple_retrieval():
         seed=test_parameters['retrieval_parameters']['seed']
     )
 
-    # Just check if get_samples works
+    # Check if 'get_samples' works
+    # noinspection PyUnusedLocal
     sample_dict, parameter_dict = retrieval.get_samples(
         ultranest=False,
         names=retrieval.corner_files,

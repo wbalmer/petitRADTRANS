@@ -20,14 +20,14 @@ class PreCalculatedEquilibriumChemistryTable:
     def __init__(self):
         self._loaded: bool = False
 
-        self.log10_metallicities: [npt.NDArray[float], None] = None
-        self.co_ratios: [npt.NDArray[float], None] = None
-        self.temperatures: [npt.NDArray[float], None] = None
-        self.pressures: [npt.NDArray[float], None] = None
-        self.species: [tuple[str, ...], None] = None
-        self.mass_fractions: [npt.NDArray[float], None] = None
-        self.nabla_adiabatic: [npt.NDArray[float], None] = None
-        self.mean_molar_masses: [npt.NDArray[float], None] = None
+        self.log10_metallicities: npt.NDArray[np.floating] | None = None
+        self.co_ratios: npt.NDArray[np.floating] | None = None
+        self.temperatures: npt.NDArray[np.floating] | None = None
+        self.pressures: npt.NDArray[np.floating] | None = None
+        self.species: tuple[str, ...] | None = None
+        self.mass_fractions: npt.NDArray[np.floating] | None = None
+        self.nabla_adiabatic: npt.NDArray[np.floating] | None = None
+        self.mean_molar_masses: npt.NDArray[np.floating] | None = None
 
     @staticmethod
     def get_default_file(path_input_data: str = None) -> str:
@@ -41,9 +41,15 @@ class PreCalculatedEquilibriumChemistryTable:
             "equilibrium_chemistry.chemtable.petitRADTRANS.h5"
         ))
 
-    def interpolate_mass_fractions(self, co_ratios: iter, log10_metallicities: iter,
-                                   temperatures: iter, pressures: iter,
-                                   carbon_pressure_quench: float = None, full: bool = False):
+    def interpolate_mass_fractions(
+        self,
+        co_ratios: npt.NDArray[np.floating],
+        log10_metallicities: npt.NDArray[np.floating],
+        temperatures: npt.NDArray[np.floating],
+        pressures: npt.NDArray[np.floating],
+        carbon_pressure_quench: float = None,
+        full: bool = False
+    ):
         """Interpolate mass fractions from a pre-calculated table to the desired parameters.
 
         Args:
@@ -64,27 +70,27 @@ class PreCalculatedEquilibriumChemistryTable:
         if not self._loaded:
             self.load()
 
-        co_ratios: npt.NDArray[float] = np.array(co_ratios).reshape(-1)
-        log10_metallicities: npt.NDArray[float] = np.array(log10_metallicities).reshape(-1)
-        temperatures: npt.NDArray[float] = np.array(temperatures).reshape(-1)
-        pressures: npt.NDArray[float] = np.array(pressures).reshape(-1)
+        co_ratios: npt.NDArray[np.floating] = np.array(co_ratios).reshape(-1)
+        log10_metallicities: npt.NDArray[np.floating] = np.array(log10_metallicities).reshape(-1)
+        temperatures: npt.NDArray[np.floating] = np.array(temperatures).reshape(-1)
+        pressures: npt.NDArray[np.floating] = np.array(pressures).reshape(-1)
 
         # Apply boundary treatment
-        co_ratios[co_ratios <= np.min(self.co_ratios)] = np.min(self.co_ratios) + 1e-6
-        co_ratios[co_ratios >= np.max(self.co_ratios)] = np.max(self.co_ratios) - 1e-6
+        co_ratios[co_ratios <= np.min(self.co_ratios)] = self.co_ratios.min() + 1e-6
+        co_ratios[co_ratios >= np.max(self.co_ratios)] = self.co_ratios.max() - 1e-6
 
         log10_metallicities[log10_metallicities <= np.min(self.log10_metallicities)] =\
-            np.min(self.log10_metallicities) + 1e-6
+            self.log10_metallicities.min() + 1e-6
         log10_metallicities[log10_metallicities >= np.max(self.log10_metallicities)] =\
-            np.max(self.log10_metallicities) - 1e-6
+            self.log10_metallicities.max() - 1e-6
 
-        temperatures[temperatures <= np.min(self.temperatures)] = np.min(self.temperatures) + 1e-6
-        temperatures[temperatures >= np.max(self.temperatures)] = np.max(self.temperatures) - 1e-6
+        temperatures[temperatures <= np.min(self.temperatures)] = self.temperatures.min() + 1e-6
+        temperatures[temperatures >= np.max(self.temperatures)] = self.temperatures.max() - 1e-6
 
         pressures[pressures <= np.min(self.pressures)] = (
-            np.min(self.pressures) + 1e-6)
+            self.pressures.min() + 1e-6)
         pressures[pressures >= np.max(self.pressures)] = (
-            np.max(self.pressures) - 1e-6)
+            self.pressures.max() - 1e-6)
 
         # Get interpolation indices
         co_ratios_large_int = np.searchsorted(self.co_ratios, co_ratios) + 1
@@ -209,7 +215,7 @@ class PreCalculatedEquilibriumChemistryTable:
             self.pressures = f['pressures'][()]
 
             self.species = f['species'][()]
-            self.species = np.array([name.decode('utf-8') for name in self.species])
+            self.species = tuple([name.decode('utf-8') for name in self.species])
 
             self.mass_fractions = f['mass_fractions'][()]
             self.mean_molar_masses = f['mean_molar_masses'][()]

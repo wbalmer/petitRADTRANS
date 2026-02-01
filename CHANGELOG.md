@@ -4,24 +4,30 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+
+## [3.3.1a1] - 2026-02-01
+### Pending
+- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
+- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
+- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
 ## [3.3.0] - 2026-01-23
 ### Added
+- Arbitrary cloud particle size distribution.
+- Handling of pressure-varying abundances in `retrieval_config`.
 - Linear spline continuum subtraction (courtesy Will Balmer).
 - Radial velocity handling in retrieval package (courtesy Will Balmer).
-- Can provide covariance matrix to data object.
-- Added functionality to `retrieval_config` to handle pressure varying abundances.
-- Added docstrings to most of the objects in the `opacity` module.
-- Added functionality to `radtrans` to take in an arbitrary cloud particle size distribution.
-- Added functionality to `radtrans` to map out the cloud particle size distribution that affects the spectrum.
-- calculate_transit_radii can now return particle radii, radii bins and particle densities.
-- calculate_flux can now return particle radii and radii bins.
-
+- Covariance matrix for `Data` objects.
+- Possibility to map out the cloud particle size distribution that affects the spectrum.
+- Possibility to combine line-by-line and correlated-k opacities in retrievals.
+- Possibility for `calculate_transit_radii` to return particle radii, radii bins and particle densities.
+- Possibility for `calculate_flux` to return particle radii and radii bins.
+- Docstrings to most of the objects in the `opacity` module.
 
 ### Changed
-- Better handling of opacity naming in retrieval module, allows for some combinations of lbl and ck in retrievals.
+- Better handling of opacity naming in `retrieval` module.
 - Made retrieval dependencies part of standard installation.
-- Integration of cloud opacities is now handled by feeder function.
-- Renamed cloud_anisotopy_fraction to cloud_one_minus_g in radtrans.
+- Integration of cloud opacities is now handled by feeder functions.
 
 ### Fixed
 - Crash when rebinning line opacities if `mpi4py` is not installed.
@@ -94,11 +100,6 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 - Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106)).
 - Numerical bug in Madhusudhan/Seager PT profile ([issue 115](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/115)).
 - Missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)).
-
-### Pending
-- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
-- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
 
 ## [3.1.3] - 2025-02-27
 ### Fixed

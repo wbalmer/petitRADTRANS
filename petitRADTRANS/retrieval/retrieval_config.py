@@ -1,5 +1,6 @@
 import logging
 import os
+from  typing import Callable
 
 import numpy as np
 
@@ -223,7 +224,7 @@ class RetrievalConfig:
         opacities of the model. The values in the list are strings, with the names matching
         the pRT opacity names, which vary between the c-k line opacities and the line-by-line opacities.
 
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        NOTE: As of pRT version 2.4.9, the behavior of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
@@ -287,7 +288,7 @@ class RetrievalConfig:
         The name must match the pRT opacity name, which vary between the c-k line opacities and the line-by-line
         opacities.
 
-        NOTE: As of pRT version 2.4.9, the behaviour of this function has changed. In previous versions the
+        NOTE: As of pRT version 2.4.9, the behavior of this function has changed. In previous versions the
         abundance limits were set from abund_lim[0] to (abund_lim[0] + abund_lim[1]). This has been changed
         so that the limits of the prior range are from abund_lim[0] to abund_lim[1] (ie the actual boundaries).
 
@@ -373,7 +374,7 @@ class RetrievalConfig:
                 The prior range on the log pressure of the pressure nodes in log bar, only used if pressure_spacing is
                 'absolute' or 'relative'.
             fixed_pressure_node_species: str
-                If pressure_spacing is 'fixed', this species' pressure nodes will be used as the pressure nodes.
+                If pressure_spacing is 'fixed', this species pressure nodes will be used as the pressure nodes.
                 Note that this species must already have been added to the retrieval with
                 add_pressure_varying_line_species.
         """
@@ -543,6 +544,8 @@ class RetrievalConfig:
                     value=fixed_base
                 )
 
+    # TODO @Evert complete docstring
+    # TODO [4.0.0] remove radvel as it is not used
     def add_data(self,
                  name,
                  path_to_observations,
@@ -575,7 +578,7 @@ class RetrievalConfig:
                  atmospheric_column_flux_mixer=None):
         """
         Create a Data class object.
-        # TODO complete docstring
+
         Args:
             name : str
                 Identifier for this data set.
@@ -641,15 +644,18 @@ class RetrievalConfig:
             atmospheric_column_flux_mixer=atmospheric_column_flux_mixer
         )
 
-    def add_photometry(self, path,
-                       model_generating_function,
-                       model_resolution=10,
-                       distance=None,
-                       scale=False,
-                       wlen_range_micron=None,
-                       photometric_transformation_function=None,
-                       external_prt_reference=None,
-                       opacity_mode='c-k'):
+    def add_photometry(
+        self,
+        path: str,
+        model_generating_function: Callable,
+        model_resolution: float = 10.0,
+        distance: float | None = None,
+        scale: bool = False,
+        wlen_range_micron: tuple[float, float] = None,
+        photometric_transformation_function: Callable = None,
+        external_prt_reference: object = None,
+        opacity_mode: str = 'c-k'
+    ) -> None:
         """
         Create a Data class object for each photometric point in a photometry file.
         The photometry file must be a csv file and have the following structure:
@@ -674,7 +680,7 @@ class RetrievalConfig:
                 be scaled to the same distance before running the retrieval, which can be done using the
                 scale_to_distance method in the Data class.
             wlen_range_micron : Tuple
-                A pair of wavelenths in units of micron that determine the lower and upper boundaries of
+                A pair of wavelengths in units of micron that determine the lower and upper boundaries of
                 the model computation.
             external_prt_reference : str
                 The name of an existing Data object. This object's prt_object will be used to calculate the
@@ -682,22 +688,27 @@ class RetrievalConfig:
                 one model computation is required to compute the log likelihood of both datasets.
             photometric_transformation_function : method
                 A function that will transform a spectrum into an average synthetic photometric point,
-                typicall accounting for filter transmission.
+                typically accounting for filter transmission.
             opacity_mode: str
                 Opacity mode.
         """
-
         with open(path) as photometry:
             if photometric_transformation_function is None:
                 try:
                     import species as sp
-                    from species.phot.syn_phot import SyntheticPhotometry
-
-                    sp.SpeciesInit()
-                except ModuleNotFoundError:  # TODO find what error is expected here
-                    logging.error(
+                except ModuleNotFoundError as e:
+                    e.add_note(
                         "Please provide a function to transform a spectrum into photometry, or pip install species"
                     )
+                    raise e
+
+                from species.phot.syn_phot import SyntheticPhotometry
+
+                sp.SpeciesInit()
+            else:
+                # Prevent potential reference before assignment
+                class SyntheticPhotometry:
+                    ...
 
             for line in photometry:
                 # # must be the comment character
@@ -732,14 +743,14 @@ class RetrievalConfig:
                     logging.warning("Are you sure you want a high resolution model for photometry?")
 
                 self.data[name] = Data(
-                    name,
-                    path,
+                    name=name,
+                    path_to_observations=path,
                     model_generating_function=model_generating_function,
                     system_distance=distance,
                     photometry=True,
                     wavelength_boundaries=wbins,
-                    photometric_bin_edges=[wlow, whigh],
-                    data_resolution=np.mean([wlow, whigh]) / (whigh - wlow),
+                    photometric_bin_edges=(wlow, whigh),
+                    data_resolution=np.array([wlow, whigh]).mean() / (whigh - wlow),
                     model_resolution=model_resolution,
                     scale=scale,
                     photometric_transformation_function=transform,
