@@ -4,6 +4,11 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.3.1] - 2026-01-23
+### Fixed
+- Fixed naming bug with CloudOpacity in retrieval package ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
+- Fixed uncertainty definition if covariance matrix exists in data.py ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
+
 ## [3.3.0] - 2026-01-23
 ### Added
 - Linear spline continuum subtraction (courtesy Will Balmer).
