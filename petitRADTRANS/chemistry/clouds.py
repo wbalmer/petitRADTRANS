@@ -5,6 +5,7 @@ import copy
 import warnings
 
 import jax.numpy as jnp
+from jax import lax
 from scipy.interpolate import interp1d
 
 from petitRADTRANS.chemistry.prt_molmass import get_species_molar_mass
@@ -255,7 +256,7 @@ def return_cloud_mass_fraction(name, metallicity, co_ratio):
         return jnp.zeros_like(metallicity)
 
 
-def simple_cdf(name, press, temp, metallicity, co_ratio, mmw=2.33):
+def simple_cdf(name, press, temp, metallicity=0.0, co_ratio=0.55, mmw=2.33):
     if "Fe(s)" in name or "Fe(l)" in name:
         return simple_cdf_fe(press, temp, metallicity, co_ratio, mmw)
     elif "MgSiO3(s)" in name or "MgSiO3(l)" in name:
@@ -293,7 +294,7 @@ def simple_cdf_free(name, press, temp, metallicity, mfrac, mmw=2.33):
         return jnp.zeros_like(metallicity)
 
 
-def return_x_fe(metallicity, co_ratio):
+def return_x_fe(metallicity=0.0, co_ratio=0.55):
     nfracs_use = copy.copy(__elemental_abundances)
 
     for spec in __elemental_abundances.keys():
@@ -514,9 +515,8 @@ def return_t_cond_fe_comb(metallicity, co_ratio, mmw=2.33):
 
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
-    ret_p[index] = p1[index]
-    ret_p[~index] = p2[~index]
-
+    ret_p = jnp.where(index, p1, ret_p)
+    ret_p = jnp.where(~index, p2, ret_p)
     return ret_p, t2
 
 
@@ -545,8 +545,8 @@ def return_t_cond_fe_comb_free(x_fe, mmw=2.33):
     p2, t2 = return_t_cond_fe_l_free(x_fe, mmw)
     ret_p = jnp.zeros_like(p1)
     index = p1 < p2
-    ret_p[index] = p1[index]
-    ret_p[~index] = p2[~index]
+    ret_p = jnp.where(index, p1, ret_p)
+    ret_p = jnp.where(~index, p2, ret_p)
 
     return ret_p, t2
 
@@ -701,45 +701,39 @@ def return_t_cond_sio_free(x_sio, mmw=2.33):
 
 def simple_cdf_fe(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_fe_comb(metallicity, co_ratio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
+    #tcond_p = interp1d(pc, tc)
+    #tcond_on_input_grid = tcond_p(press)
 
     tdiff = tcond_on_input_grid - temp
     diff_vec = tdiff[1:] * tdiff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
     pc, tc = return_t_cond_fe_comb_free(x_fe, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-
-    try:  # TODO replace try/except with proper conditional handling of potential error
-        tcond_on_input_grid = tcond_p(press)
-    except ValueError:
-        print(pc)
-        return jnp.min(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
     t_diff = tcond_on_input_grid - temp
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 

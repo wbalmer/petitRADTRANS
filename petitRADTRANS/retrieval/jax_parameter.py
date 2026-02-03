@@ -56,7 +56,7 @@ class Parameter:
         self.corner_label = corner_label
 
     def _tree_flatten(self):
-        children = ()  # arrays / dynamic values
+        children = (self.value,)  # arrays / dynamic values
         aux_data = {'name': self.name,
                     'is_free_parameter': self.is_free_parameter,
                     'distribution': self.distribution,
@@ -69,7 +69,7 @@ class Parameter:
 
     @classmethod
     def _tree_unflatten(cls, aux_data, children):
-        return cls(*children, **aux_data)
+        return cls(value=children[0], **aux_data)
 
     def get_param_uniform(self, cube):
         if self.is_free_parameter:

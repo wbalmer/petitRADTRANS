@@ -416,7 +416,7 @@ def define_abundance_node_list(species_short_name, parameters):
     return abundance_nodes
 
 
-@partial(jit, static_argnames=['species_short_name'])
+# TODO: nnode arg for static sizing
 def define_pressure_node_list(pressure_array, species_short_name, parameters):
     """
     Define the location of pressure nodes, allowing individual nodes to be
@@ -433,57 +433,43 @@ def define_pressure_node_list(pressure_array, species_short_name, parameters):
     Returns:
         array: an array of pressure nodes, can be used in calculate_pressure_nodes
     """
-    # To make this function JIT-compatible, we assume that `species_short_name` is a static argument,
-    # and the keys of the `parameters` dictionary are static.
-    # The number of nodes `nnodes` must also be a static value.
+    pressure_interpolation_nodes = None
 
-    has_n_nodes = f"{species_short_name}_n_pressure_nodes" in parameters
-    has_nodes_list = f"{species_short_name}_pressure_nodes" in parameters
-
-    def n_nodes_branch(_):
+    if f"{species_short_name}_n_pressure_nodes" in parameters.keys():
         nnodes = parameters[f"{species_short_name}_n_pressure_nodes"].value
         mode = parameters[f"{species_short_name}_interpolation_mode"].value
 
-        def even_branch(_):
-            return compute_pressure_nodes(
-                pressure_array, mode=mode, nnodes=nnodes, points_list=None
+        # Evenly spaced in log P
+        if mode == 'even':
+            pressure_interpolation_nodes = compute_pressure_nodes(
+                pressure_array,
+                mode=parameters[f"{species_short_name}_interpolation_mode"].value,
+                nnodes=parameters[f"{species_short_name}_n_pressure_nodes"].value,
+                points_list=None
             )
-
-        def relative_branch(_):
-            # This list comprehension requires nnodes to be static.
-            pnodes = jnp.array([
-                parameters[f"{species_short_name}_pressure_node_{i}"].value
-                for i in range(nnodes)
-            ])
-            return compute_pressure_nodes(
-                pressure_array, mode=mode, nnodes=None, points_list=pnodes
+        # Retrieve individual relative pressure node locations
+        elif mode == 'relative':
+            pnodes = [parameters[f"{species_short_name}_pressure_node_{i}"].value for i in range(nnodes)]
+            pressure_interpolation_nodes = compute_pressure_nodes(
+                pressure_array,
+                mode=mode,
+                nnodes=None,  # TODO None is not handled in function, potential issue?
+                points_list=pnodes
             )
-
-        return lax.cond(mode == 'even', even_branch, relative_branch, None)
-
-    def nodes_list_branch(_):
-        return compute_pressure_nodes(
+    # Predefined list of pressure node locations
+    # TODO: split this off into separate function?
+    elif f"{species_short_name}_pressure_nodes" in parameters.keys():
+        pressure_interpolation_nodes = compute_pressure_nodes(
             pressure_array,
             mode=parameters[f"{species_short_name}_interpolation_mode"].value,
             nnodes=None,
             points_list=parameters[f"{species_short_name}_pressure_nodes"].value
         )
+    # Default to bottom and top of atmosphere
+    else:
+        pressure_interpolation_nodes = [jnp.log10(pressure_array[0]), jnp.log10(pressure_array[-1])]
 
-    def default_branch(_):
-        return jnp.array([jnp.log10(pressure_array[0]), jnp.log10(pressure_array[-1])])
-
-    # The boolean conditions are static, so JAX will prune the unused branches at compile time.
-    return lax.cond(
-        has_n_nodes,
-        n_nodes_branch,
-        lambda _: lax.cond(
-            has_nodes_list,
-            nodes_list_branch,
-            default_branch,
-            None
-        ),
-        None
-    )
+    return jnp.array(pressure_interpolation_nodes)
 
 
 @jit
@@ -629,8 +615,9 @@ def fill_atmospheric_layer(mass_fractions: dict[str, float], filling_species: di
 
     return mass_fractions
 
-@partial(jit, static_argnames=['scaling', 'width'])
-def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike, scaling: int, width: int):
+
+@jit
+def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayLike):
     r"""This function takes in the cloud base pressures for each cloud,
     and returns an array of pressures with a high resolution mesh
     in the region where the clouds are located.
@@ -650,50 +637,51 @@ def fixed_length_adaptive_mesh_refinement(p_clouds: ArrayLike, pressures: ArrayL
         width : int
             The number of low resolution bins to be replaced for each cloud layer.
     """
-
     length = pressures.shape[0]
-    scaling_safe = 10
-    width_safe = 3
+    n_clouds = p_clouds.shape[0]
+    scaling = 10
+    width = 3
 
-    #output_size = len(pressures[::max(scaling, 1)]) + len(p_clouds) * width * (scaling - 1)
-    output_size = pressures.shape[0]//scaling_safe + p_clouds.shape[0] * width_safe * (scaling_safe - 1)
-    cloud_indices = jnp.searchsorted(pressures, jnp.asarray(p_clouds))
+    # Calculate output size (static if shapes are static)
+    # len(pressures[::scaling]) is equivalent to ceil(length / scaling)
+    n_coarse = (length + scaling - 1) // scaling
+    output_size = n_coarse + n_clouds * width * (scaling - 1)
 
-    # High resolution intervals
-    def bounds(center: int, _width: int) -> jnp.ndarray:
-        upper = jnp.minimum(center + _width // 2, length).astype(int)
-        lower = jnp.maximum(upper - _width, 0).astype(int)
+    # Coarse indices
+    coarse_indices = jnp.arange(0, length, scaling)
 
-        return jnp.array([lower, lower + _width]).astype(int)
+    # Cloud indices
+    # Find indices in pressures closest to p_clouds
+    cloud_centers = jnp.searchsorted(pressures, p_clouds)
 
-    intervals = vmap(bounds, in_axes=(0, None))(cloud_indices, scaling_safe * width_safe)
+    window_width = width * scaling
 
-    # Merge intervals
-    while True:
-        intervals, stack = jnp.sort(intervals), []
+    # Calculate bounds for each cloud window
+    # We want a window of size window_width centered around cloud_centers
+    uppers = jnp.minimum(cloud_centers + window_width // 2, length)
+    lowers = jnp.maximum(uppers - window_width, 0)
 
-        for interval in intervals:
-            if stack and stack[-1][1] >= interval[0]:
-                last = stack.pop()
-                interval = bounds(
-                    (last[0] + jnp.maximum(last[1], interval[1]) + 1) // 2,
-                    last[1] - last[0] + interval[1] - interval[0],
-                )
+    # Generate indices for each cloud window
+    # shape (n_clouds, window_width)
+    window_offsets = jnp.arange(window_width)
+    # Use broadcasting to create indices
+    cloud_indices_matrix = lowers[:, None] + window_offsets[None, :]
 
-            stack.append(interval)
+    # Flatten to 1D array
+    cloud_indices_flat = cloud_indices_matrix.ravel()
 
-        if len(intervals) == len(stack):
-            break
-        intervals = stack
+    # Combine coarse and cloud indices
+    all_indices = jnp.concatenate([coarse_indices, cloud_indices_flat])
 
-    # Intervals to indices
-    indices = [jnp.arange(0, length, scaling_safe).astype(int)]
+    # Clip to ensure valid indices (in case window goes out of bounds)
+    all_indices = jnp.clip(all_indices, 0, length - 1)
 
-    for interval in intervals:
-        indices.append(jnp.arange(*interval).astype(int))
-    indices = jnp.concatenate(indices).astype(int)
-    output_indices = jnp.unique(indices, size=output_size).astype(int)
-    return pressures[output_indices], output_indices
+    # Unique and sort, padding with the last index to match fixed output size
+    # If there are overlaps, we will have fewer unique points than output_size,
+    # so we pad with the last index.
+    final_indices = jnp.unique(all_indices, size=output_size, fill_value=length - 1)
+
+    return pressures[final_indices], final_indices
 
 
 def get_solar_elemental_abundances(keep_list: list[int] = None) -> dict[int, float]:
