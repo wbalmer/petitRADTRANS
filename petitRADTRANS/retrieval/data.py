@@ -393,6 +393,10 @@ class Data:
             elif 'COVARIANCE' in hdul[1].data.columns.names:
                 self.covariance = hdul[1].data['COVARIANCE'].astype(np.float64)
             self.inv_cov = np.linalg.inv(self.covariance)
+
+        if self.uncertainties is None and self.covariance is not None:
+                self.uncertainties = np.sqrt(self.covariance.diagonal())
+
         sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * self.covariance)
 
     def set_distance(self, distance):

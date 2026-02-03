@@ -194,7 +194,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
     for cloud in cloud_species:
         cloud_opacity = CloudOpacity([cloud])
         species_full_name = cloud_opacity.species_full_name
-        cloud_name = cloud_opacity.species_base_name.split('_')[0]
+        cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
 
         if 'use_easychem' in parameters.keys():
             # AMR CANNOT BE USED WITH EASYCHEM RIGHT NOW
@@ -252,7 +252,7 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
         for cloud in copy.copy(cloud_species):
             cloud_opacity = CloudOpacity([cloud])
             species_full_name = cloud_opacity.species_full_name
-            cloud_name = cloud_opacity.species_base_name.split('_')[0]
+            cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
 
             # Set up fseds per-cloud
             if 'fsed_' + cloud_name in parameters.keys():
