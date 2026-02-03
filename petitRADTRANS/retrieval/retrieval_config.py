@@ -499,10 +499,10 @@ class RetrievalConfig:
             return
         cloud_opacity = CloudOpacity([species])
         species_full_name = cloud_opacity.species_full_name
-        cloud_name = cloud_opacity.species_base_name.split('_')[0]
+        cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
 
-        print(species, species_full_name, cloud_opacity.species_isotopologue_name, cloud_name)
-        self.cloud_species.append(species_full_name)
+        #print(species, species_full_name, cloud_opacity.species_isotopologue_name, cloud_name)
+        self.cloud_species.append(cloud_opacity.species_isotopologue_name)
         if scaling_factor is not None:
             self.parameters['eq_scaling_' + cloud_name] = Parameter(
                 'eq_scaling_' + cloud_name, True,

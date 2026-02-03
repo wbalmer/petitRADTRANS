@@ -1873,8 +1873,9 @@ class Retrieval:
         mass_fractions_no_clouds = copy.deepcopy(mass_fractions)
         for cloud in self.configuration.cloud_species:
             cloud_opacity = CloudOpacity([cloud])
-            cloud_name = cloud_opacity.species_base_name.split('_')[0]
-            del mass_fractions_no_clouds[cloud_name]
+            cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
+            if cloud_name in mass_fractions_no_clouds.keys():
+                del mass_fractions_no_clouds[cloud_name]
         volume_mixing_ratios = mass_fractions2volume_mixing_ratios(mass_fractions_no_clouds)
 
         return volume_mixing_ratios, mean_molar_masses
@@ -4435,15 +4436,13 @@ class Retrieval:
                 else:
                     if data.external_radtrans_reference is None:
                         best_fit_binned = self.best_fit_spectra[name][1]
-
-                        if len(best_fit_binned) > 1:
+                        if isinstance(best_fit_binned, tuple) or isinstance(best_fit_binned, np.ndarray):
                             best_fit_binned = best_fit_binned[0]
                     else:
                         best_fit_binned = data.photometric_transformation_function(
                             self.best_fit_spectra[data.external_radtrans_reference][0],
                             self.best_fit_spectra[data.external_radtrans_reference][1])
-
-                        if len(best_fit_binned) > 1:
+                        if isinstance(best_fit_binned, tuple) or isinstance(best_fit_binned, np.ndarray):
                             best_fit_binned = best_fit_binned[0]
 
                 if data.subtract_continuum:
