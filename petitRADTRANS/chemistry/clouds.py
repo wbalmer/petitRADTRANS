@@ -117,10 +117,11 @@ def setup_clouds(pressures, parameters, cloud_species):
     radii = {}
 
     for cloud in cloud_species:
-        cloud_opacity = CloudOpacity([cloud])
-        cloud = cloud_opacity.species_base_name.split('_')[0]
-        if 'log_cloud_radius_' + cloud.split('_')[0] in parameters.keys():
-            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud.split('_')[0]].value * np.ones_like(pressures)
+        cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
+        species_full_name = cloud_opacity.species_full_name
+        cloud_name = species_full_name.split('_')[0]
+        if 'log_cloud_radius_' + cloud_name in parameters.keys():
+            radii[cloud] = 10 ** parameters['log_cloud_radius_' + cloud_name].value * np.ones_like(pressures)
 
     if not radii:
         radii = None
@@ -199,8 +200,9 @@ def cloud_dict(parameters, parameter_name, cloud_species, shape=0):
     output_dictionary = {}
 
     for cloud in cloud_species:
-        cloud_opacity = CloudOpacity([cloud])
-        cloud_name = cloud_opacity.species_base_name.split('_')[0]
+        cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
+        species_full_name = cloud_opacity.species_full_name
+        cloud_name = species_full_name.split('_')[0]
         output = None
 
         if parameter_name + "_" + cloud_name in parameters.keys():
