@@ -219,6 +219,9 @@ class Data:
             self.inv_cov = np.linalg.inv(covariance)
             sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * covariance)
 
+        if covariance is not None and uncertainties is None:
+            self.uncertainties = np.sqrt(np.diagonal(covariance))
+
         self.scale: bool = scale
         self.scale_err: bool = scale_err
         self.offset_bool: bool = offset_bool
