@@ -497,12 +497,12 @@ class RetrievalConfig:
             logging.warning("Ensure you set the cloud particle shape, typically with the _cd tag!")
             logging.warning(species + " was not added to the list of cloud species")
             return
-        cloud_opacity = CloudOpacity([species])
+        cloud_opacity = CloudOpacity([species], natural_abundance=False)
         species_full_name = cloud_opacity.species_full_name
-        cloud_name = cloud_opacity.species_isotopologue_name.split('_')[0]
+        cloud_name = species_full_name.split('_')[0]
 
         #print(species, species_full_name, cloud_opacity.species_isotopologue_name, cloud_name)
-        self.cloud_species.append(cloud_opacity.species_isotopologue_name)
+        self.cloud_species.append(cloud_opacity.species_full_name)
         if scaling_factor is not None:
             self.parameters['eq_scaling_' + cloud_name] = Parameter(
                 'eq_scaling_' + cloud_name, True,
