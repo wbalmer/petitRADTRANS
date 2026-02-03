@@ -258,13 +258,13 @@ def get_abundances(pressures, temperatures, line_species, cloud_species, paramet
             else:
                 fseds[cloud_name] = parameters['fsed'].value
 
-            abundances[cloud] = np.zeros_like(temperatures)
-            abundances[cloud][pressures < p_bases[cloud_name]] = \
+            abundances[cloud_name] = np.zeros_like(temperatures)
+            abundances[cloud_name][pressures < p_bases[cloud_name]] = \
                 clouds[cloud_name] * (
                         pressures[pressures <= p_bases[cloud_name]] / p_bases[cloud_name]
                 ) ** fseds[cloud_name]
 
-            abundances[cloud] = abundances[cloud][pressure_indices]
+            abundances[cloud_name] = abundances[cloud_name][pressure_indices]
 
     for species in line_species:
         species_opacity = Opacity([species])
