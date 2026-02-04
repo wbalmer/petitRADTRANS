@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a7] - 2025-08-06
+## [4.0.0a8] - 2025-08-06
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -12,13 +12,30 @@ Version 4.0 is still experimental, and should not be used for production work!
 As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
 
 ### TODO
-- Finish reimplementing contribution functions.
-- Fix opacity shape bug in radtrans.py (mostly affects smart_clear_opacities when swapping elements).
-- Feautrier is only accurate to 0.01% (relative). Should be better numerically.
-- Finish updating retrieval module.
-- Finish implementing hansen cloud opacities
-- Still a small bug with the calculating cloud/scattering opacities.
-- Finish making everything deeper than `calculate_flux` JIT-compileable
+- Feautrier is only accurate to 0.01% (relative). Should be better numerically?
+- Feature completion: Implement hansen cloud opacities.
+- Feature completion: Finish reimplementing contribution functions.
+- Feature completion: need to replace smart_clear_opacities with JAX based patchiness implementation.
+- Feature completion: Implement adaptive mesh refinement with constant size pressure array.
+- Feature completion: Figure out how to implement additional_outputs in jax compatible way.
+- Feature completion: update log likelihoods for 2D, 3D data.
+- Feature completion: Multicolumn/time domain retrievals.
+- Optimisation: make everything deeper than `calculate_flux` JIT-compileable.
+- Optimisation: replace for and fori_loops with scan or vmap.
+- Optimisation: Ensure consistent typing throughout (32 vs 64 bit). Add typing to function definitions.
+- Optimisation: profile code for new bottlenecks.
+- Testing: ensure compatibility of spectral_model.
+- Testing: gradient calculations.
+- Testing: write unit tests for new JAX functions.
+- Testing: test GPU functionality.
+- Architecture: refactor retrieval plotting into separate module.
+- Architecture: Make sure all chi2 calculations use LogLikelihood class.
+- Architecture: Fewer classes, more functional approach. Break up large functions. Separate static methods into clearer modules.
+- Documentation: Add docstrings to all new JAX functions.
+- Documentation: Update tutorials to be v4 compatible.
+- Documentation: Reintroduce error checking where removed.
+- Address all remaining TODOs in code.
+- Clean up comment blocks.
 
 ### Changed
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.

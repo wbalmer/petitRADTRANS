@@ -85,13 +85,13 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
 
         def log_pbase_case():
             if 'log_Pbase_' + cloud_name in parameter_key_list:
-                return 10 ** parameters['log_Pbase_' + cloud_name].value
+                return 10 ** parameters['log_Pbase_' + cloud_name].value.astype(jnp.float64)
             else:
                 return jnp.inf
 
         def pbase_case():
             if 'Pbase_' + cloud_name in parameter_key_list:
-                return parameters['Pbase_' + cloud_name].value
+                return parameters['Pbase_' + cloud_name].value.astype(jnp.float64)
             else:
                 return jnp.inf
 
@@ -104,7 +104,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
                     metallicity=parameters['Fe/H'].value,
                     co_ratio=jnp.minimum(parameters['C/O'].value, 0.0001),
                     mmw=jnp.mean(mean_molar_mass)
-                )
+                ).astype(jnp.float64)
             else:
                 return jnp.inf
 
@@ -116,7 +116,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
                     temperatures,
                     10 ** parameters['log_X_cb_' + cloud_name].value,
                     mean_molar_mass[0]
-                )
+                ).astype(jnp.float64)
             else:
                 return jnp.inf
 
@@ -164,13 +164,13 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
     def get_fsed(cloud_name, parameters):
         def fsed_cloud_case(_):
             if 'fsed_' + cloud_name in parameter_key_list:
-                return parameters['fsed_' + cloud_name].value
+                return parameters['fsed_' + cloud_name].value.astype(jnp.float64)
             else:
                 return 0.0
 
         def fsed_default_case(_):
             if 'fsed' in parameter_key_list:
-                return parameters['fsed'].value
+                return parameters['fsed'].value.astype(jnp.float64)
             else:
                 return 0.0
 
@@ -186,8 +186,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
         arr = jnp.where(
             pressures < p_bases[cloud_name],
             clouds[cloud_name] * (pressures / p_bases[cloud_name]) ** fseds[cloud_name],
-            0.0
-        )
+            0.0).astype(jnp.float64)
         arr = arr[pressure_indices]
         return arr
 
@@ -196,7 +195,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
             cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
             species_full_name = cloud_opacity.species_full_name
             cloud_name = species_full_name.split('_')[0]
-            mass_fractions[cloud] = clouds[cloud_name]
+            mass_fractions[cloud] = clouds[cloud_name].astype(jnp.float64)
         return mass_fractions
 
     def fill_clouds_case(_):
@@ -208,7 +207,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
             fseds[cloud_name] = get_fsed(cloud_name, parameters)
             mass_fractions[cloud] = fill_cloud_mass_fractions(
                 cloud_name, pressures, p_bases, clouds, fseds, temperatures, pressure_indices
-            )
+            ).astype(jnp.float64)
         return mass_fractions
 
     mass_fractions = lax.cond(
@@ -454,15 +453,25 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
             del filling_species[species]
 
     #  Ensure that the sum of imposed mass fractions is <= 1
-    for i in range(jnp.size(m_sum)):
-        if m_sum[i] > 1:
-            if verbose:
-                warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum}) is > 1, "
-                              f"correcting...")
+    def scale_mass_fractions_by_msum(mass_fractions):
+        for species in imposed_mass_fractions:
+            if species not in cloud_species:  # Do not count clouds
+                mass_fractions[species] = mass_fractions[species].at[i].divide(m_sum[i])
+        return mass_fractions
 
-            for species in imposed_mass_fractions:
-                if species not in cloud_species:  # Do not count clouds
-                    mass_fractions[species][i] /= m_sum[i]
+    for i in range(jnp.size(m_sum)):
+        mass_fractions = lax.cond(
+            m_sum[i] > 1,
+            scale_mass_fractions_by_msum,
+            lambda mf: mf,
+            mass_fractions,
+        )
+        #if m_sum[i] > 1:
+        #    if verbose:
+        #        warnings.warn(f"sum of mass mixing ratios of imposed species ({m_sum}) is > 1, "
+        #                      f"correcting...")
+
+
 
     # Initialize chemical equilibrium mass fractions
     mass_fractions_chemical_table = None
@@ -551,34 +560,52 @@ def calculate_line_species_mass_fractions(pressures, temperatures=None, paramete
             mass_fraction_sum=m_sum,
         )
 
-    for i, m_sum in enumerate(m_sum):
-        if m_sum > 1:  # scale down the mass fractions, no filling species needed
-            if verbose:
-                warnings.warn(
-                    f"sum of species mass fraction "
-                    f"({m_sum_chemical_table_species[i]} + {m_sum[i]}) "
-                    f"is > 1, correcting..."
+    def scale_eq_mass_fractions_by_msum(i, mass_fractions):
+        def _greater_than_case(i, mf):
+            mf = mf.at[i].set(
+                mf[i] * (1 - m_sum[i]) / m_sum_chemical_table_species[i]
                 )
+            return mf
 
-            for species in mass_fractions.keys():
-                if species not in imposed_mass_fractions:
-                    if m_sum_chemical_table_species[i] > 0:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i]
-                            * (1 - m_sum[i]) / m_sum_chemical_table_species[i]
-                        )
-                    else:
-                        mass_fractions[species] = mass_fractions[species].at[i].set(
-                            mass_fractions[species][i] / m_sum
-                        )
-        elif m_sum <= 0:
-            # TODO: Check if ValueError is JIT compatible
-            raise ValueError(
-                f"invalid total mass fraction at pressure level {i}: "
-                f"mass fraction must be > 0, but is {m_sum}\n"
-                f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
-                f"or set equilibrium chemistry to True\n"
-                f"If the sum is < 0, check your imposed mass fractions and chemical model")
+        def _less_than_case(i, mf):
+            mf = mf.at[i].divide(m_sum[i])
+            return mf
+
+        for species in mass_fractions.keys():
+            if species not in imposed_mass_fractions:
+                mass_fractions[species] = lax.cond(
+                    m_sum_chemical_table_species[i] > 0,
+                    _greater_than_case,
+                    _less_than_case,
+                    i,
+                    mass_fractions[species]
+                )
+        return mass_fractions
+
+    for i, m_sum_i in enumerate(m_sum):
+        mass_fractions = lax.cond(
+            m_sum_i > 1,
+            scale_eq_mass_fractions_by_msum,
+            lambda _, mf: mf,
+            i,
+            mass_fractions
+        )
+            #if verbose:
+            #    warnings.warn(
+            #        f"sum of species mass fraction "
+            #        f"({m_sum_chemical_table_species[i]} + {m_sum[i]}) "
+            #        f"is > 1, correcting..."
+            #    )
+
+
+        #elif m_sum <= 0:
+        #    # TODO: Check if ValueError is JIT compatible
+        #    raise ValueError(
+        #        f"invalid total mass fraction at pressure level {i}: "
+        #        f"mass fraction must be > 0, but is {m_sum}\n"
+        #        f"If the sum is 0, add at least one species with non-zero imposed mass fractions "
+        #        f"or set equilibrium chemistry to True\n"
+        #        f"If the sum is < 0, check your imposed mass fractions and chemical model")
 
     return mass_fractions, m_sum
 

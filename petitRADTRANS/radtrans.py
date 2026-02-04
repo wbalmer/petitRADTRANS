@@ -14,6 +14,8 @@ from functools import partial
 
 import numpy as np
 import numpy.typing as npt
+
+# TODO: deprecated! replace!
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
@@ -112,7 +114,7 @@ class Radtrans:
         "setting a Radtrans property directly is not recommended\n"
         "Create a new Radtrans instance (recommended) "
         "or re-do all the setup steps necessary for the modification to be taken into account"
-    )
+    )  # TODO: add verbosity setting or something to remove this message.
 
     _frequency_grid_misalignment_tolerance: float = 2e-3
 
@@ -126,7 +128,7 @@ class Radtrans:
         cloud_species: list[str] | tuple[str] = None,
         line_opacity_mode: str = 'c-k',
         line_by_line_opacity_sampling: int = 1,  # TODO: Replace with generic spectral resolution parameter.
-        scattering_in_emission: bool = False,  # TODO: Default to True
+        scattering_in_emission: bool = False,  # TODO: Probably should default to True
         emission_angle_grid: ArrayLike = None,  # NOTE: Probably doesn't need to be a main parameter
         anisotropic_cloud_scattering: bool = 'auto',  # NOTE: Probably doesn't need to be a main parameter
         path_input_data: str = None
@@ -192,6 +194,7 @@ class Radtrans:
         self._path_input_data = path_input_data
 
         # Initialize non-settable properties
+        # TODO: all of these cause problems with JAX. Need to figure out a better implementation.
         self.__scattering_in_transmission = False
         self.__sum_opacities = False
         self.__absorber_present = not (
@@ -286,7 +289,7 @@ class Radtrans:
     def __getattr__(self, name):
         """Override of the object base __getattr__ method, in order to hint towards pRT3 names when pRT2 names are used.
         """
-        # TODO remove in version 4.0.0
+        # TODO remove in version 4.0.0 - update deprecations.
         base_message = f"'{self.__class__.__name__}' object has no attribute '{name}'"
 
         def __handle_deprecated_attributes(suggested_name):
@@ -315,7 +318,7 @@ class Radtrans:
 
     @cias_loaded_opacities.setter
     def cias_loaded_opacities(self, dictionary: dict[str, dict[str, ArrayLike]]):
-        debug.print(
+        debug.print( # TODO: return to ValueError?
             "setting the Radtrans CIA opacity property should be avoided\n"
             "These properties are loaded from the opacity data in the input_data directory and are inter-dependent "
             "(they need to be updated for consistency)\n"
@@ -366,7 +369,7 @@ class Radtrans:
 
     @frequencies.setter
     def frequencies(self, array: ArrayLike):
-        debug.print(
+        debug.print( # TODO use error?
             "setting frequencies directly should be avoided\n"
             "This property is loaded from the opacity data in the input_data directory "
             "and is inter-dependent with other line opacities parameters, that also need to be updated\n"
@@ -941,6 +944,7 @@ class Radtrans:
             scattering_in_transmission
         )
 
+        # TODO: fix outputs now that we aren't using smart_clear_opacities
         return (
             cloud_continuum_opacities, cloud_continuum_opacities_scattering,
             cloud_scattering_opacities, cloud_absorption_opacities,
@@ -953,7 +957,7 @@ class Radtrans:
         )
 
     @staticmethod
-    def __compute_continuum_opacities(
+    def _compute_continuum_opacities(
         frequencies, frequency_bins_edges,
         pressures, temperatures, mass_fractions, mean_molar_masses,
         cias_loaded_opacities, gas_continuum_contributors, gray_opacity,
@@ -1662,7 +1666,7 @@ class Radtrans:
                                      f"(listed species: {list(mass_fractions.keys())}")
 
         # Continuum opacities
-        continuum_opacities = self.__compute_continuum_opacities(
+        continuum_opacities = self._compute_continuum_opacities(
             frequencies=self._frequencies,
             frequency_bins_edges=self._frequency_bins_edges,
             pressures=self._pressures,
@@ -4531,7 +4535,7 @@ class Radtrans:
                     photosphere_radius = photosphere_radius.at[i_freq].set(radius_interp(pressures_tau_p(2 / 3)))
                 else:
                     debug.print('Atmosphere is too transparent for calculating the "photospheric '
-                                  'radius" at tau = 2/3. Returning the radius at maximum pressure instead!')
+                                'radius" at tau = 2/3. Returning the radius at maximum pressure instead!')
                     photosphere_radius = photosphere_radius.at[i_freq].set(radius_hydrostatic_equilibrium[-1])
 
         return photosphere_radius
