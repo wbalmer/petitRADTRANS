@@ -97,7 +97,6 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
 
         def eq_case():
             if 'Fe/H' in parameter_key_list and 'C/O' in parameter_key_list:
-                debug.print("{}", parameters['C/O'].value)
                 return fc.simple_cdf(
                     name=cloud_name,
                     press=pressures,
@@ -197,7 +196,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
             cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
             species_full_name = cloud_opacity.species_full_name
             cloud_name = species_full_name.split('_')[0]
-            mass_fractions[cloud_name] = clouds[cloud_name]
+            mass_fractions[cloud] = clouds[cloud_name]
         return mass_fractions
 
     def fill_clouds_case(_):
@@ -207,12 +206,11 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
             cloud_name = species_full_name.split('_')[0]
 
             fseds[cloud_name] = get_fsed(cloud_name, parameters)
-            mass_fractions[cloud_name] = fill_cloud_mass_fractions(
+            mass_fractions[cloud] = fill_cloud_mass_fractions(
                 cloud_name, pressures, p_bases, clouds, fseds, temperatures, pressure_indices
             )
         return mass_fractions
 
-    debug.print("Clouds {}", clouds)
     mass_fractions = lax.cond(
         'use_easychem' in parameter_key_list,
         skip_clouds_case,

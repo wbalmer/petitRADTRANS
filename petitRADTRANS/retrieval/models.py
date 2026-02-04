@@ -1881,7 +1881,7 @@ def calculate_emission_spectrum(prt_object,
      return_abundances,
      return_any) = get_calculate_flux_return_values(parameters)
 
-    results = prt_object.calculate_flux(
+    results = prt_object.simple_calculate_flux(
         temperatures=temperatures,
         mass_fractions=abundances,
         reference_gravity=gravity,
@@ -1894,12 +1894,12 @@ def calculate_emission_spectrum(prt_object,
         cloud_fraction=cloud_fraction,
         complete_coverage_clouds=complete_coverage_clouds,
         cloud_particles_radius_distribution=distribution,
-        return_contribution=return_contribution,
-        return_photosphere_radius=return_photosphere_radius,
-        return_rosseland_optical_depths=return_rosseland_optical_depths,
-        return_cloud_contribution=return_cloud_contribution,
-        return_abundances=return_abundances,
-        return_opacities=return_opacities
+        #return_contribution=return_contribution,
+        #return_photosphere_radius=return_photosphere_radius,
+        #return_rosseland_optical_depths=return_rosseland_optical_depths,
+        #return_cloud_contribution=return_cloud_contribution,
+        #return_abundances=return_abundances,
+        #return_opacities=return_opacities
     )
 
     wlen_model, flux, additional_outputs = results

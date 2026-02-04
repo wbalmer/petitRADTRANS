@@ -740,214 +740,179 @@ def simple_cdf_fe_free(press, temp, x_fe, mmw=2.33):
 
 def simple_cdf_mgsio3(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_mgsio3(metallicity, co_ratio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    try:  # TODO replace try/except with proper conditional handling of potential error
-        tcond_p = interp1d(pc, tc)
-    except ValueError:
-        warnings.warn("Could not interpolate pressures and temperatures!")
-        return jnp.min(press)
-
-    tcond_on_input_grid = tcond_p(press)
-
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_mgsio3_free(press, temp, x_mgsio3, mmw=2.33):
     pc, tc = return_t_cond_mgsio3_free(x_mgsio3, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_mg2sio4(press, temp, metallicity, co_ratio, mmw=2.33):
     p_c, t_c = return_t_cond_mg2sio4(metallicity, co_ratio, mmw)
-    index = (p_c > 1e-8) & (p_c < 1e5)
-    p_c, t_c = p_c[index], t_c[index]
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    try:  # TODO replace try/except with proper conditional handling of potential error
-        tcond_p = interp1d(p_c, t_c)
-    except ValueError:
-        warnings.warn("Could not interpolate pressures and temperatures!")
-        return jnp.min(press)
-
-    t_cond_on_input_grid = tcond_p(press)
-
-    t_diff = t_cond_on_input_grid - temp
+    t_diff = tcond_on_input_grid - temp
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_mg2sio4_free(press, temp, x_mg2sio4, mmw=2.33):
     p_c, t_c = return_t_cond_mg2sio4_free(x_mg2sio4, mmw)
-    index = (p_c > 1e-8) & (p_c < 1e5)
-    p_c, t_c = p_c[index], t_c[index]
-    tcond_p = interp1d(p_c, t_c)
-    t_cond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, p_c, t_c)
 
-    t_diff = t_cond_on_input_grid - temp
+    t_diff = tcond_on_input_grid - temp
     diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_na2s(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_na2s(metallicity, co_ratio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_na2s_free(press, temp, x_na2s, mmw=2.33):
     pc, tc = return_t_cond_na2s_free(x_na2s, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
-
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_kcl(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_kcl(metallicity, co_ratio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_kcl_free(press, temp, x_kcl, mmw=2.33):
     pc, tc = return_t_cond_kcl_free(x_kcl, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tcond_on_input_grid = tcond_p(press)
-
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_sio(press, temp, metallicity, co_ratio, mmw=2.33):
     pc, tc = return_t_cond_sio(metallicity, co_ratio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
-    tcond_on_input_grid = tcond_p(press)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud
 
 
 def simple_cdf_sio_free(press, temp, x_sio, mmw=2.33):
     pc, tc = return_t_cond_sio_free(x_sio, mmw)
-    index = (pc > 1e-8) & (pc < 1e5)
-    pc, tc = pc[index], tc[index]
-    tcond_p = interp1d(pc, tc)
+    #index = (pc > 1e-8) & (pc < 1e5)
+    #pc, tc = pc[index], tc[index]
+    tcond_on_input_grid = jnp.interp(press, pc, tc)
 
-    tcond_on_input_grid = tcond_p(press)
-
-    tdiff = tcond_on_input_grid - temp
-    diff_vec = tdiff[1:] * tdiff[:-1]
+    t_diff = tcond_on_input_grid - temp
+    diff_vec = t_diff[1:] * t_diff[:-1]
     ind_cdf = (diff_vec < 0.)
 
-    if len(diff_vec[ind_cdf]) > 0:
-        p_clouds = (press[1:] + press[:-1])[ind_cdf] / 2.
-        p_cloud = p_clouds[-1]
-    else:
-        p_cloud = jnp.min(press)
+    p_mid = (press[1:] + press[:-1]) / 2.
+    masked_indices = jnp.where(ind_cdf, jnp.arange(p_mid.shape[0]), -1)
+    last_idx = jnp.max(masked_indices)
+    p_cloud = jnp.where(last_idx != -1, p_mid[last_idx], jnp.min(press))
 
     return p_cloud

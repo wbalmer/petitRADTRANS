@@ -583,8 +583,10 @@ class Radtrans:
             add_cloud_opacity = False
             if len(self._cloud_species) > 0:
                 for cloud_species in self._cloud_species:
-                    if jnp.any(mass_fractions[cloud_species] > 0):
-                        add_cloud_opacity = True  # add cloud opacity only if there are actually clouds
+                    add_cloud_opacity = lax.cond(
+                        jnp.any(mass_fractions[cloud_species] > 0),
+                        lambda: True,
+                        lambda: False)
             return add_cloud_opacity
 
         return lax.cond(
@@ -642,6 +644,7 @@ class Radtrans:
         )
 
     @staticmethod
+    @jit(static_argnames=['cloud_species','cloud_particles_radius_distribution'])
     def _compute_cloud_continuum_opacities( # TODO: revert to previous logic
         frequencies: ArrayLike,  # NOTE: use self
         frequency_bins_edges: ArrayLike, # NOTE: use self
@@ -657,7 +660,7 @@ class Radtrans:
         power_law_opacity_coefficient: float,
         clouds_have_effect: bool, # NOTE: use self
         cloud_species: list[str] | tuple[str], # NOTE: use self
-        clouds_particles_porosity_factor: float,
+        clouds_particles_porosity_factor: dict[str, float],
         clouds_loaded_opacities: LockedDict[str, ArrayLike], # NOTE: use self
         anisotropic_cloud_scattering: bool, # NOTE: use self?
         cloud_particles_mean_radii: ArrayLike,
@@ -673,10 +676,11 @@ class Radtrans:
     ):
         # Initialization
         n_clouds = len(cloud_species)
+        min_cloud_shape = max(n_clouds, 1)  # to allow for no-cloud cases without breaking the code with zero-size arrays
         cloud_absorption_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         cloud_scattering_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
-        cloud_opacities = jnp.zeros((n_clouds+1, frequencies.size, n_clouds+1, pressures.size), dtype=JAX_DTYPE)
-        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+        cloud_opacities = jnp.zeros((min_cloud_shape, frequencies.size, min_cloud_shape, pressures.size), dtype=JAX_DTYPE)
+        _cloud_particles_mean_radii = jnp.zeros((pressures.size, min_cloud_shape), dtype=JAX_DTYPE)
 
         cloud_continuum_opacities = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
         cloud_continuum_opacities_scattering = jnp.zeros((frequencies.size, pressures.size), dtype=JAX_DTYPE)
@@ -777,6 +781,7 @@ class Radtrans:
                 pressures=pressures,
                 temperatures=temperatures,
                 frequency_bins_edges=frequency_bins_edges,
+                cloud_species=cloud_species,
                 cloud_species_mass_fractions=cloud_species_mass_fractions,
                 mean_molar_masses=mean_molar_masses,
                 reference_gravity=reference_gravity,
@@ -810,9 +815,9 @@ class Radtrans:
                 for species in clear_cloud_species_mass_fractions:
                     clear_cloud_species_mass_fractions[species] = lax.cond(
                         species not in complete_coverage_clouds,
-                        lambda _species: jnp.zeros_like(clear_cloud_species_mass_fractions[_species]),
-                        lambda _species: clear_cloud_species_mass_fractions[_species],
-                        species
+                        lambda mf: jnp.zeros_like(mf),
+                        lambda mf: mf,
+                        clear_cloud_species_mass_fractions[species]
                     )
 
                 complete_coverage_cloud_continuum_opacities = lax.cond(
@@ -828,6 +833,7 @@ class Radtrans:
                     pressures=pressures,
                     temperatures=temperatures,
                     frequency_bins_edges=frequency_bins_edges,
+                    cloud_species=cloud_species,
                     cloud_species_mass_fractions=clear_cloud_species_mass_fractions,
                     mean_molar_masses=mean_molar_masses,
                     reference_gravity=reference_gravity,
@@ -892,8 +898,8 @@ class Radtrans:
                     cloud_scattering_opacities,
                     cloud_absorption_opacities,
                     cloud_opacities,
-                    _cloud_particles_mean_radii,
                     clouds_particles_porosity_factor,
+                    _cloud_particles_mean_radii,
                     scattering_in_transmission):
             return (cloud_continuum_opacities,
                     cloud_continuum_opacities_scattering,
@@ -930,8 +936,8 @@ class Radtrans:
             cloud_scattering_opacities,
             cloud_absorption_opacities,
             cloud_opacities,
-            _cloud_particles_mean_radii,
             clouds_particles_porosity_factor,
+            _cloud_particles_mean_radii,
             scattering_in_transmission
         )
 
@@ -1017,7 +1023,7 @@ class Radtrans:
         return continuum_opacities_scattering, scattering_in_transmission
 
     @staticmethod
-    @jit(static_argnames=['line_species', 'line_opacity_mode', 'sum_opacities'])
+    #@jit(static_argnames=['line_species', 'line_opacity_mode', 'sum_opacities'])
     def __compute_combined_opacities(
         opacities, continuum_opacities,
         line_species, line_species_mass_fractions, line_opacity_mode,
@@ -1332,9 +1338,11 @@ class Radtrans:
         })
 
     @staticmethod
+    @jit(static_argnames=['cloud_species'])
     def _init_clouds_particles_porosity_factor(clouds_particles_porosity_factor, cloud_species):
-        if clouds_particles_porosity_factor is None:
-            clouds_particles_porosity_factor = {species: -jnp.inf for species in cloud_species}
+        # This check is done in _compute_opacities now
+        #if (clouds_particles_porosity_factor is None) or (not bool(clouds_particles_porosity_factor)):
+        #    clouds_particles_porosity_factor = {species: -jnp.inf for species in cloud_species}
 
         for species in cloud_species:
             # TODO: check JAX compatibility for split_species_all_info
@@ -1375,10 +1383,8 @@ class Radtrans:
                         f"but is {porosity} for species '{species_name}'"
                     )
 
-            invalid = jnp.logical_or(_porosity < 0, _porosity >= 1)
             # Only call the callback when invalid is True (callback will run during tracing/execution)
-            if invalid:
-                debug.callback(_raise_if_invalid, _porosity, species)
+            debug.callback(_raise_if_invalid, _porosity, species)
 
         return clouds_particles_porosity_factor
 
@@ -1764,10 +1770,11 @@ class Radtrans:
         )
 
         # TODO jitable for ValueError (jax.debug.callback)
+        # TODO update conditional to not use None, instead check for _MISSING_FLOAT
         # Check if photospheric_cloud_optical_depths is used with a single cloud model
         # Combining cloud opacities from different models is currently not supported with the
         # photospheric_cloud_optical_depths parameter
-        if len(self._cloud_species) > 0 and cloud_photosphere_median_optical_depth is not None:
+        """if len(self._cloud_species) > 0 and cloud_photosphere_median_optical_depth is not None:
             if (additional_absorption_opacities_function is not None
                     or additional_scattering_opacities_function is not None):
                 raise ValueError(
@@ -1777,7 +1784,7 @@ class Radtrans:
                     "or use parametrized cloud opacities with "
                     "the give_absorption_opacity and give_scattering_opacity parameters."
                 )
-
+        """
         # Additional opacities
         """if not self._clouds_have_effect(mass_fractions, cloud_fraction):
             (additional_absorption_opacities, additional_scattering_opacities,
@@ -2095,17 +2102,25 @@ class Radtrans:
         return flux, emission_contribution
 
     @staticmethod
+    @jit(static_argnames=['cloud_species','cloud_particles_radius_distribution'])
     def _compute_cloud_opacities(
-        pressures, temperatures, frequency_bins_edges,
-        cloud_species_mass_fractions, mean_molar_masses, reference_gravity,
-        cloud_particle_radius_distribution_std, clouds_loaded_opacities,
+        pressures,
+        temperatures,
+        cloud_species,
+        frequency_bins_edges,
+        cloud_species_mass_fractions,
+        mean_molar_masses,
+        reference_gravity,
+        cloud_particle_radius_distribution_std,
+        clouds_loaded_opacities,
         sum_opacities, anisotropic_cloud_scattering,
         cloud_f_sed=None, eddy_diffusion_coefficients=None,
         cloud_particles_mean_radii=None,
         cloud_particles_radius_distribution="lognormal",
         cloud_hansen_a=None, cloud_hansen_b=None,
         clouds_particles_porosity_factor=None,
-        photospheric_cloud_optical_depths=None, continuum_opacities=None,
+        photospheric_cloud_optical_depths=None,
+        continuum_opacities=None,
         return_cloud_contribution=False
     ):
         """Calculate cloud opacities for a defined atmospheric structure.
@@ -2131,11 +2146,13 @@ class Radtrans:
 
         """
         # Initialization
-        n_clouds = len(cloud_species_mass_fractions)
-        _cloud_species_mass_fractions = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+        n_clouds = len(cloud_species)
+        min_cloud_shape = max(n_clouds, 1)
+
+        _cloud_species_mass_fractions = jnp.zeros((pressures.size, min_cloud_shape), dtype=JAX_DTYPE)
         cloud_absorption_opacities = None
         cloud_anisotropic_scattering_opacities = None
-        _cloud_particles_mean_radii = jnp.zeros((pressures.size, n_clouds), dtype=JAX_DTYPE)
+        _cloud_particles_mean_radii = jnp.zeros((pressures.size, min_cloud_shape), dtype=JAX_DTYPE)
         _cloud_particles_density = jnp.zeros(n_clouds, dtype=JAX_DTYPE)
         atmospheric_densities = pressures * mean_molar_masses * cst.amu / cst.kB / temperatures
 
@@ -2355,7 +2372,7 @@ class Radtrans:
         # This included scattering plus absorption
         # TODO: figure out cloud_opacities and how to return contribution
         #if return_cloud_contribution:
-        opacity_shape = (1, frequency_bins_edges.size - 1, 1, pressures.size)
+        opacity_shape = (min_cloud_shape, frequency_bins_edges.size - 1, min_cloud_shape, pressures.size)
         cloud_opacities = cloud_anisotropic_extinctions.reshape(opacity_shape)
         #else:
         #    cloud_opacities = None
@@ -2641,10 +2658,12 @@ class Radtrans:
             # therefore cloud_scaling_factor = inf,
             # continuum_opacities_scattering_emission will contain nans and infs,
             # and photon_destruction_prob contains only nans
-            if len(photon_destruction_probabilities[jnp.isnan(photon_destruction_probabilities)]) > 0:
-                print('Region of zero opacity detected, '
-                      'setting the photon destruction probability in this spectral range to 1.')
-                photon_destruction_probabilities = photon_destruction_probabilities.at[jnp.isnan(photon_destruction_probabilities)].set(1.)
+            photon_destruction_probabilities = jnp.where(jnp.isnan(photon_destruction_probabilities), 1.0, photon_destruction_probabilities)
+            #if len(photon_destruction_probabilities[jnp.isnan(photon_destruction_probabilities)]) > 0:
+            # TODO: Update 0 opacity warning for JAX
+            #    print('Region of zero opacity detected, '
+            #          'setting the photon destruction probability in this spectral range to 1.')
+            #    photon_destruction_probabilities = photon_destruction_probabilities.at[jnp.isnan(photon_destruction_probabilities)].set(1.)
         else:
             optical_depths = Radtrans._compute_species_optical_depths(
                 reference_gravity=reference_gravity,
@@ -4419,13 +4438,14 @@ class Radtrans:
                 + (1 - cloud_fraction) * flux_clear
             )"""
 
+        # TODO: properly deal with additional outputs
         output = lax.cond(
             frequencies_to_wavelengths,
             lambda f: (frequency2wavelength(f),
                        flux_hz2flux_cm(
                            flux_hz=flux,
-                           frequency=f)),
-            lambda f: (f, flux),
+                           frequency=f), {}),
+            lambda f: (f, flux, {}),
             self._frequencies
             )
         return output
