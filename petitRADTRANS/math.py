@@ -233,8 +233,8 @@ def gaussian_weights_running(sigmas: ArrayLike, truncate: float = 4.0, max_radiu
 
 
 def linear_spline_interpolation(
-    x_knots: npt.NDArray[np.floating],
-    x_samples: npt.NDArray[np.floating],
+    x_knots: ArrayLike,
+    x_samples: ArrayLike,
     spline_degree: Literal[1, 2, 3, 4, 5] = 3
 ):
     """Compute a spline based linear model.
@@ -276,7 +276,7 @@ def linear_spline_interpolation(
         )
 
     spline_degree: Literal[1, 2, 3, 4, 5]
-    spline_matrix: list[npt.NDArray[np.floating]] = []
+    spline_matrix: list[ArrayLike] = []
 
     for nodes in x_knots_list:
         _spline_matrix = np.zeros((np.size(x_samples), np.size(nodes)))

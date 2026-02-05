@@ -1,7 +1,7 @@
 from .opacities import CIAOpacity, CloudOpacity, CorrelatedKOpacity, LineByLineOpacity
 
 __all__ = [
-    '__file_conversion',
+    #'__file_conversion',
     'CIAOpacity',
     'CloudOpacity',
     'CorrelatedKOpacity',

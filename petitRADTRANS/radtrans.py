@@ -16,7 +16,7 @@ import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.opacities.__file_conversion import rebin_ck_line_opacities
+from petitRADTRANS.opacities.file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 

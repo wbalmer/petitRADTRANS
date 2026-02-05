@@ -44,11 +44,8 @@ dependencies = [
     "pyvo",
     "bs4",
     "selenium",
-<<<<<<< HEAD
     "exo_k",
     "interpax",
-=======
->>>>>>> origin/dev-issue122
     "mpi4py",
     "requests",
     "skycalc-cli",

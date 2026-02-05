@@ -4765,7 +4765,6 @@ class Retrieval:
 
                 # If the data has an arbitrary retrieved scaling factor
                 scale = 1.0
-<<<<<<< HEAD
                 if name + "_radial_velocity" in self.configuration.parameters.keys():
                         # RV in km/s -> multiply by 1e5 to cm/s
                         # wlen_model in micron
@@ -4786,8 +4785,6 @@ class Retrieval:
                     wavelengths =  wavelengths * np.sqrt((1 + radial_velocity/cst.c)/(1- radial_velocity/cst.c))
                     #wavelengths += wavel_shift
 
-=======
->>>>>>> origin/dev-issue122
                 if data.scale:
                     scale = self.best_fit_parameters[f"{name}_scale_factor"].value
 
@@ -4820,14 +4817,6 @@ class Retrieval:
                             self.best_fit_spectra[data.external_radtrans_reference][1])
                         if isinstance(best_fit_binned, tuple) or isinstance(best_fit_binned, np.ndarray):
                             best_fit_binned = best_fit_binned[0]
-<<<<<<< HEAD
-                        except Exception:
-                            pass
-                if False:
-                    # TODO: figure out a good way to pass through the continuum subtraction method
-                    best_fit_binned = continuum_subtract_spectrum(wavelengths, self.best_fit_spectra[name][1], self.best_fit_parameters, method='spline', name=data.name)
-                    best_fit_spectrum = continuum_subtract_spectrum(best_fit_wavelengths, best_fit_spectrum, self.best_fit_parameters, method='spline', name=data.name)
-=======
 
                 if data.subtract_continuum:
                     x_nodes = None
@@ -4847,7 +4836,6 @@ class Retrieval:
                         fluxes=best_fit_spectrum,
                         x_nodes=x_nodes
                         )
->>>>>>> origin/dev-issue122
 
 
                 marker = 'o' if not isinstance(data, PhotometryData) else 's'
@@ -4867,12 +4855,7 @@ class Retrieval:
                     color_i = 'C0'
                     ecolor = 'C0'
                     alpha = 0.9
-<<<<<<< HEAD
                     if isinstance(data, PhotometryData):
-=======
-
-                    if data.photometry:
->>>>>>> origin/dev-issue122
                         color_i = 'grey'
                         ecolor = 'grey'
                         label = None
