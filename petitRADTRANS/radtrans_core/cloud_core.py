@@ -966,7 +966,234 @@ def _compute_mean_radius_hansen_single(
         lambda: a_hansen_ij
     )
 
+
 def compute_cloud_hansen_opacities():
     # TODO
     return
 
+
+def _integrate_cloud_opacities_from_dn_dr(
+            dn_dr,
+            atmosphere_densities,
+            clouds_particles_densities,
+            cloud_particles_radii_bins,
+            cloud_particles_radii,
+            clouds_absorption_opacities,
+            clouds_scattering_opacities,
+            clouds_particles_asymmetry_parameters,
+            pressures,
+            target_particle_radii,
+            target_pressure,
+            ):
+    """
+    Shared integration backend for both cloud opacity methods.
+    Operates purely on dn/dr and handles all integration logic.
+    """
+
+    # Scale factor
+    integrand_scale = (
+            (4.0 * np.pi / 3.0)
+            * cloud_particles_radii[:, None, None] ** 3
+            * clouds_particles_densities
+            * dn_dr
+    )
+
+    # Opacities
+    integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+    integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+    integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
+
+    # Selectively disable bins
+    if target_pressure is not None:
+        target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
+        target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
+
+        disabled_bins = {(jnp.abs(cloud_particles_radii_bins - tr)).argmin()
+                            for tr in target_particle_radii}
+        in_layer = {(jnp.abs(pressures - tp)).argmin()
+                    for tp in target_pressure}
+
+        block = np.ones_like(integrand_scale)
+        for bi in disabled_bins:
+            for li in in_layer:
+                block[bi, li, :] = 0
+
+        integrand_scale *= block
+        integrand_absorption *= block[:, None]
+        integrand_scattering *= block[:, None]
+        integrand_anisotropy *= block[:, None]
+
+    # Integrate over radius
+    widths = jnp.diff(cloud_particles_radii_bins)[:, None, None, None]
+
+    clouds_absorption_opacities = jnp.sum(integrand_absorption * widths, axis=(0, 3))
+    clouds_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))
+    cloud_one_minus_g = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))
+
+    cloud_one_minus_g = jnp.true_divide(
+        cloud_one_minus_g, clouds_scattering_opacities,
+        out=jnp.zeros_like(clouds_scattering_opacities),
+        where=clouds_scattering_opacities > 1e-200
+    )
+
+    # Divide by atmosphere density
+    clouds_absorption_opacities /= atmosphere_densities
+    clouds_scattering_opacities /= atmosphere_densities
+
+    return clouds_absorption_opacities, clouds_scattering_opacities, cloud_one_minus_g
+
+
+def _compute_cloud_log_normal_particles_distribution_opacities(
+        atmosphere_densities,
+        clouds_particles_densities,
+        clouds_mass_fractions,
+        cloud_particles_mean_radii,
+        cloud_particles_distribution_std,
+        cloud_particles_radii_bins,
+        cloud_particles_radii,
+        clouds_absorption_opacities,
+        clouds_scattering_opacities,
+        clouds_particles_asymmetry_parameters,
+        pressures,
+        target_particle_radii,
+        target_pressure
+    ):
+    r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90.
+    For some reason it runs faster in python than in fortran, so we'll use this from now on.
+    This function integrates the cloud opacity through the different layers of the atmosphere to get the total
+    optical depth, scattering and anisotropic fraction.
+    # TODO optical depth or opacity?
+    # TODO complete docstring and vectorize on/off code
+
+    Author: Francois Rozet
+
+    Args:
+        atmosphere_densities:
+            Density of the atmosphere at each of its layer
+        clouds_particles_densities:
+            Density of each cloud particles
+        clouds_mass_fractions:
+            Mass fractions of each cloud at each atmospheric layer
+        cloud_particles_mean_radii:
+            Mean radius of each cloud particles at each atmospheric layer
+        cloud_particles_distribution_std:
+            Standard deviation of the log-normal cloud particles distribution
+        cloud_particles_radii_bins:
+            Bins of the particles cloud radii grid
+        cloud_particles_radii:
+            Particles cloud radii grid
+        clouds_absorption_opacities:
+            Cloud absorption opacities (radius grid, wavelength grid, clouds)
+        clouds_scattering_opacities:
+            Cloud scattering opacities (radius grid, wavelength grid, clouds)
+        clouds_particles_asymmetry_parameters:
+            Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+
+    Returns:
+
+    """
+    # Compute dn/dr from log-normal distribution
+    n = (
+            3.0 * clouds_mass_fractions * atmosphere_densities[:, None] /
+            (4.0 * jnp.pi * clouds_particles_densities * cloud_particles_mean_radii ** 3)
+            * jnp.exp(-4.5 * jnp.log(cloud_particles_distribution_std) ** 2)
+    )
+
+    diff = jnp.log(cloud_particles_radii[:, None, None]) - jnp.log(cloud_particles_mean_radii)
+
+    dn_dr = (
+            n / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
+                 * jnp.log(cloud_particles_distribution_std))
+            * jnp.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
+            )
+
+    # Delegate to shared integrator
+    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g =\
+        _integrate_cloud_opacities_from_dn_dr(
+            dn_dr,
+            atmosphere_densities,
+            clouds_particles_densities,
+            cloud_particles_radii_bins,
+            cloud_particles_radii,
+            clouds_absorption_opacities,
+            clouds_scattering_opacities,
+            clouds_particles_asymmetry_parameters,
+            pressures,
+            target_particle_radii,
+            target_pressure
+            )
+
+    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g
+
+
+def _compute_cloud_opacities_using_particle_size_grid(
+        atmosphere_densities,
+        clouds_mass_fractions,
+        cloud_particle_number_density_grid,
+        clouds_particles_densities,
+        cloud_particles_radii_bins,
+        cloud_particles_radii,
+        clouds_absorption_opacities,
+        clouds_scattering_opacities,
+        clouds_particles_asymmetry_parameters,
+        pressures,
+        target_particle_radii,
+        target_pressure
+        ):
+    r"""
+    # TODO vectorize on/off code
+    Args:
+        atmosphere_densities:
+            Density of the atmosphere at each of its layer
+        clouds_mass_fractions:
+            Mass fractions of each cloud at each atmospheric layer
+        cloud_particle_number_density_grid:
+            Output from cloud lognormal EXPERIMENTAL
+        clouds_particles_densities:
+            Density of each cloud particles
+        cloud_particles_radii_bins:
+            Bins of the particles cloud radii grid
+        cloud_particles_radii:
+            Particles cloud radii grid
+        clouds_absorption_opacities:
+            Cloud absorption opacities (radius grid, wavelength grid, clouds)
+        clouds_scattering_opacities:
+            Cloud scattering opacities (radius grid, wavelength grid, clouds)
+        clouds_particles_asymmetry_parameters:
+            Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+        pressures:
+            Pressure array
+        target_particle_radii:
+            Target particle radii array
+        target_pressure:
+            Target pressure array
+
+    Returns:
+
+    """
+    # Extract precomputed dn/dr
+    dn_dr = None  # prevent eventual reference before assignment
+
+    if isinstance(cloud_particle_number_density_grid, dict):
+        # map cloud names to the correct entry
+        for i_spec, cloud in enumerate(clouds_mass_fractions):
+            dn_dr = cloud_particle_number_density_grid[cloud]
+    else:
+        dn_dr = cloud_particle_number_density_grid
+
+    _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g = \
+        _integrate_cloud_opacities_from_dn_dr(
+            dn_dr,
+            atmosphere_densities,
+            clouds_particles_densities,
+            cloud_particles_radii_bins,
+            cloud_particles_radii,
+            clouds_absorption_opacities,
+            clouds_scattering_opacities,
+            clouds_particles_asymmetry_parameters,
+            pressures,
+            target_particle_radii,
+            target_pressure
+        )
+
+    return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g
