@@ -37,7 +37,7 @@ class InterpolateChemistry:
 
         Deprecated in favour of hdf5 tables.
         """
-        
+
         self.n_species = n_species
         self.n_temperatures = n_temperatures
         self.n_pressures = n_pressures
@@ -52,10 +52,10 @@ class InterpolateChemistry:
 
         num_records = n_metallicities * n_co_ratios * n_pressures * n_temperatures
         flat_data_size = num_records * record_size_doubles
-        
+
         # Use NumPy to read binary data first
         flat_data_np = np.empty(flat_data_size, dtype=np.float64)
-        
+
         current_pos = 0
         with open(file_path, 'rb') as f:
             for _ in range(n_metallicities):
@@ -83,14 +83,14 @@ class InterpolateChemistry:
                                 raise IOError(
                                     f"Mismatch in record end length. Expected {record_size_bytes}, "
                                     f"got {record_len_end[0] if record_len_end else 'EOF'}")
-        
+
         # Reshape the flat data.
         # Fortran read order: i_feh (outer), i_co, i_p, i_t (inner). Each read is (1:n_species).
         # This means data is laid out effectively as (n_feh, n_co, n_p, n_t, n_species).
         temp_table_np = flat_data_np.reshape(
             (self.n_metallicities, self.n_co_ratios, self.n_pressures, self.n_temperatures, self.n_species)
         )
-        
+
         # Transpose to match Fortran's declared (n_species, n_temperatures, n_pressures, n_co_ratios, n_metallicities)
         # Current (numpy): (idx_feh, idx_co, idx_p, idx_t, idx_spec)
         # Target desired : (idx_spec, idx_t, idx_p, idx_co, idx_feh)
@@ -135,7 +135,7 @@ def interpolate_chemical_table(
     idx_P_up_0based   = largest_pressures_indices - 1
     idx_CO_up_0based  = largest_co_ratios_indices - 1
     idx_FeH_up_0based = largest_metallicities_indices - 1
-    
+
     # Ensure table axes are JAX arrays
     table_T_jax = jnp.asarray(table_temperatures)
     table_P_jax = jnp.asarray(table_pressures)
@@ -145,7 +145,7 @@ def interpolate_chemical_table(
     # Define the core interpolation logic for a single layer
     def _interpolate_single_layer(target_co, target_log_feh, target_T, target_P,
                                     idx_T_up, idx_P_up, idx_CO_up, idx_FeH_up):
-        
+
         # Determine 0-based lower and upper indices for each dimension
         # These are scalar integer JAX arrays for a single layer computation
         t_indices   = jnp.array([idx_T_up - 1, idx_T_up])
@@ -160,10 +160,10 @@ def interpolate_chemical_table(
         # The index arrays (t_indices etc.) select along their respective dimensions.
         intp_bound = chemistry_table[
             :,
-            t_indices[:, None, None, None],  
-            p_indices[None, :, None, None],  
-            co_indices[None, None, :, None], 
-            feh_indices[None, None, None, :] 
+            t_indices[:, None, None, None],
+            p_indices[None, :, None, None],
+            co_indices[None, None, :, None],
+            feh_indices[None, None, None, :]
         ]
 
         # Gather the grid coordinates for these corner points
@@ -177,7 +177,7 @@ def interpolate_chemical_table(
             # y_corners: (..., 2), x_corners: (2,), x_target: scalar
             y0, y1 = y_corners[..., 0], y_corners[..., 1]
             x0, x1 = x_corners[0], x_corners[1]
-            
+
             delta_x = x1 - x0
             # Handle collapsed interval (delta_x == 0) to avoid NaN/Inf
             # If delta_x is 0, it implies x0=x1. Result should be y0.
@@ -212,7 +212,7 @@ def interpolate_chemical_table(
     # This is a direct translation of the provided Fortran.
     if is_mass_fraction:
         chemical_table_interp = 10.0**chemical_table_interp
-        
+
     return chemical_table_interp
 
 
@@ -422,7 +422,7 @@ class PreCalculatedEquilibriumChemistryTable:
             self.pressures = f['pressures'][()]
 
             self.species = f['species'][()]
-            self.species = [name.decode('utf-8') for name in self.species]
+            self.species = tuple([name.decode('utf-8') for name in self.species])
 
             self.mass_fractions = f['mass_fractions'][()]
             self.mean_molar_masses = f['mean_molar_masses'][()]

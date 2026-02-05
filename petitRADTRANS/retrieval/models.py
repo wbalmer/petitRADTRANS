@@ -57,7 +57,7 @@ def _compute_gravity(parameters):
     elif 'log_g' in parameters.keys():
         gravity = 10 ** parameters['log_g'].value
         planet_radius = parameters['planet_radius'].value
-    elif 'mass' in parameters.keys():
+    elif 'mass' in parameters.keys() or 'planet_mass' in parameters.keys():
         planet_radius = parameters['planet_radius'].value
         gravity, _, _ = Planet.mass2reference_gravity(
             mass=parameters['mass'].value,

@@ -313,6 +313,7 @@ def make_press_temp_iso(rad_trans_params):
     return press_new, temp_new
 
 
+# TODO [4.0.0] rename 'T_set' => 'temperature_xxx' (xxx => reference? 'set' is not clear)
 def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_points):
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
@@ -328,7 +329,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
         pressures : (numpy.ndarray)
             An array of pressure values (in bar) at which to calculate temperatures.
         log_pressure_points : (list)
-            A list of log pressure breakpoints defining different temperature regimes.
+            A list of log10 pressure breakpoints defining different temperature regimes.
             The zeroth element is the minimum pressure, should be log10(press[0]).
             The first element is the 1-2 boundary
             The second element is the level of the inversion
@@ -356,6 +357,10 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
 
     # Set up masks for the different temperature regions
     pressure_points = 10**jnp.array(log_pressure_points)
+
+    # Change log10 pressure points to log pressure points as used in Madhusudhan and Seager (2009)
+    nat_log_pressure_points = jnp.log(pressure_points)
+
     mask_1 = pressures < pressure_points[1]
     mask_2 = (pressures >= pressure_points[1]) & (pressures < pressure_points[3])
     mask_3 = pressures >= pressure_points[3]
@@ -365,74 +370,81 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     p_set_i = pressures[i_set]
 
     # Store logarithm of various pressure quantities
-    log_p = jnp.log10(pressures)
-    log_p_min = log_pressure_points[0]
-    log_p_set_i = jnp.log10(p_set_i)
+    nat_log_p = jnp.log(pressures)
+    nat_log_p_min = nat_log_pressure_points[0]
+    nat_log_p_set_i = jnp.log(p_set_i)
 
-    T0 = None
-    T2 = None
-    T3 = None
+
+    t0 = None
+    t2 = None
+    t3 = None
 
     # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
     # By default (P_set = 10 bar), so T(P_set) should be in layer 3
-    if log_pressure_points[4] >= log_pressure_points[3]:
-        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
+    # TODO cond on values
+    if nat_log_pressure_points[4] >= nat_log_pressure_points[3]:
+        t3 = T_set  # T_deep is the isothermal deep temperature T3 here
 
         # Use the temperature parameter to compute boundary temperatures
-        T2 = T3 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        t2 = t3 - (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        t1 = t2 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T0 = T1 - (
-            (1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)
+        t0 = t1 - (
+            (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
             ) ** (1 / beta_points[0])
 
     # If a different P_deep has been chosen, solve equations for layer 2...
     elif (
-        log_pressure_points[4] >= log_pressure_points[1]
+        nat_log_pressure_points[4] >= nat_log_pressure_points[1]
     ):  # Temperature parameter in layer 2
         # Use the temperature parameter to compute the boundary temperatures
-        T2 = T_set - (
-            (1.0 / alpha_points[1]) * (log_p_set_i - log_pressure_points[2])
+        t2 = T_set - (
+            (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T1 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        t1 = t2 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[0])
-        T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        t3 = t2 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T0 = T1 - ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+        t0 = t1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
 
     # ...or for layer 1
     elif (
-        log_pressure_points[4] < log_pressure_points[1]
+        nat_log_pressure_points[4] < nat_log_pressure_points[1]
     ):  # Temperature parameter in layer 1
 
         # Use the temperature parameter to compute the boundary temperatures
-        T0 = T_set - ((1.0 / alpha_points[0]) * (log_p_set_i - log_p_min)) ** (
+        t0 = T_set - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
-        T1 = T0 + ((1.0 / alpha_points[0]) * (log_pressure_points[1] - log_p_min)) ** (
+        t1 = t0 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
-        T2 = T1 - (
-            (1.0 / alpha_points[1]) * (log_pressure_points[1] - log_pressure_points[2])
+        t2 = t1 - (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T3 = T2 + (
-            (1.0 / alpha_points[1]) * (log_pressure_points[3] - log_pressure_points[2])
+        t3 = t2 + (
+            (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
 
-    temperatures = temperatures.at[mask_1].set(T0 + (
-        (log_p[mask_1] - log_pressure_points[0]) / (alpha_points[0])
-    ) ** (1 / beta_points[0]))
-    temperatures = temperatures.at[mask_2].set(T2 + (
-        (log_p[mask_2] - log_pressure_points[2]) / (alpha_points[1])
-    ) ** (1 / beta_points[1]))
-    temperatures = temperatures.at[mask_3].set(T3)
+    temperatures = temperatures.at[mask_1].set(
+         t0
+         + ((nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0]))
+         ** (1 / beta_points[0])
+         )
+    temperatures = temperatures.at[mask_2].set(
+         t2
+         + ((nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1]))
+         ** (1 / beta_points[1])
+         )
+    temperatures = temperatures.at[mask_3].set(t3)
+
     return temperatures
 
 # TODO: duplicate with radiative_transfer_core
@@ -775,10 +787,12 @@ def temperature_profile_function_isothermal(pressures: ArrayLike, temperature: f
     return jnp.ones_like(pressures) * temperature
 
 
+# TODO find better name
+# TODO @Evert fix docstrings
 def temperature_profile_function_ret_model(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
-    # TODO find better name
+
     Args:
         t3 : jnp.array([t1, t2, t3])
             temperature points to be added on top
@@ -810,10 +824,10 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
     t3, delta, alpha, tint, press, feh, co_ratio, conv = rad_trans_params
     # Go grom bar to cgs
-    press_cgs = press * 1e6
+    pressures_cgs: npt.NDArray[np.floating] = press * 1e6
 
     # Calculate the optical depth
-    tau = delta * press_cgs ** alpha
+    tau = delta * pressures_cgs ** alpha
 
     # This is the eddington temperature
     tedd = (3. / 4. * tint ** 4. * (2. / 3. + tau)) ** 0.25
@@ -932,7 +946,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         t_support = jnp.zeros_like(support_points)
 
         if i_intp == 0:
-            tfintp = interp1d(press_cgs, tfinal, kind='cubic')
+            tfintp = interp1d(pressures_cgs, tfinal, kind='cubic')
             # The temperature at p_bot_spline (from the radiative-convective solution)
             t_support = t_support.at[int(len(support_points_low)) - 1].set(tfintp(p_bot_spline))
             # The temperature at pressures below p_bot_spline (free parameters)
@@ -966,6 +980,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 
+# TODO [4.0.0] remove argument 'press' as it is not used, and rename 'temps' => 'temperatures'
 def temperature_curvature_prior(press, temps, gamma):
     """
     Compute a curvature prior for a temperature-pressure profile.

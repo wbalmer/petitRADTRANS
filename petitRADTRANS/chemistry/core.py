@@ -17,7 +17,6 @@ from petitRADTRANS.chemistry.utils import (
     compute_mean_molar_masses,
     fixed_length_adaptive_mesh_refinement,
     linear_spline_profile,
-    cubic_spline_profile,
     stepped_profile,
     define_pressure_node_list,
     define_abundance_node_list,
@@ -26,7 +25,6 @@ from petitRADTRANS.chemistry.utils import (
 )
 from petitRADTRANS.chemistry import clouds as fc
 from petitRADTRANS.opacities.opacities import Opacity
-
 
 @jit(static_argnames=['cloud_species', 'adaptive_mesh_refinement'])
 def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
@@ -42,6 +40,7 @@ def calculate_cloud_mass_fractions_jit(pressures, temperatures, cloud_species,
         species_full_name = cloud_opacity.species_full_name
         cloud_name = species_full_name.split('_')[0]
         simple_cloud_names.append(cloud_name)
+
 
     def get_cloud_abundance(cloud, parameters):
         cloud_opacity = CloudOpacity([cloud], natural_abundance=False)
@@ -881,7 +880,7 @@ def get_abundances_old(pressures, temperatures, line_species, cloud_species, par
             parameters['pressure_scaling'].value,
             parameters['pressure_width'].value)
     else:
-        pressure_indices = jnp.linspace(0, pressures.shape[0] - 1, pressures.shape[0], dtype=int)
+        pressure_indices = jnp.array(list(range(pressures.shape[0])))
 
     fseds = {}
 
@@ -897,12 +896,12 @@ def get_abundances_old(pressures, temperatures, line_species, cloud_species, par
             else:
                 fseds[cloud_name] = parameters['fsed'].value
 
-            abundances[cloud_name] = jnp.zeros_like(temperatures)
-            abundances[cloud_name] = jnp.where(
+            abundances[species_full_name] = jnp.zeros_like(temperatures)
+            abundances[species_full_name] = jnp.where(
                 pressures < p_bases[cloud_name],
                 clouds[cloud_name] * (pressures / p_bases[cloud_name]) ** fseds[cloud_name],
                 0.0)
-            abundances[cloud_name] = abundances[cloud_name][pressure_indices]
+            abundances[species_full_name] = abundances[species_full_name][pressure_indices]
 
     for species in line_species:
         species_opacity = Opacity([species])
@@ -930,9 +929,11 @@ def get_abundances_old(pressures, temperatures, line_species, cloud_species, par
                 index_ro = pressures < p_bases['Fe(c)']  # Must have iron cloud
                 abunds_change_rainout = abunds_change_rainout.at[index_ro].set(0.)
             abundances[species] = abunds_change_rainout[pressure_indices]
-        abundances[species] = abundances_interp[species][pressure_indices]
+        if species_basename in abundances_interp.keys():
+            abundances[species_full_name] = abundances_interp[species_basename][pressure_indices]
+        else:
+            abundances[species_full_name] = abundances_interp[species_full_name][pressure_indices]
     abundances['H2'] = abundances_interp['H2'][pressure_indices]
     abundances['He'] = abundances_interp['He'][pressure_indices]
 
     return abundances, mmw, pressure_indices, p_bases
-

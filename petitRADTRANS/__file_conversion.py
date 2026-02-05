@@ -49,7 +49,7 @@ if load_mpi:
         rank = 0
 
 
-def __get_prt2_input_data_subpaths() -> LockedDict[str, str]:
+def __get_prt2_input_data_subpaths() -> dict[str, str]:
     old_input_data_subpaths = LockedDict()
     old_input_data_subpaths.update(get_input_data_subpaths())
     old_input_data_subpaths.lock()
@@ -3353,7 +3353,9 @@ def format2petitradtrans(load_function, opacities_directory: str, natural_abunda
         else:
             starting_index = 0
 
-        bin_edges: npt.NDArray[float] = wavenumbers_petitradtrans_line_by_line[::-1][starting_index::downsampling][::-1]
+        bin_edges: npt.NDArray[np.floating] = wavenumbers_petitradtrans_line_by_line[
+            ::-1
+        ][starting_index::downsampling][::-1]
 
         if use_legacy_correlated_k_wavenumbers_sampling:
             max_extra_edges = 2

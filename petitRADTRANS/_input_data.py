@@ -1,9 +1,10 @@
 import os
 import warnings
+from typing import Callable
 
 from petitRADTRANS.cli.prt_cli import download_input_data, get_keeper_files_url_paths
 from petitRADTRANS.config.configuration import petitradtrans_config_parser
-from petitRADTRANS.utils import user_input
+from petitRADTRANS.utils import list_str2str, user_input
 
 
 def _get_input_data_file_not_found_error_message(file: str) -> str:
@@ -130,7 +131,7 @@ def _get_input_file_from_keeper(full_path, path_input_data=None, sub_path=None, 
     return matches
 
 
-def default_file_selection(files: tuple[str, ...], full_path: str, sub_path: str) -> str:
+def default_file_selection(files: tuple[str, ...] | list[str], full_path: str, sub_path: str) -> str:
     files_str = [f" {i + 1}: {file}" for i, file in enumerate(files)]
     files_str = "\n".join(files_str)
 
@@ -141,7 +142,7 @@ def default_file_selection(files: tuple[str, ...], full_path: str, sub_path: str
         f"{files_str}"
     )
 
-    new_default_file = user_input(
+    new_default_file: int | None = user_input(
         introduction_message=introduction_message,
         input_message=f"Select which file to set as the default file for '{sub_path}'",
         failure_message=f"failure to enter new default file for '{sub_path}'",
@@ -154,13 +155,13 @@ def default_file_selection(files: tuple[str, ...], full_path: str, sub_path: str
         raise ValueError(f"no default file selected for path '{sub_path}'")
 
     new_default_file -= 1
-    new_default_file = files[new_default_file]
+    new_default_file: str = files[new_default_file]
 
     return new_default_file
 
 
 def find_input_file(file: str, path_input_data: str, sub_path: str = None,
-                    match_function: callable = None, find_all: bool = False, search_online: bool = True):
+                    match_function: Callable = None, find_all: bool = False, search_online: bool = True):
     if match_function is None:
         match_function = match_function_default
 
@@ -217,7 +218,7 @@ def match_function_default(path_input_data: str, sub_path: str,
                            files: list[str] = None, filename: str = None,
                            expect_default_file_exists: bool = True,
                            find_all: bool = False, display_other_files: bool = False):
-    full_path = str(os.path.join(path_input_data, sub_path))
+    full_path: str = os.path.join(path_input_data, sub_path)
 
     if not os.path.isdir(full_path) and files is None:  # directory does not exist, return empty list
         return []
@@ -228,12 +229,12 @@ def match_function_default(path_input_data: str, sub_path: str,
     if len(files) == 0:  # no file in path, return empty list
         return []
     else:  # at least one file detected in path
-        if filename is not None:  # check if one of the files matches the given filename
-            matching_files = []
+        matching_files: list[str] = []
 
-            for file in files:
-                if filename in file:
-                    matching_files.append(file)
+        if filename is not None:  # check if one of the files matches the given filename
+            matching_files = [
+                file for file in files if file.startswith(filename)
+            ]
 
             if len(matching_files) == 0:
                 if display_other_files:
@@ -247,12 +248,10 @@ def match_function_default(path_input_data: str, sub_path: str,
                 return matching_files[0]
             elif find_all:
                 return matching_files
-
-        # No filename given and only one file is in path, return it
-        if len(files) == 1:
+        elif len(files) == 1:  # no filename given and only one file is in path, return it
             return files[0]
 
-        # More than one file detected
+        # More than one matching file or more than one file in path
         if sub_path in petitradtrans_config_parser['Default files']:  # check for a default file in configuration
             default_file = os.path.join(
                 path_input_data,
@@ -262,6 +261,20 @@ def match_function_default(path_input_data: str, sub_path: str,
 
             # Check if the default file exists
             if os.path.isfile(default_file):
+                # Check if the requested file matches the default file
+                if filename is not None:
+                    if not default_file.startswith(filename):
+                        # TODO make the example more robust by moving this function in opacities in 4.0.0
+                        example_species: str = os.path.basename(matching_files[0]).rsplit('.', 3)[0]
+                        separator: str = '\n\t- '
+
+                        raise ValueError(
+                            f"more than one file matching species '{filename}':\n"
+                            f"\t- {list_str2str(list_str=matching_files, separator=separator)}\n"
+                            f"Use a less ambiguous species name by adding isotopes, source, sampling "
+                            f"and/or spectral range (e.g. '{example_species}')."
+                        )
+
                 return default_file
             elif not expect_default_file_exists:
                 return os.path.split(default_file)[-1]
@@ -299,7 +312,7 @@ def select_default_file(files: tuple[str, ...], full_path: str, sub_path: str) -
         f"{files_str}"
     )
 
-    new_default_file = user_input(
+    new_default_file: int | None = user_input(
         introduction_message=introduction_message,
         input_message=f"Select which file to set as the default file for '{sub_path}'",
         failure_message=f"failure to enter new default file for '{sub_path}'",
@@ -312,7 +325,7 @@ def select_default_file(files: tuple[str, ...], full_path: str, sub_path: str) -
         raise ValueError(f"no default file selected for path '{sub_path}'")
 
     new_default_file -= 1
-    new_default_file = files[new_default_file]
+    new_default_file: str = files[new_default_file]
 
     return new_default_file
 

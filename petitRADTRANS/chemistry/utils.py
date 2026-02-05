@@ -358,6 +358,7 @@ def compute_mean_molar_masses_from_volume_mixing_ratios(volume_mixing_ratios):
     return mean_molar_masses
 
 
+# TODO [4.0.0] remove 'nnodes' as it is not used
 def cubic_spline_profile(pressure_array, pressure_nodes, abundance_points, gamma, nnodes=0):
     """
     Compute a cubic spline profile for abundance based on pressure points.

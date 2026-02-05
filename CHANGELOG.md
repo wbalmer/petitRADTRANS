@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [4.0.0a7] - 2025-08-06
+## [4.0.0a8] - 2025-08-06
 ### Summary
 pRT 4.0 replaces the existing fortran backend with an equivalent JAX-based backend. This enables
 faster retrievals through the use of JAXNS, and allows pRT to run natively on GPUs and TPUs.
@@ -12,13 +12,30 @@ Version 4.0 is still experimental, and should not be used for production work!
 As of version 4.0.0a6 most functionality should "work". Tests still fail, but most results are correct to within <0.01%.
 
 ### TODO
-- Finish reimplementing contribution functions.
-- Fix opacity shape bug in radtrans.py (mostly affects smart_clear_opacities when swapping elements).
-- Feautrier is only accurate to 0.01% (relative). Should be better numerically.
-- Finish updating retrieval module.
-- Finish implementing hansen cloud opacities
-- Still a small bug with the calculating cloud/scattering opacities.
-- Finish making everything deeper than `calculate_flux` JIT-compileable
+- Feautrier is only accurate to 0.01% (relative). Should be better numerically?
+- Feature completion: Implement hansen cloud opacities.
+- Feature completion: Finish reimplementing contribution functions.
+- Feature completion: need to replace smart_clear_opacities with JAX based patchiness implementation.
+- Feature completion: Implement adaptive mesh refinement with constant size pressure array.
+- Feature completion: Figure out how to implement additional_outputs in jax compatible way.
+- Feature completion: update log likelihoods for 2D, 3D data.
+- Feature completion: Multicolumn/time domain retrievals.
+- Optimisation: make everything deeper than `calculate_flux` JIT-compileable.
+- Optimisation: replace for and fori_loops with scan or vmap.
+- Optimisation: Ensure consistent typing throughout (32 vs 64 bit). Add typing to function definitions.
+- Optimisation: profile code for new bottlenecks.
+- Testing: ensure compatibility of spectral_model.
+- Testing: gradient calculations.
+- Testing: write unit tests for new JAX functions.
+- Testing: test GPU functionality.
+- Architecture: refactor retrieval plotting into separate module.
+- Architecture: Make sure all chi2 calculations use LogLikelihood class.
+- Architecture: Fewer classes, more functional approach. Break up large functions. Separate static methods into clearer modules.
+- Documentation: Add docstrings to all new JAX functions.
+- Documentation: Update tutorials to be v4 compatible.
+- Documentation: Reintroduce error checking where removed.
+- Address all remaining TODOs in code.
+- Clean up comment blocks.
 
 ### Changed
 - JAX translations of fortran functions are stored in the `radtrans_core` directory.
@@ -47,11 +64,44 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 ### Removed
 - `Data.get_chi2` has been removed and moved to `LogLikelihood`
 
+## [3.3.1a1] - 2026-02-01
+### Fixed
+- Infinite recursive error checking when retrieving photometric data with the `Radtrans` retrieval workflow ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122)).
+- Fixed naming bug with CloudOpacity in retrieval package ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
+- Fixed uncertainty definition if covariance matrix exists in data.py ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
 
-## [3.3.0a0] - 2025-05-22
+### Pending
+- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
+- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
+- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+
+
+## [3.3.0] - 2026-01-23
 ### Added
-- Linear spline continuum subtraction (courtesy Will Balmer)
-- Radial velocity handling in retrieval package (courtesy Will Balmer)
+- Arbitrary cloud particle size distribution.
+- Handling of pressure-varying abundances in `retrieval_config`.
+- Linear spline continuum subtraction (courtesy Will Balmer).
+- Radial velocity handling in retrieval package (courtesy Will Balmer).
+- Covariance matrix for `Data` objects.
+- Possibility to map out the cloud particle size distribution that affects the spectrum.
+- Possibility to combine line-by-line and correlated-k opacities in retrievals.
+- Possibility for `calculate_transit_radii` to return particle radii, radii bins and particle densities.
+- Possibility for `calculate_flux` to return particle radii and radii bins.
+- Docstrings to most of the objects in the `opacity` module.
+
+### Changed
+- Better handling of opacity naming in `retrieval` module.
+- Made retrieval dependencies part of standard installation.
+- Integration of cloud opacities is now handled by feeder functions.
+
+### Fixed
+- Crash when rebinning line opacities if `mpi4py` is not installed.
+- Crash when rebinning line opacities when `emcee` mode is activated ([issue 119](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/119)).
+- Confusing error message when using function `retrieval.plot_corner` with no parameter ([issue 120](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/120)).
+- Incorrect behaviour: loading opacities with a species name matching multiple opacity files always results in trying to load the default species file, if it exists.
+- Opacity files with invalid name starts can be considered valid.
+- Incorrect factor in calculation for contribution of particle sizes in hansen clouds.
+- Changed log10 to log in Madhu and Seager pT profile ([issue 121](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/121)).
 
 ## [3.2.0] - 2025-05-30
 ### Added
@@ -113,13 +163,8 @@ As of version 4.0.0a6 most functionality should "work". Tests still fail, but mo
 - Updated corner plot ranges, fixing ([issue 101](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/101)).
 - Updated power law profile, fixing ([issue 103](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/103)).
 - Updated contribution function plotting over PT profile and abundances, fixing ([issue 106](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/106)).
-- Fixed numerical bug in Madhusudhan/Seager PT profile ([issue 115](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/115)).
-- Fixed missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)).
-
-### Pending
-- Temporarily reverted to allow < 0 solutions in the tridiagonal solver until it is determined if they should be allowed.
-- Temporarily silenced the overflow warning message until a solution to trigger the message less often is found.
-- Temporarily set clouds space group to their undefined value (`000`) until their actual space group is found.
+- Numerical bug in Madhusudhan/Seager PT profile ([issue 115](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/115)).
+- Missing error inflation in `retrieval.get_reduced_chi2_from_model` ([issue 114](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/114)).
 
 ## [3.1.3] - 2025-02-27
 ### Fixed

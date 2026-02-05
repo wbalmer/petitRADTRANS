@@ -4,7 +4,7 @@ import copy
 import os
 import sys
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import h5py
 import jax.numpy as jnp
@@ -644,6 +644,7 @@ class Radtrans:
         )
 
     @staticmethod
+<<<<<<< HEAD
     @jit(static_argnames=['cloud_species','cloud_particles_radius_distribution'])
     def _compute_cloud_continuum_opacities( # TODO: revert to previous logic
         frequencies: ArrayLike,  # NOTE: use self
@@ -673,6 +674,39 @@ class Radtrans:
         cloud_photosphere_median_optical_depth: float,
         complete_coverage_clouds: tuple[str],
         return_cloud_contribution: bool
+=======
+    def __compute_cloud_continuum_opacities(
+        frequencies,
+        frequency_bins_edges,
+        pressures,
+        temperatures,
+        mass_fractions,
+        mean_molar_masses,
+        reference_gravity,
+        scattering_in_transmission,
+        sum_opacities,
+        opaque_cloud_top_pressure,
+        power_law_opacity_350nm,
+        power_law_opacity_coefficient,
+        clouds_have_effect,
+        cloud_species,
+        clouds_particles_porosity_factor,
+        clouds_loaded_opacities,
+        anisotropic_cloud_scattering,
+        cloud_particles_mean_radii,
+        cloud_particle_radius_distribution_std,
+        cloud_f_sed,
+        eddy_diffusion_coefficients,
+        cloud_particles_radius_distribution,
+        cloud_hansen_a,
+        cloud_hansen_b,
+        cloud_particle_number_density_grid,
+        cloud_photosphere_median_optical_depth,
+        complete_coverage_clouds,
+        return_cloud_contribution,
+        target_particle_radii,
+        target_pressure
+>>>>>>> origin/dev-issue122
     ):
         # Initialization
         n_clouds = len(cloud_species)
@@ -795,10 +829,13 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b,
+                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
                 clouds_particles_porosity_factor=clouds_particles_porosity_factor,
                 photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
                 continuum_opacities=cloud_continuum_opacities,
-                return_cloud_contribution=return_cloud_contribution
+                return_cloud_contribution=return_cloud_contribution,
+                target_particle_radii=target_particle_radii,
+                target_pressure=target_pressure
             )
 
             # Opacities with only the clouds with complete coverage (will be treated as standard continuum opacities)
@@ -847,10 +884,13 @@ class Radtrans:
                     cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                     cloud_hansen_a=cloud_hansen_a,
                     cloud_hansen_b=cloud_hansen_b,
+                    cloud_particle_number_density_grid=cloud_particle_number_density_grid,
                     clouds_particles_porosity_factor=clouds_particles_porosity_factor,
                     photospheric_cloud_optical_depths=cloud_photosphere_median_optical_depth,
                     continuum_opacities=cloud_continuum_opacities[1],
-                    return_cloud_contribution=return_cloud_contribution
+                    return_cloud_contribution=return_cloud_contribution,
+                    target_particle_radii=target_particle_radii,
+                    target_pressure=target_pressure
                 )
                 return (complete_coverage_cloud_continuum_opacities,
                         complete_coverage_cloud_continuum_opacities_scattering,
@@ -1185,7 +1225,7 @@ class Radtrans:
         frequencies: ArrayLike,
         file_frequencies: ArrayLike,
         tolerate_grid_misalignment: bool = False
-    ) -> tuple[npt.NDArray[bool], npt.NDArray[bool]]:
+    ) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
         """Get the indices to fill frequencies from a file within the Radtrans frequency grid.
 
         For example, if the Radtrans frequency grid is [0.1, ..., 0.3, ..., 3] and some loaded opacity frequency grid
@@ -1584,7 +1624,9 @@ class Radtrans:
         self, temperatures, mass_fractions, mean_molar_masses, reference_gravity,
         opaque_cloud_top_pressure=None,
         cloud_particles_mean_radii=None, cloud_particle_radius_distribution_std=None,
-        cloud_particles_radius_distribution="lognormal", cloud_hansen_a=None, cloud_hansen_b=None,
+        cloud_particles_radius_distribution="lognormal",
+        cloud_particle_number_density_grid=None,
+        cloud_hansen_a=None, cloud_hansen_b=None,
         clouds_particles_porosity_factor=None,
         cloud_f_sed=None, eddy_diffusion_coefficients=None,
         haze_factor=1.0, power_law_opacity_350nm=None, power_law_opacity_coefficient=None,
@@ -1593,7 +1635,12 @@ class Radtrans:
         return_cloud_contribution=False,
         additional_absorption_opacities_function=None,
         additional_scattering_opacities_function=None,
+<<<<<<< HEAD
         sum_opacities=False
+=======
+        target_particle_radii=None,
+        target_pressure=None
+>>>>>>> origin/dev-issue122
     ):
         """Combine total line opacities, according to mass fractions (abundances), also add continuum opacities,
         i.e. clouds, CIA...
@@ -1611,6 +1658,7 @@ class Radtrans:
             cloud_particles_radius_distribution:
             cloud_hansen_a:
             cloud_hansen_b:
+            cloud_particle_number_density_grid:
             return_cloud_contribution:
             additional_absorption_opacities_function:
             additional_scattering_opacities_function:
@@ -1757,16 +1805,29 @@ class Radtrans:
             clouds_particles_porosity_factor=clouds_particles_porosity_factor_norm,
             clouds_loaded_opacities=self._clouds_loaded_opacities,
             anisotropic_cloud_scattering=self._anisotropic_cloud_scattering,
+<<<<<<< HEAD
             cloud_particles_mean_radii=cloud_particles_mean_radii_norm,
             cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std_norm,
             cloud_f_sed=cloud_f_sed_norm,
             eddy_diffusion_coefficients=eddy_diffusion_coefficients_norm,
+=======
+            cloud_particles_mean_radii=cloud_particles_mean_radii,
+            cloud_particle_radius_distribution_std=cloud_particle_radius_distribution_std,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+            cloud_f_sed=cloud_f_sed,
+            eddy_diffusion_coefficients=eddy_diffusion_coefficients,
+>>>>>>> origin/dev-issue122
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a_norm,
             cloud_hansen_b=cloud_hansen_b_norm,
             cloud_photosphere_median_optical_depth=cloud_photosphere_median_optical_depth_norm,
             complete_coverage_clouds=complete_coverage_clouds,
             return_cloud_contribution=return_cloud_contribution,
+<<<<<<< HEAD
+=======
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure
+>>>>>>> origin/dev-issue122
         )
 
         # TODO jitable for ValueError (jax.debug.callback)
@@ -2102,7 +2163,236 @@ class Radtrans:
         return flux, emission_contribution
 
     @staticmethod
+<<<<<<< HEAD
     @jit(static_argnames=['cloud_species','cloud_particles_radius_distribution'])
+=======
+    def _integrate_cloud_opacities_from_dn_dr(
+            dn_dr,
+            atmosphere_densities,
+            clouds_particles_densities,
+            cloud_particles_radii_bins,
+            cloud_particles_radii,
+            clouds_absorption_opacities,
+            clouds_scattering_opacities,
+            clouds_particles_asymmetry_parameters,
+            pressures,
+            target_particle_radii,
+            target_pressure,
+    ):
+        """
+        Shared integration backend for both cloud opacity methods.
+        Operates purely on dn/dr and handles all integration logic.
+        """
+
+        # Scale factor
+        integrand_scale = (
+                (4.0 * np.pi / 3.0)
+                * cloud_particles_radii[:, None, None] ** 3
+                * clouds_particles_densities
+                * dn_dr
+        )
+
+        # Opacities
+        integrand_absorption = integrand_scale[:, None] * clouds_absorption_opacities[:, :, None]
+        integrand_scattering = integrand_scale[:, None] * clouds_scattering_opacities[:, :, None]
+        integrand_anisotropy = integrand_scattering * (1.0 - clouds_particles_asymmetry_parameters[:, :, None])
+
+        # Selectively disable bins
+        if target_pressure is not None:
+            target_pressure = [tp * 1e6 for tp in target_pressure]  # bar→cgs
+            target_particle_radii = [tr * 1e-4 for tr in target_particle_radii]  # micron→cm
+
+            disabled_bins = {(np.abs(cloud_particles_radii_bins - tr)).argmin()
+                             for tr in target_particle_radii}
+            in_layer = {(np.abs(pressures - tp)).argmin()
+                        for tp in target_pressure}
+
+            block = np.ones_like(integrand_scale)
+            for bi in disabled_bins:
+                for li in in_layer:
+                    block[bi, li, :] = 0
+
+            integrand_scale *= block
+            integrand_absorption *= block[:, None]
+            integrand_scattering *= block[:, None]
+            integrand_anisotropy *= block[:, None]
+
+        # Integrate over radius
+        widths = np.diff(cloud_particles_radii_bins)[:, None, None, None]
+
+        clouds_absorption_opacities = np.sum(integrand_absorption * widths, axis=(0, 3))
+        clouds_scattering_opacities = np.sum(integrand_scattering * widths, axis=(0, 3))
+        cloud_one_minus_g = np.sum(integrand_anisotropy * widths, axis=(0, 3))
+
+        cloud_one_minus_g = np.true_divide(
+            cloud_one_minus_g, clouds_scattering_opacities,
+            out=np.zeros_like(clouds_scattering_opacities),
+            where=clouds_scattering_opacities > 1e-200
+        )
+
+        # Divide by atmosphere density
+        clouds_absorption_opacities /= atmosphere_densities
+        clouds_scattering_opacities /= atmosphere_densities
+
+        return clouds_absorption_opacities, clouds_scattering_opacities, cloud_one_minus_g
+
+    @staticmethod
+    def _compute_cloud_log_normal_particles_distribution_opacities(
+        atmosphere_densities,
+        clouds_particles_densities,
+        clouds_mass_fractions,
+        cloud_particles_mean_radii,
+        cloud_particles_distribution_std,
+        cloud_particles_radii_bins,
+        cloud_particles_radii,
+        clouds_absorption_opacities,
+        clouds_scattering_opacities,
+        clouds_particles_asymmetry_parameters,
+        pressures,
+        target_particle_radii,
+        target_pressure
+    ):
+        r"""This function reimplements calc_cloud_opas from fortran_radtrans_core.f90.
+        For some reason it runs faster in python than in fortran, so we'll use this from now on.
+        This function integrates the cloud opacity through the different layers of the atmosphere to get the total
+        optical depth, scattering and anisotropic fraction.
+        # TODO optical depth or opacity?
+        # TODO complete docstring and vectorize on/off code
+
+        Author: Francois Rozet
+
+        Args:
+            atmosphere_densities:
+                Density of the atmosphere at each of its layer
+            clouds_particles_densities:
+                Density of each cloud particles
+            clouds_mass_fractions:
+                Mass fractions of each cloud at each atmospheric layer
+            cloud_particles_mean_radii:
+                Mean radius of each cloud particles at each atmospheric layer
+            cloud_particles_distribution_std:
+                Standard deviation of the log-normal cloud particles distribution
+            cloud_particles_radii_bins:
+                Bins of the particles cloud radii grid
+            cloud_particles_radii:
+                Particles cloud radii grid
+            clouds_absorption_opacities:
+                Cloud absorption opacities (radius grid, wavelength grid, clouds)
+            clouds_scattering_opacities:
+                Cloud scattering opacities (radius grid, wavelength grid, clouds)
+            clouds_particles_asymmetry_parameters:
+                Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+
+        Returns:
+
+        """
+        # Compute dn/dr from log-normal distribution
+        n = (
+                3.0 * clouds_mass_fractions * atmosphere_densities[:, None] /
+                (4.0 * np.pi * clouds_particles_densities * cloud_particles_mean_radii ** 3)
+                * np.exp(-4.5 * np.log(cloud_particles_distribution_std) ** 2)
+        )
+
+        diff = np.log(cloud_particles_radii[:, None, None]) - np.log(cloud_particles_mean_radii)
+
+        dn_dr = (
+                n / (cloud_particles_radii[:, None, None] * np.sqrt(2.0 * np.pi)
+                     * np.log(cloud_particles_distribution_std))
+                * np.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
+                )
+
+        # Delegate to shared integrator
+        _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g =\
+            Radtrans._integrate_cloud_opacities_from_dn_dr(dn_dr,
+                                                           atmosphere_densities,
+                                                           clouds_particles_densities,
+                                                           cloud_particles_radii_bins,
+                                                           cloud_particles_radii,
+                                                           clouds_absorption_opacities,
+                                                           clouds_scattering_opacities,
+                                                           clouds_particles_asymmetry_parameters,
+                                                           pressures,
+                                                           target_particle_radii,
+                                                           target_pressure
+                                                           )
+
+        return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g
+
+    @staticmethod
+    def _compute_cloud_opacities_using_particle_size_grid(
+            atmosphere_densities,
+            clouds_mass_fractions,
+            cloud_particle_number_density_grid,
+            clouds_particles_densities,
+            cloud_particles_radii_bins,
+            cloud_particles_radii,
+            clouds_absorption_opacities,
+            clouds_scattering_opacities,
+            clouds_particles_asymmetry_parameters,
+            pressures,
+            target_particle_radii,
+            target_pressure
+    ):
+        r"""
+        # TODO vectorize on/off code
+        Args:
+            atmosphere_densities:
+                Density of the atmosphere at each of its layer
+            clouds_mass_fractions:
+                Mass fractions of each cloud at each atmospheric layer
+            cloud_particle_number_density_grid:
+                Output from cloud lognormal EXPERIMENTAL
+            clouds_particles_densities:
+                Density of each cloud particles
+            cloud_particles_radii_bins:
+                Bins of the particles cloud radii grid
+            cloud_particles_radii:
+                Particles cloud radii grid
+            clouds_absorption_opacities:
+                Cloud absorption opacities (radius grid, wavelength grid, clouds)
+            clouds_scattering_opacities:
+                Cloud scattering opacities (radius grid, wavelength grid, clouds)
+            clouds_particles_asymmetry_parameters:
+                Cloud particles asymmetry parameters (radius grid, wavelength grid, clouds)
+            pressures:
+                Pressure array
+            target_particle_radii:
+                Target particle radii array
+            target_pressure:
+                Target pressure array
+
+        Returns:
+
+        """
+        # Extract precomputed dn/dr
+        dn_dr = None  # prevent eventual reference before assignment
+
+        if isinstance(cloud_particle_number_density_grid, dict):
+            # map cloud names to the correct entry
+            for i_spec, cloud in enumerate(clouds_mass_fractions):
+                dn_dr = cloud_particle_number_density_grid[cloud]
+        else:
+            dn_dr = cloud_particle_number_density_grid
+
+        _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g = \
+            Radtrans._integrate_cloud_opacities_from_dn_dr(
+                dn_dr,
+                atmosphere_densities,
+                clouds_particles_densities,
+                cloud_particles_radii_bins,
+                cloud_particles_radii,
+                clouds_absorption_opacities,
+                clouds_scattering_opacities,
+                clouds_particles_asymmetry_parameters,
+                pressures,
+                target_particle_radii,
+                target_pressure
+            )
+
+        return _cloud_absorption_opacities, _cloud_scattering_opacities, cloud_one_minus_g
+
+    @staticmethod
+>>>>>>> origin/dev-issue122
     def _compute_cloud_opacities(
         pressures,
         temperatures,
@@ -2118,10 +2408,18 @@ class Radtrans:
         cloud_particles_mean_radii=None,
         cloud_particles_radius_distribution="lognormal",
         cloud_hansen_a=None, cloud_hansen_b=None,
+        cloud_particle_number_density_grid=None,
         clouds_particles_porosity_factor=None,
+<<<<<<< HEAD
         photospheric_cloud_optical_depths=None,
         continuum_opacities=None,
         return_cloud_contribution=False
+=======
+        photospheric_cloud_optical_depths=None, continuum_opacities=None,
+        return_cloud_contribution=False,
+        target_particle_radii=None,
+        target_pressure=None
+>>>>>>> origin/dev-issue122
     ):
         """Calculate cloud opacities for a defined atmospheric structure.
         This specifically calculates the various cloud absorption and scattering opacities
@@ -2140,6 +2438,7 @@ class Radtrans:
             cloud_particles_radius_distribution:
             cloud_hansen_a:
             cloud_hansen_b:
+            cloud_particle_number_density_grid:
             return_cloud_contribution:
 
         Returns:
@@ -2204,11 +2503,24 @@ class Radtrans:
                 _cloud_particles_mean_radii = _cloud_particles_mean_radii.at[:, i_spec].set(cloud_hansen_a[cloud_name])
 
         # Calculate cloud opacities
-        if cloud_particles_mean_radii is not None or cloud_hansen_a is not None:
+        if (
+            cloud_particles_mean_radii is not None
+            or cloud_hansen_a is not None
+            or cloud_particle_number_density_grid is not None
+        ):
             if cloud_particles_radius_distribution == "lognormal":
+<<<<<<< HEAD
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
                     cloud_core.compute_cloud_log_normal_particles_distribution_opacities(
+=======
+                (
+                    clouds_total_absorption_opacities,
+                    clouds_total_scattering_opacities,
+                    cloud_scattering_reduction_factor
+                ) = (
+                    Radtrans._compute_cloud_log_normal_particles_distribution_opacities(
+>>>>>>> origin/dev-issue122
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
@@ -2218,12 +2530,25 @@ class Radtrans:
                         cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
                         clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
                         clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
-                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
+                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
+                        pressures=pressures,
+                        target_particle_radii=target_particle_radii,
+                        target_pressure=target_pressure
                     )
+<<<<<<< HEAD
             else:
                 #TODO: Implement hansen cloud opas in cloud_core
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
+=======
+                )
+            elif cloud_particles_radius_distribution == "hansen":
+                (
+                    clouds_total_absorption_opacities,
+                    clouds_total_scattering_opacities,
+                    cloud_scattering_reduction_factor
+                ) = (
+>>>>>>> origin/dev-issue122
                     fcore.compute_cloud_hansen_opacities(
                         atmospheric_densities,
                         _cloud_particles_density,
@@ -2236,6 +2561,33 @@ class Radtrans:
                         clouds_loaded_opacities['scattering_opacities'],
                         clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
+                )
+            elif cloud_particles_radius_distribution == "custom":
+                (
+                    clouds_total_absorption_opacities,
+                    clouds_total_scattering_opacities,
+                    cloud_scattering_reduction_factor
+                ) = (
+                    Radtrans._compute_cloud_opacities_using_particle_size_grid(
+                        atmosphere_densities=atmospheric_densities,
+                        clouds_mass_fractions=cloud_species_mass_fractions,
+                        cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                        clouds_particles_densities=_cloud_particles_density,
+                        cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
+                        cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
+                        clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
+                        clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
+                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
+                        pressures=pressures,
+                        target_particle_radii=target_particle_radii,
+                        target_pressure=target_pressure
+                    )
+                )
+            else:
+                raise ValueError(
+                    f"cloud_particles_radius_distribution must be 'lognormal', 'hansen', or 'custom', "
+                    f"but is '{cloud_particles_radius_distribution}'"
+                )
         else:
             missing_arguments = []
 
@@ -2248,8 +2600,24 @@ class Radtrans:
             if eddy_diffusion_coefficients is None or eddy_diffusion_coefficients is _MISSING_FLOAT:
                 missing_arguments.append("'eddy_diffusion_coefficients'")
 
+<<<<<<< HEAD
             if clouds_loaded_opacities['particles_radii_bins'] is None:
                 missing_arguments.append("'clouds_loaded_opacities.particles_radii_bins'")
+=======
+            if cloud_particles_radius_distribution == "custom" and cloud_particle_number_density_grid is None:
+                missing_arguments.append("'cloud_particle_number_density_grid'")
+
+            if len(missing_arguments) > 0:
+                raise ValueError(
+                    f"missing necessary arguments to calculate cloud particle radii: {', '.join(missing_arguments)} "
+                    f"(got 'None')\n"
+                    f"Set the missing arguments, "
+                    f"or directly set cloud particle radii "
+                    f"through the arguments 'cloud_particles_mean_radii' or 'cloud_hansen_a', "
+                    f"and argument 'cloud_particle_radius_distribution_std'.\n"
+                    f"The cloud particle radii are necessary to calculate the cloud opacities."
+                )
+>>>>>>> origin/dev-issue122
 
             def raise_missing_arguments_error(missing_arguments):
                 if len(missing_arguments) > 0:
@@ -2302,10 +2670,19 @@ class Radtrans:
                         cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
                         clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
                         clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
-                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters']
+                        clouds_particles_asymmetry_parameters=clouds_loaded_opacities[
+                            'particles_asymmetry_parameters'],
+                        pressures=pressures,
+                        target_particle_radii=target_particle_radii,
+                        target_pressure=target_pressure
                     )
+<<<<<<< HEAD
             else:
                 _cloud_particles_mean_radii = cloud_core.compute_cloud_particles_mean_radius_hansen(
+=======
+            elif cloud_particles_radius_distribution == "hansen":
+                _cloud_particles_mean_radii = fcore.compute_cloud_particles_mean_radius_hansen(
+>>>>>>> origin/dev-issue122
                     reference_gravity,
                     atmospheric_densities,
                     _cloud_particles_density,
@@ -2331,6 +2708,27 @@ class Radtrans:
                         clouds_loaded_opacities['scattering_opacities'],
                         clouds_loaded_opacities['particles_asymmetry_parameters']
                     )
+            elif cloud_particles_radius_distribution == "custom":
+                (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
+                 cloud_scattering_reduction_factor) = Radtrans._compute_cloud_opacities_using_particle_size_grid(
+                    atmosphere_densities=atmospheric_densities,
+                    clouds_mass_fractions=cloud_species_mass_fractions,
+                    cloud_particle_number_density_grid=cloud_particle_number_density_grid,
+                    clouds_particles_densities=_cloud_particles_density,
+                    cloud_particles_radii_bins=clouds_loaded_opacities['particles_radii_bins'],
+                    cloud_particles_radii=clouds_loaded_opacities['particles_radii'],
+                    clouds_absorption_opacities=clouds_loaded_opacities['absorption_opacities'],
+                    clouds_scattering_opacities=clouds_loaded_opacities['scattering_opacities'],
+                    clouds_particles_asymmetry_parameters=clouds_loaded_opacities['particles_asymmetry_parameters'],
+                    pressures=pressures,
+                    target_particle_radii=target_particle_radii,
+                    target_pressure=target_pressure
+                )
+            else:
+                raise ValueError(
+                    f"cloud_particles_radius_distribution must be 'lognormal', 'hansen', or 'custom', "
+                    f"but is '{cloud_particles_radius_distribution}'"
+                )
 
         # Take into account anisotropy (= 1 - asymmetry_parameter)
         (cloud_final_absorption_opacities, cloud_anisotropic_extinctions,
@@ -2915,10 +3313,17 @@ class Radtrans:
 
     @staticmethod
     def _handle_grid_misalignment(
+<<<<<<< HEAD
         indices: npt.NDArray[bool],
         frequencies_reference: ArrayLike,
         frequencies_test: ArrayLike
     ) -> npt.NDArray[bool]:
+=======
+        indices: npt.NDArray[np.bool_],
+        frequencies_reference: npt.NDArray[np.floating],
+        frequencies_test: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.bool_]:
+>>>>>>> origin/dev-issue122
         _indices: npt.NDArray[np.signedinteger] = np.nonzero(indices)[0]
 
         if (
@@ -3520,6 +3925,7 @@ class Radtrans:
 
    # TODO: JIT here, or leave to user?
     def calculate_flux(
+<<<<<<< HEAD
             self,
             temperatures: ArrayLike,
             mass_fractions: dict[str, ArrayLike],
@@ -3564,6 +3970,58 @@ class Radtrans:
             return_abundances: bool = False
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """ Method to calculate the atmosphere's emitted flux (emission spectrum).
+=======
+        self,
+        temperatures: npt.NDArray[np.floating],
+        mass_fractions: dict[str, npt.NDArray[np.floating]],
+        mean_molar_masses: npt.NDArray[np.floating],
+        reference_gravity: float,
+        planet_radius: float = None,
+        opaque_cloud_top_pressure: float = None,
+        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_particle_radius_distribution_std: float = None,
+        cloud_particles_radius_distribution: str = 'lognormal',
+        cloud_hansen_a: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_hansen_b: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
+        clouds_particles_porosity_factor: dict[str, float] = None,
+        cloud_f_sed: float = None,
+        eddy_diffusion_coefficients: npt.NDArray[np.floating] = None,
+        haze_factor: float = 1.0,
+        power_law_opacity_350nm: float = None,
+        power_law_opacity_coefficient: float = None,
+        gray_opacity: float = None,
+        cloud_photosphere_wavelength_boundaries: npt.NDArray[np.floating] = None,
+        cloud_photosphere_median_optical_depth: float = None,
+        cloud_fraction: float = 1.0,
+        complete_coverage_clouds: list[str] = None,
+        irradiation_geometry: str = 'dayside_ave',
+        emission_geometry: str = None,  # TODO deprecated, replace with irradiation_geometry everywhere in the code
+        stellar_intensities: npt.NDArray[np.floating] = None,
+        star_effective_temperature: float = None,
+        star_radius: float = None,
+        orbit_semi_major_axis: float = None,
+        star_irradiation_angle: float = 0.0,
+        reflectances: npt.NDArray[np.floating] = None,
+        emissivities: npt.NDArray[np.floating] = None,
+        additional_absorption_opacities_function: Callable = None,
+        additional_scattering_opacities_function: Callable = None,
+        adaptive_feautrier_iterations: bool = False,
+        frequencies_to_wavelengths: bool = True,
+        return_contribution: bool = False,
+        return_clear_spectrum: bool = False,
+        return_photosphere_radius: bool = False,
+        return_rosseland_optical_depths: bool = False,
+        return_cloud_contribution: bool = False,
+        return_opacities: bool = False,
+        return_abundances: bool = False,
+        return_particles_radii_bins: bool = False,
+        return_particles_radii: bool = False,
+        target_particle_radii: npt.NDArray[np.floating] = None,
+        target_pressure: npt.NDArray[np.floating] = None
+    ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
+        """Method to calculate the atmosphere's emitted flux (emission spectrum).
+>>>>>>> origin/dev-issue122
 
             Args:
                 temperatures:
@@ -3599,6 +4057,8 @@ class Radtrans:
                     A dictionary of the 'b' parameter values for each included cloud species and for each atmospheric
                     layer, formatted as the kzz argument. This is the width of the hansen distribution normalized by
                     the particle area (1/cloud_hansen_a^2)
+                cloud_particle_number_density_grid (Optional[dict]):
+                    EXPERIMENTAL
                 clouds_particles_porosity_factor (Optional[dict]):
                     A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                     are calculated using the Distribution of Hollow Spheres (DHS) method.
@@ -3673,27 +4133,50 @@ class Radtrans:
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
                 adaptive_feautrier_iterations (Optional[bool]):
-                    If True, the number of iterations of the Feautrier scattering-method
-                    (scattering_in_emission=True) is adapted based on the photon destruction probability.
+                    If True, adapt the number of iterations of the Feautrier scattering-method
+                    (scattering_in_emission=True) based on the photon destruction probability.
                 frequencies_to_wavelengths (Optional[bool]):
                     if True, convert the frequencies (Hz) output to wavelengths (cm),
                     and the flux per frequency output (erg.s-1.cm-2/Hz) to flux per wavelength (erg.s-1.cm-2/cm)
                 return_contribution (Optional[bool]):
-                    If True the emission contribution function is be calculated.
+                    If True, calculate the emission contribution function.
                 return_clear_spectrum (Optional[bool]):
                     If True, return the clear spectrum in addition to a cloudy spectrum.
                 return_photosphere_radius (Optional[bool]):
-                    if True, the photosphere radius is calculated and returned
+                    If True, calculate and return the photosphere radius.
                 return_rosseland_optical_depths (Optional[bool]):
-                    if True, the Rosseland opacities and optical depths are calculated and returned
+                    If True, calculate and return the Rosseland opacities and optical depths.
                 return_cloud_contribution (Optional[bool]):
-                    if True, the cloud contribution is calculated
+                    If True, calculate the cloud contribution.
                 return_opacities (Optional[bool]):
-                    if True, the absorption opacities and scattering opacities for species and clouds, as well as the
-                    optical depths, are returned
+                    If True, return the absorption opacities and scattering opacities for species and clouds, as well
+                    as optical depths
+                return_abundances (Optional[bool]):
+                    If True, return the mass fractions.
+                return_particles_radii_bins (Optional[bool]):
+                    If True, return the particle radii bins.
+                return_particles_radii (Optional[bool]):
+                    If True, return the particle radii.
+                target_particle_radii (Optional[npt.NDArray[np.floating]]):
+                    # TODO complete docstring
+                target_pressure (Optional[npt.NDArray[np.floating]]):
+                    # TODO complete docstring
         """
+<<<<<<< HEAD
         (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
          sum_opacities, use_smart_clear_opacities) = (
+=======
+        if emission_geometry is not None:  # TODO [4.0.0] remove
+            irradiation_geometry = emission_geometry
+
+            warnings.warn(
+                "'emission_geometry' is deprecated and will be removed in a future update. "
+                "Use 'irradiation_geometry' instead",
+                FutureWarning
+            )
+
+        auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear = (
+>>>>>>> origin/dev-issue122
             self.__init_spectral_function(
                 is_emission=True,
                 reference_gravity=reference_gravity,
@@ -3824,6 +4307,7 @@ class Radtrans:
                 cloud_particles_radius_distribution=cloud_particles_radius_distribution,
                 cloud_hansen_a=cloud_hansen_a,
                 cloud_hansen_b=cloud_hansen_b,
+                cloud_particle_number_density_grid=cloud_particle_number_density_grid,
                 clouds_particles_porosity_factor=clouds_particles_porosity_factor,
                 cloud_f_sed=cloud_f_sed,
                 eddy_diffusion_coefficients=eddy_diffusion_coefficients,
@@ -3837,7 +4321,12 @@ class Radtrans:
                 return_cloud_contribution=return_cloud_contribution,
                 additional_absorption_opacities_function=additional_absorption_opacities_function,
                 additional_scattering_opacities_function=additional_scattering_opacities_function,
+<<<<<<< HEAD
                 sum_opacities=sum_opacities
+=======
+                target_particle_radii=target_particle_radii,
+                target_pressure=target_pressure
+>>>>>>> origin/dev-issue122
             )
         )
 
@@ -3991,6 +4480,12 @@ class Radtrans:
 
         if cloud_particles_mean_radii is not None:
             additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
+
+        if return_particles_radii_bins:
+            additional_outputs['particles_radii_bins'] = self._clouds_loaded_opacities['particles_radii_bins']
+
+        if return_particles_radii:
+            additional_outputs['particles_radii'] = self._clouds_loaded_opacities['particles_radii']
 
         if stellar_intensities is not None:
             additional_outputs['stellar_intensities'] = stellar_intensities
@@ -4688,6 +5183,7 @@ class Radtrans:
         return opacities_rosseland, opacities_planck, cloud_particles_mean_radii
 
     def calculate_transit_radii(
+<<<<<<< HEAD
             self,
             temperatures: ArrayLike,
             mass_fractions: dict[str, ArrayLike],
@@ -4722,6 +5218,48 @@ class Radtrans:
             return_abundances: bool = False
     ) -> tuple[ArrayLike, ArrayLike, dict[str, any]]:
         """ Method to calculate the atmosphere's transmission radius
+=======
+        self,
+        temperatures: npt.NDArray[np.floating],
+        mass_fractions: dict[str, npt.NDArray[np.floating]],
+        mean_molar_masses: npt.NDArray[np.floating],
+        reference_gravity: float,
+        reference_pressure: float,
+        planet_radius: float,
+        variable_gravity: bool = True,
+        opaque_cloud_top_pressure: float = None,
+        cloud_particles_mean_radii: dict[str, npt.NDArray[np.floating]] = None,
+        cloud_particle_radius_distribution_std: float = None,
+        cloud_particles_radius_distribution: str = 'lognormal',
+        cloud_hansen_a: float = None,
+        cloud_hansen_b: float = None,
+        cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
+        clouds_particles_porosity_factor: dict[str, float] = None,
+        cloud_f_sed: float = None,
+        eddy_diffusion_coefficients: float = None,
+        haze_factor: float = 1.0,
+        power_law_opacity_350nm: float = None,
+        power_law_opacity_coefficient: float = None,
+        gray_opacity: float = None,
+        cloud_fraction: float = 1.0,
+        complete_coverage_clouds: list[str] = None,
+        additional_absorption_opacities_function: Callable = None,
+        additional_scattering_opacities_function: Callable = None,
+        frequencies_to_wavelengths: bool = True,
+        return_contribution: bool = False,
+        return_clear_spectrum: bool = False,
+        return_cloud_contribution: bool = False,
+        return_radius_hydrostatic_equilibrium: bool = False,
+        return_opacities: bool = False,
+        return_abundances: bool = False,
+        return_particles_radii_bins: bool = False,
+        return_particles_radii: bool = False,
+        return_particles_densities: bool = False,
+        target_particle_radii: npt.NDArray[np.floating] = None,
+        target_pressure: npt.NDArray[np.floating] = None,
+    ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
+        """Method to calculate the atmosphere's transmission radius
+>>>>>>> origin/dev-issue122
         (for the transmission spectrum).
 
             Args:
@@ -4774,6 +5312,8 @@ class Radtrans:
                     included cloud species and for each atmospheric layer,
                     formatted as the kzz argument. This is the width of the hansen
                     distribution normalized by the particle area (1/cloud_hansen_a^2)
+                cloud_particle_number_density_grid (Optional[dict]):
+                    EXPERIMENTAL
                 clouds_particles_porosity_factor (Optional[dict]):
                     A dictionary of porosity factors depending on the cloud species. This can be useful when opacities
                     are calculated using the Distribution of Hollow Spheres (DHS) method.
@@ -4820,17 +5360,29 @@ class Radtrans:
                     have opacities that vary only slowly with wavelength, such that the current
                     model resolution is sufficient to resolve any variations.
                 frequencies_to_wavelengths (Optional[bool]):
-                    if True, convert the frequencies (Hz) output to wavelengths (cm)
+                    If True, convert the frequencies (Hz) output to wavelengths (cm).
                 return_contribution (Optional[bool]):
                     If True the transmission and emission contribution function is calculated.
                 return_clear_spectrum (Optional[bool]):
                     If True, return the clear spectrum in addition to a cloudy spectrum.
                 return_cloud_contribution (Optional[bool]):
-                    if True, the cloud contribution is calculated and returned
+                    If True, calculate and return the cloud contribution.
                 return_radius_hydrostatic_equilibrium (Optional[bool]):
-                    if True, the radius at hydrostatic equilibrium of the planet is returned
+                    If True, return the radius at hydrostatic equilibrium of the planet.
                 return_opacities (Optional[bool]):
-                    if True, the absorption opacities and scattering opacities are returned
+                    If True, return the absorption opacities and scattering opacities.
+                return_abundances (Optional[bool]):
+                    If True, return the mass fractions.
+                return_particles_radii_bins (Optional[bool]):
+                    If True, return the particles radii bins.
+                return_particles_radii (Optional[bool]):
+                    If True, return the particles radii.
+                return_particles_densities (Optional[bool]):
+                    If True, return the particles densities.
+                target_particle_radii (Optional[npt.NDArray[np.floating]]):
+                    # TODO complete docstring
+                target_pressure (Optional[npt.NDArray[np.floating]]):
+                    # TODO complete docstring
         """
         (auto_anisotropic_cloud_scattering, complete_coverage_clouds, flux_clear,
          sum_opacities, use_smart_clear_opacities) = (
@@ -4880,12 +5432,15 @@ class Radtrans:
             cloud_particles_radius_distribution=cloud_particles_radius_distribution,
             cloud_hansen_a=cloud_hansen_a,
             cloud_hansen_b=cloud_hansen_b,
+            cloud_particle_number_density_grid=cloud_particle_number_density_grid,
             clouds_particles_porosity_factor=clouds_particles_porosity_factor,
             cloud_fraction=cloud_fraction,
             complete_coverage_clouds=complete_coverage_clouds,
             return_cloud_contribution=return_cloud_contribution,
             additional_absorption_opacities_function=additional_absorption_opacities_function,
-            additional_scattering_opacities_function=additional_scattering_opacities_function
+            additional_scattering_opacities_function=additional_scattering_opacities_function,
+            target_particle_radii=target_particle_radii,
+            target_pressure=target_pressure
         )
 
         # Start filling additional outputs here to get rid of unnecessary variables ASAP
@@ -4897,6 +5452,15 @@ class Radtrans:
 
         #if cloud_particles_mean_radii is not None:
         #    additional_outputs['cloud_particles_mean_radii'] = cloud_particles_mean_radii
+
+        if return_particles_radii_bins:
+            additional_outputs['particles_radii_bins'] = self._clouds_loaded_opacities['particles_radii_bins']
+
+        if return_particles_radii:
+            additional_outputs['particles_radii'] = self._clouds_loaded_opacities['particles_radii']
+
+        if return_particles_densities:
+            additional_outputs['particles_densities'] = self._clouds_loaded_opacities['particles_densities']
 
         del cloud_particles_mean_radii
 
@@ -4972,8 +5536,13 @@ class Radtrans:
         #if return_radius_hydrostatic_equilibrium:
         #    additional_outputs['radius_hydrostatic_equilibrium'] = radius_hydrostatic_equilibrium
 
+<<<<<<< HEAD
         #if return_abundances:
         #    additional_outputs['abundances'] = mass_fractions
+=======
+        if return_abundances:
+            additional_outputs['abundances'] = mass_fractions  # TODO [4.0.0] rename 'abundances' to 'mass_fractions' for consistency # noqa: E501
+>>>>>>> origin/dev-issue122
 
         #if frequencies_to_wavelengths:
         return (

@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from matplotlib.lines import Line2D
-from typing import Any
+from typing import Any, Callable
 from scipy.stats import binned_statistic
 
 import petitRADTRANS.physical_constants as cst
@@ -49,7 +49,7 @@ def _corner_wrap(
         bins=20,
         axes_scale="linear",
         weights=None,
-        hist_bin_factor: npt.NDArray[float] = 1.0,
+        hist_bin_factor: npt.NDArray[np.floating] = 1.0,
         smooth=None,
         smooth1d=None,
         titles=None,
@@ -323,9 +323,9 @@ def contour_corner(
         sampledict: dict[str, Any],
         parameter_names: dict[str, list[str]],
         output_file: str = None,
-        parameter_ranges: dict[str, npt.NDArray[float]] = None,
+        parameter_ranges: dict[str, npt.NDArray[np.floating]] = None,
         parameter_plot_indices: dict[str, npt.NDArray[np.integer]] = None,
-        true_values: dict[str, npt.NDArray[float]] = None,
+        true_values: dict[str, npt.NDArray[np.floating]] = None,
         short_name: dict[str, str] = None,
         quantiles: list[float] = None,
         hist2d_levels: list[float] = None,
@@ -335,8 +335,8 @@ def contour_corner(
         color_list: list[str] = None,
         bins: int = 20,
         axes_scale: str = "linear",
-        weights: npt.NDArray[float] = None,
-        hist_bin_factor: npt.NDArray[float] = 1.0,
+        weights: npt.NDArray[np.floating] = None,
+        hist_bin_factor: npt.NDArray[np.floating] = 1.0,
         smooth: float = None,
         smooth1d: float = None,
         titles: list = None,
@@ -345,7 +345,7 @@ def contour_corner(
         title_fmt: str = ".2f",
         truth_color: str = 'r',
         scale_hist: bool = False,
-        fig: matplotlib.figure = None,
+        fig: matplotlib.axes.Axes = None,
         max_n_ticks: int = 5,
         top_ticks: bool = False,
         use_math_text: bool = False,
@@ -355,13 +355,13 @@ def contour_corner(
         label_kwargs: dict = None,
         title_kwargs: dict = None,
         hist_kwargs: dict = None,
-        hist2d_kwargs: dict = {},
+        hist2d_kwargs: dict = None,
         contour_kwargs: dict = None,
-        **kwargs
+        **_
 ):
     """
     Use the corner package to plot the posterior distributions produced by pymultinest.
-
+    # TODO @Evert complete docstring
     Args:
         sampledict : dict
             A dictionary of samples, each sample has shape (N_Samples,N_params). The keys of the
@@ -432,13 +432,13 @@ def contour_corner(
             Displays a title above each 1-D histogram showing the 0.5 quantile with the upper and lower errors supplied
             by the quantiles argument.
         title_quantiles : iterable
-            A list of 3 fractional quantiles to show as the the upper and lower errors. If `None` (default), inherit
+            A list of 3 fractional quantiles to show as the upper and lower errors. If `None` (default), inherit
             the values from quantiles, unless quantiles is `None`, in which case it defaults to [0.16, 0.5, 0.84].
         title_fmt : string
             The format string for the quantiles given in titles. If you explicitly set ``show_titles=True`` and
             ``title_fmt=None``, the labels will be shown as the titles. (default: ``.2f``).
         truth_color : str
-            A ``matplotlib`` style color for the ``truths`` makers.
+            A ``matplotlib`` style colour for the ``truths`` makers.
         scale_hist : bool
             Should the 1-D histograms be scaled in such a way that the zero line is visible?
         fig : `~matplotlib.figure.Figure`
@@ -468,6 +468,9 @@ def contour_corner(
     if parameter_plot_indices is None:
         parameter_plot_indices = {}
 
+    if hist2d_kwargs is None:
+        hist2d_kwargs = {}
+
     if prt_plot_style:
         import matplotlib as mpl
 
@@ -494,7 +497,7 @@ def contour_corner(
                 "#B429FF"
             ]
     elif color_list is None:
-        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib color cycle
+        color_list = [f'C{i}' for i in range(8)]  # standard matplotlib colour cycle
 
     handles = []
     range_list = []
@@ -509,10 +512,10 @@ def contour_corner(
         n_samples = len(samples)
         s = n_samples
 
-        if key not in parameter_plot_indices:
-            parameter_plot_indices[key] = range(len(parameter_names[key]))
+        if key not in parameter_plot_indices:  # TODO @Evert use linspace/arange instead of range()
+            parameter_plot_indices[key] = np.array(list(range(len(parameter_names[key]))))
         elif parameter_plot_indices[key] is None:  # same as in the case the key doesn't exist
-            parameter_plot_indices[key] = range(len(parameter_names[key]))
+            parameter_plot_indices[key] = np.array(list(range(len(parameter_names[key]))))
 
         if key not in parameter_ranges:
             parameter_ranges[key] = [None] * (max(parameter_plot_indices[key]) + 1)
@@ -681,7 +684,7 @@ def nice_corner(samples,
         if parameter_plot_indices is None:
             parameter_plot_indices = np.linspace(0, len(parameter_names) - 1,
                                                  len(parameter_names) - 1).astype('int')
-    except Exception:
+    except Exception:  # TODO @Evert replace bare exception
         pass
 
     if max_val_ratio is None:
@@ -689,7 +692,7 @@ def nice_corner(samples,
 
     data_list = []
     labels_list = []
-    range_list = []
+    range_list: list[tuple[int, int]] = []
 
     for i in parameter_plot_indices:
 
@@ -704,7 +707,7 @@ def nice_corner(samples,
                 range_list.append(range_take)
             else:
                 range_list.append(parameter_ranges[i])
-        except Exception:
+        except Exception:  # TODO @Evert replace bare exception
             range_mean = np.mean(samples[len(samples) - s:, i])
             range_std = np.std(samples[len(samples) - s:, i])
             range_take = (range_mean - 4 * range_std, range_mean + 4 * range_std)
@@ -715,7 +718,7 @@ def nice_corner(samples,
 
         for i in parameter_plot_indices:
             truths_list.append(true_values[i])
-    except Exception:
+    except Exception:  # TODO @Evert replace bare exception
         truths_list = None
 
     dimensions = len(parameter_plot_indices)
@@ -728,7 +731,7 @@ def nice_corner(samples,
 
     try:
         ax_array = axes.flat
-    except Exception:
+    except Exception:  # TODO @Evert replace bare exception
         ax_array = [plt.gca()]
 
     for ax in ax_array:
@@ -750,15 +753,15 @@ def nice_corner(samples,
                       vmax=int(max_val_ratio * s / gridsize ** 2.),
                       rasterized=True)
 
-            ax.set_xlim([range_list[i_col][0], range_list[i_col][1]])
-            ax.set_ylim([range_list[i_lin][0], range_list[i_lin][1]])
+            ax.set_xlim((range_list[i_col][0], range_list[i_col][1]))
+            ax.set_ylim((range_list[i_lin][0], range_list[i_lin][1]))
 
             try:
                 ax.axhline(truths_list[i_lin], color='red',
                            linestyle='--', linewidth=2.5)
                 ax.axvline(truths_list[i_col], color='red',
                            linestyle='--', linewidth=2.5)
-            except Exception:
+            except Exception:  # TODO @Evert replace bare exception
                 pass
 
             if i_col > 0:
@@ -784,12 +787,12 @@ def nice_corner(samples,
             sns.distplot(use_data, bins=22, kde=False,
                          rug=False, ax=ax, color='gray')
 
-            ax.set_xlim([range_list[i_col][0], range_list[i_col][1]])
+            ax.set_xlim((range_list[i_col][0], range_list[i_col][1]))
             ax.get_yaxis().set_visible(False)
             try:
                 ax.axvline(truths_list[i_col], color='red',
                            linestyle='--', linewidth=2.5)
-            except Exception:
+            except Exception:  # TODO @Evert replace bare exception
                 pass
 
             ax.axvline(float(med) + float(up), color='black',
@@ -811,7 +814,7 @@ def nice_corner(samples,
         for i_lin in range(dimensions):
             try:
                 plt.sca(axes[i_lin, i_col])
-            except Exception:
+            except Exception:  # TODO @Evert replace bare exception
                 pass
             range_use = np.linspace(range_list[i_col][0],
                                     range_list[i_col][1], 5)[1:-1]
@@ -825,7 +828,7 @@ def nice_corner(samples,
     for i_lin in range(dimensions):
         try:
             plt.sca(axes[i_lin, 0])
-        except Exception:
+        except Exception:  # TODO @Evert replace bare exception
             pass
         plt.ylabel(labels_list[i_lin])
 
@@ -1094,12 +1097,12 @@ def plot_opacity_contributions(
     power_law_opacity_coefficient: float = None,
     gray_opacity: float = None,
     cloud_photosphere_median_optical_depth: float = None,
-    additional_absorption_opacities_function: callable = None,
-    additional_scattering_opacities_function: callable = None,
-    stellar_intensities: npt.NDArray[float] = None,
+    additional_absorption_opacities_function: Callable = None,
+    additional_scattering_opacities_function: Callable = None,
+    stellar_intensities: npt.NDArray[np.floating] = None,
     star_radius: float = None,
     **kwargs
-) -> dict[str, npt.NDArray[float]]:
+) -> dict[str, npt.NDArray[np.floating]]:
     if exclude is None:
         exclude = []
 
@@ -1640,6 +1643,7 @@ def plot_radtrans_opacities(radtrans, species, temperature, pressure_bar, mass_f
         """
 
         # Function to calc flux, called from outside
+        # TODO [4.0.0] _interpolate_species_opacities should not be private if it is used here
         _opacities = radtrans._interpolate_species_opacities(
             pressures=_pressures,
             temperatures=_temperatures,

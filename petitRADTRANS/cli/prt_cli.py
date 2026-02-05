@@ -62,7 +62,7 @@ def _get_html(options, url, timeout):
                 f"and change the value of the parameter 'prt_input_data_url'."
             )
 
-        # Get the webpage html source once the table has generated
+        # Get the webpage HTML source once the table has generated
         html = driver.page_source
 
     return html
@@ -139,7 +139,7 @@ def _reporthook(count: int, block_size: int, total_size: int, time_start=0.0):
 
 
 def _reporthook_sys_output(percent: int, progress_size: float, total_size: float, speed: float,
-                           eta: [datetime.timedelta, str]):
+                           eta: datetime.timedelta | str):
     """Terminal output of download progress
 
     Args:
@@ -163,7 +163,7 @@ def _reporthook_sys_output(percent: int, progress_size: float, total_size: float
 
 def download_input_data(destination, source=None, rewrite=False,
                         path_input_data=None, url_input_data=None,
-                        byte_amount=8192) -> [http.client.HTTPResponse, None]:
+                        byte_amount=8192) -> http.client.HTTPResponse | None:
     """Download a petitRADTRANS input data file.
     If source is None, the source URL is automatically deduced from the destination file.
 
@@ -190,7 +190,7 @@ def download_input_data(destination, source=None, rewrite=False,
     # Checks before download
     if os.path.isfile(destination) and not rewrite:
         print(f"file '{destination}' already exists, skipping download (set rewrite=True to force re-download)...")
-        return
+        return None
 
     if path_input_data != petitradtrans_config_parser['Paths']['prt_input_data_path']:
         warnings.warn(f"path_input_data ('{destination}') "
@@ -208,7 +208,7 @@ def download_input_data(destination, source=None, rewrite=False,
 
     # Automatically get the source URL
     if source is None:
-        url_path = destination.replace(os.path.sep, '/')
+        url_path: str = destination.replace(os.path.sep, '/')
 
         if url_path[0] != '/':
             url_path = '/' + url_path

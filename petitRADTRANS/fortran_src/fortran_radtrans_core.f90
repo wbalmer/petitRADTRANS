@@ -1039,10 +1039,10 @@ module fortran_radtrans_core
 
                         dndr = exp(dndr)
 
-                        integrand_abs = 0.75d0 * cst_pi * clouds_particles_radii ** 3d0 &
+                        integrand_abs = 4d0 / 3d0 * cst_pi * clouds_particles_radii ** 3d0 &
                             * clouds_particles_densities(i_spec) * dndr &
                             * clouds_absorption_opacities(:,i_lamb,i_spec)
-                        integrand_scat = 0.75d0 * cst_pi * clouds_particles_radii ** 3d0 &
+                        integrand_scat = 4d0 / 3d0 * cst_pi * clouds_particles_radii ** 3d0 &
                             * clouds_particles_densities(i_spec) * dndr &
                             * clouds_scattering_opacities(:,i_lamb,i_spec)
                         integrand_aniso = integrand_scat &
