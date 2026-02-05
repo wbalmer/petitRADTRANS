@@ -435,7 +435,7 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     temperatures = temperatures.at[mask_3].set(T3)
     return temperatures
 
-
+# TODO: duplicate with radiative_transfer_core
 def planck_function_cm(temperature: float, wavelength: [ArrayLike, float]) -> [ArrayLike, float]:
     """Returns the Planck function :math:`B_{\\lambda}(T)` in units of
     :math:`\\rm erg/s/cm^2/cm/steradian`.
@@ -454,7 +454,7 @@ def planck_function_cm(temperature: float, wavelength: [ArrayLike, float]) -> [A
 
     return _planck_function
 
-
+# TODO: duplicate with radiative_transfer_core
 def planck_function_hz(temperature: float, frequency: [ArrayLike, float]) -> [ArrayLike, float]:
     """Returns the Planck function :math:`B_{\\nu}(T)` in units of
     :math:`\\rm erg/s/cm^2/Hz/steradian`.
@@ -472,7 +472,7 @@ def planck_function_hz(temperature: float, frequency: [ArrayLike, float]) -> [Ar
 
     return _planck_function
 
-
+# TODO: duplicate with radiative_transfer_core
 def planck_function_hz_temperature_derivative(
     temperature: float,
     frequency: [ArrayLike, float]
@@ -501,7 +501,7 @@ def planck_function_hz_temperature_derivative(
 def shift_wavelengths_by_radial_velocity(radial_velocity):
     return jnp.sqrt((1 + radial_velocity/cst.c)/(1 - radial_velocity/cst.c))
 
-
+# TODO: duplicate with spectra_utils
 def rebin_spectrum(
     input_wavelengths: ArrayLike,
     input_spectrum: ArrayLike,
@@ -529,7 +529,7 @@ def rebin_spectrum(
 
     return rebinned_spectrum
 
-
+# TODO: duplicate with spectrum_utils
 def rebin_spectrum_bin(
     input_wavelengths: ArrayLike,
     input_spectrum: ArrayLike,

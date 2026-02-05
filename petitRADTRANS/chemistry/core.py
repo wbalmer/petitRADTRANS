@@ -4,7 +4,6 @@ import copy
 
 import jax.numpy as jnp
 from jax import lax, jit, typing
-from functools import partial
 from jax import debug
 
 
