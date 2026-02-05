@@ -10,14 +10,13 @@ import h5py
 import jax.numpy as jnp
 from jax import jit, vmap, lax, config, tree_util, debug
 from jax.typing import ArrayLike
-from functools import partial
 
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import interp1d
 
 from petitRADTRANS import physical_constants as cst
-from petitRADTRANS.__file_conversion import rebin_ck_line_opacities
+from petitRADTRANS.opacities.__file_conversion import rebin_ck_line_opacities
 from petitRADTRANS.config import petitradtrans_config_parser
 from petitRADTRANS.fortran_radtrans_core import fortran_radtrans_core as fcore
 
@@ -2247,7 +2246,6 @@ class Radtrans:
                         target_particle_radii=target_particle_radii,
                         target_pressure=target_pressure
                     )
-                )
             elif cloud_particles_radius_distribution == "hansen":
                 (
                     clouds_total_absorption_opacities,
@@ -4606,6 +4604,7 @@ class Radtrans:
             planet_radius=planet_radius,
         )
 
+        # TODO replace interp1d
         radius_interp = interp1d(self._pressures, radius_hydrostatic_equilibrium)
 
         photosphere_radius = jnp.zeros(self._frequencies.size, dtype=JAX_DTYPE)
@@ -4636,6 +4635,7 @@ class Radtrans:
             )
 
             # TODO vmap or fori_loop
+            # TODO replace interp1d
             for i_freq in range(self._frequencies.size):
                 tau_p = jnp.sum(weights_gauss_reshape * optical_depths[:, i_freq, 0, :], axis=0)
                 pressures_tau_p = interp1d(tau_p, self._pressures)
