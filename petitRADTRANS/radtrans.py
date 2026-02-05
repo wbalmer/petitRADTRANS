@@ -644,7 +644,7 @@ class Radtrans:
 
     @staticmethod
     @jit(static_argnames=['cloud_species','cloud_particles_radius_distribution'])
-    def __compute_cloud_continuum_opacities(
+    def _compute_cloud_continuum_opacities(
         frequencies,
         frequency_bins_edges,
         pressures,
@@ -1760,7 +1760,7 @@ class Radtrans:
             mean_molar_masses=mean_molar_masses,
             reference_gravity=reference_gravity,
             scattering_in_transmission=self.__scattering_in_transmission,
-            sum_opacities=sum_opacities,
+            sum_opacities=self.__sum_opacities,
             opaque_cloud_top_pressure=opaque_cloud_top_pressure_norm,
             power_law_opacity_350nm=power_law_opacity_350nm_norm,
             power_law_opacity_coefficient=power_law_opacity_coefficient_norm,
@@ -2229,9 +2229,11 @@ class Radtrans:
             or cloud_particle_number_density_grid is not None
         ):
             if cloud_particles_radius_distribution == "lognormal":
+                # TODO: test new implementation vs standard jax implementation
+                # difference is initial underscore in name, OG doesn't take pressures.
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    cloud_core.compute_cloud_log_normal_particles_distribution_opacities(
+                    cloud_core._compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,
@@ -2350,7 +2352,7 @@ class Radtrans:
 
                 (clouds_total_absorption_opacities, clouds_total_scattering_opacities,
                  cloud_scattering_reduction_factor) = \
-                    cloud_core.compute_cloud_log_normal_particles_distribution_opacities(
+                    cloud_core._compute_cloud_log_normal_particles_distribution_opacities(
                         atmosphere_densities=atmospheric_densities,
                         clouds_particles_densities=_cloud_particles_density,
                         clouds_mass_fractions=_cloud_species_mass_fractions,

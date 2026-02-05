@@ -1030,10 +1030,15 @@ def _integrate_cloud_opacities_from_dn_dr(
     clouds_scattering_opacities = jnp.sum(integrand_scattering * widths, axis=(0, 3))
     cloud_one_minus_g = jnp.sum(integrand_anisotropy * widths, axis=(0, 3))
 
+    clouds_scattering_opacities = jnp.where(
+        clouds_scattering_opacities < 1e-200,
+        1e-200,
+        clouds_scattering_opacities
+        )
+
     cloud_one_minus_g = jnp.true_divide(
-        cloud_one_minus_g, clouds_scattering_opacities,
-        out=jnp.zeros_like(clouds_scattering_opacities),
-        where=clouds_scattering_opacities > 1e-200
+        cloud_one_minus_g,
+        clouds_scattering_opacities
     )
 
     # Divide by atmosphere density
@@ -1104,7 +1109,7 @@ def _compute_cloud_log_normal_particles_distribution_opacities(
     dn_dr = (
             n / (cloud_particles_radii[:, None, None] * jnp.sqrt(2.0 * jnp.pi)
                  * jnp.log(cloud_particles_distribution_std))
-            * jnp.exp(-diff ** 2 / (2.0 * np.log(cloud_particles_distribution_std) ** 2))
+            * jnp.exp(-diff ** 2 / (2.0 * jnp.log(cloud_particles_distribution_std) ** 2))
             )
 
     # Delegate to shared integrator

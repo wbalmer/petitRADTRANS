@@ -9,10 +9,6 @@ from jax.typing import ArrayLike
 from astropy.io import fits
 
 import petitRADTRANS.physical_constants as cst
-# [IDE] PyCharm does not recognise Fortran modules
-# noinspection PyUnresolvedReferences
-from petitRADTRANS.fortran_rebin import fortran_rebin as frebin
-from petitRADTRANS.math import convolve, convolve_and_sample_variable_resolution_breads, filter_spectrum_with_spline
 
 
 class Data:
@@ -149,7 +145,7 @@ class Data:
         spectrum: ArrayLike | None = None,
         uncertainties: ArrayLike | None = None,
         covariance: ArrayLike | None = None,
-        mask: ArrayLike[np.bool_] | None = None
+        mask: ArrayLike | None = None # TODO bool typing
     ):
         self.name: str = name
         self.path_to_observations: str | None = path_to_observations
@@ -161,7 +157,7 @@ class Data:
         self.uncertainties: ArrayLike | None = uncertainties  #: The error on the flux or transit depth
 
         # Add a mask with that will be used in retrievals
-        self.mask: ArrayLike[np.bool_]
+        self.mask: ArrayLike
 
         if mask is None:
             self.mask = jnp.zeros(jnp.shape(self.spectrum), dtype=bool)
@@ -219,11 +215,11 @@ class Data:
         self.log_covariance_determinant: float | None = None
 
         if covariance is not None:
-            self.inv_cov = np.linalg.inv(covariance)
-            sign, self.log_covariance_determinant = np.linalg.slogdet(2.0 * np.pi * covariance)
+            self.inv_cov = jnp.linalg.inv(covariance)
+            sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * covariance)
 
         if covariance is not None and uncertainties is None:
-            self.uncertainties = np.sqrt(np.diagonal(covariance))
+            self.uncertainties = jnp.sqrt(jnp.diagonal(covariance))
 
         self.scale: bool = scale
         self.scale_err: bool = scale_err
@@ -232,7 +228,7 @@ class Data:
         self.subtract_continuum: bool = subtract_continuum
         self.scale_factor: float = 1.0
         self.offset: float = 0.0
-        self.bval: float = -np.inf
+        self.bval: float = -jnp.inf
 
         # Bins and photometry
         self.wavelength_boundaries: tuple[float, float] | None = None
@@ -449,9 +445,9 @@ class Data:
             self.inv_cov = jnp.linalg.inv(self.covariance)
 
         if self.uncertainties is None and self.covariance is not None:
-                self.uncertainties = jnp.sqrt(self.covariance.diagonal())
+            self.uncertainties = jnp.sqrt(self.covariance.diagonal())
 
-        sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * np.pi * self.covariance)
+        sign, self.log_covariance_determinant = jnp.linalg.slogdet(2.0 * jnp.pi * self.covariance)
 
     # TODO [4.0.0] remove this function, or rename "system_distance" to "_system_distance" and use a property
     def set_distance(self, distance) -> float:

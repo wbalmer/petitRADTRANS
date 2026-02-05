@@ -20,7 +20,7 @@ tfpd = tfp.distributions
 
 import petitRADTRANS
 import petitRADTRANS.physical_constants as cst
-from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedkOpacity
+from petitRADTRANS.opacities.opacities import Opacity, CloudOpacity, CorrelatedKOpacity
 
 from petitRADTRANS.chemistry.utils import mass_fractions2volume_mixing_ratios
 from petitRADTRANS.config.configuration import petitradtrans_config_parser

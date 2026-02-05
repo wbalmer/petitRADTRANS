@@ -693,7 +693,6 @@ class RetrievalConfig:
                  wavelengths=None,
                  spectrum=None,
                  uncertainties=None,
-                 covariance=None,
                  mask=None,
                  covariance=None,
                  concatenate_flux_epochs_variability=False,
