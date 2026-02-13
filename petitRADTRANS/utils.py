@@ -478,6 +478,12 @@ def topological_sort(source):
         emitted = next_emitted
 
 
+def tuple_init(arg):
+    if arg is None:
+        return ()
+    return tuple(arg)
+
+
 def user_input(
     introduction_message: str,
     input_message: str,
