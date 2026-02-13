@@ -6,7 +6,7 @@ import inspect
 import os
 import sys
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import h5py
 import numpy as np
@@ -60,7 +60,7 @@ class SpectralModel(Radtrans):
     Spectra can be generated with the calculate_spectrum function. Several spectral modification functions are
     available.
 
-    A Data object can be initialised with the init_data function, which can then be used to generate a Retrieval object
+    A Data object can be initialized with the init_data function, which can then be used to generate a Retrieval object
     with the Retrieval.from_data function.
 
     Some features are detailed below.
@@ -391,10 +391,10 @@ class SpectralModel(Radtrans):
             emission_angle_grid: npt.NDArray[np.floating] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
-            radial_velocity_semi_amplitude_function: callable = None,
-            radial_velocities_function: callable = None,
-            relative_velocities_function: callable = None,
-            orbital_longitudes_function: callable = None,
+            radial_velocity_semi_amplitude_function: Callable = None,
+            radial_velocities_function: Callable = None,
+            relative_velocities_function: Callable = None,
+            orbital_longitudes_function: Callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, fluxes=None,
             model_functions_map=None, spectral_modification_functions_map=None,
@@ -1354,7 +1354,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: dict[str, npt.NDArray[np.floating]] = None,
             cloud_hansen_b: dict[str, npt.NDArray[np.floating]] = None,
-            cloud_particle_number_density_grid: dict[str, np.ndarray[float]] = None,
+            cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: npt.NDArray[np.floating] = None,
             haze_factor: float = 1.0,
@@ -1374,16 +1374,16 @@ class SpectralModel(Radtrans):
             star_irradiation_angle: float = 0.0,
             reflectances: npt.NDArray[np.floating] = None,
             emissivities: npt.NDArray[np.floating] = None,
-            additional_absorption_opacities_function: callable = None,
-            additional_scattering_opacities_function: callable = None,
+            additional_absorption_opacities_function: Callable = None,
+            additional_scattering_opacities_function: Callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
             return_clear_spectrum: bool = False,
             return_photosphere_radius: bool = False,
             return_rosseland_optical_depths: bool = False,
             return_cloud_contribution: bool = False,
-            target_particle_radii: np.ndarray[float] = None,
-            target_pressure: np.ndarray[float] = None,
+            target_particle_radii: npt.NDArray[np.floating] = None,
+            target_pressure: npt.NDArray[np.floating] = None,
             **kwargs
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_flux function."""
@@ -1441,7 +1441,7 @@ class SpectralModel(Radtrans):
 
     def calculate_optimal_wavelength_boundaries(self, rebinned_wavelengths=None, relative_velocities=None):
         """Return the optimal wavelength boundaries for rebin on output wavelengths.
-        This minimises the number of wavelengths to load and over which to calculate the spectra.
+        This minimizes the number of wavelengths to load and over which to calculate the spectra.
         Doppler shifting is also taken into account.
 
         The SpectralModel must have in its model_parameters keys:
@@ -1712,7 +1712,7 @@ class SpectralModel(Radtrans):
             cloud_particles_radius_distribution: str = 'lognormal',
             cloud_hansen_a: float = None,
             cloud_hansen_b: float = None,
-            cloud_particle_number_density_grid: dict[str, np.ndarray[float]] = None,
+            cloud_particle_number_density_grid: dict[str, npt.NDArray[np.floating]] = None,
             cloud_f_sed: float = None,
             eddy_diffusion_coefficients: float = None,
             haze_factor: float = 1.0,
@@ -1721,15 +1721,15 @@ class SpectralModel(Radtrans):
             gray_opacity: float = None,
             cloud_fraction: float = 1.0,
             complete_coverage_clouds: list[str] = None,
-            additional_absorption_opacities_function: callable = None,
-            additional_scattering_opacities_function: callable = None,
+            additional_absorption_opacities_function: Callable = None,
+            additional_scattering_opacities_function: Callable = None,
             frequencies_to_wavelengths: bool = True,
             return_contribution: bool = False,
             return_clear_spectrum: bool = False,
             return_cloud_contribution: bool = False,
             return_radius_hydrostatic_equilibrium: bool = False,
-            target_particle_radii: np.ndarray[float] = None,
-            target_pressure: np.ndarray[float] = None,
+            target_particle_radii: npt.NDArray[np.floating] = None,
+            target_pressure: npt.NDArray[np.floating] = None,
             **kwargs
     ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], dict[str, Any]]:
         """Wrapper for the Radtrans calculate_transit_radii function."""
@@ -2758,7 +2758,7 @@ class SpectralModel(Radtrans):
     def from_retrieval(
             cls,
             retrieval_directory: str,
-            sample_extraction_method: callable = 'median',
+            sample_extraction_method: Callable = 'median',
             sample_extraction_method_parameters: dict[str, Any] = None,
             model_file: str = None,
             retrieval_name: str = None,
@@ -2774,10 +2774,10 @@ class SpectralModel(Radtrans):
             emission_angle_grid: npt.NDArray[np.floating] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = None,
-            radial_velocity_semi_amplitude_function: callable = None,
-            radial_velocities_function: callable = None,
-            relative_velocities_function: callable = None,
-            orbital_longitudes_function: callable = None,
+            radial_velocity_semi_amplitude_function: Callable = None,
+            radial_velocities_function: Callable = None,
+            relative_velocities_function: Callable = None,
+            orbital_longitudes_function: Callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, fluxes=None, **model_parameters
     ):
@@ -3211,7 +3211,7 @@ class SpectralModel(Radtrans):
         retrieved_parameters_names = [retrieved_parameter.name for retrieved_parameter in retrieved_parameters]
 
         # Get fixed parameters by filtering out the retrieved parameters
-        fixed_parameters = {}
+        fixed_parameters: dict[str, Any] = {}
 
         for parameter, value in model_parameters.items():
             if parameter not in retrieved_parameters_names and 'log10_' + parameter not in retrieved_parameters_names:
@@ -3248,7 +3248,9 @@ class SpectralModel(Radtrans):
             fixed_parameters[parameter] = value
 
         # Set the model generating function
-        def model_generating_function(prt_object, parameters, pt_plot_mode=None, amr=False):
+        def model_generating_function(
+            prt_object, parameters, pt_plot_mode=None, amr=False
+        ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], npt.NDArray[np.floating]]:
             # A special function is needed due to the specificity of the Retrieval object
             return self.retrieval_model_generating_function(
                 prt_object=prt_object,
@@ -3846,13 +3848,25 @@ class SpectralModel(Radtrans):
         )
 
     @staticmethod
-    def retrieval_model_generating_function(prt_object: Radtrans, parameters, pt_plot_mode=None, amr=False,
-                                            fixed_parameters=None,
-                                            mode='emission', update_parameters=True,
-                                            telluric_transmittances_wavelengths=None, telluric_transmittances=None,
-                                            instrumental_deformations=None, noise_matrix=None,
-                                            scale=False, shift=False, use_transit_light_loss=False,
-                                            convolve=False, rebin=False, prepare=False):
+    def retrieval_model_generating_function(
+        prt_object: Radtrans,
+        parameters: dict[str, Any],
+        pt_plot_mode: None = None,
+        amr: bool = False,
+        fixed_parameters: dict[str, Any] | None = None,
+        mode: str = 'emission',
+        update_parameters: bool = True,
+        telluric_transmittances_wavelengths: npt.NDArray[np.floating] | None = None,
+        telluric_transmittances: npt.NDArray[np.floating] | None = None,
+        instrumental_deformations: npt.NDArray[np.floating] | None = None,
+        noise_matrix: npt.NDArray[np.floating] | None = None,
+        scale: bool = False,
+        shift: bool = False,
+        use_transit_light_loss: bool = False,
+        convolve: bool = False,
+        rebin: bool = False,
+        prepare: bool = False
+    ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating], npt.NDArray[np.floating]]:
         _ = pt_plot_mode  # pt_plot_mode is not used in this function, this is intended for compatibility with Retrieval
         _ = amr  # amr is not used in this function, this is intended for compatibility with Retrieval
 
@@ -4103,7 +4117,7 @@ class SpectralModel(Radtrans):
             mid_transit_time: float = None,
             radial_velocity_semi_amplitude: float = None,
             rest_frame_velocity_shift: float = None,
-            shift_wavelengths_function: callable = None,
+            shift_wavelengths_function: Callable = None,
             pressures: npt.NDArray[np.floating] = None,
             line_species: list[str] = None,
             gas_continuum_contributors: list[str] = None,
@@ -4115,10 +4129,10 @@ class SpectralModel(Radtrans):
             emission_angle_grid: npt.NDArray[np.floating] = None,
             anisotropic_cloud_scattering: bool = 'auto',
             path_input_data: str = petitradtrans_config_parser.get_input_data_path(),
-            radial_velocity_semi_amplitude_function: callable = None,
-            radial_velocities_function: callable = None,
-            relative_velocities_function: callable = None,
-            orbital_longitudes_function: callable = None,
+            radial_velocity_semi_amplitude_function: Callable = None,
+            radial_velocities_function: Callable = None,
+            relative_velocities_function: Callable = None,
+            orbital_longitudes_function: Callable = None,
             temperatures=None, mass_fractions=None, mean_molar_masses=None,
             wavelengths=None, transit_radii=None, spectral_radiosities=None, **model_parameters
     ):

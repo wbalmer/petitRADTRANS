@@ -1,11 +1,15 @@
 """Stores useful mathematical functions.
 """
+from typing import Literal
+
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import lsq_linear
 from scipy.special import erf, erfinv, lambertw
+
+# noinspection PyUnresolvedReferences
 from petitRADTRANS.fortran_convolve import fortran_convolve as fconvolve
 
 
@@ -134,7 +138,7 @@ def calculate_uncertainty(
     return None
 
 
-def compute_resolving_power(array: npt.NDArray[float]) -> float:
+def compute_resolving_power(array: npt.NDArray[np.floating]) -> float:
     """Compute the mean resolving power of an array.
 
     Args:
@@ -171,13 +175,13 @@ def convolve(input_wavelength, input_flux, instrument_res):
 
     # From talking to Ignas: delta lambda of resolution element
     # is FWHM of the LSF's standard deviation, hence:
-    sigma_lsf = 1. / instrument_res / (2. * np.sqrt(2. * np.log(2.)))
+    sigma_lsf: float = 1 / instrument_res / (2 * np.sqrt(2 * np.log(2)))
 
     # The input spacing of petitRADTRANS is 1e3, but just compute
     # it to be sure, or more versatile in the future.
     # Also, we have a log-spaced grid, so the spacing is constant
     # as a function of wavelength
-    spacing = np.mean(2. * np.diff(input_wavelength) / (input_wavelength[1:] + input_wavelength[:-1]))
+    spacing: float = np.mean(2 * np.diff(input_wavelength) / (input_wavelength[1:] + input_wavelength[:-1]))
 
     # Calculate the sigma to be used in the gauss filter in units
     # of input wavelength bins
@@ -198,7 +202,7 @@ def convolve_and_sample_variable_resolution_breads(
         model_wavelengths,
         model_fluxes,
         num_sigma=3
-        ):
+):
     """
     Simulate the observations of a model.
     Convolves the model with a variable Gaussian LSF, sampled at each desired spectral channel.
@@ -207,15 +211,15 @@ def convolve_and_sample_variable_resolution_breads(
 
     Args:
         wavelengths: np.ndarray
-            the wavelengths desired (length of N_output)
+            The wavelengths desired (length of N_output)
         resolutions: np.ndarray
-            the spectral resolving power at each wavelengths (length of N_output)
+            The spectral resolving power at each wavelength (length of N_output)
         model_wavelengths: np.ndarray
-            the wavelengths of the model (length of N_model)
+            The wavelengths of the model (length of N_model)
         model_fluxes: np.ndarray
-            the fluxes of the model (length of N_model)
+            The fluxes of the model (length of N_model)
         num_sigma: float
-            number of +/- sigmas to evaluate the LSF to.
+            Number of +/- sigmas to evaluate the LSF to.
 
     Returns:
         output_model: np.ndarray
@@ -224,7 +228,7 @@ def convolve_and_sample_variable_resolution_breads(
 
     # JX added to use function with input R, instead of LSF FWHM.
     # first get FWHM of LSF from lambda / R. Then convert FWHM to stddev of Gaussian
-    sigmas_wvs = wavelengths / (resolutions * 2 * np.sqrt(2 * np.log(2)))  # corrected a math error here, July 15 2024
+    sigmas_wvs = wavelengths / (resolutions * 2 * np.sqrt(2 * np.log(2)))
 
     model_in_range = np.where((model_wavelengths >= np.min(wavelengths)) & (model_wavelengths < np.max(wavelengths)))
     dwv_model = np.abs(model_wavelengths[model_in_range] - np.roll(model_wavelengths[model_in_range], 1))
@@ -362,10 +366,14 @@ def gaussian_weights_running(sigmas: npt.NDArray, truncate: float = 4.0) -> npt.
     return np.transpose(phi_x.T / phi_x.sum(axis=1))
 
 
-def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
-    """
-    Compute a spline based linear model.
-    If Y=[y1,y2,..] are the values of the function at the location of the node [x1,x2,...].
+def linear_spline_interpolation(
+    x_knots: npt.NDArray[np.floating],
+    x_samples: npt.NDArray[np.floating],
+    spline_degree: Literal[1, 2, 3, 4, 5] = 3
+):
+    """Compute a spline based linear model.
+
+    If Y = [y1, y2, ...] are the values of the function at the location of the node [x1, x2, ...].
     np.dot(M,Y) is the interpolated spline corresponding to the sampling of the x-axis (x_samples)
 
     From BREADS, BSD 3-Clause License
@@ -383,9 +391,8 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
             if np.size(x_knots) <= spline_degree, then spline_degree = np.size(x_knots)-1
 
     Returns:
-        M: Matrix of size (D,N) with D the size of x_samples and N the total number of nodes.
+        M: Matrix of shape (D, N) with D the size of x_samples and N the total number of nodes.
     """
-
     if type(x_knots[0]) is list or type(x_knots[0]) is np.ndarray:
         x_knots_list = x_knots
     else:
@@ -395,23 +402,38 @@ def linear_spline_interpolation(x_knots, x_samples, spline_degree=3):
         return np.ones((np.size(x_samples), 1))
 
     if np.size(x_knots_list) <= spline_degree:
-        spline_degree = np.size(x_knots)-1
+        spline_degree: int = np.size(x_knots) - 1
 
-    M_list = []
+    if spline_degree > 5:
+        raise ValueError(
+            f"spline degree cannot be greater than 5, but is ({spline_degree})"
+        )
+
+    spline_degree: Literal[1, 2, 3, 4, 5]
+    spline_matrix: list[npt.NDArray[np.floating]] = []
+
     for nodes in x_knots_list:
-        M = np.zeros((np.size(x_samples), np.size(nodes)))
-        minval, maxval = np.min(nodes), np.max(nodes)
-        inbounds = np.where((minval < x_samples) & (x_samples < maxval))
-        _x = x_samples[inbounds]
+        _spline_matrix = np.zeros((np.size(x_samples), np.size(nodes)))
+
+        in_bounds = np.where((np.min(nodes) < x_samples) & (x_samples < np.max(nodes)))
+        _x = x_samples[in_bounds]
 
         for chunk in range(np.size(nodes)):
-            tmp_y_vec = np.zeros(np.size(nodes))
-            tmp_y_vec[chunk] = 1
-            spl = InterpolatedUnivariateSpline(nodes, tmp_y_vec, k=spline_degree, ext=0)
-            M[inbounds[0], chunk] = spl(_x)
-        M_list.append(M)
+            # TODO @Evert add comment on what is going on with y
+            y = np.zeros(np.size(nodes))
+            y[chunk] = 1
 
-    return np.concatenate(M_list, axis=1)
+            spline = InterpolatedUnivariateSpline(
+                x=nodes,
+                y=y,
+                k=spline_degree,
+                ext=0
+            )
+            _spline_matrix[in_bounds[0], chunk] = spline(_x)
+
+        spline_matrix.append(_spline_matrix)
+
+    return np.concatenate(spline_matrix, axis=1)
 
 
 def longitude2phase(longitude: float):

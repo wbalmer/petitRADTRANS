@@ -145,7 +145,7 @@ def check_all_close(a, b, **kwargs):
 
 
 def class_init_args2class_args(string):
-    """Convenience code-writing function to convert a series of arguments into lines of initialisation for a class.
+    """Convenience code-writing function to convert a series of arguments into lines of initialization for a class.
     Useful to quickly write the __init__ function of a class from its arguments.
     Example:
         >>> s = "arg1, arg2=0.3, arg3='a'"
@@ -459,8 +459,15 @@ def topological_sort(source):
         emitted = next_emitted
 
 
-def user_input(introduction_message: str, input_message: str, failure_message: str, cancel_message: str,
-               mode: str, max_attempts: int = 5, list_length: int = None):
+def user_input(
+    introduction_message: str,
+    input_message: str,
+    failure_message: str,
+    cancel_message: str,
+    mode: str,
+    max_attempts: int = 5,
+    list_length: int = None
+) -> str | int | None:
     available_modes = ['list', 'y/n']
 
     if mode not in available_modes:
@@ -473,10 +480,7 @@ def user_input(introduction_message: str, input_message: str, failure_message: s
 
     print(introduction_message)
 
-    for i in range(max_attempts + 1):
-        if i == max_attempts:
-            raise ValueError(f"{failure_message} after {i} attempts")
-
+    for i in range(max_attempts):
         if mode == 'y/n':
             selection = input(
                 f"{input_message} ('y'/'n'; 'cancel')"
@@ -492,7 +496,7 @@ def user_input(introduction_message: str, input_message: str, failure_message: s
 
         if selection == 'cancel':
             print(cancel_message)
-            return
+            return None
 
         if mode == 'y/n':
             selection = selection.lower()
@@ -517,3 +521,5 @@ def user_input(introduction_message: str, input_message: str, failure_message: s
                 continue
 
         return selection
+
+    raise ValueError(f"{failure_message} after {max_attempts} attempts")

@@ -1,7 +1,7 @@
 """Useful functions to analyze data using cross-correlation.
 The most useful functions are cross_correlate_data_model, and more importantly ccf_analysis, they provide an easy way to
 calculate the CCF of data against models.
-Also useful is get_co_added_ccf_peak_properties to quickly analyze the CCF.
+Function get_co_added_ccf_peak_properties is especially useful to quickly analyze the CCF.
 """
 
 import copy
@@ -462,10 +462,10 @@ def get_ccf_models(data, wavelengths_data, model, ccf_model_wavelengths):
             def __id_data_wavelengths(others, ccd, exposure):
                 return others, ccd, exposure
         else:
-            def __id_data_wavelengths(others, ccd, exposure):
+            def __id_data_wavelengths(_, ccd, exposure):
                 return ccd, exposure
     else:
-        def __id_data_wavelengths(others, ccd, exposure):
+        def __id_data_wavelengths(_, ccd, __):
             return ccd
 
     if exposures_in_model:
@@ -475,10 +475,10 @@ def get_ccf_models(data, wavelengths_data, model, ccf_model_wavelengths):
         def __id_wavelengths_model(others, exposure, velocity):
             return others, exposure, velocity
     else:
-        def __id_model(others, exposure):
+        def __id_model(others, _):
             return others, 0
 
-        def __id_wavelengths_model(others, exposure, velocity):
+        def __id_wavelengths_model(others, _, velocity):
             return others, 0, velocity
 
     # Re-binning
@@ -642,7 +642,7 @@ def get_co_added_ccf_peak_properties(co_added_cross_correlation, kp_space, vr_sp
 def get_co_added_ccf_velocity_space(radial_velocity_semi_amplitude, velocities_ccf,
                                     system_observer_radial_velocities, orbital_longitudes,
                                     kp_factor=2.0,
-                                    n_kp=None, n_vr=None, radial_velocity_function=None, **kwargs):
+                                    n_kp=None, n_vr=None, radial_velocity_function=None, **_):
     # Initializations
     if n_kp is None:
         n_kp = np.size(velocities_ccf)

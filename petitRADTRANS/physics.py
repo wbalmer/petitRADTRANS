@@ -76,6 +76,7 @@ def compute_effective_temperature(
     return (energy / (cst.sigma*unit_factor)) ** 0.25
 
 
+# TODO [4.0.0] rename 'press' => 'pressures', and 'T0' => better full lowercase name
 def power_law_temperature_profile(press: npt.NDArray, alpha: float, T0: float) -> npt.NDArray:
     """
     Compute a power law profile for temperature; log(T) = a*log(P) + b.
@@ -312,6 +313,7 @@ def make_press_temp_iso(rad_trans_params):
     return press_new, temp_new
 
 
+# TODO [4.0.0] rename 'T_set' => 'temperature_xxx' (xxx => reference? 'set' is not clear)
 def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_points):
     """
     Calculate temperatures based on the Madhusudhan and Seager (2009) parameterization.
@@ -372,23 +374,23 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     nat_log_p_min = nat_log_pressure_points[0]
     nat_log_p_set_i = np.log(p_set_i)
 
-    T0 = None
-    T2 = None
-    T3 = None
+    t0 = None
+    t2 = None
+    t3 = None
 
     # By default, (P_set = 10 bar), so T(P_set) should be in layer 3
     # By default (P_set = 10 bar), so T(P_set) should be in layer 3
     if nat_log_pressure_points[4] >= nat_log_pressure_points[3]:
-        T3 = T_set  # T_deep is the isothermal deep temperature T3 here
+        t3 = T_set  # T_deep is the isothermal deep temperature T3 here
 
         # Use the temperature parameter to compute boundary temperatures
-        T2 = T3 - (
+        t2 = t3 - (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T1 = T2 + (
+        t1 = t2 + (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T0 = T1 - (
+        t0 = t1 - (
             (1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)
             ) ** (1 / beta_points[0])
 
@@ -397,16 +399,16 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
         nat_log_pressure_points[4] >= nat_log_pressure_points[1]
     ):  # Temperature parameter in layer 2
         # Use the temperature parameter to compute the boundary temperatures
-        T2 = T_set - (
+        t2 = T_set - (
             (1.0 / alpha_points[1]) * (nat_log_p_set_i - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T1 = T2 + (
+        t1 = t2 + (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[0])
-        T3 = T2 + (
+        t3 = t2 + (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T0 = T1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
+        t0 = t1 - ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
 
@@ -416,26 +418,27 @@ def madhu_seager_2009(pressures, log_pressure_points, T_set, alpha_points, beta_
     ):  # Temperature parameter in layer 1
 
         # Use the temperature parameter to compute the boundary temperatures
-        T0 = T_set - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
+        t0 = T_set - ((1.0 / alpha_points[0]) * (nat_log_p_set_i - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
-        T1 = T0 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
+        t1 = t0 + ((1.0 / alpha_points[0]) * (nat_log_pressure_points[1] - nat_log_p_min)) ** (
             1 / beta_points[0]
         )
-        T2 = T1 - (
+        t2 = t1 - (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[1] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
-        T3 = T2 + (
+        t3 = t2 + (
             (1.0 / alpha_points[1]) * (nat_log_pressure_points[3] - nat_log_pressure_points[2])
         ) ** (1 / beta_points[1])
 
-    temperatures[mask_1] = T0 + (
+    temperatures[mask_1] = t0 + (
         (nat_log_p[mask_1] - nat_log_pressure_points[0]) / (alpha_points[0])
     ) ** (1 / beta_points[0])
-    temperatures[mask_2] = T2 + (
+    temperatures[mask_2] = t2 + (
         (nat_log_p[mask_2] - nat_log_pressure_points[2]) / (alpha_points[1])
     ) ** (1 / beta_points[1])
-    temperatures[mask_3] = T3
+    temperatures[mask_3] = t3
+
     return temperatures
 
 
@@ -773,10 +776,12 @@ def temperature_profile_function_isothermal(pressures: npt.NDArray, temperature:
     return np.ones(pressures.size) * temperature
 
 
+# TODO find better name
+# TODO @Evert fix docstrings
 def temperature_profile_function_ret_model(rad_trans_params):
     """
     Self-luminous retrieval P-T model.
-    # TODO find better name
+
     Args:
         t3 : np.array([t1, t2, t3])
             temperature points to be added on top
@@ -808,10 +813,10 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
     t3, delta, alpha, tint, press, feh, co_ratio, conv = rad_trans_params
     # Go grom bar to cgs
-    press_cgs = press * 1e6
+    pressures_cgs: npt.NDArray[np.floating] = press * 1e6
 
     # Calculate the optical depth
-    tau = delta * press_cgs ** alpha
+    tau = delta * pressures_cgs ** alpha
 
     # This is the eddington temperature
     tedd = (3. / 4. * tint ** 4. * (2. / 3. + tau)) ** 0.25
@@ -832,7 +837,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
     # Enforce convective adiabat
     if conv:
         # Calculate the current, radiative temperature gradient
-        nab_rad = np.diff(np.log(tedd)) / np.diff(np.log(press_cgs))
+        nab_rad = np.diff(np.log(tedd)) / np.diff(np.log(pressures_cgs))
         # Extend to array of same length as pressure structure
         nabla_rad = np.ones_like(tedd)
         nabla_rad[0] = nab_rad[0]
@@ -863,7 +868,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
             nabla_ad_mean = nabla_ad
             nabla_ad_mean[1:] = (nabla_ad[1:] + nabla_ad[:-1]) / 2.
             # What are the increments in temperature due to convection
-            tnew = nabla_ad_mean[conv_index] * np.mean(np.diff(np.log(press_cgs)))
+            tnew = nabla_ad_mean[conv_index] * np.diff(np.log(pressures_cgs)).mean()
             # What is the last radiative temperature?
             tstart = np.log(t_take[~conv_index][-1])
             # Integrate and translate to temperature from log(temperature)
@@ -893,7 +898,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         if i_intp == 0:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]),
+            support_points_low = np.logspace(np.log10(pressures_cgs[0]),
                                              np.log10(p_bot_spline),
                                              4)
 
@@ -901,7 +906,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
             # the corresponding temperatures for these nodes will be taken from the
             # radiative+convective solution
             support_points_high = 10 ** np.arange(np.log10(p_bot_spline),
-                                                  np.log10(press_cgs[-1]),
+                                                  np.log10(pressures_cgs[-1]),
                                                   np.diff(np.log10(support_points_low))[0])
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
@@ -912,14 +917,14 @@ def temperature_profile_function_ret_model(rad_trans_params):
         else:
 
             # Create the pressure coordinates for the spline support nodes at low pressure
-            support_points_low = np.logspace(np.log10(press_cgs[0]),
+            support_points_low = np.logspace(np.log10(pressures_cgs[0]),
                                              np.log10(p_bot_spline),
                                              7)
 
             # Create the pressure coordinates for the spline support nodes at high pressure,
             # the corresponding temperatures for these nodes will be taken from the
             # radiative+convective solution
-            support_points_high = np.logspace(np.log10(p_bot_spline), np.log10(press_cgs[-1]), 7)
+            support_points_high = np.logspace(np.log10(p_bot_spline), np.log10(pressures_cgs[-1]), 7)
 
             # Combine into one support node array, don't add the p_bot_spline point twice.
             support_points = np.zeros(len(support_points_low) + len(support_points_high) - 1)
@@ -930,7 +935,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
         t_support = np.zeros_like(support_points)
 
         if i_intp == 0:
-            tfintp = interp1d(press_cgs, tfinal, kind='cubic')
+            tfintp = interp1d(pressures_cgs, tfinal, kind='cubic')
             # The temperature at p_bot_spline (from the radiative-convective solution)
             t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
             # The temperature at pressures below p_bot_spline (free parameters)
@@ -942,11 +947,11 @@ def temperature_profile_function_ret_model(rad_trans_params):
                 tfintp(support_points[(int(len(support_points_low))):])
 
         else:
-            tfintp1 = interp1d(press_cgs, tret, kind='cubic')  # TODO possible reference before assignment
+            tfintp1 = interp1d(pressures_cgs, tret, kind='cubic')  # TODO possible reference before assignment
             t_support[:(int(len(support_points_low)) - 1)] = \
                 tfintp1(support_points[:(int(len(support_points_low)) - 1)])
 
-            tfintp = interp1d(press_cgs, tfinal)
+            tfintp = interp1d(pressures_cgs, tfinal)
             # The temperature at p_bot_spline (from the radiative-convective solution)
             t_support[int(len(support_points_low)) - 1] = tfintp(p_bot_spline)
             # print('diff', t_connect_calc - tfintp(p_bot_spline))
@@ -955,7 +960,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
 
         # Make the temperature spline interpolation to be returned to the user
         cs = CubicSpline(np.log10(support_points), t_support)
-        tret = cs(np.log10(press_cgs))
+        tret = cs(np.log10(pressures_cgs))
 
     tret[tret < 0.0] = 1.0
     # Return the temperature, the pressure at tau = 1,
@@ -964,6 +969,7 @@ def temperature_profile_function_ret_model(rad_trans_params):
     return tret  # , press_tau(1.)/1e6, tfintp(p_bot_spline)
 
 
+# TODO [4.0.0] remove argument 'press' as it is not used, and rename 'temps' => 'temperatures'
 def temperature_curvature_prior(press, temps, gamma):
     """
     Compute a curvature prior for a temperature-pressure profile.
