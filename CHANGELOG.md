@@ -4,7 +4,7 @@ All notable changes to petitRADTRANS will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com)
 and this project adheres to [Semantic Versioning](http://semver.org).
 
-## [3.3.1a1] - 2026-02-01
+## [3.3.1] - 2026-02-01
 ### Fixed
 - Infinite recursive error checking when retrieving photometric data with the `Radtrans` retrieval workflow ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122)).
 - Fixed naming bug with CloudOpacity in retrieval package ([issue 122](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/122))
