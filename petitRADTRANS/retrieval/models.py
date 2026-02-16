@@ -1349,7 +1349,6 @@ def madhushudhan_seager_emission(prt_object, parameters, pt_plot_mode=False, amr
         gravity=gravity,
         mean_molar_masses=mmw,
         planet_radius=planet_radius,
-        reference_pressure=reference_pressure,
         sigma_lnorm=sigma_lnorm,
         cloud_particles_mean_radii=cloud_particles_mean_radii,
         cloud_f_sed=cloud_f_sed,
