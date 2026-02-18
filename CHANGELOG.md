@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](http://semver.org).
 
 ## [3.3.2] - 2026-02-16
 ### Fixed
-- Fixed incorrect argument `reference_pressure` to `calculate_emission_spectrum` in `models.py`, resolving ([issue 124](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/124))
+- An incorrect `reference_pressure` argument is passed to `calculate_emission_spectrum` in `models.py`, causing the function to compute emission spectra using the wrong pressure reference ([issue 124](https://gitlab.com/mauricemolli/petitRADTRANS/-/issues/124)).
 
 
 ## [3.3.1] - 2026-02-01
