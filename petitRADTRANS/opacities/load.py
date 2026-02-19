@@ -300,7 +300,7 @@ def get_frequency_grids_intersection_indices(
     return indices_opacities, indices_file
 
 
-def _get_opacity_sources_dict():
+def get_opacity_sources_dict():
     return LockedDict.build_and_lock({
         'init': LockedDict.build_and_lock({
             'line_species': (),
