@@ -469,7 +469,6 @@ class Radtrans:
         _check_wavelength_boundaries(array)
         self._wavelength_boundaries = array
 
-
     def _clouds_have_effect(self, mass_fractions, cloud_fraction):
         """Check if the clouds have any effect, i.e. if the cloud species MMR is greater than 0.
 
@@ -500,7 +499,7 @@ class Radtrans:
             lambda: False
         )
 
-    @staticmethod  #TODO move to different module?
+    @staticmethod
     def _compute_additional_continuum_opacities(
         frequencies,
         pressures,
@@ -547,7 +546,6 @@ class Radtrans:
             additional_absorption_opacities, additional_scattering_opacities,
             cloud_absorption_opacities, cloud_scattering_opacities
         )
-
 
     def _init_spectral_function(
         self, is_emission, reference_gravity, complete_coverage_clouds, return_clear_spectrum,
@@ -687,13 +685,13 @@ class Radtrans:
             # everything has been moved into the 0th index
 
             flux, emission_contribution = radiative_transfer_core.compute_feautrier_radiative_transfer(
-                frequency_bins_edges=self._frequency_bins_edges,
+                frequencies_bins_edges=self._frequency_bins_edges,
                 temperatures=temperatures,
                 weights_gauss=self._lines_loaded_opacities['weights_gauss'],
-                emission_cos_angle_grid=self._emission_angle_grid['cos_angles'],
-                emission_cos_angle_grid_weights=self._emission_angle_grid['weights'],
-                optical_depths=optical_depths[:, :, 0, :],
-                photon_destruction_probabilities=photon_destruction_probabilities,
+                emission_cos_angles=self._emission_angle_grid['cos_angles'],
+                emission_cos_angles_weights=self._emission_angle_grid['weights'],
+                optical_depths_in=optical_depths[:, :, 0, :],
+                photon_destruction_probabilities_in=photon_destruction_probabilities,
                 emission_geometry=emission_geometry,
                 stellar_intensity=stellar_intensity,
                 star_irradiation_cos_angle=star_irradiation_cos_angle,
@@ -730,7 +728,6 @@ class Radtrans:
                 _optical_depths,
                 return_contribution
         )
-
         # TODO: do we need to return all of this?
         return flux, emission_contribution, optical_depths, opacities_rosseland, relative_cloud_scaling_factor
 
@@ -1468,7 +1465,7 @@ class Radtrans:
         })
 
         # Default values for opacity sources
-        opacity_source_default = self._get_opacity_sources_dict()
+        opacity_source_default = load.get_opacity_sources_dict()
 
         # Initialize spectral mode
         if mode == 'emission':
@@ -1640,7 +1637,7 @@ class Radtrans:
 
         return opacity_contributions
 
-   # TODO: JIT here, or leave to user?
+    # TODO: JIT here, or leave to user?
     def calculate_flux(
         self,
         temperatures: npt.NDArray[np.floating],
@@ -1952,7 +1949,9 @@ class Radtrans:
 
         # Cloudy opacities, nominally a list of opacity arrays, but not always
         (opacities, continuum_opacities_scattering, cloud_anisotropic_scattering_opacities, cloud_absorption_opacities,
-         cloud_opacities, cloud_particles_mean_radii) = (
+         cloud_opacities, cloud_particles_mean_radii, complete_coverage_cloud_continuum_opacities,
+         complete_coverage_cloud_continuum_opacities_scattering,
+         complete_coverage_cloud_scattering_opacities, complete_coverage_cloud_absorption_opacities) = (
             self._calculate_opacities(
                 temperatures=temperatures,
                 mass_fractions=mass_fractions,
